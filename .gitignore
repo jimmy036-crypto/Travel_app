@@ -1,0 +1,37 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# 依賴套件 (Windows 產生的巨大檔案，千萬不能傳)
+node_modules/
+
+# 編譯產出物
+dist/
+build/
+.tmp/
+
+# 環境變數與本地端快取
+.env
+.env.local
+.DS_Store
