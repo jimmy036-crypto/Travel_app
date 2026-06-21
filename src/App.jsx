@@ -37,6 +37,17 @@ try {
 
 const API_KEY = 'AIzaSyAieyVaZA3vohEdf07yrk_9OYgsqXLfUmg';
 
+// 🌟 版本更新通知
+const APP_VERSION = "v1.5.0";
+const RELEASE_NOTES = {
+  version: APP_VERSION,
+  date: "2026/06/21",
+  features: [
+    "🐛 終極修復地圖雷達：解決地圖 ID 綁定問題，現在搜尋美食和點擊「周邊」，地圖終於會精準飛過去了！",
+    "🎯 強化周邊搜尋：點擊周邊時，雷達會強制鎖定在該景點 1.5 公里內進行深度掃描。"
+  ]
+};
+
 const CATEGORIES = [
   { id: 'food', icon: '🍔', label: '飲食', color: 'bg-orange-500', text: 'text-orange-500' },
   { id: 'transport', icon: '🚗', label: '交通', color: 'bg-blue-500', text: 'text-blue-500' },
@@ -103,6 +114,133 @@ const LoadingSpinner = ({ t }) => (
   </div>
 );
 
+const UpdateNoticeModal = ({ notes, onClose, t }) => (
+  <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[300] flex items-center justify-center p-4 transition-opacity" onClick={onClose}>
+    <div className={`border rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
+      <div className="text-center mb-6">
+        <span className="text-6xl mb-4 block drop-shadow-md">🎉</span>
+        <h2 className={`text-2xl font-black mb-1 ${t.mainText}`}>App 更新完成！</h2>
+        <p className={`text-xs font-bold ${t.subText}`}>最新版本 {notes.version} • {notes.date}</p>
+      </div>
+      <div className={`p-5 rounded-2xl border mb-8 space-y-4 shadow-inner ${t.cardBg} ${t.cardBorder}`}>
+        {notes.features.map((feat, idx) => (
+          <div key={idx} className="flex items-start gap-2">
+            <p className={`text-sm font-medium leading-relaxed ${t.mainText}`}>{feat}</p>
+          </div>
+        ))}
+      </div>
+      <button onClick={onClose} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
+        太棒了，開始使用！
+      </button>
+    </div>
+  </div>
+);
+
+// ============================================================================
+// 📅 雙擊範圍日期選擇器 (Date Range Picker)
+// ============================================================================
+const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t }) => {
+  const normalize = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const [tempStart, setTempStart] = useState(() => initialStart ? normalize(new Date(initialStart)) : null);
+  const [tempEnd, setTempEnd] = useState(() => initialEnd ? normalize(new Date(initialEnd)) : null);
+  const [viewMonth, setViewMonth] = useState(() => tempStart || normalize(new Date()));
+
+  const handleDayClick = (date) => {
+    const d = normalize(date);
+    if (!tempStart || (tempStart && tempEnd)) {
+      setTempStart(d);
+      setTempEnd(null);
+    } else {
+      if (d < tempStart) {
+        setTempStart(d);
+        setTempEnd(null);
+      } else {
+        setTempEnd(d);
+      }
+    }
+  };
+
+  const formatStr = d => {
+    if (!d) return "";
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+
+  const renderMonth = (monthOffset = 0) => {
+    const targetDate = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + monthOffset, 1);
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth();
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const firstDayIndex = targetDate.getDay();
+
+    const days = Array(firstDayIndex).fill(null);
+    for(let i=1; i<=lastDay; i++) days.push(new Date(year, month, i));
+
+    return (
+      <div className="flex-1 w-full md:w-1/2 shrink-0 p-1 md:p-4">
+        <h3 className={`text-center font-bold mb-4 ${t.mainText}`}>{year} 年 {month + 1} 月</h3>
+        <div className="grid grid-cols-7 text-center text-[11px] mb-2 gap-y-1 md:gap-y-2">
+          {['日','一','二','三','四','五','六'].map((d,i) => <div key={d} className={`font-bold pb-2 ${i===0||i===6 ? 'text-red-500' : t.subText}`}>{d}</div>)}
+          {days.map((d, i) => {
+            if (!d) return <div key={`empty-${i}`}/>;
+            const ts = d.getTime();
+            const sTime = tempStart?.getTime();
+            const eTime = tempEnd?.getTime();
+            const isStart = ts === sTime;
+            const isEnd = ts === eTime;
+            const inRange = sTime && eTime && ts > sTime && ts < eTime;
+
+            let bgWrapper = "", text = t.mainText, rounded = "";
+            if (isStart) { bgWrapper = "bg-blue-600 shadow-md"; text = "text-white"; rounded = tempEnd ? "rounded-l-full" : "rounded-full"; }
+            else if (isEnd) { bgWrapper = "bg-blue-600 shadow-md"; text = "text-white"; rounded = "rounded-r-full"; }
+            else if (inRange) { bgWrapper = "bg-blue-500/20"; rounded = ""; }
+            else { rounded = "rounded-full hover:bg-black/10 transition-colors"; }
+
+            return (
+              <div key={ts} className={`relative flex items-center justify-center h-10 ${bgWrapper} ${rounded}`} onClick={() => handleDayClick(d)}>
+                <span className={`w-8 h-8 flex items-center justify-center cursor-pointer ${isStart||isEnd ? 'font-bold' : ''} ${text}`}>
+                  {d.getDate()}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 transition-opacity animate-in fade-in" onClick={onClose}>
+      <div className={`border rounded-3xl p-5 md:p-8 w-full max-w-2xl shadow-2xl flex flex-col ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className={`text-xl font-black ${t.mainText}`}>選擇旅行日期</h2>
+          <button onClick={onClose} className={`text-xl hover:text-red-500 transition-colors ${t.subText}`}>✕</button>
+        </div>
+
+        <div className={`flex justify-between items-center p-4 rounded-2xl border mb-6 text-sm font-bold text-center ${t.cardBg} ${t.cardBorder}`}>
+           <div className="flex-1 flex flex-col"><span className={`text-[10px] uppercase mb-1 ${t.subText}`}>去程出發</span><span className={tempStart ? 'text-blue-500 text-base' : t.subText}>{formatStr(tempStart) || '-'}</span></div>
+           <div className="w-px h-8 bg-slate-500/20 mx-2"></div>
+           <div className="flex-1 flex flex-col"><span className={`text-[10px] uppercase mb-1 ${t.subText}`}>回程抵達</span><span className={tempEnd ? 'text-blue-500 text-base' : t.subText}>{formatStr(tempEnd) || '-'}</span></div>
+        </div>
+
+        <div className="flex justify-between items-center mb-2 px-2 md:px-6">
+           <button onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))} className={`w-10 h-10 flex items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>◀</button>
+           <button onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))} className={`w-10 h-10 flex items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>▶</button>
+        </div>
+
+        <div className="flex overflow-hidden">
+           {renderMonth(0)}
+           <div className="hidden md:block w-px bg-slate-500/10 mx-2"></div>
+           <div className="hidden md:block">{renderMonth(1)}</div>
+        </div>
+
+        <div className="mt-8">
+           <button onClick={() => { if(tempStart && tempEnd) onConfirm(formatStr(tempStart), formatStr(tempEnd)); else alert('請點擊日期，選擇完整的出發與回程時間！'); }} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">確認日期區間</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ============================================================================
 // 💰 新增/編輯 記帳彈窗 (Expense Modal)
 // ============================================================================
@@ -112,14 +250,9 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
   const [dayId, setDayId] = useState(defaultDay);
   const [category, setCategory] = useState("food");
   const [payer, setPayer] = useState(members[0] || "自己");
-
   const [splitType, setSplitType] = useState("EQUAL");
   const [involved, setInvolved] = useState(members);
-  const [customAmounts, setCustomAmounts] = useState(() => {
-    const init = {};
-    members.forEach(m => init[m] = "");
-    return init;
-  });
+  const [customAmounts, setCustomAmounts] = useState(() => { const init = {}; members.forEach(m => init[m] = ""); return init; });
 
   const handleSave = () => {
     if (!item.trim() || !cost || Number(cost) <= 0) return alert("請輸入有效的項目名稱與金額！");
@@ -131,21 +264,13 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
       const splitAmount = Math.floor((totalCost / involved.length) * 100) / 100;
       let sum = 0;
       involved.forEach((m, idx) => {
-        if (idx === involved.length - 1) {
-          finalSplit[m] = Math.round((totalCost - sum) * 100) / 100;
-        } else {
-          finalSplit[m] = splitAmount;
-          sum += splitAmount;
-        }
+        if (idx === involved.length - 1) { finalSplit[m] = Math.round((totalCost - sum) * 100) / 100; }
+        else { finalSplit[m] = splitAmount; sum += splitAmount; }
       });
       members.forEach(m => { if (!involved.includes(m)) finalSplit[m] = 0; });
     } else {
       let customSum = 0;
-      members.forEach(m => {
-        const val = Number(customAmounts[m]) || 0;
-        finalSplit[m] = val;
-        customSum += val;
-      });
+      members.forEach(m => { const val = Number(customAmounts[m]) || 0; finalSplit[m] = val; customSum += val; });
       if (Math.abs(customSum - totalCost) > 1) return alert(`分帳總和 (${customSum}) 與總金額 (${totalCost}) 不符！`);
     }
 
@@ -153,10 +278,9 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4 transition-opacity" onClick={onClose}>
       <div className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
         <h2 className={`text-xl font-black mb-5 flex items-center gap-2 ${t.mainText}`}>💰 新增記帳</h2>
-
         <div className="overflow-y-auto pr-2 space-y-5 scrollbar-hide">
           <div className="flex gap-3">
             <div className="flex-1">
@@ -168,15 +292,11 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
               <input type="number" value={cost} onChange={e => setCost(e.target.value)} placeholder="0" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border transition-colors font-mono font-bold text-emerald-500 ${t.inputBg} ${t.cardBorder}`} />
             </div>
           </div>
-
           <div className="flex gap-3">
             <div className="flex-1">
               <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>日期</label>
               <select value={dayId} onChange={e => setDayId(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border transition-colors ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
-                {existingDays.map(d => {
-                  const { title, dateStr } = getDayDisplay(d, startDate);
-                  return <option key={d} value={d}>{title} {dateStr}</option>
-                })}
+                {existingDays.map(d => <option key={d} value={d}>{getDayDisplay(d, startDate).title} {getDayDisplay(d, startDate).dateStr}</option>)}
               </select>
             </div>
             <div className="flex-1">
@@ -186,7 +306,6 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
               </select>
             </div>
           </div>
-
           <div>
             <label className={`block text-[10px] font-bold mb-2 uppercase ${t.subText}`}>分類</label>
             <div className="flex overflow-x-auto gap-2 pb-1 scrollbar-hide">
@@ -197,7 +316,6 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
               ))}
             </div>
           </div>
-
           <div className={`p-4 rounded-2xl border ${t.cardMetaBg} ${t.cardBorder}`}>
             <div className="flex justify-between items-center mb-3">
               <label className={`text-xs font-bold ${t.subText}`}>分帳方式</label>
@@ -206,23 +324,17 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
                 <button onClick={() => setSplitType('CUSTOM')} className={`px-3 py-1 text-[10px] font-bold rounded-md ${splitType === 'CUSTOM' ? 'bg-purple-600 text-white' : t.subText}`}>輸入自訂</button>
               </div>
             </div>
-
             {splitType === 'EQUAL' ? (
               <div className="space-y-2">
                 <p className={`text-[10px] mb-2 ${t.subText}`}>請勾選參與此筆消費的成員：</p>
                 <div className="flex flex-wrap gap-2">
-                  {members.map(m => {
-                    const isChecked = involved.includes(m);
-                    return (
-                      <button key={m} onClick={() => setInvolved(isChecked ? involved.filter(x => x !== m) : [...involved, m])} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${isChecked ? 'bg-blue-500/20 border-blue-500 text-blue-600' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>
-                        {isChecked ? '✓' : '○'} {m}
-                      </button>
-                    )
-                  })}
+                  {members.map(m => (
+                    <button key={m} onClick={() => setInvolved(involved.includes(m) ? involved.filter(x => x !== m) : [...involved, m])} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${involved.includes(m) ? 'bg-blue-500/20 border-blue-500 text-blue-600' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>
+                      {involved.includes(m) ? '✓' : '○'} {m}
+                    </button>
+                  ))}
                 </div>
-                {Number(cost) > 0 && involved.length > 0 && (
-                  <p className="text-[10px] text-emerald-500 font-mono mt-3 text-right font-bold">每人約負擔：${Math.round(Number(cost) / involved.length).toLocaleString()}</p>
-                )}
+                {Number(cost) > 0 && involved.length > 0 && <p className="text-[10px] text-emerald-500 font-mono mt-3 text-right font-bold">每人約負擔：${Math.round(Number(cost) / involved.length).toLocaleString()}</p>}
               </div>
             ) : (
               <div className="space-y-3">
@@ -236,16 +348,13 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
                 {Number(cost) > 0 && (
                   <div className={`border-t pt-2 mt-2 flex justify-between items-center ${t.cardBorder}`}>
                     <span className={`text-xs ${t.subText}`}>目前總和</span>
-                    <span className={`text-sm font-bold font-mono ${Object.values(customAmounts).reduce((a,b)=>a+(Number(b)||0),0) === Number(cost) ? 'text-emerald-500' : 'text-red-500'}`}>
-                      ${Object.values(customAmounts).reduce((a,b)=>a+(Number(b)||0),0).toLocaleString()} / ${Number(cost).toLocaleString()}
-                    </span>
+                    <span className={`text-sm font-bold font-mono ${Object.values(customAmounts).reduce((a,b)=>a+(Number(b)||0),0) === Number(cost) ? 'text-emerald-500' : 'text-red-500'}`}>${Object.values(customAmounts).reduce((a,b)=>a+(Number(b)||0),0).toLocaleString()} / ${Number(cost).toLocaleString()}</span>
                   </div>
                 )}
               </div>
             )}
           </div>
         </div>
-
         <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}>
           <button onClick={onClose} className={`px-5 py-2 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
           <button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all">確認新增</button>
@@ -259,7 +368,8 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
 // 🗺️ 地圖與路線組件
 // ============================================================================
 const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
-  const map = useMap();
+  // 🌟 加入 'main-map' 綁定 ID
+  const map = useMap('main-map');
   const routesLib = useMapsLibrary('routes');
 
   useEffect(() => {
@@ -276,9 +386,7 @@ const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
         travelMode: window.google.maps.TravelMode.DRIVING,
       }).then((result) => {
         renderer.setDirections(result);
-        if (result.routes[0]?.legs && onRouteCalculated) {
-          onRouteCalculated(dayId, result.routes[0].legs.map(leg => String(leg.duration?.text || "")));
-        }
+        if (result.routes[0]?.legs && onRouteCalculated) { onRouteCalculated(dayId, result.routes[0].legs.map(leg => String(leg.duration?.text || ""))); }
       }).catch(() => {});
     }
     return () => renderer.setMap(null);
@@ -308,7 +416,13 @@ const EditItemModal = ({ item, onSave, onClose, t }) => {
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
               <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>抵達時間</label>
-              <input type="time" value={time} onChange={e => setTime(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+              <input
+                type="time"
+                value={time}
+                onClick={e => { if ('showPicker' in e.target && typeof e.target.showPicker === 'function') e.target.showPicker(); }}
+                onChange={e => setTime(e.target.value)}
+                className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border cursor-pointer ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+              />
             </div>
             <div className="flex-1">
               <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>停留 (分鐘)</label>
@@ -360,13 +474,13 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
   const [routeDurations, setRouteDurations] = useState({});
 
-  // 🌟 美食地圖探索雷達 States
   const placesLib = useMapsLibrary('places');
   const [exploreQuery, setExploreQuery] = useState("");
   const [exploreResults, setExploreResults] = useState([]);
   const [selectedExploreItem, setSelectedExploreItem] = useState(null);
 
-  const mapRef = useRef(null);
+  // 🌟 修復核心：綁定 `main-map` ID，成功獲取地圖實體
+  const map = useMap('main-map');
   const isRemoteUpdateRef = useRef(false);
 
   useEffect(() => {
@@ -417,7 +531,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const safeCurrentDay = existingDays.includes(currentDay) ? currentDay : (existingDays[0] || "Day 1");
   const membersList = useMemo(() => meta?.members || ["自己"], [meta?.members]);
 
-  // AI 結算
   const { totalExpense, isOverBudget, budgetPercent, groupedExpenses, balances, transfers } = useMemo(() => {
     const total = expenses.reduce((sum, e) => sum + (Number(e.cost) || 0), 0);
     const over = total > budget;
@@ -426,39 +539,31 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
     const userBalances = {};
     membersList.forEach(m => userBalances[m] = 0);
-
     expenses.forEach(exp => {
       if (userBalances[exp.payer] !== undefined) userBalances[exp.payer] += Number(exp.cost);
       if (exp.split) {
-        Object.entries(exp.split).forEach(([member, amount]) => {
-          if (userBalances[member] !== undefined) userBalances[member] -= Number(amount);
-        });
+        Object.entries(exp.split).forEach(([member, amount]) => { if (userBalances[member] !== undefined) userBalances[member] -= Number(amount); });
       } else {
         const splitAmount = Number(exp.cost) / membersList.length;
         membersList.forEach(m => userBalances[m] -= splitAmount);
       }
     });
 
-    const debtors = [];
-    const creditors = [];
+    const debtors = []; const creditors = [];
     Object.entries(userBalances).forEach(([member, balance]) => {
       if (balance < -0.5) debtors.push({ member, amount: -balance });
       else if (balance > 0.5) creditors.push({ member, amount: balance });
     });
-    debtors.sort((a, b) => b.amount - a.amount);
-    creditors.sort((a, b) => b.amount - a.amount);
+    debtors.sort((a, b) => b.amount - a.amount); creditors.sort((a, b) => b.amount - a.amount);
 
     const suggestTransfers = [];
     let d = 0, c = 0;
     while (d < debtors.length && c < creditors.length) {
       const amount = Math.min(debtors[d].amount, creditors[c].amount);
       suggestTransfers.push({ from: debtors[d].member, to: creditors[c].member, amount });
-      debtors[d].amount -= amount;
-      creditors[c].amount -= amount;
-      if (debtors[d].amount < 0.5) d++;
-      if (creditors[c].amount < 0.5) c++;
+      debtors[d].amount -= amount; creditors[c].amount -= amount;
+      if (debtors[d].amount < 0.5) d++; if (creditors[c].amount < 0.5) c++;
     }
-
     return { totalExpense: total, isOverBudget: over, budgetPercent: percent, groupedExpenses: grouped, balances: userBalances, transfers: suggestTransfers };
   }, [expenses, budget, existingDays, membersList]);
 
@@ -493,46 +598,77 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     navigator.clipboard.writeText(url).then(() => { alert(db ? `🔗 已複製 ${meta.title} 的共編連結！` : "⚠️ 尚未設定 Firebase！"); }).catch(() => {});
   }, [roomId, meta?.title]);
 
-  // 🌟 執行美食地圖探索
-  const handleExploreSearch = () => {
-    if (!exploreQuery.trim() || !placesLib || !mapRef.current) return;
-    const service = new placesLib.PlacesService(mapRef.current);
+  // 🌟 修復後的地圖雷達搜尋功能
+  const handleExploreSearch = (customQuery = null, customLocation = null) => {
+    const q = typeof customQuery === 'string' ? customQuery : exploreQuery;
+    if (!q.trim() || !placesLib || !map) return;
 
-    // 如果使用者只輸入了食物名稱(如"冰淇淋")，加上 bounds 可以優先搜尋地圖目前的範圍
-    const request = {
-      query: exploreQuery,
-      bounds: mapRef.current.getBounds()
-    };
+    const service = new placesLib.PlacesService(map);
+    const request = { query: q };
+
+    // 如果是點擊「周邊」過來的，強制鎖定在該景點 1.5 公里內
+    if (customLocation) {
+      request.location = customLocation;
+      request.radius = 1500;
+    } else {
+      // 否則就在目前地圖可視範圍內搜尋
+      const bounds = map.getBounds();
+      if (bounds) {
+        request.bounds = bounds;
+      } else {
+        request.location = map.getCenter();
+        request.radius = 2000;
+      }
+    }
+
+    if (typeof customQuery === 'string') setExploreQuery(customQuery);
 
     service.textSearch(request, (results, status) => {
-      if (status === window.google.maps.places.PlacesServiceStatus.OK && results) {
+      if (status === window.google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
         setExploreResults(results);
         setSelectedExploreItem(null);
+
+        // 如果是一般搜尋，自動飛往第一個結果
+        if (!customLocation) {
+          map.panTo(results[0].geometry.location);
+          map.setZoom(15);
+        }
       } else {
         setExploreResults([]);
-        alert("找不到相關結果，請嘗試更換關鍵字 (例如：那霸 冰淇淋) 或移動地圖再試一次！");
+        alert("找不到相關美食/地點，試試縮放地圖或更換關鍵字！");
       }
     });
   };
 
-  // 🌟 把探索到的美食加入目前行程
+  // 🌟 點擊周邊時：切換分頁 -> 等待地圖渲染 -> 飛越 -> 執行搜尋
+  const handleSearchNearby = (item) => {
+    setActiveTab("map");
+    // 稍微延遲以確保手機版切換 Tab 後地圖完成渲染
+    setTimeout(() => {
+      if (map) {
+        const loc = new window.google.maps.LatLng(item.lat, item.lng);
+        map.panTo(loc);
+        map.setZoom(16);
+        handleExploreSearch("餐廳", loc);
+      } else {
+        alert("地圖載入中，請稍後再試！");
+      }
+    }, 400);
+  };
+
   const handleAddExploreToItinerary = (place) => {
     setItinerary(prev => ({
       ...prev,
       [safeCurrentDay]: [...(prev[safeCurrentDay] || []), {
-        id: generateId(),
-        name: place.name,
-        lat: place.geometry.location.lat(),
-        lng: place.geometry.location.lng(),
-        address: place.formatted_address || place.vicinity || "",
-        time: "",
-        stayTime: "60", // 預設吃60分鐘
-        memo: `⭐ Google 評價: ${place.rating || '無'}`,
-        tags: ["必吃", "美食地圖"]
+        id: generateId(), name: place.name, lat: place.geometry.location.lat(), lng: place.geometry.location.lng(),
+        address: place.formatted_address || place.vicinity || "", time: "", stayTime: "60", memo: `⭐ Google 評價: ${place.rating || '無'}`, tags: ["美食地圖"]
       }]
     }));
     setSelectedExploreItem(null);
-    alert(`✅ 已成功將「${place.name}」加入 ${getDayDisplay(safeCurrentDay, meta.startDate).title} 的行程中！`);
+    setExploreResults([]);
+    setExploreQuery("");
+    setActiveTab("plan");
+    alert(`✅ 已成功將「${place.name}」加入 ${getDayDisplay(safeCurrentDay, meta.startDate).title}！`);
   };
 
   const SearchBox = ({ dayId }) => {
@@ -555,7 +691,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
     return (
       <div className="relative mb-4">
-        <input className={`w-full py-2.5 px-4 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} placeholder="快速加入行程點..." value={val} onChange={handleSearch} />
+        <input className={`w-full py-2.5 px-4 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} placeholder="新增行程地點..." value={val} onChange={handleSearch} />
         {sug.length > 0 && <div className={`absolute z-50 w-full mt-1 rounded-xl shadow-2xl border overflow-hidden text-xs backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>{sug.map(s => <div key={String(s.place_id)} onClick={() => select(s)} className={`p-3 cursor-pointer border-b transition-colors hover:opacity-80 ${t.mainText} ${t.cardBorder}`}>{s.description}</div>)}</div>}
       </div>
     );
@@ -566,7 +702,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   return (
     <>
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div style={{ backgroundColor: tripThemeColor }} className={`flex flex-col h-screen w-screen overflow-hidden font-sans transition-colors duration-500 ${t.mainText}`}>
+        <div style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col overflow-hidden font-sans overscroll-none transition-colors duration-500 ${t.mainText}`}>
           <div className="flex-1 flex overflow-hidden">
 
             <div className={`flex-col border-r transition-opacity duration-300 backdrop-blur-xl ${t.sidebarBg} ${t.cardBorder} ${activeTab === 'map' ? 'hidden md:flex md:w-[65%]' : 'flex w-full md:w-[65%]'}`}>
@@ -575,7 +711,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                   <div className="flex items-center gap-2">
                     <button onClick={onBack} className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
                     <div className="relative w-5 h-5 rounded-full overflow-hidden border border-white/50 shadow-sm cursor-pointer shrink-0 hover:scale-110 transition-transform">
-                       <input type="color" value={tripThemeColor} onChange={e => handleColorChange(e.target.value)} className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer border-0 p-0" title="更改此趟旅程的顏色" />
+                       <input type="color" value={tripThemeColor} onChange={e => handleColorChange(e.target.value)} className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer border-0 p-0" title="更改顏色" />
                     </div>
                     <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{meta.title}</h1>
                     {db && <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>}
@@ -587,7 +723,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     <button onClick={() => setActiveTab('plan')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab !== 'expense' ? 'bg-blue-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>📋 行程</button>
                     <button onClick={() => setActiveTab('expense')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'expense' ? 'bg-emerald-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>💰 記帳</button>
                   </div>
-                  <button onClick={handleShareLink} className={`bg-blue-600 text-white px-4 py-2 rounded-lg text-[10px] font-bold transition-transform active:scale-95 shadow-md`}>🔗 共編</button>
                 </div>
               </div>
 
@@ -604,43 +739,52 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       <SearchBox dayId={dayId} />
                       <Droppable droppableId={dayId}>
                         {(provided) => (
-                          <div {...provided.droppableProps} ref={provided.innerRef} className="flex-1 overflow-y-auto space-y-3 min-h-37.5 pb-6 scrollbar-hide">
+                          <div {...provided.droppableProps} ref={provided.innerRef} className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide">
                             {itinerary[dayId]?.map((item, index) => (
                               <Draggable key={String(item.id)} draggableId={String(item.id)} index={index}>
                                 {(prov, snap) => (
-                                  <div ref={prov.innerRef} {...prov.draggableProps} {...prov.dragHandleProps} className={`transition-all ${snap.isDragging ? 'z-50 scale-105' : ''}`}>
-                                    <div className={`p-4 rounded-xl border flex flex-col backdrop-blur-md transition-all ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover}`}`}>
-                                      <div className="flex justify-between items-start mb-2">
-                                        <div className="truncate flex-1 pr-2 cursor-pointer" onClick={() => { setActiveTab("map"); setTimeout(() => { if (mapRef.current) { mapRef.current.panTo({ lat: item.lat, lng: item.lng }); mapRef.current.setZoom(16); } }, 100); }}>
-                                          <p className={`font-bold text-sm ${snap.isDragging ? 'text-white' : t.mainText}`}>{index + 1}. {item.name}</p>
-                                          <p className={`opacity-70 text-[10px] truncate mt-0.5 ${snap.isDragging ? 'text-white' : t.subText}`}>{item.address}</p>
+                                  <div ref={prov.innerRef} {...prov.draggableProps} {...prov.dragHandleProps} className={`transition-all relative group mb-1 ${snap.isDragging ? 'z-50 scale-105 touch-none' : ''}`}>
+
+                                    <div className={`p-4 rounded-2xl border flex flex-col backdrop-blur-md transition-all relative overflow-hidden ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover}`}`}>
+                                      <div className="flex gap-4 items-start">
+                                        <div className="flex flex-col items-center shrink-0 w-10">
+                                           <div className={`text-xs font-black p-1.5 rounded-full w-7 h-7 flex items-center justify-center ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
+                                              {index + 1}
+                                           </div>
+                                           {item.time && <span className={`text-[10px] font-bold mt-1.5 ${snap.isDragging ? 'text-white' : t.mainText}`}>{item.time}</span>}
                                         </div>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                          <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`, '_blank')} className="bg-blue-500/10 text-blue-500 font-bold text-[10px] px-2 py-1 rounded transition-colors hover:bg-blue-500/20">導航</button>
-                                          <button onClick={() => { if (window.confirm('確定刪除此景點？')) { setItinerary(prev => ({...prev, [dayId]: prev[dayId].filter(p => p.id !== item.id)})); } }} className={`p-1 text-xs transition-colors hover:text-red-500 ${snap.isDragging ? 'text-white' : t.subText}`}>🗑️</button>
+
+                                        <div className="flex-1 min-w-0 pr-2">
+                                          <div className="flex justify-between items-start gap-2">
+                                            <h3 className={`font-bold text-sm truncate ${snap.isDragging ? 'text-white' : t.mainText}`} onClick={() => { setActiveTab("map"); setTimeout(() => { if (map) { map.panTo({ lat: item.lat, lng: item.lng }); map.setZoom(16); } }, 100); }}>{item.name}</h3>
+                                            {item.memo && <span title="附有筆記，可點擊編輯查看" className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-md border flex items-center gap-1 ${snap.isDragging ? 'bg-white/10 border-white/20 text-white' : 'bg-slate-500/10 border-slate-500/20 text-slate-500'}`}>📝</span>}
+                                          </div>
+                                          {item.stayTime && <p className={`text-[10px] mt-0.5 ${snap.isDragging ? 'text-white/80' : t.subText}`}>停留 {item.stayTime} 分鐘</p>}
+                                          <div className="flex flex-wrap gap-1.5 mt-2">
+                                            {(item.tags || []).map(tag => <span key={String(tag)} className={`text-[9px] px-2 py-0.5 rounded-md border ${snap.isDragging ? 'bg-white/10 border-white/20 text-white' : 'bg-blue-500/10 border-blue-500/20 text-blue-600'}`}>{tag}</span>)}
+                                          </div>
                                         </div>
                                       </div>
 
-                                      <div className="flex flex-wrap gap-2 mt-1">
-                                        {item.time && <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${snap.isDragging ? 'bg-white/20 border-white/30 text-white' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600'}`}>⏰ {item.time}</span>}
-                                        {item.stayTime && <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${snap.isDragging ? 'bg-white/20 border-white/30 text-white' : 'bg-purple-500/10 border-purple-500/20 text-purple-600'}`}>⏳ {item.stayTime}分</span>}
-                                        {(item.tags || []).map(tag => <span key={String(tag)} className={`text-[10px] px-2 py-0.5 rounded-md border ${snap.isDragging ? 'bg-white/10 border-white/20 text-white' : 'bg-blue-500/10 border-blue-500/20 text-blue-600'}`}>{tag}</span>)}
+                                      <div className={`mt-3 pt-3 border-t flex items-center gap-4 transition-all duration-300 ${snap.isDragging ? 'border-white/20' : t.cardBorder} flex md:max-h-0 md:opacity-0 md:group-hover:max-h-14 md:group-hover:opacity-100 max-h-14 opacity-100`}>
+                                        <button onClick={() => setEditingItemData({ dayId, item })} className={`flex items-center gap-1 text-[11px] font-bold hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>✏️ 編輯</button>
+                                        <button onClick={() => handleSearchNearby(item)} className={`flex items-center gap-1 text-[11px] font-bold hover:text-orange-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🔍 周邊</button>
+                                        <div className="flex-1"></div>
+                                        <button onClick={() => { if (window.confirm('確定刪除此景點？')) { setItinerary(prev => ({...prev, [dayId]: prev[dayId].filter(p => p.id !== item.id)})); } }} className={`text-[11px] hover:text-red-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>刪除</button>
+                                        <button onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`, '_blank')} className="bg-blue-500/10 text-blue-500 font-bold text-[10px] px-2 py-1.5 rounded-lg transition-colors hover:bg-blue-500/20">📍 導航</button>
                                       </div>
-
-                                      {item.memo && <p className={`text-[11px] italic mt-2.5 truncate border-l-2 pl-2 ${snap.isDragging ? 'border-white/50 text-white/90' : `${t.cardBorder} ${t.subText}`}`}>📝 {item.memo}</p>}
-
-                                      <button onClick={() => setEditingItemData({ dayId, item })} className={`mt-3 py-1.5 rounded-lg text-[10px] font-bold transition-colors flex items-center justify-center gap-1 border ${snap.isDragging ? 'bg-white/20 border-white/30 text-white' : `${t.cardMetaBg} ${t.cardBorder} ${t.subText} hover:opacity-70`}`}>
-                                        ✏️ 編輯詳細資訊
-                                      </button>
                                     </div>
 
-                                    {!snap.isDragging && index < itinerary[dayId].length - 1 && routeDurations[dayId]?.[index] && (
-                                      <div className="flex justify-center -mt-2 mb-1 relative z-10">
-                                        <div className={`text-[10px] font-bold px-3 py-1 rounded-full border flex items-center gap-1 shadow-md text-blue-500 ${t.cardBg} ${t.cardBorder}`}>
-                                          ⬇️ 🚗 車程約 {routeDurations[dayId][index]}
-                                        </div>
+                                    {!snap.isDragging && index < itinerary[dayId].length - 1 && (
+                                      <div className="flex items-center -mt-1 mb-1 ml-6 relative z-10 h-7 border-l-2 border-dashed border-slate-500/30 pl-6">
+                                         {routeDurations[dayId]?.[index] && (
+                                           <span className={`text-[10px] font-bold text-slate-500 bg-transparent flex items-center gap-1`}>
+                                             🚗 車程 {routeDurations[dayId][index]}
+                                           </span>
+                                         )}
                                       </div>
                                     )}
+
                                   </div>
                                 )}
                               </Draggable>
@@ -772,8 +916,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
             <div className={`relative flex-1 transition-opacity duration-300 ease-in-out ${activeTab === 'map' ? 'flex' : 'hidden md:flex'}`}>
 
-              {/* 🌟 探索周邊 / 美食地圖 UI */}
-              <div className="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[400px] z-20 flex flex-col gap-2">
+              <div className="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[500px] z-20 flex flex-col gap-2">
                 <div className={`flex items-center gap-2 p-2 rounded-2xl shadow-lg backdrop-blur-xl border ${t.headerBg} ${t.cardBorder}`}>
                   <input
                     value={exploreQuery}
@@ -782,7 +925,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     placeholder="探索美食... (ex: 那霸 冰淇淋)"
                     className={`flex-1 bg-transparent px-2 outline-none text-sm font-bold ${t.mainText} placeholder:opacity-50`}
                   />
-                  <button onClick={handleExploreSearch} className="bg-orange-500 hover:bg-orange-400 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 whitespace-nowrap">
+                  <button onClick={() => handleExploreSearch()} className="bg-orange-500 hover:bg-orange-400 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 whitespace-nowrap">
                     🍽️ 探索
                   </button>
                   {exploreResults.length > 0 && (
@@ -791,19 +934,25 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     </button>
                   )}
                 </div>
+
+                <div className="flex gap-2 overflow-x-auto scrollbar-hide px-1">
+                   <button onClick={() => handleExploreSearch("餐廳")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold border shadow-sm transition-transform active:scale-95 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>🍔 餐廳美食</button>
+                   <button onClick={() => handleExploreSearch("咖啡廳")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold border shadow-sm transition-transform active:scale-95 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>☕ 咖啡廳</button>
+                   <button onClick={() => handleExploreSearch("超市")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold border shadow-sm transition-transform active:scale-95 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>🛒 超市</button>
+                   <button onClick={() => handleExploreSearch("停車場")} className={`px-3 py-1.5 rounded-full text-[10px] font-bold border shadow-sm transition-transform active:scale-95 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>🅿️ 停車場</button>
+                </div>
               </div>
 
-              <Map defaultCenter={{lat: 22.99, lng: 120.20}} defaultZoom={13} mapId={'739af384c474cc02'} onLoad={m => { mapRef.current = m; }}>
+              {/* 🌟 加入 id="main-map" 解決綁定 Bug */}
+              <Map id="main-map" defaultCenter={{lat: 22.99, lng: 120.20}} defaultZoom={13} mapId={'739af384c474cc02'}>
                 <Directions itinerary={itinerary} dayId={safeCurrentDay} onRouteCalculated={handleRouteCalculated} />
 
-                {/* 顯示目前行程的地標 */}
                 {itinerary[safeCurrentDay]?.map((item, idx) => (
                   <AdvancedMarker key={String(item.id)} position={{lat: item.lat, lng: item.lng}}>
                     <Pin background={'#3b82f6'} glyphText={String(idx + 1)} />
                   </AdvancedMarker>
                 ))}
 
-                {/* 🌟 顯示探索美食的地標 */}
                 {exploreResults.map((place) => (
                   <AdvancedMarker key={place.place_id} position={{lat: place.geometry.location.lat(), lng: place.geometry.location.lng()}} onClick={() => setSelectedExploreItem(place)}>
                     <Pin background={'#f97316'} borderColor={'#c2410c'} glyphColor={'#fff'} glyphText={'🍽️'} />
@@ -811,7 +960,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 ))}
               </Map>
 
-              {/* 🌟 選擇的探索地點資訊卡 */}
               {selectedExploreItem && (
                 <div className="absolute bottom-8 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-[400px] z-20">
                   <div className={`p-5 rounded-3xl shadow-2xl backdrop-blur-2xl border ${t.modalBg} ${t.cardBorder} animate-in slide-in-from-bottom-5`}>
@@ -875,23 +1023,36 @@ export default function TravelApp() {
     try { return localStorage.getItem('google-travel-custom-bg') || '#d8b4e2'; } catch (e) { return '#d8b4e2'; }
   });
 
+  const [showUpdateNote, setShowUpdateNote] = useState(false);
+
   const [activeRoomId, setActiveRoomId] = useState(() => {
     if (typeof window !== 'undefined') return new URLSearchParams(window.location.search).get('room') || null;
     return null;
   });
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   const [newTitle, setNewTitle] = useState("");
   const [newDest, setNewDest] = useState("");
   const [newStart, setNewStart] = useState("");
   const [newEnd, setNewEnd] = useState("");
   const [newMembers, setNewMembers] = useState(["自己"]);
   const [newTransport, setNewTransport] = useState("汽車 🚗");
-
   const [newThemeColor, setNewThemeColor] = useState("#3b82f6");
 
   const [showAddMember, setShowAddMember] = useState(false);
   const [tempMember, setTempMember] = useState("");
+
+  useEffect(() => {
+    try {
+      const savedVersion = localStorage.getItem('google-travel-version');
+      if (savedVersion !== APP_VERSION) {
+        setShowUpdateNote(true);
+        localStorage.setItem('google-travel-version', APP_VERSION);
+      }
+    } catch (e) { console.warn(e); }
+  }, []);
 
   useEffect(() => { localStorage.setItem('google-travel-my-trips', JSON.stringify(myTrips)); }, [myTrips]);
   useEffect(() => { localStorage.setItem('google-travel-custom-bg', customBgColor); }, [customBgColor]);
@@ -938,7 +1099,7 @@ export default function TravelApp() {
   if (activeRoomId) return <APIProvider apiKey={API_KEY}><TripDetail roomId={activeRoomId} onBack={closeTrip} onUpdateTripMeta={handleUpdateTripMeta} /></APIProvider>;
 
   return (
-    <div style={{ backgroundColor: customBgColor }} className={`flex flex-col h-screen w-screen font-sans overflow-y-auto transition-colors duration-500 ${t.mainText}`}>
+    <div style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-y-auto overscroll-none transition-colors duration-500 ${t.mainText}`}>
       <div className="max-w-5xl w-full mx-auto p-6 md:p-12">
         <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6">
           <div>
@@ -998,8 +1159,8 @@ export default function TravelApp() {
       </div>
 
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4 transition-opacity">
-          <div className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-200 ${t.modalBg} ${t.cardBorder}`}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4 transition-opacity" onClick={() => setShowCreateModal(false)}>
+          <div className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
             <h2 className={`text-2xl font-black mb-6 ${t.mainText}`}>建立新旅程 🛫</h2>
             <div className="space-y-5">
 
@@ -1022,14 +1183,13 @@ export default function TravelApp() {
                 <input value={newDest} onChange={e => setNewDest(e.target.value)} placeholder="ex: 日本大阪" className={`w-full p-3.5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3">
-                <div className="flex-1 relative">
-                  <label className={`block text-[10px] font-bold mb-1 uppercase tracking-wider ${t.subText}`}>出發日期 *</label>
-                  <input type="date" onClick={e => { const el = e.target; if ('showPicker' in el && typeof el.showPicker === 'function') el.showPicker(); }} value={newStart} onChange={e => { const val = e.target.value; setNewStart(val); if (!newEnd || newEnd < val) setNewEnd(val); }} className={`w-full py-2 px-3 text-sm rounded-xl outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
-                </div>
-                <div className="flex-1 relative">
-                  <label className={`block text-[10px] font-bold mb-1 uppercase tracking-wider ${t.subText}`}>回程日期 *</label>
-                  <input type="date" min={newStart} onClick={e => { const el = e.target; if ('showPicker' in el && typeof el.showPicker === 'function') el.showPicker(); }} value={newEnd} onChange={e => setNewEnd(e.target.value)} className={`w-full py-2 px-3 text-sm rounded-xl outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+              <div>
+                <label className={`block text-xs font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>旅行日期 *</label>
+                <div onClick={() => setShowDatePicker(true)} className={`w-full p-3.5 rounded-xl outline-none transition-colors border flex justify-between items-center cursor-pointer hover:border-blue-500 ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                  <span className={newStart && newEnd ? 'font-bold text-blue-500' : `opacity-60 ${t.subText}`}>
+                    {newStart && newEnd ? `${newStart.replace(/-/g,'/')} 至 ${newEnd.replace(/-/g,'/')}` : '點擊選擇出發與回程日期'}
+                  </span>
+                  <span className="text-lg">📅</span>
                 </div>
               </div>
 
@@ -1067,6 +1227,22 @@ export default function TravelApp() {
           </div>
         </div>
       )}
+
+      {showDatePicker && (
+        <DateRangePickerModal
+          initialStart={newStart}
+          initialEnd={newEnd}
+          onClose={() => setShowDatePicker(false)}
+          onConfirm={(start, end) => {
+            setNewStart(start);
+            setNewEnd(end);
+            setShowDatePicker(false);
+          }}
+          t={t}
+        />
+      )}
+
+      {showUpdateNote && <UpdateNoticeModal notes={RELEASE_NOTES} onClose={() => setShowUpdateNote(false)} t={t} />}
     </div>
   );
 }
