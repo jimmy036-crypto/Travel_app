@@ -25,7 +25,6 @@ const firebaseConfig = {
   appId: "1:799003437379:web:ebd86771e42353726aa7f6",
   measurementId: "G-87H0LM24ZD"
 };
-
 const initDB = () => {
   if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes("請替換")) return null;
   try { return getDatabase(initializeApp(firebaseConfig)); } catch { return null; }
@@ -35,15 +34,14 @@ const db = initDB();
 const API_KEY = 'AIzaSyAieyVaZA3vohEdf07yrk_9OYgsqXLfUmg';
 
 // 🌟 版本更新通知
-const APP_VERSION = "v1.9.5";
+const APP_VERSION = "v2.0.0";
 const RELEASE_NOTES = {
   version: APP_VERSION,
   date: "2026/06/21",
   features: [
-    "⚙️ 大廳編輯功能：首頁旅程卡片新增編輯按鈕，隨時可修改旅程名稱、人數、顏色與日期。",
-    "⏳ 時空平移系統：更改出發日期時，原有的行程排序會完美平移，不會混亂。",
-    "🛡️ 智慧收納引擎：若將旅程天數縮短，多出來的行程會自動被移入最後一天並標記，保護您的心血不流失！",
-    "🤖 智慧時間推算：新增景點時自動推算抵達時間，並支援一鍵順延後續行程。"
+    "✈️ 跨國交通模式：編輯景點時可自訂「前往下一站」的方式（飛機、火車、步行），完美解決跨海無法計算車程的 Bug！",
+    "🧠 斷點防護引擎：車程計算改為逐站分析，單一路段無法計算再也不會導致整天當機。",
+    "🏷️ 雙重記憶名稱：可為景點自訂好記的暱稱，同時保留原始地標名稱，找路更方便！"
   ]
 };
 
@@ -232,10 +230,10 @@ const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle,
            {exploreOriginItem ? (
               <div className="flex gap-2">
                 <button onClick={() => onAdd(place, 'before')} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-[11px] font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
-                  加在「{String(exploreOriginItem.name).substring(0,6)}...」前
+                  加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」前
                 </button>
                 <button onClick={() => onAdd(place, 'after')} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl text-[11px] font-bold shadow-lg shadow-emerald-500/30 transition-all active:scale-95">
-                  加在「{String(exploreOriginItem.name).substring(0,6)}...」後
+                  加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」後
                 </button>
               </div>
             ) : (
@@ -248,6 +246,7 @@ const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle,
     </div>
   );
 };
+
 
 // ============================================================================
 // 📅 雙擊範圍日期選擇器 (Date Range Picker)
@@ -384,31 +383,84 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
 };
 
 // ============================================================================
-// 🗺️ 地圖與路線組件
+// 🗺️ 逐站路段計算與防護引擎 (Leg-by-Leg Routing Engine)
 // ============================================================================
 const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
   const map = useMap('main-map');
   const routesLib = useMapsLibrary('routes');
+  const renderersRef = useRef([]);
 
   useEffect(() => {
-    if (!routesLib || !map) return;
-    const renderer = new routesLib.DirectionsRenderer({ map, suppressMarkers: true, polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 5, strokeOpacity: 0.8 } });
-    if (!dayId || !itinerary || !itinerary[dayId] || itinerary[dayId].length < 2) {
-      if(onRouteCalculated) onRouteCalculated(dayId, []);
-    } else {
+    if (!routesLib || !map || !dayId || !itinerary || !itinerary[dayId]) return;
+
+    let isCancelled = false;
+    const items = itinerary[dayId];
+
+    const fetchAllLegs = async () => {
+      // 清除舊的路線圖層
+      renderersRef.current.forEach(r => r.setMap(null));
+      renderersRef.current = [];
+
+      if (items.length < 2) {
+        if(onRouteCalculated) onRouteCalculated(dayId, []);
+        return;
+      }
+
       const service = new routesLib.DirectionsService();
-      service.route({
-        origin: { lat: Number(itinerary[dayId][0].lat), lng: Number(itinerary[dayId][0].lng) },
-        destination: { lat: Number(itinerary[dayId][itinerary[dayId].length - 1].lat), lng: Number(itinerary[dayId][itinerary[dayId].length - 1].lng) },
-        waypoints: itinerary[dayId].slice(1, -1).map(item => ({ location: { lat: Number(item.lat), lng: Number(item.lng) }, stopover: true })),
-        travelMode: window.google.maps.TravelMode.DRIVING,
-      }).then((result) => {
-        renderer.setDirections(result);
-        if (result.routes[0]?.legs && onRouteCalculated) { onRouteCalculated(dayId, result.routes[0].legs.map(leg => String(leg.duration?.text || ""))); }
-      }).catch(() => {});
-    }
-    return () => { renderer.setMap(null); };
-  }, [routesLib, map, itinerary, dayId, onRouteCalculated]);
+      const durations = [];
+      const newRenderers = [];
+
+      for (let i = 0; i < items.length - 1; i++) {
+        const origin = items[i];
+        const dest = items[i+1];
+        const nextLeg = origin.nextLeg || { mode: 'AUTO', mins: 30 };
+
+        // 🌟 跨國防護：如果是手動設定的交通方式 (如飛機、火車)，略過 Google 車程計算
+        if (nextLeg.mode !== 'AUTO') {
+           durations.push({ text: formatStayTime(nextLeg.mins), value: Number(nextLeg.mins), mode: nextLeg.mode });
+           continue;
+        }
+
+        try {
+          const res = await service.route({
+            origin: { lat: Number(origin.lat), lng: Number(origin.lng) },
+            destination: { lat: Number(dest.lat), lng: Number(dest.lng) },
+            travelMode: window.google.maps.TravelMode.DRIVING
+          });
+          if (isCancelled) return;
+
+          const renderer = new routesLib.DirectionsRenderer({
+            map, suppressMarkers: true, preserveViewport: true,
+            polylineOptions: { strokeColor: "#3b82f6", strokeWeight: 5, strokeOpacity: 0.8 }
+          });
+          renderer.setDirections(res);
+          newRenderers.push(renderer);
+
+          const leg = res.routes[0].legs[0];
+          durations.push({ text: leg.duration.text, value: Math.round(leg.duration.value / 60), mode: 'AUTO' });
+        } catch (err) {
+          // ⚠️ 斷點防護：遇到無法計算的路段(如跨海)，僅標示錯誤，不會導致整天崩潰
+          if (isCancelled) return;
+          durations.push({ text: "無法計算", value: 30, mode: 'ERROR' });
+        }
+      }
+
+      if (!isCancelled) {
+        renderersRef.current = newRenderers;
+        if(onRouteCalculated) onRouteCalculated(dayId, durations);
+      }
+    };
+
+    fetchAllLegs();
+
+    return () => {
+      isCancelled = true;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      renderersRef.current.forEach(r => r.setMap(null));
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routesLib, map, itinerary, dayId]); // 依賴項排除 onRouteCalculated 避免連鎖重渲染
+
   return null;
 };
 
@@ -416,11 +468,16 @@ const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
 // 📝 編輯行程詳情彈窗 (Modal)
 // ============================================================================
 const EditItemModal = ({ item, onSave, onClose, t }) => {
+  const [customName, setCustomName] = useState(item.customName || "");
   const [time, setTime] = useState(item.time || "");
   const [stayTime, setStayTime] = useState(item.stayTime || "");
   const [memo, setMemo] = useState(item.memo || "");
   const [tags, setTags] = useState(Array.isArray(item.tags) ? item.tags : []);
   const [autoCascade, setAutoCascade] = useState(true);
+
+  // 🌟 新增：手動交通設定狀態
+  const [legMode, setLegMode] = useState(item.nextLeg?.mode || "AUTO");
+  const [legMins, setLegMins] = useState(item.nextLeg?.mins || 30);
 
   const handleQuickTime = (addMins) => setStayTime(prev => String((Number(prev) || 0) + Number(addMins)));
 
@@ -428,9 +485,17 @@ const EditItemModal = ({ item, onSave, onClose, t }) => {
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4 transition-opacity" onClick={onClose}>
       <div className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
         <div className="mb-5">
-          <h2 className={`text-xl font-black truncate ${t.mainText}`}>{String(item.name)}</h2>
-          <p className={`text-[10px] truncate mt-0.5 ${t.subText}`}>{String(item.address)}</p>
+          <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>自訂地標名稱 (選填)</label>
+          <input
+             value={String(customName)}
+             onChange={e => setCustomName(e.target.value)}
+             placeholder={String(item.name)}
+             className={`w-full py-2 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-lg font-black ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+          />
+          <p className={`text-[10px] truncate mt-2 ${t.subText}`}>🗺️ 原始地標：{String(item.name)}</p>
+          <p className={`text-[10px] truncate mt-0.5 ${t.subText}`}>📍 地址：{String(item.address)}</p>
         </div>
+
         <div className="overflow-y-auto pr-2 space-y-6 scrollbar-hide">
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="flex-1">
@@ -452,6 +517,26 @@ const EditItemModal = ({ item, onSave, onClose, t }) => {
               <div className="flex gap-1.5 mt-2">
                 {[15, 30, 60].map(mins => <button key={String(mins)} onClick={() => handleQuickTime(mins)} className={`flex-1 text-[10px] py-1.5 rounded-lg font-bold border transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>+{mins === 60 ? '1小時' : mins+'分'}</button>)}
               </div>
+            </div>
+          </div>
+
+          {/* 🌟 跨國/自訂交通設定區 */}
+          <div className={`p-4 rounded-xl border flex flex-col gap-3 ${t.cardBg} ${t.cardBorder}`}>
+            <label className={`block text-[10px] font-bold uppercase tracking-wider ${t.subText}`}>前往下一站的交通方式</label>
+            <div className="flex gap-3">
+              <select value={String(legMode)} onChange={e => setLegMode(e.target.value)} className={`flex-1 py-2 px-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                <option value="AUTO">🚗 自動計算車程</option>
+                <option value="FLIGHT">✈️ 搭乘飛機</option>
+                <option value="TRAIN">🚅 火車/高鐵</option>
+                <option value="TRANSIT">🚇 大眾運輸</option>
+                <option value="WALK">🚶 步行前往</option>
+              </select>
+              {legMode !== 'AUTO' && (
+                <div className="w-1/3 relative">
+                  <input type="number" value={String(legMins)} onChange={e => setLegMins(e.target.value)} placeholder="分鐘" className={`w-full py-2 px-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-xs text-right pr-6 ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                  <span className={`absolute right-2 top-2 text-[10px] ${t.subText}`}>分</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -479,7 +564,7 @@ const EditItemModal = ({ item, onSave, onClose, t }) => {
         </div>
         <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}>
           <button onClick={onClose} className={`px-5 py-2 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
-          <button onClick={() => onSave({ ...item, time: String(time), stayTime: String(stayTime), memo: String(memo), tags }, autoCascade)} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">儲存變更</button>
+          <button onClick={() => onSave({ ...item, customName: String(customName).trim(), time: String(time), stayTime: String(stayTime), memo: String(memo), tags, nextLeg: { mode: String(legMode), mins: Number(legMins) } }, autoCascade)} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">儲存變更</button>
         </div>
       </div>
     </div>
@@ -535,18 +620,13 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
           const d1 = new Date(String(loadedMeta.startDate));
           const d2 = new Date(String(loadedMeta.endDate));
           const diffDays = Math.max(1, Math.round(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)) + 1);
-
           for (let i = 1; i <= diffDays; i++) safeItin[`Day ${i}`] = Array.isArray(rawItin[`Day ${i}`]) ? rawItin[`Day ${i}`] : Object.values(rawItin[`Day ${i}`] || {});
 
-          // 🌟 智慧行程收納：處理被砍掉的天數
           const lastDayKey = `Day ${diffDays}`;
           Object.keys(rawItin).forEach(key => {
              const dayNum = parseInt(key.replace('Day ', ''), 10);
              if (dayNum > diffDays && Array.isArray(rawItin[key]) && rawItin[key].length > 0) {
-                 const orphans = rawItin[key].map(item => ({
-                     ...item,
-                     tags: [...(Array.isArray(item.tags) ? item.tags : []), "⚠️ 日期變更移入"]
-                 }));
+                 const orphans = rawItin[key].map(item => ({ ...item, tags: [...(Array.isArray(item.tags) ? item.tags : []), "⚠️ 日期變更移入"] }));
                  safeItin[lastDayKey] = [...(safeItin[lastDayKey] || []), ...orphans];
              }
           });
@@ -569,6 +649,13 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
   const tripThemeColor = String(meta?.themeColor || '#1e293b');
   const t = useMemo(() => getThemeClasses(tripThemeColor), [tripThemeColor]);
+
+  const handleColorChange = (newColor) => {
+    const newMeta = { ...meta, themeColor: String(newColor) };
+    setMeta(newMeta);
+    if (db) void set(ref(db, `rooms/${roomId}/meta`), newMeta).catch(() => {});
+    onUpdateTripMeta(roomId, newMeta);
+  };
 
   const existingDays = Object.keys(itinerary);
   const safeCurrentDay = existingDays.includes(currentDay) ? currentDay : (existingDays[0] || "Day 1");
@@ -628,6 +715,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     setRouteDurations(prev => JSON.stringify(prev[day]) !== JSON.stringify(durations) ? { ...prev, [day]: durations } : prev);
   }, []);
 
+  // 🌟 核心：一鍵順延整合自訂跨國交通
   const saveEditedItem = useCallback((updatedItem, shouldCascade) => {
     setItinerary(prev => {
       const n = { ...prev };
@@ -641,8 +729,17 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
         if (shouldCascade && updatedItem.time) {
           let currentMins = timeToMins(updatedItem.time) + Number(updatedItem.stayTime || 0);
           for (let i = idx + 1; i < dayList.length; i++) {
-             const travelTimeStr = routeDurations[dayId] && routeDurations[dayId][i-1] ? routeDurations[dayId][i-1] : "";
-             const travelTime = parseDurationMins(travelTimeStr);
+             const prevItem = dayList[i-1];
+             let travelTime = 30; // 預設防呆
+
+             // 如果上一站有自訂交通時間 (非 AUTO)，則優先使用自訂時間！
+             if (prevItem.nextLeg && prevItem.nextLeg.mode !== 'AUTO') {
+                travelTime = Number(prevItem.nextLeg.mins) || 30;
+             } else if (routeDurations[dayId] && routeDurations[dayId][i-1]) {
+                // 否則使用 Google 算出來的真實車程
+                travelTime = Number(routeDurations[dayId][i-1].value) || 30;
+             }
+
              currentMins += travelTime;
              dayList[i] = { ...dayList[i], time: minsToTime(currentMins) };
              currentMins += Number(dayList[i].stayTime || 0);
@@ -672,12 +769,8 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       request.radius = 1500;
     } else {
       const bounds = map.getBounds();
-      if (bounds) {
-        request.bounds = bounds;
-      } else {
-        request.location = map.getCenter();
-        request.radius = 2000;
-      }
+      if (bounds) { request.bounds = bounds; }
+      else { request.location = map.getCenter(); request.radius = 2000; }
     }
 
     if (typeof customQuery === 'string') setExploreQuery(customQuery);
@@ -734,15 +827,20 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     if (list.length === 0) return "10:00";
     const last = list[list.length - 1];
     if (!last.time) return "";
-    return minsToTime(timeToMins(last.time) + Number(last.stayTime || 60) + 30);
+
+    let travelTime = 30;
+    if (last.nextLeg && last.nextLeg.mode !== 'AUTO') {
+       travelTime = Number(last.nextLeg.mins) || 30;
+    }
+    return minsToTime(timeToMins(last.time) + Number(last.stayTime || 60) + travelTime);
   };
 
   const handleAddExploreToItinerary = (place, position = 'end') => {
     setItinerary(prev => {
       const dayList = [...(prev[safeCurrentDay] || [])];
       const newItem = {
-        id: generateId(), name: String(place.name), lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng()),
-        address: String(place.formatted_address || place.vicinity || ""), time: getNextDefaultTime(safeCurrentDay), stayTime: "60", memo: `⭐ Google 評價: ${place.rating || '無'}`, tags: ["地圖探索"]
+        id: generateId(), name: String(place.name), customName: "", lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng()),
+        address: String(place.formatted_address || place.vicinity || ""), time: getNextDefaultTime(safeCurrentDay), stayTime: "60", memo: `⭐ Google 評價: ${place.rating || '無'}`, tags: ["地圖探索"], nextLeg: { mode: 'AUTO', mins: 30 }
       };
 
       if (exploreOriginItem && position !== 'end') {
@@ -753,7 +851,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
             dayList.splice(idx, 0, newItem);
           } else if (position === 'after') {
             if(dayList[idx].time) {
-               newItem.time = minsToTime(timeToMins(dayList[idx].time) + Number(dayList[idx].stayTime || 60) + 15);
+               let tTime = 15;
+               if (dayList[idx].nextLeg && dayList[idx].nextLeg.mode !== 'AUTO') tTime = Number(dayList[idx].nextLeg.mins);
+               newItem.time = minsToTime(timeToMins(dayList[idx].time) + Number(dayList[idx].stayTime || 60) + tTime);
             }
             dayList.splice(idx + 1, 0, newItem);
           }
@@ -792,7 +892,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
            setItinerary(prev => ({
              ...prev,
              [dayId]: [...(prev[dayId] || []), {
-               id: generateId(), name: String(res.name), lat: Number(res.geometry.location.lat()), lng: Number(res.geometry.location.lng()), address: String(res.formatted_address), time: getNextDefaultTime(dayId), stayTime: "60", memo: "", tags: []
+               id: generateId(), name: String(res.name), customName: "", lat: Number(res.geometry.location.lat()), lng: Number(res.geometry.location.lng()), address: String(res.formatted_address), time: getNextDefaultTime(dayId), stayTime: "60", memo: "", tags: [], nextLeg: { mode: 'AUTO', mins: 30 }
              }]
            }));
         }
@@ -821,6 +921,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <button onClick={onBack} className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
+                    <div className="relative w-5 h-5 rounded-full overflow-hidden border border-white/50 shadow-sm cursor-pointer shrink-0 hover:scale-110 transition-transform">
+                       <input type="color" value={tripThemeColor} onChange={e => handleColorChange(e.target.value)} className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer border-0 p-0" title="更改顏色" />
+                    </div>
                     <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
                     {db && <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>}
                   </div>
@@ -851,7 +954,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       <Droppable droppableId={String(dayId)}>
                         {(provided) => (
                           <div {...provided.droppableProps} ref={provided.innerRef} className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide">
-                            {Array.isArray(itinerary[dayId]) && itinerary[dayId].map((item, index) => (
+                            {Array.isArray(itinerary[dayId]) && itinerary[dayId].map((item, index) => {
+                              const displayName = item.customName || item.name;
+                              const isCustomName = !!item.customName;
+                              return (
                               <Draggable key={String(item.id)} draggableId={String(item.id)} index={index}>
                                 {(prov, snap) => (
                                   <div ref={prov.innerRef} {...prov.draggableProps} {...prov.dragHandleProps} className={`transition-all relative group mb-1 ${snap.isDragging ? 'z-50 scale-105 touch-none' : ''}`}>
@@ -867,7 +973,11 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
                                         <div className="flex-1 min-w-0 pr-2">
                                           <div className="flex justify-between items-start gap-2">
-                                            <h3 className={`font-bold text-sm truncate ${snap.isDragging ? 'text-white' : t.mainText}`} onClick={() => { setActiveTab("map"); setTimeout(() => { if (map) { map.panTo({ lat: Number(item.lat), lng: Number(item.lng) }); map.setZoom(16); } }, 100); }}>{String(item.name)}</h3>
+                                            {/* 🌟 優先顯示自訂名稱 */}
+                                            <h3 className={`font-bold text-sm truncate cursor-pointer ${snap.isDragging ? 'text-white' : t.mainText}`} onClick={() => { setActiveTab("map"); setTimeout(() => { if (map) { map.panTo({ lat: Number(item.lat), lng: Number(item.lng) }); map.setZoom(16); } }, 100); }}>
+                                              {String(displayName)}
+                                              {isCustomName && <span className="text-[10px] ml-1.5 font-normal opacity-60">({String(item.name)})</span>}
+                                            </h3>
                                             {item.memo && (
                                               <button
                                                 onClick={(e) => { e.stopPropagation(); setEditingItemData({ dayId, item }); }}
@@ -894,11 +1004,17 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                       </div>
                                     </div>
 
+                                    {/* 🌟 重新設計的交通時間顯示，支援飛機、火車等符號 */}
                                     {!snap.isDragging && index < itinerary[dayId].length - 1 && (
-                                      <div className="flex items-center -mt-1 mb-1 ml-6 relative z-10 h-7 border-l-2 border-dashed border-slate-500/30 pl-6">
+                                      <div className="flex items-center -mt-1 mb-1 ml-6 relative z-10 h-7 border-l-2 border-dashed border-slate-500/30 pl-6 cursor-pointer hover:border-blue-500/50 transition-colors" onClick={() => setEditingItemData({ dayId, item })} title="點擊編輯交通方式">
                                          {routeDurations[dayId]?.[index] && (
-                                           <span className={`text-[10px] font-bold text-slate-500 bg-transparent flex items-center gap-1`}>
-                                             🚗 車程 {String(routeDurations[dayId][index])}
+                                           <span className={`text-[10px] font-bold ${routeDurations[dayId][index].mode === 'ERROR' ? 'text-red-500' : 'text-slate-500'} bg-transparent flex items-center gap-1`}>
+                                             {routeDurations[dayId][index].mode === 'FLIGHT' ? '✈️ 飛行' :
+                                              routeDurations[dayId][index].mode === 'TRAIN' ? '🚅 鐵路' :
+                                              routeDurations[dayId][index].mode === 'TRANSIT' ? '🚇 捷運' :
+                                              routeDurations[dayId][index].mode === 'WALK' ? '🚶 步行' :
+                                              routeDurations[dayId][index].mode === 'ERROR' ? '⚠️ 無法計算' : '🚗 車程'}
+                                             {String(routeDurations[dayId][index].text)}
                                            </span>
                                          )}
                                       </div>
@@ -907,7 +1023,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                   </div>
                                 )}
                               </Draggable>
-                            ))}
+                            );})}
                             {provided.placeholder}
                           </div>
                         )}
@@ -1102,10 +1218,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       {exploreOriginItem ? (
                         <div className="flex gap-2">
                           <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'before')} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
-                            加在「{String(exploreOriginItem.name).substring(0,6)}...」前
+                            加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」前
                           </button>
                           <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-lg shadow-emerald-500/30 transition-all active:scale-95">
-                            加在「{String(exploreOriginItem.name).substring(0,6)}...」後
+                            加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」後
                           </button>
                         </div>
                       ) : (
@@ -1178,10 +1294,8 @@ export default function TravelApp() {
     try { return localStorage.getItem('google-travel-version') !== APP_VERSION; } catch { return false; }
   });
 
-  // 🌟 用來控制是大廳還是「建立/編輯」彈窗
-  const [tripModalMode, setTripModalMode] = useState(null); // null, 'create', or roomId
+  const [tripModalMode, setTripModalMode] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
-
   const [showImportModal, setShowImportModal] = useState(false);
   const [importInput, setImportInput] = useState("");
 
@@ -1246,13 +1360,11 @@ export default function TravelApp() {
     }, { onlyOnce: true });
   };
 
-  // 🌟 開啟新增模式
   const openCreateModal = () => {
     setNewTitle(""); setNewDest(""); setNewStart(""); setNewEnd(""); setNewMembers(["自己"]); setNewTransport("汽車 🚗"); setNewThemeColor("#3b82f6");
     setTripModalMode('create');
   };
 
-  // 🌟 開啟編輯模式
   const openEditModal = (e, trip) => {
     e.stopPropagation();
     setNewTitle(trip.title); setNewDest(trip.destination); setNewStart(trip.startDate); setNewEnd(trip.endDate);
@@ -1260,7 +1372,6 @@ export default function TravelApp() {
     setTripModalMode(trip.roomId);
   };
 
-  // 🌟 處理儲存邏輯 (區分新增與編輯)
   const handleSaveTripModal = () => {
     if (!String(newTitle).trim() || !newStart || !newEnd) return alert("請填寫完整的名稱與日期區間！");
     const d1 = new Date(String(newStart));
@@ -1345,8 +1456,6 @@ export default function TravelApp() {
                 <div key={String(trip.roomId)} onClick={() => openTrip(trip.roomId)} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 hover:shadow-2xl ${cTheme.cardBorder}`}>
                   <div className="flex justify-between items-start mb-4">
                     <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${cTheme.isLight ? 'bg-black/5 text-slate-700 border-black/10' : 'bg-white/20 text-white border-white/30'}`}>{String(trip.transport)}</span>
-
-                    {/* 🌟 新增：卡片上的操作選單 (包含編輯與移除) */}
                     <div className="flex gap-2">
                       <button onClick={(e) => openEditModal(e, trip)} className={`text-xs p-1 transition-colors hover:text-blue-500 ${cTheme.subText}`}>⚙️ 編輯</button>
                       <button onClick={(e) => { e.stopPropagation(); if(window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) setMyTrips(prev => prev.filter(tripItem => tripItem.roomId !== trip.roomId)); }} className={`text-xs p-1 transition-colors hover:text-red-500 ${cTheme.subText}`}>移除</button>
@@ -1384,7 +1493,6 @@ export default function TravelApp() {
         </div>
       )}
 
-      {/* 🌟 建立 / 編輯 旅程共用表單 */}
       {tripModalMode && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4 transition-opacity" onClick={() => setTripModalMode(null)}>
           <div className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
