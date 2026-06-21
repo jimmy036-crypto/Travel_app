@@ -28,25 +28,22 @@ const firebaseConfig = {
 
 const initDB = () => {
   if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes("請替換")) return null;
-  try {
-    return getDatabase(initializeApp(firebaseConfig));
-  } catch {
-    return null;
-  }
+  try { return getDatabase(initializeApp(firebaseConfig)); } catch { return null; }
 };
 const db = initDB();
 
 const API_KEY = 'AIzaSyAieyVaZA3vohEdf07yrk_9OYgsqXLfUmg';
 
 // 🌟 版本更新通知
-const APP_VERSION = "v1.8.0";
+const APP_VERSION = "v1.9.5";
 const RELEASE_NOTES = {
   version: APP_VERSION,
   date: "2026/06/21",
   features: [
-    "📖 地點詳情百科：新增「查看詳情」按鈕，完美整合 Google 照片與真實網友評論！",
-    "📸 沉浸式圖文：直接在 App 內瀏覽周邊美食照片牆與店家資訊，再決定是否加入行程。",
-    "🗺️ 無縫跳轉：支援一鍵打開原生 Google Maps 查看更深度的資訊。"
+    "⚙️ 大廳編輯功能：首頁旅程卡片新增編輯按鈕，隨時可修改旅程名稱、人數、顏色與日期。",
+    "⏳ 時空平移系統：更改出發日期時，原有的行程排序會完美平移，不會混亂。",
+    "🛡️ 智慧收納引擎：若將旅程天數縮短，多出來的行程會自動被移入最後一天並標記，保護您的心血不流失！",
+    "🤖 智慧時間推算：新增景點時自動推算抵達時間，並支援一鍵順延後續行程。"
   ]
 };
 
@@ -117,6 +114,35 @@ const getExploreIcon = (query) => {
   return { text: "📍", bg: "#f97316", border: "#c2410c" };
 };
 
+const timeToMins = (timeStr) => {
+  if (!timeStr) return null;
+  const [h, m] = timeStr.split(':').map(Number);
+  return h * 60 + m;
+};
+const minsToTime = (mins) => {
+  if (mins === null || isNaN(mins)) return "";
+  const h = Math.floor(mins / 60) % 24;
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+const parseDurationMins = (str) => {
+  if (!str) return 30;
+  let total = 0;
+  const hMatch = str.match(/(\d+)\s*(?:h|時)/i);
+  if (hMatch) total += parseInt(hMatch[1], 10) * 60;
+  const mMatch = str.match(/(\d+)\s*(?:m|分)/i);
+  if (mMatch) total += parseInt(mMatch[1], 10);
+  return total > 0 ? total : 30;
+};
+const formatStayTime = (mins) => {
+  const m = Number(mins);
+  if (!m || isNaN(m)) return "0 分鐘";
+  if (m < 60) return `${m} 分鐘`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm === 0 ? `${h} 小時` : `${h} 小時 ${rm} 分鐘`;
+};
+
 // ============================================================================
 // 🧩 共用組件 (Shared Components)
 // ============================================================================
@@ -149,15 +175,11 @@ const UpdateNoticeModal = ({ notes, onClose, t }) => (
   </div>
 );
 
-// 🌟 新增：專屬的地點詳細資訊彈窗 (Place Details Modal)
 const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle, t }) => {
   if (!place) return null;
-
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-300 flex items-center justify-center p-4 transition-opacity animate-in fade-in" onClick={onClose}>
       <div className={`border rounded-3xl p-0 w-full max-w-lg shadow-2xl flex flex-col overflow-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
-
-        {/* 頭部資訊與關閉按鈕 */}
         <div className={`p-5 border-b sticky top-0 z-10 backdrop-blur-xl ${t.cardBg} ${t.cardBorder} flex justify-between items-start gap-4`}>
           <div>
             <h2 className={`text-xl font-black leading-tight mb-1 ${t.mainText}`}>{String(place.name)}</h2>
@@ -170,9 +192,7 @@ const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle,
           </div>
           <button onClick={onClose} className={`w-8 h-8 rounded-full bg-slate-500/10 flex items-center justify-center hover:bg-red-500 hover:text-white transition-colors shrink-0 ${t.subText}`}>✕</button>
         </div>
-
         <div className="overflow-y-auto p-5 space-y-6 scrollbar-hide flex-1">
-          {/* 📸 照片牆 */}
           {Array.isArray(place.photos) && place.photos.length > 0 && (
             <div>
               <h3 className={`text-xs font-bold mb-3 uppercase tracking-wider ${t.subText}`}>照片總覽</h3>
@@ -183,8 +203,6 @@ const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle,
               </div>
             </div>
           )}
-
-          {/* 💬 真實評論 */}
           {Array.isArray(place.reviews) && place.reviews.length > 0 && (
             <div>
               <h3 className={`text-xs font-bold mb-3 uppercase tracking-wider ${t.subText}`}>精選評論</h3>
@@ -204,16 +222,12 @@ const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle,
               </div>
             </div>
           )}
-
-          {/* 🌐 原生地圖跳轉 */}
           {place.url && (
             <button onClick={() => window.open(place.url, '_blank')} className={`w-full py-3 rounded-xl border text-sm font-bold flex items-center justify-center gap-2 transition-colors hover:border-blue-500 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>
               🗺️ 在 Google Maps 中查看完整資訊
             </button>
           )}
         </div>
-
-        {/* 底部智慧安插按鈕保留 */}
         <div className={`p-5 border-t bg-black/5 backdrop-blur-xl ${t.cardBorder}`}>
            {exploreOriginItem ? (
               <div className="flex gap-2">
@@ -235,7 +249,6 @@ const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle,
   );
 };
 
-
 // ============================================================================
 // 📅 雙擊範圍日期選擇器 (Date Range Picker)
 // ============================================================================
@@ -247,17 +260,8 @@ const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t 
 
   const handleDayClick = (date) => {
     const d = normalize(date);
-    if (!tempStart || (tempStart && tempEnd)) {
-      setTempStart(d);
-      setTempEnd(null);
-    } else {
-      if (d < tempStart) {
-        setTempStart(d);
-        setTempEnd(null);
-      } else {
-        setTempEnd(d);
-      }
-    }
+    if (!tempStart || (tempStart && tempEnd)) { setTempStart(d); setTempEnd(null); }
+    else { if (d < tempStart) { setTempStart(d); setTempEnd(null); } else { setTempEnd(d); } }
   };
 
   const formatStr = d => {
@@ -271,7 +275,6 @@ const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t 
     const month = targetDate.getMonth();
     const lastDay = new Date(year, month + 1, 0).getDate();
     const firstDayIndex = targetDate.getDay();
-
     const days = Array(firstDayIndex).fill(null);
     for(let i=1; i<=lastDay; i++) days.push(new Date(year, month, i));
 
@@ -282,24 +285,16 @@ const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t 
           {['日','一','二','三','四','五','六'].map((d,i) => <div key={String(d)} className={`font-bold pb-2 ${i===0||i===6 ? 'text-red-500' : t.subText}`}>{String(d)}</div>)}
           {days.map((d, i) => {
             if (!d) return <div key={`empty-${i}`}/>;
-            const ts = d.getTime();
-            const sTime = tempStart?.getTime();
-            const eTime = tempEnd?.getTime();
-            const isStart = ts === sTime;
-            const isEnd = ts === eTime;
-            const inRange = Boolean(sTime && eTime && ts > sTime && ts < eTime);
-
+            const ts = d.getTime(); const sTime = tempStart?.getTime(); const eTime = tempEnd?.getTime();
+            const isStart = ts === sTime; const isEnd = ts === eTime; const inRange = Boolean(sTime && eTime && ts > sTime && ts < eTime);
             let bgWrapper = "", text = t.mainText, rounded = "";
             if (isStart) { bgWrapper = "bg-blue-600 shadow-md"; text = "text-white"; rounded = tempEnd ? "rounded-l-full" : "rounded-full"; }
             else if (isEnd) { bgWrapper = "bg-blue-600 shadow-md"; text = "text-white"; rounded = "rounded-r-full"; }
             else if (inRange) { bgWrapper = "bg-blue-500/20"; rounded = ""; }
             else { rounded = "rounded-full hover:bg-black/10 transition-colors"; }
-
             return (
               <div key={String(ts)} className={`relative flex items-center justify-center h-10 ${bgWrapper} ${rounded}`} onClick={() => handleDayClick(d)}>
-                <span className={`w-8 h-8 flex items-center justify-center cursor-pointer ${isStart||isEnd ? 'font-bold' : ''} ${text}`}>
-                  {d.getDate()}
-                </span>
+                <span className={`w-8 h-8 flex items-center justify-center cursor-pointer ${isStart||isEnd ? 'font-bold' : ''} ${text}`}>{d.getDate()}</span>
               </div>
             );
           })}
@@ -309,33 +304,20 @@ const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 transition-opacity animate-in fade-in" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4 transition-opacity animate-in fade-in" onClick={onClose}>
       <div className={`border rounded-3xl p-5 md:p-8 w-full max-w-2xl shadow-2xl flex flex-col ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-6">
-          <h2 className={`text-xl font-black ${t.mainText}`}>選擇旅行日期</h2>
-          <button onClick={onClose} className={`text-xl hover:text-red-500 transition-colors ${t.subText}`}>✕</button>
-        </div>
-
+        <div className="flex justify-between items-center mb-6"><h2 className={`text-xl font-black ${t.mainText}`}>選擇旅行日期</h2><button onClick={onClose} className={`text-xl hover:text-red-500 transition-colors ${t.subText}`}>✕</button></div>
         <div className={`flex justify-between items-center p-4 rounded-2xl border mb-6 text-sm font-bold text-center ${t.cardBg} ${t.cardBorder}`}>
            <div className="flex-1 flex flex-col"><span className={`text-[10px] uppercase mb-1 ${t.subText}`}>去程出發</span><span className={tempStart ? 'text-blue-500 text-base' : t.subText}>{formatStr(tempStart) || '-'}</span></div>
            <div className="w-px h-8 bg-slate-500/20 mx-2"></div>
            <div className="flex-1 flex flex-col"><span className={`text-[10px] uppercase mb-1 ${t.subText}`}>回程抵達</span><span className={tempEnd ? 'text-blue-500 text-base' : t.subText}>{formatStr(tempEnd) || '-'}</span></div>
         </div>
-
         <div className="flex justify-between items-center mb-2 px-2 md:px-6">
-           <button onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))} className={`w-10 h-10 flex items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>◀</button>
-           <button onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))} className={`w-10 h-10 flex items-center justify-center rounded-full border shadow-sm transition-transform active:scale-90 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>▶</button>
+           <button onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))} className={`w-10 h-10 flex items-center justify-center rounded-full border shadow-sm active:scale-90 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>◀</button>
+           <button onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))} className={`w-10 h-10 flex items-center justify-center rounded-full border shadow-sm active:scale-90 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>▶</button>
         </div>
-
-        <div className="flex overflow-hidden">
-           {renderMonth(0)}
-           <div className="hidden md:block w-px bg-slate-500/10 mx-2"></div>
-           <div className="hidden md:block">{renderMonth(1)}</div>
-        </div>
-
-        <div className="mt-8">
-           <button onClick={() => { if(tempStart && tempEnd) onConfirm(formatStr(tempStart), formatStr(tempEnd)); else alert('請點擊日期，選擇完整的出發與回程時間！'); }} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">確認日期區間</button>
-        </div>
+        <div className="flex overflow-hidden">{renderMonth(0)}<div className="hidden md:block w-px bg-slate-500/10 mx-2"></div><div className="hidden md:block">{renderMonth(1)}</div></div>
+        <div className="mt-8"><button onClick={() => { if(tempStart && tempEnd) onConfirm(formatStr(tempStart), formatStr(tempEnd)); else alert('請點擊日期，選擇完整的出發與回程時間！'); }} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">確認日期區間</button></div>
       </div>
     </div>
   );
@@ -345,39 +327,25 @@ const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t 
 // 💰 新增/編輯 記帳彈窗 (Expense Modal)
 // ============================================================================
 const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, onSave, t }) => {
-  const [item, setItem] = useState("");
-  const [cost, setCost] = useState("");
-  const [dayId, setDayId] = useState(defaultDay);
-  const [category, setCategory] = useState("food");
-  const [payer, setPayer] = useState(members[0] || "自己");
-  const [splitType, setSplitType] = useState("EQUAL");
-  const [involved, setInvolved] = useState(members);
-  const [customAmounts, setCustomAmounts] = useState(() => {
-    const init = {};
-    members.forEach(m => init[String(m)] = "");
-    return init;
-  });
+  const [item, setItem] = useState(""); const [cost, setCost] = useState(""); const [dayId, setDayId] = useState(defaultDay);
+  const [category, setCategory] = useState("food"); const [payer, setPayer] = useState(members[0] || "自己");
+  const [splitType, setSplitType] = useState("EQUAL"); const [involved, setInvolved] = useState(members);
+  const [customAmounts, setCustomAmounts] = useState(() => { const init = {}; members.forEach(m => init[String(m)] = ""); return init; });
 
   const handleSave = () => {
     if (!String(item).trim() || !cost || Number(cost) <= 0) return alert("請輸入有效的項目名稱與金額！");
-    const totalCost = Number(cost);
-    const finalSplit = {};
-
+    const totalCost = Number(cost); const finalSplit = {};
     if (splitType === "EQUAL") {
       if (!Array.isArray(involved) || involved.length === 0) return alert("請至少選擇一位參與分帳的人員！");
       const splitAmount = Math.floor((totalCost / involved.length) * 100) / 100;
       let sum = 0;
-      involved.forEach((m, idx) => {
-        if (idx === involved.length - 1) { finalSplit[String(m)] = Math.round((totalCost - sum) * 100) / 100; }
-        else { finalSplit[String(m)] = splitAmount; sum += splitAmount; }
-      });
+      involved.forEach((m, idx) => { if (idx === involved.length - 1) { finalSplit[String(m)] = Math.round((totalCost - sum) * 100) / 100; } else { finalSplit[String(m)] = splitAmount; sum += splitAmount; } });
       members.forEach(m => { if (!involved.includes(m)) finalSplit[String(m)] = 0; });
     } else {
       let customSum = 0;
       members.forEach(m => { const val = Number(customAmounts[String(m)]) || 0; finalSplit[String(m)] = val; customSum += val; });
       if (Math.abs(customSum - totalCost) > 1) return alert(`分帳總和 (${customSum}) 與總金額 (${totalCost}) 不符！`);
     }
-
     onSave({ id: generateId(), dayId: String(dayId), item: String(item).trim(), cost: totalCost, category: String(category), payer: String(payer), split: finalSplit });
   };
 
@@ -387,82 +355,29 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
         <h2 className={`text-xl font-black mb-5 flex items-center gap-2 ${t.mainText}`}>💰 新增記帳</h2>
         <div className="overflow-y-auto pr-2 space-y-5 scrollbar-hide">
           <div className="flex gap-3">
-            <div className="flex-1">
-              <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>項目名稱 *</label>
-              <input value={String(item)} onChange={e => setItem(e.target.value)} placeholder="ex: 晚餐燒肉" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border transition-colors ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
-            </div>
-            <div className="w-1/3">
-              <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>總金額 *</label>
-              <input type="number" value={String(cost)} onChange={e => setCost(e.target.value)} placeholder="0" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border transition-colors font-mono font-bold text-emerald-500 ${t.inputBg} ${t.cardBorder}`} />
-            </div>
+            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>項目名稱 *</label><input value={String(item)} onChange={e => setItem(e.target.value)} placeholder="ex: 晚餐燒肉" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>
+            <div className="w-1/3"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>總金額 *</label><input type="number" value={String(cost)} onChange={e => setCost(e.target.value)} placeholder="0" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border font-mono font-bold text-emerald-500 ${t.inputBg} ${t.cardBorder}`} /></div>
           </div>
           <div className="flex gap-3">
-            <div className="flex-1">
-              <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>日期</label>
-              <select value={String(dayId)} onChange={e => setDayId(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border transition-colors ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
-                {Array.isArray(existingDays) && existingDays.map(d => <option key={String(d)} value={String(d)}>{getDayDisplay(d, startDate).title} {getDayDisplay(d, startDate).dateStr}</option>)}
-              </select>
-            </div>
-            <div className="flex-1">
-              <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>誰先付的？</label>
-              <select value={String(payer)} onChange={e => setPayer(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border transition-colors ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
-                {Array.isArray(members) && members.map(m => <option key={String(m)} value={String(m)}>{String(m)}</option>)}
-              </select>
-            </div>
+            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>日期</label><select value={String(dayId)} onChange={e => setDayId(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{Array.isArray(existingDays) && existingDays.map(d => <option key={String(d)} value={String(d)}>{getDayDisplay(d, startDate).title} {getDayDisplay(d, startDate).dateStr}</option>)}</select></div>
+            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>誰先付的？</label><select value={String(payer)} onChange={e => setPayer(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{Array.isArray(members) && members.map(m => <option key={String(m)} value={String(m)}>{String(m)}</option>)}</select></div>
           </div>
           <div>
             <label className={`block text-[10px] font-bold mb-2 uppercase ${t.subText}`}>分類</label>
             <div className="flex overflow-x-auto gap-2 pb-1 scrollbar-hide">
-              {CATEGORIES.map(c => (
-                <button key={c.id} onClick={() => setCategory(c.id)} className={`px-4 py-2 rounded-xl border flex items-center gap-2 whitespace-nowrap transition-all ${category === c.id ? `${c.color} border-transparent text-white shadow-md` : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>
-                  <span>{c.icon}</span><span className="text-xs font-bold">{c.label}</span>
-                </button>
-              ))}
+              {CATEGORIES.map(c => <button key={c.id} onClick={() => setCategory(c.id)} className={`px-4 py-2 rounded-xl border flex items-center gap-2 whitespace-nowrap transition-all ${category === c.id ? `${c.color} border-transparent text-white shadow-md` : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}><span>{c.icon}</span><span className="text-xs font-bold">{c.label}</span></button>)}
             </div>
           </div>
           <div className={`p-4 rounded-2xl border ${t.cardMetaBg} ${t.cardBorder}`}>
-            <div className="flex justify-between items-center mb-3">
-              <label className={`text-xs font-bold ${t.subText}`}>分帳方式</label>
-              <div className={`flex rounded-lg p-1 border ${t.cardBg} ${t.cardBorder}`}>
-                <button onClick={() => setSplitType('EQUAL')} className={`px-3 py-1 text-[10px] font-bold rounded-md ${splitType === 'EQUAL' ? 'bg-blue-600 text-white' : t.subText}`}>勾選平分</button>
-                <button onClick={() => setSplitType('CUSTOM')} className={`px-3 py-1 text-[10px] font-bold rounded-md ${splitType === 'CUSTOM' ? 'bg-purple-600 text-white' : t.subText}`}>輸入自訂</button>
-              </div>
-            </div>
+            <div className="flex justify-between items-center mb-3"><label className={`text-xs font-bold ${t.subText}`}>分帳方式</label><div className={`flex rounded-lg p-1 border ${t.cardBg} ${t.cardBorder}`}><button onClick={() => setSplitType('EQUAL')} className={`px-3 py-1 text-[10px] font-bold rounded-md ${splitType === 'EQUAL' ? 'bg-blue-600 text-white' : t.subText}`}>勾選平分</button><button onClick={() => setSplitType('CUSTOM')} className={`px-3 py-1 text-[10px] font-bold rounded-md ${splitType === 'CUSTOM' ? 'bg-purple-600 text-white' : t.subText}`}>輸入自訂</button></div></div>
             {splitType === 'EQUAL' ? (
-              <div className="space-y-2">
-                <p className={`text-[10px] mb-2 ${t.subText}`}>請勾選參與此筆消費的成員：</p>
-                <div className="flex flex-wrap gap-2">
-                  {Array.isArray(members) && members.map(m => (
-                    <button key={String(m)} onClick={() => setInvolved(involved.includes(m) ? involved.filter(x => x !== m) : [...involved, m])} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${involved.includes(m) ? 'bg-blue-500/20 border-blue-500 text-blue-600' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>
-                      {involved.includes(m) ? '✓' : '○'} {String(m)}
-                    </button>
-                  ))}
-                </div>
-                {Number(cost) > 0 && Array.isArray(involved) && involved.length > 0 && <p className="text-[10px] text-emerald-500 font-mono mt-3 text-right font-bold">每人約負擔：${Math.round(Number(cost) / involved.length).toLocaleString()}</p>}
-              </div>
+              <div className="space-y-2"><p className={`text-[10px] mb-2 ${t.subText}`}>請勾選參與此筆消費的成員：</p><div className="flex flex-wrap gap-2">{Array.isArray(members) && members.map(m => <button key={String(m)} onClick={() => setInvolved(involved.includes(m) ? involved.filter(x => x !== m) : [...involved, m])} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${involved.includes(m) ? 'bg-blue-500/20 border-blue-500 text-blue-600' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>{involved.includes(m) ? '✓' : '○'} {String(m)}</button>)}</div>{Number(cost) > 0 && Array.isArray(involved) && involved.length > 0 && <p className="text-[10px] text-emerald-500 font-mono mt-3 text-right font-bold">每人約負擔：${Math.round(Number(cost) / involved.length).toLocaleString()}</p>}</div>
             ) : (
-              <div className="space-y-3">
-                <p className={`text-[10px] ${t.subText}`}>請為每個人輸入精確金額：</p>
-                {Array.isArray(members) && members.map(m => (
-                  <div key={String(m)} className="flex justify-between items-center gap-3">
-                    <span className={`text-sm font-bold ${t.mainText}`}>{String(m)}</span>
-                    <input type="number" value={String(customAmounts[String(m)] || "")} onChange={e => setCustomAmounts({...customAmounts, [String(m)]: e.target.value})} placeholder="0" className={`w-24 p-2 rounded-lg font-mono text-right outline-none focus:ring-2 focus:ring-purple-500 border transition-colors ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
-                  </div>
-                ))}
-                {Number(cost) > 0 && (
-                  <div className={`border-t pt-2 mt-2 flex justify-between items-center ${t.cardBorder}`}>
-                    <span className={`text-xs ${t.subText}`}>目前總和</span>
-                    <span className={`text-sm font-bold font-mono ${Object.values(customAmounts).reduce((a,b)=>a+(Number(b)||0),0) === Number(cost) ? 'text-emerald-500' : 'text-red-500'}`}>${Object.values(customAmounts).reduce((a,b)=>a+(Number(b)||0),0).toLocaleString()} / ${Number(cost).toLocaleString()}</span>
-                  </div>
-                )}
-              </div>
+              <div className="space-y-3"><p className={`text-[10px] ${t.subText}`}>請為每個人輸入精確金額：</p>{Array.isArray(members) && members.map(m => <div key={String(m)} className="flex justify-between items-center gap-3"><span className={`text-sm font-bold ${t.mainText}`}>{String(m)}</span><input type="number" value={String(customAmounts[String(m)] || "")} onChange={e => setCustomAmounts({...customAmounts, [String(m)]: e.target.value})} placeholder="0" className={`w-24 p-2 rounded-lg font-mono text-right outline-none focus:ring-2 focus:ring-purple-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>)}{Number(cost) > 0 && <div className={`border-t pt-2 mt-2 flex justify-between items-center ${t.cardBorder}`}><span className={`text-xs ${t.subText}`}>目前總和</span><span className={`text-sm font-bold font-mono ${Object.values(customAmounts).reduce((a,b)=>a+(Number(b)||0),0) === Number(cost) ? 'text-emerald-500' : 'text-red-500'}`}>${Object.values(customAmounts).reduce((a,b)=>a+(Number(b)||0),0).toLocaleString()} / ${Number(cost).toLocaleString()}</span></div>}</div>
             )}
           </div>
         </div>
-        <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}>
-          <button onClick={onClose} className={`px-5 py-2 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
-          <button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all">確認新增</button>
-        </div>
+        <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}><button onClick={onClose} className={`px-5 py-2 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button><button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all">確認新增</button></div>
       </div>
     </div>
   );
@@ -505,6 +420,7 @@ const EditItemModal = ({ item, onSave, onClose, t }) => {
   const [stayTime, setStayTime] = useState(item.stayTime || "");
   const [memo, setMemo] = useState(item.memo || "");
   const [tags, setTags] = useState(Array.isArray(item.tags) ? item.tags : []);
+  const [autoCascade, setAutoCascade] = useState(true);
 
   const handleQuickTime = (addMins) => setStayTime(prev => String((Number(prev) || 0) + Number(addMins)));
 
@@ -528,13 +444,25 @@ const EditItemModal = ({ item, onSave, onClose, t }) => {
               />
             </div>
             <div className="flex-1">
-              <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>停留 (分鐘)</label>
+              <label className={`flex justify-between text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>
+                <span>停留 (分鐘)</span>
+                <span className="text-blue-500 font-black">{formatStayTime(stayTime)}</span>
+              </label>
               <input type="number" step="5" value={String(stayTime)} onChange={e => setStayTime(e.target.value)} placeholder="ex: 60" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
               <div className="flex gap-1.5 mt-2">
-                {[15, 30, 60].map(mins => <button key={String(mins)} onClick={() => handleQuickTime(mins)} className={`flex-1 text-[10px] py-1.5 rounded-lg font-bold border transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>+{mins}</button>)}
+                {[15, 30, 60].map(mins => <button key={String(mins)} onClick={() => handleQuickTime(mins)} className={`flex-1 text-[10px] py-1.5 rounded-lg font-bold border transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>+{mins === 60 ? '1小時' : mins+'分'}</button>)}
               </div>
             </div>
           </div>
+
+          <div className={`p-3 rounded-xl border flex items-center justify-between ${t.cardBg} ${t.cardBorder}`}>
+            <div className="flex flex-col">
+               <span className={`text-xs font-bold ${t.mainText}`}>🔄 自動順延後續行程</span>
+               <span className={`text-[10px] mt-0.5 ${t.subText}`}>系統會根據車程重新計算後面的抵達時間</span>
+            </div>
+            <input type="checkbox" checked={autoCascade} onChange={e => setAutoCascade(e.target.checked)} className="w-5 h-5 cursor-pointer accent-blue-500 rounded" />
+          </div>
+
           <div>
             <label className={`block text-[10px] font-bold mb-2 uppercase tracking-wider ${t.subText}`}>快速狀態標籤</label>
             <div className="flex flex-wrap gap-2">
@@ -551,7 +479,7 @@ const EditItemModal = ({ item, onSave, onClose, t }) => {
         </div>
         <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}>
           <button onClick={onClose} className={`px-5 py-2 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
-          <button onClick={() => onSave({ ...item, time: String(time), stayTime: String(stayTime), memo: String(memo), tags })} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">儲存變更</button>
+          <button onClick={() => onSave({ ...item, time: String(time), stayTime: String(stayTime), memo: String(memo), tags }, autoCascade)} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">儲存變更</button>
         </div>
       </div>
     </div>
@@ -583,7 +511,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const [selectedExploreItem, setSelectedExploreItem] = useState(null);
   const [exploreOriginItem, setExploreOriginItem] = useState(null);
 
-  // 🌟 新增：控制顯示詳細圖文彈窗的 State
   const [detailedPlace, setDetailedPlace] = useState(null);
   const [isFetchingDetails, setIsFetchingDetails] = useState(false);
 
@@ -608,7 +535,21 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
           const d1 = new Date(String(loadedMeta.startDate));
           const d2 = new Date(String(loadedMeta.endDate));
           const diffDays = Math.max(1, Math.round(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+
           for (let i = 1; i <= diffDays; i++) safeItin[`Day ${i}`] = Array.isArray(rawItin[`Day ${i}`]) ? rawItin[`Day ${i}`] : Object.values(rawItin[`Day ${i}`] || {});
+
+          // 🌟 智慧行程收納：處理被砍掉的天數
+          const lastDayKey = `Day ${diffDays}`;
+          Object.keys(rawItin).forEach(key => {
+             const dayNum = parseInt(key.replace('Day ', ''), 10);
+             if (dayNum > diffDays && Array.isArray(rawItin[key]) && rawItin[key].length > 0) {
+                 const orphans = rawItin[key].map(item => ({
+                     ...item,
+                     tags: [...(Array.isArray(item.tags) ? item.tags : []), "⚠️ 日期變更移入"]
+                 }));
+                 safeItin[lastDayKey] = [...(safeItin[lastDayKey] || []), ...orphans];
+             }
+          });
         }
         if (Object.keys(safeItin).length === 0) safeItin["Day 1"] = [];
         setItinerary(safeItin);
@@ -628,13 +569,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
   const tripThemeColor = String(meta?.themeColor || '#1e293b');
   const t = useMemo(() => getThemeClasses(tripThemeColor), [tripThemeColor]);
-
-  const handleColorChange = (newColor) => {
-    const newMeta = { ...meta, themeColor: String(newColor) };
-    setMeta(newMeta);
-    if (db) void set(ref(db, `rooms/${roomId}/meta`), newMeta).catch(() => {});
-    onUpdateTripMeta(roomId, newMeta);
-  };
 
   const existingDays = Object.keys(itinerary);
   const safeCurrentDay = existingDays.includes(currentDay) ? currentDay : (existingDays[0] || "Day 1");
@@ -694,16 +628,32 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     setRouteDurations(prev => JSON.stringify(prev[day]) !== JSON.stringify(durations) ? { ...prev, [day]: durations } : prev);
   }, []);
 
-  const saveEditedItem = useCallback((updatedItem) => {
+  const saveEditedItem = useCallback((updatedItem, shouldCascade) => {
     setItinerary(prev => {
       const n = { ...prev };
-      const dayList = n[String(editingItemData.dayId)];
+      const dayId = String(editingItemData.dayId);
+      const dayList = [...(n[dayId] || [])];
       const idx = dayList.findIndex(p => p.id === updatedItem.id);
-      if (idx !== -1) dayList[idx] = updatedItem;
+
+      if (idx !== -1) {
+        dayList[idx] = updatedItem;
+
+        if (shouldCascade && updatedItem.time) {
+          let currentMins = timeToMins(updatedItem.time) + Number(updatedItem.stayTime || 0);
+          for (let i = idx + 1; i < dayList.length; i++) {
+             const travelTimeStr = routeDurations[dayId] && routeDurations[dayId][i-1] ? routeDurations[dayId][i-1] : "";
+             const travelTime = parseDurationMins(travelTimeStr);
+             currentMins += travelTime;
+             dayList[i] = { ...dayList[i], time: minsToTime(currentMins) };
+             currentMins += Number(dayList[i].stayTime || 0);
+          }
+        }
+      }
+      n[dayId] = dayList;
       return n;
     });
     setEditingItemData(null);
-  }, [editingItemData]);
+  }, [editingItemData, routeDurations]);
 
   const handleShareLink = useCallback(() => {
     const url = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
@@ -762,7 +712,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     }, 400);
   };
 
-  // 🌟 獲取地點詳細資訊 (取得照片與評論)
   const handleShowDetails = (placeId) => {
     if (!placesLib || !map) return;
     setIsFetchingDetails(true);
@@ -780,20 +729,32 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     });
   };
 
+  const getNextDefaultTime = (dayId) => {
+    const list = itinerary[dayId] || [];
+    if (list.length === 0) return "10:00";
+    const last = list[list.length - 1];
+    if (!last.time) return "";
+    return minsToTime(timeToMins(last.time) + Number(last.stayTime || 60) + 30);
+  };
+
   const handleAddExploreToItinerary = (place, position = 'end') => {
     setItinerary(prev => {
       const dayList = [...(prev[safeCurrentDay] || [])];
       const newItem = {
         id: generateId(), name: String(place.name), lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng()),
-        address: String(place.formatted_address || place.vicinity || ""), time: "", stayTime: "60", memo: `⭐ Google 評價: ${place.rating || '無'}`, tags: ["地圖探索"]
+        address: String(place.formatted_address || place.vicinity || ""), time: getNextDefaultTime(safeCurrentDay), stayTime: "60", memo: `⭐ Google 評價: ${place.rating || '無'}`, tags: ["地圖探索"]
       };
 
       if (exploreOriginItem && position !== 'end') {
         const idx = dayList.findIndex(p => p.id === exploreOriginItem.id);
         if (idx !== -1) {
           if (position === 'before') {
+            newItem.time = dayList[idx].time;
             dayList.splice(idx, 0, newItem);
           } else if (position === 'after') {
+            if(dayList[idx].time) {
+               newItem.time = minsToTime(timeToMins(dayList[idx].time) + Number(dayList[idx].stayTime || 60) + 15);
+            }
             dayList.splice(idx + 1, 0, newItem);
           }
         } else {
@@ -828,7 +789,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     const select = (p) => {
       new lib.PlacesService(document.createElement('div')).getDetails({ placeId: p.place_id }, (res) => {
         if(res && res.geometry) {
-           setItinerary(prev => ({ ...prev, [dayId]: [...(prev[dayId] || []), { id: generateId(), name: String(res.name), lat: Number(res.geometry.location.lat()), lng: Number(res.geometry.location.lng()), address: String(res.formatted_address), time: "", stayTime: "", memo: "", tags: [] }] }));
+           setItinerary(prev => ({
+             ...prev,
+             [dayId]: [...(prev[dayId] || []), {
+               id: generateId(), name: String(res.name), lat: Number(res.geometry.location.lat()), lng: Number(res.geometry.location.lng()), address: String(res.formatted_address), time: getNextDefaultTime(dayId), stayTime: "60", memo: "", tags: []
+             }]
+           }));
         }
         setVal(""); setSug([]);
       });
@@ -855,9 +821,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <button onClick={onBack} className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
-                    <div className="relative w-5 h-5 rounded-full overflow-hidden border border-white/50 shadow-sm cursor-pointer shrink-0 hover:scale-110 transition-transform">
-                       <input type="color" value={tripThemeColor} onChange={e => handleColorChange(e.target.value)} className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer border-0 p-0" title="更改顏色" />
-                    </div>
                     <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
                     {db && <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>}
                   </div>
@@ -905,9 +868,17 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                         <div className="flex-1 min-w-0 pr-2">
                                           <div className="flex justify-between items-start gap-2">
                                             <h3 className={`font-bold text-sm truncate ${snap.isDragging ? 'text-white' : t.mainText}`} onClick={() => { setActiveTab("map"); setTimeout(() => { if (map) { map.panTo({ lat: Number(item.lat), lng: Number(item.lng) }); map.setZoom(16); } }, 100); }}>{String(item.name)}</h3>
-                                            {item.memo && <span title="附有筆記，可點擊編輯查看" className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-md border flex items-center gap-1 ${snap.isDragging ? 'bg-white/10 border-white/20 text-white' : 'bg-slate-500/10 border-slate-500/20 text-slate-500'}`}>📝</span>}
+                                            {item.memo && (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setEditingItemData({ dayId, item }); }}
+                                                className={`shrink-0 px-2 py-1 rounded-lg border flex items-center gap-1 cursor-pointer transition-transform hover:scale-105 shadow-sm font-bold text-[10px] ${snap.isDragging ? 'bg-white/20 border-white/40 text-white' : 'bg-amber-100 border-amber-300 text-amber-700'}`}
+                                                title="點擊查看或編輯筆記"
+                                              >
+                                                <span>📝</span> 附筆記
+                                              </button>
+                                            )}
                                           </div>
-                                          {item.stayTime && <p className={`text-[10px] mt-0.5 ${snap.isDragging ? 'text-white/80' : t.subText}`}>停留 {String(item.stayTime)} 分鐘</p>}
+                                          {item.stayTime && <p className={`text-[10px] mt-0.5 ${snap.isDragging ? 'text-white/80' : t.subText}`}>停留 {formatStayTime(item.stayTime)}</p>}
                                           <div className="flex flex-wrap gap-1.5 mt-2">
                                             {Array.isArray(item.tags) && item.tags.map((tag, idx) => <span key={String(idx)} className={`text-[9px] px-2 py-0.5 rounded-md border ${snap.isDragging ? 'bg-white/10 border-white/20 text-white' : 'bg-blue-500/10 border-blue-500/20 text-blue-600'}`}>{String(tag)}</span>)}
                                           </div>
@@ -1110,7 +1081,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 })}
               </Map>
 
-              {/* 🌟 點擊地圖上的搜尋結果跳出的小卡片 */}
               {selectedExploreItem && !detailedPlace && (
                 <div className="absolute bottom-8 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-100 z-20">
                   <div className={`p-4 rounded-3xl shadow-2xl backdrop-blur-2xl border ${t.modalBg} ${t.cardBorder} animate-in slide-in-from-bottom-5`}>
@@ -1125,7 +1095,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      {/* 🌟 新增：查看詳情按鈕 */}
                       <button onClick={() => handleShowDetails(selectedExploreItem.place_id)} className={`w-full py-2.5 rounded-xl text-xs font-bold border transition-colors hover:border-blue-500 hover:text-blue-500 flex items-center justify-center gap-2 ${isFetchingDetails ? 'opacity-50 cursor-not-allowed' : ''} ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>
                         {isFetchingDetails ? '讀取資訊中...' : '📖 查看詳情與照片'}
                       </button>
@@ -1145,12 +1114,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                         </button>
                       )}
                     </div>
-
                   </div>
                 </div>
               )}
 
-              {/* 🌟 掛載：地點詳細資訊百科彈窗 */}
               {detailedPlace && (
                 <PlaceDetailsModal
                   place={detailedPlace}
@@ -1211,8 +1178,10 @@ export default function TravelApp() {
     try { return localStorage.getItem('google-travel-version') !== APP_VERSION; } catch { return false; }
   });
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  // 🌟 用來控制是大廳還是「建立/編輯」彈窗
+  const [tripModalMode, setTripModalMode] = useState(null); // null, 'create', or roomId
   const [showDatePicker, setShowDatePicker] = useState(false);
+
   const [showImportModal, setShowImportModal] = useState(false);
   const [importInput, setImportInput] = useState("");
 
@@ -1255,14 +1224,9 @@ export default function TravelApp() {
   const handleImportTrip = () => {
     if (!String(importInput).trim()) return;
     let targetRoomId = String(importInput).trim();
-
     if (targetRoomId.includes("?room=")) {
-      try {
-        const urlParams = new URLSearchParams(targetRoomId.split('?')[1]);
-        targetRoomId = urlParams.get('room') || targetRoomId;
-      } catch { /* ignore */ }
+      try { targetRoomId = new URLSearchParams(targetRoomId.split('?')[1]).get('room') || targetRoomId; } catch { /* ignore */ }
     }
-
     if (!db) return alert("⚠️ 尚未連結 Firebase 雲端！");
 
     const roomMetaRef = ref(db, `rooms/${targetRoomId}/meta`);
@@ -1282,27 +1246,45 @@ export default function TravelApp() {
     }, { onlyOnce: true });
   };
 
-  const handleCreateTrip = () => {
+  // 🌟 開啟新增模式
+  const openCreateModal = () => {
+    setNewTitle(""); setNewDest(""); setNewStart(""); setNewEnd(""); setNewMembers(["自己"]); setNewTransport("汽車 🚗"); setNewThemeColor("#3b82f6");
+    setTripModalMode('create');
+  };
+
+  // 🌟 開啟編輯模式
+  const openEditModal = (e, trip) => {
+    e.stopPropagation();
+    setNewTitle(trip.title); setNewDest(trip.destination); setNewStart(trip.startDate); setNewEnd(trip.endDate);
+    setNewMembers(Array.isArray(trip.members) ? trip.members : ["自己"]); setNewTransport(trip.transport || "汽車 🚗"); setNewThemeColor(trip.themeColor || "#3b82f6");
+    setTripModalMode(trip.roomId);
+  };
+
+  // 🌟 處理儲存邏輯 (區分新增與編輯)
+  const handleSaveTripModal = () => {
     if (!String(newTitle).trim() || !newStart || !newEnd) return alert("請填寫完整的名稱與日期區間！");
     const d1 = new Date(String(newStart));
     const d2 = new Date(String(newEnd));
     const diffDays = Math.round(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     if (diffDays < 1 || diffDays > 30) return alert("日期錯誤或天數過長！");
 
-    const newRoomId = generateId();
-    const initialItinerary = {};
-    for (let i = 1; i <= diffDays; i++) initialItinerary[`Day ${i}`] = [];
-
     const newMeta = { title: String(newTitle).trim(), destination: String(newDest), startDate: String(newStart), endDate: String(newEnd), members: newMembers, transport: String(newTransport), themeColor: String(newThemeColor) };
 
-    if (db) void set(ref(db, `rooms/${newRoomId}`), { meta: newMeta, itinerary: initialItinerary, expenses: [], budget: 10000 }).catch(() => {});
-
-    setMyTrips(prev => [...prev, { ...newMeta, roomId: newRoomId }]);
-    setShowCreateModal(false);
-    window.history.pushState(null, '', `?room=${newRoomId}`);
-    setActiveRoomId(newRoomId);
-
-    setNewTitle(""); setNewDest(""); setNewStart(""); setNewEnd(""); setNewMembers(["主辦人"]); setNewThemeColor("#3b82f6");
+    if (tripModalMode === 'create') {
+      const newRoomId = generateId();
+      const initialItinerary = {};
+      for (let i = 1; i <= diffDays; i++) initialItinerary[`Day ${i}`] = [];
+      if (db) void set(ref(db, `rooms/${newRoomId}`), { meta: newMeta, itinerary: initialItinerary, expenses: [], budget: 10000 }).catch(() => {});
+      setMyTrips(prev => [...prev, { ...newMeta, roomId: newRoomId }]);
+      setTripModalMode(null);
+      window.history.pushState(null, '', `?room=${newRoomId}`);
+      setActiveRoomId(newRoomId);
+    } else {
+      const roomId = tripModalMode;
+      if (db) void set(ref(db, `rooms/${roomId}/meta`), newMeta).catch(() => {});
+      setMyTrips(prev => prev.map(t => t.roomId === roomId ? { ...newMeta, roomId } : t));
+      setTripModalMode(null);
+    }
   };
 
   const openTrip = (roomId) => { window.history.pushState(null, '', `?room=${roomId}`); setActiveRoomId(roomId); };
@@ -1342,7 +1324,7 @@ export default function TravelApp() {
               📥 匯入行程
             </button>
 
-            <button onClick={() => setShowCreateModal(true)} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2">
+            <button onClick={openCreateModal} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2">
               <span>➕</span> <span>新增旅程</span>
             </button>
           </div>
@@ -1363,7 +1345,12 @@ export default function TravelApp() {
                 <div key={String(trip.roomId)} onClick={() => openTrip(trip.roomId)} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 hover:shadow-2xl ${cTheme.cardBorder}`}>
                   <div className="flex justify-between items-start mb-4">
                     <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${cTheme.isLight ? 'bg-black/5 text-slate-700 border-black/10' : 'bg-white/20 text-white border-white/30'}`}>{String(trip.transport)}</span>
-                    <button onClick={(e) => { e.stopPropagation(); if(window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) setMyTrips(prev => prev.filter(tripItem => tripItem.roomId !== trip.roomId)); }} className={`text-xs p-1 transition-colors hover:text-red-500 ${cTheme.subText}`}>移除</button>
+
+                    {/* 🌟 新增：卡片上的操作選單 (包含編輯與移除) */}
+                    <div className="flex gap-2">
+                      <button onClick={(e) => openEditModal(e, trip)} className={`text-xs p-1 transition-colors hover:text-blue-500 ${cTheme.subText}`}>⚙️ 編輯</button>
+                      <button onClick={(e) => { e.stopPropagation(); if(window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) setMyTrips(prev => prev.filter(tripItem => tripItem.roomId !== trip.roomId)); }} className={`text-xs p-1 transition-colors hover:text-red-500 ${cTheme.subText}`}>移除</button>
+                    </div>
                   </div>
                   <h2 className={`text-2xl font-black mb-1.5 transition-colors line-clamp-2 ${cTheme.mainText}`}>{String(trip.title)}</h2>
                   <p className={`text-sm font-bold mb-5 truncate ${cTheme.subText}`}>📍 {String(trip.destination || '未定地點')}</p>
@@ -1397,10 +1384,20 @@ export default function TravelApp() {
         </div>
       )}
 
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4 transition-opacity" onClick={() => setShowCreateModal(false)}>
+      {/* 🌟 建立 / 編輯 旅程共用表單 */}
+      {tripModalMode && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4 transition-opacity" onClick={() => setTripModalMode(null)}>
           <div className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh] animate-in zoom-in-95 duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
-            <h2 className={`text-2xl font-black mb-6 ${t.mainText}`}>建立新旅程 🛫</h2>
+            <h2 className={`text-2xl font-black mb-6 ${t.mainText}`}>
+              {tripModalMode === 'create' ? '建立新旅程 🛫' : '編輯旅程設定 ⚙️'}
+            </h2>
+
+            {tripModalMode !== 'create' && (
+              <div className="mb-5 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-500 text-xs font-bold leading-relaxed">
+                💡 溫馨提示：修改日期會自動「平移」您的行程。若您縮短了天數，超出的行程會自動被移入最後一天，絕不丟失！
+              </div>
+            )}
+
             <div className="space-y-5">
               <div>
                 <label className={`block text-xs font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>旅程專屬顏色</label>
@@ -1456,8 +1453,10 @@ export default function TravelApp() {
               </div>
             </div>
             <div className={`flex justify-end gap-3 mt-8 pt-5 border-t ${t.cardBorder}`}>
-              <button onClick={() => setShowCreateModal(false)} className={`px-5 py-2.5 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
-              <button onClick={handleCreateTrip} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">確認建立</button>
+              <button onClick={() => setTripModalMode(null)} className={`px-5 py-2.5 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
+              <button onClick={handleSaveTripModal} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">
+                {tripModalMode === 'create' ? '確認建立' : '儲存變更'}
+              </button>
             </div>
           </div>
         </div>
