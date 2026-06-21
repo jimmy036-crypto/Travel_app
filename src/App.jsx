@@ -25,7 +25,6 @@ const firebaseConfig = {
   appId: "1:799003437379:web:ebd86771e42353726aa7f6",
   measurementId: "G-87H0LM24ZD"
 };
-
 let db = null;
 try {
   if (firebaseConfig.apiKey && !firebaseConfig.apiKey.includes("請替換")) {
@@ -38,13 +37,13 @@ try {
 const API_KEY = 'AIzaSyAieyVaZA3vohEdf07yrk_9OYgsqXLfUmg';
 
 // 🌟 版本更新通知
-const APP_VERSION = "v1.5.0";
+const APP_VERSION = "v1.5.1";
 const RELEASE_NOTES = {
   version: APP_VERSION,
   date: "2026/06/21",
   features: [
-    "🐛 終極修復地圖雷達：解決地圖 ID 綁定問題，現在搜尋美食和點擊「周邊」，地圖終於會精準飛過去了！",
-    "🎯 強化周邊搜尋：點擊周邊時，雷達會強制鎖定在該景點 1.5 公里內進行深度掃描。"
+    "🐛 核心功能修正：補回在上個版本重構時不小心漏掉的「共編連結」功能按鈕！",
+    "🎨 視覺優化：共編按鈕完美融入智慧玻璃擬物化風格。"
   ]
 };
 
@@ -368,7 +367,6 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
 // 🗺️ 地圖與路線組件
 // ============================================================================
 const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
-  // 🌟 加入 'main-map' 綁定 ID
   const map = useMap('main-map');
   const routesLib = useMapsLibrary('routes');
 
@@ -479,7 +477,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const [exploreResults, setExploreResults] = useState([]);
   const [selectedExploreItem, setSelectedExploreItem] = useState(null);
 
-  // 🌟 修復核心：綁定 `main-map` ID，成功獲取地圖實體
   const map = useMap('main-map');
   const isRemoteUpdateRef = useRef(false);
 
@@ -598,7 +595,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     navigator.clipboard.writeText(url).then(() => { alert(db ? `🔗 已複製 ${meta.title} 的共編連結！` : "⚠️ 尚未設定 Firebase！"); }).catch(() => {});
   }, [roomId, meta?.title]);
 
-  // 🌟 修復後的地圖雷達搜尋功能
   const handleExploreSearch = (customQuery = null, customLocation = null) => {
     const q = typeof customQuery === 'string' ? customQuery : exploreQuery;
     if (!q.trim() || !placesLib || !map) return;
@@ -606,12 +602,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     const service = new placesLib.PlacesService(map);
     const request = { query: q };
 
-    // 如果是點擊「周邊」過來的，強制鎖定在該景點 1.5 公里內
     if (customLocation) {
       request.location = customLocation;
       request.radius = 1500;
     } else {
-      // 否則就在目前地圖可視範圍內搜尋
       const bounds = map.getBounds();
       if (bounds) {
         request.bounds = bounds;
@@ -627,8 +621,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       if (status === window.google.maps.places.PlacesServiceStatus.OK && results && results.length > 0) {
         setExploreResults(results);
         setSelectedExploreItem(null);
-
-        // 如果是一般搜尋，自動飛往第一個結果
         if (!customLocation) {
           map.panTo(results[0].geometry.location);
           map.setZoom(15);
@@ -640,10 +632,8 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     });
   };
 
-  // 🌟 點擊周邊時：切換分頁 -> 等待地圖渲染 -> 飛越 -> 執行搜尋
   const handleSearchNearby = (item) => {
     setActiveTab("map");
-    // 稍微延遲以確保手機版切換 Tab 後地圖完成渲染
     setTimeout(() => {
       if (map) {
         const loc = new window.google.maps.LatLng(item.lat, item.lng);
@@ -723,6 +713,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     <button onClick={() => setActiveTab('plan')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab !== 'expense' ? 'bg-blue-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>📋 行程</button>
                     <button onClick={() => setActiveTab('expense')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'expense' ? 'bg-emerald-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>💰 記帳</button>
                   </div>
+                  {/* 🌟 重新補回不小心刪除的「共編連結」按鈕 */}
+                  <button onClick={handleShareLink} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-[10px] font-bold transition-transform active:scale-95 shadow-md">
+                    🔗 共編連結
+                  </button>
                 </div>
               </div>
 
@@ -814,7 +808,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     </button>
                   </div>
                   <div className="mt-5">
-                    <div className={`flex justify-between text-[10px] mb-1.5 font-bold ${t.subText}`}><span>目前花費 {budgetPercent.toFixed(1)}%</span><span className={isOverBudget ? 'text-red-500' : 'text-emerald-500'}>{isOverBudget ? `超支 $${(totalExpense - budget).toLocaleString()}!` : `剩餘 $${(budget - totalExpense).toLocaleString()}`}</span></div>
+                    <div className={`flex justify-between text-[10px] mb-1.5 font-bold ${t.subText}`}><span>目前花費 {budgetPercent.toFixed(1)}%</span><span className={isOverBudget ? 'text-red-400' : 'text-emerald-400'}>{isOverBudget ? `超支 $${(totalExpense - budget).toLocaleString()}!` : `剩餘 $${(budget - totalExpense).toLocaleString()}`}</span></div>
                     <div className={`flex w-full h-3 rounded-full overflow-hidden border ${t.cardBg} ${t.cardBorder}`}>
                       {totalExpense === 0 ? null : isOverBudget ? <div className="bg-red-500 h-full w-full animate-pulse"></div> : (
                         <div style={{ width: `${budgetPercent}%` }} className="bg-blue-500 h-full transition-all duration-500"></div>
@@ -838,7 +832,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                           <div key={String(day)} className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
                             <div className="flex justify-between items-center mb-4">
                               <h3 className={`font-bold ${t.mainText}`}>{title} <span className={`text-xs font-normal ml-1 ${t.subText}`}>{dateStr}</span></h3>
-                              <span className="text-xs text-emerald-500 font-mono font-bold">${items.reduce((a,b)=>a+(Number(b.cost)||0),0).toLocaleString()}</span>
+                              <span className="text-xs text-emerald-400 font-mono font-bold">${items.reduce((a,b)=>a+(Number(b.cost)||0),0).toLocaleString()}</span>
                             </div>
                             <div className="space-y-2.5">
                               {items.map(e => {
@@ -877,9 +871,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                               <div key={member} className={`flex justify-between items-center p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
                                 <span className={`font-bold ${t.mainText}`}>{member}</span>
                                 {isPositive ? (
-                                  <span className="text-emerald-500 font-mono font-bold">應收回 +${balance.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})}</span>
+                                  <span className="text-emerald-400 font-mono font-bold">應收回 +${balance.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})}</span>
                                 ) : isNegative ? (
-                                  <span className="text-red-500 font-mono font-bold">須支付 -${Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})}</span>
+                                  <span className="text-red-400 font-mono font-bold">須支付 -${Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})}</span>
                                 ) : (
                                   <span className={`font-mono font-bold ${t.subText}`}>已結清 $0</span>
                                 )}
@@ -943,7 +937,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 </div>
               </div>
 
-              {/* 🌟 加入 id="main-map" 解決綁定 Bug */}
               <Map id="main-map" defaultCenter={{lat: 22.99, lng: 120.20}} defaultZoom={13} mapId={'739af384c474cc02'}>
                 <Directions itinerary={itinerary} dayId={safeCurrentDay} onRouteCalculated={handleRouteCalculated} />
 
@@ -981,7 +974,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
             </div>
           </div>
 
-          <div className={`flex md:hidden border-t h-20 shrink-0 z-30 shadow-[0_-10px_20px_rgba(0,0,0,0.1)] pb-safe backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
+          <div className={`flex p-1.5 border-t h-20 shrink-0 z-30 shadow-[0_-10px_20px_rgba(0,0,0,0.1)] pb-safe backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
             <button onClick={() => setActiveTab("plan")} className={`flex-1 pt-3 flex flex-col items-center transition-all ${activeTab === "plan" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>📋<span className="text-[10px] mt-1 font-bold">行程</span></button>
             <button onClick={() => setActiveTab("map")} className={`flex-1 pt-3 flex flex-col items-center transition-all ${activeTab === "map" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>🗺️<span className="text-[10px] mt-1 font-bold">地圖</span></button>
             <button onClick={() => setActiveTab("expense")} className={`flex-1 pt-3 flex flex-col items-center transition-all ${activeTab === "expense" ? "text-emerald-500 font-bold -translate-y-1" : t.subText}`}>💰<span className="text-[10px] mt-1 font-bold">記帳</span></button>
@@ -1199,7 +1192,7 @@ export default function TravelApp() {
                   {newMembers.map((m, idx) => (
                     <span key={String(m) + idx} className="bg-blue-500/10 text-blue-500 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 border border-blue-500/20 shadow-sm">
                       {String(m)}
-                      <button onClick={() => setNewMembers(newMembers.filter(name => name !== m))} className="hover:text-red-500 transition-colors">✕</button>
+                      <button onClick={() => setNewMembers(newMembers.filter(name => name !== m))} className="hover:text-red-400 transition-colors">✕</button>
                     </span>
                   ))}
                   {showAddMember ? (
