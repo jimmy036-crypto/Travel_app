@@ -1,0 +1,29 @@
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getDatabase } from "firebase/database";
+import { getStorage } from "firebase/storage";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCRSUxkb9SFmhyJzlsIMhJOcB8d-vOWp7E",
+  authDomain: "travel-app-923ef.firebaseapp.com",
+  databaseURL: "https://travel-app-923ef-default-rtdb.firebaseio.com/", // 👈 請確認你有去資料庫頁面複製這串！
+  projectId: "travel-app-923ef",
+  storageBucket: "travel-app-923ef.firebasestorage.app",
+  messagingSenderId: "799003437379",
+  appId: "1:799003437379:web:ebd86771e42353726aa7f6",
+  measurementId: "G-87H0LM24ZD"
+};
+
+const initFirebase = () => {
+  if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes("請替換")) {
+    return { db: null, storage: null };
+  }
+  try {
+    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+    return { db: getDatabase(app), storage: getStorage(app) };
+  } catch (err) {
+    console.warn("Firebase Init Error:", err);
+    return { db: null, storage: null };
+  }
+};
+
+export const { db, storage } = initFirebase();

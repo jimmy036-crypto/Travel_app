@@ -1,159 +1,25 @@
-// noinspection SpellCheckingInspection,JSUnresolvedReference,JSDeprecatedSymbols
+// ============================================================================
+// (1) 模組引入與全局設定 (Imports & Global Setup)
+// ============================================================================
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import {
-  APIProvider,
-  Map,
-  AdvancedMarker,
-  Pin,
-  useMapsLibrary,
-  useMap
-} from '@vis.gl/react-google-maps';
+import { APIProvider, Map, AdvancedMarker, Pin, useMapsLibrary, useMap } from '@vis.gl/react-google-maps';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getDatabase, ref as dbRef, onValue, set } from "firebase/database";
-import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
-// ============================================================================
-// ⚙️ 系統設定與常數 (Config & Constants)
-// ============================================================================
-const firebaseConfig = {
-  apiKey: "AIzaSyCRSUxkb9SFmhyJzlsIMhJOcB8d-vOWp7E",
-  authDomain: "travel-app-923ef.firebaseapp.com",
-  databaseURL: "https://travel-app-923ef-default-rtdb.firebaseio.com/", // 👈 請確認你有去資料庫頁面複製這串！
-  projectId: "travel-app-923ef",
-  storageBucket: "travel-app-923ef.firebasestorage.app",
-  messagingSenderId: "799003437379",
-  appId: "1:799003437379:web:ebd86771e42353726aa7f6",
-  measurementId: "G-87H0LM24ZD"
-};
+import { db, storage } from "./firebase";
+import { ref as dbRef, onValue, set } from "firebase/database";
+import { ref as sRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { API_KEY, APP_VERSION, RELEASE_NOTES, CATEGORIES, TAG_OPTIONS } from "./constants";
+import { getDayDisplay, generateId, getThemeClasses, getExploreIcon, timeToMins, minsToTime, formatStayTime, safeUrlFormatter } from "./helpers";
 
-const initFirebase = () => {
-  if (!firebaseConfig.apiKey || firebaseConfig.apiKey.includes("請替換")) return { db: null, storage: null };
-  try {
-    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-    return { db: getDatabase(app), storage: getStorage(app) };
-  } catch (err) {
-    console.warn("Firebase Init Error:", err);
-    return { db: null, storage: null };
-  }
-};
-const { db, storage } = initFirebase();
-
-const API_KEY = 'AIzaSyAieyVaZA3vohEdf07yrk_9OYgsqXLfUmg';
-
-const APP_VERSION = "v2.4.2";
-const RELEASE_NOTES = {
-  version: APP_VERSION,
-  date: "2026/06/22",
-  features: [
-    "✅ 新增共用票券夾：與隊友共享機票、車票、門票或飯店確認單，重要附件不再零散。",
-    "📸 支援檔案上傳：可直接上傳票券圖片或 PDF 檔（如電子機票），方便隨時開啟查驗。",
-    "🔗 支援網址連結：可貼上第三方訂房網站或活動頁面的超連結，一鍵跳轉。",
-    "👤 專屬持有人設定：每張票券可標記特定的使用者或「所有人」，分工清楚。",
-    "📝 備註功能：可在票券上塞入座位號碼、通關密碼等重要小細節。",
-    "🔍 全螢幕驗票模式：點擊圖片立即進入高亮度全螢幕，亮出螢幕直接讓站務人員掃碼。",
-    "🛡️ 穩定性與效能優化：修正上傳邏輯與介面顯示，確保開啟票券夾時順暢不卡頓。"
-  ]
-};
-
-const CATEGORIES = [
-  { id: 'food', icon: '🍔', label: '飲食', color: 'bg-orange-500', text: 'text-orange-500' },
-  { id: 'transport', icon: '🚗', label: '交通', color: 'bg-blue-500', text: 'text-blue-500' },
-  { id: 'stay', icon: '🏠', label: '住宿', color: 'bg-indigo-500', text: 'text-indigo-500' },
-  { id: 'ticket', icon: '🎫', label: '門票', color: 'bg-pink-500', text: 'text-pink-500' },
-  { id: 'shop', icon: '🛍️', label: '購物', color: 'bg-purple-500', text: 'text-purple-500' },
-  { id: 'other', icon: '💡', label: '其他', color: 'bg-slate-500', text: 'text-slate-400' }
-];
-
-const TAG_OPTIONS = ["需預約", "必吃", "必買", "不可刷卡", "排隊名店", "拍照點"];
-
-// ============================================================================
-// 🛠️ 實用工具函式與全局主題引擎 (Theme Engine)
-// ============================================================================
-const getDayDisplay = (dayId, startDateStr) => {
-  const safeDayId = String(dayId || "");
-  const dayNum = parseInt(safeDayId.replace('Day ', ''), 10) || 1;
-  const chineseNum = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十"];
-  const dayLabel = `第${chineseNum[dayNum] || dayNum}天`;
-  if (!startDateStr) return { title: dayLabel, dateStr: "" };
-  const dateObj = new Date(String(startDateStr));
-  if (isNaN(dateObj.getTime())) return { title: dayLabel, dateStr: "" };
-  dateObj.setDate(dateObj.getDate() + dayNum - 1);
-  return { title: dayLabel, dateStr: `${dateObj.getMonth() + 1}/${dateObj.getDate()} (${['日', '一', '二', '三', '四', '五', '六'][dateObj.getDay()]})` };
-};
-
-const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-
-const getBrightness = (hex) => {
-  const c = String(hex || '#000000').replace('#', '');
-  const r = parseInt(c.substring(0, 2), 16) || 0;
-  const g = parseInt(c.substring(2, 4), 16) || 0;
-  const b = parseInt(c.substring(4, 6), 16) || 0;
-  return (r * 299 + g * 587 + b * 114) / 1000;
-};
-
-const getThemeClasses = (hex) => {
-  const isLight = getBrightness(hex) > 150;
-  return {
-    isLight,
-    mainText: isLight ? 'text-slate-900' : 'text-slate-100',
-    subText: isLight ? 'text-slate-600' : 'text-slate-300',
-    cardBg: isLight ? 'bg-white/60' : 'bg-black/40',
-    cardBorder: isLight ? 'border-black/10' : 'border-white/10',
-    cardHover: isLight ? 'hover:bg-white/80 hover:border-blue-400' : 'hover:bg-black/60 hover:border-blue-500',
-    cardMetaBg: isLight ? 'bg-black/5' : 'bg-white/5',
-    inputBg: isLight ? 'bg-white/80' : 'bg-black/50',
-    modalBg: isLight ? 'bg-white/95' : 'bg-black/90',
-    sidebarBg: isLight ? 'bg-white/50' : 'bg-black/50',
-    headerBg: isLight ? 'bg-white/70' : 'bg-black/70',
-    itemBg: isLight ? 'bg-white/80' : 'bg-black/40',
-    itemHover: isLight ? 'hover:border-black/30' : 'hover:border-white/30',
-    expenseBlockBg: isLight ? 'bg-black/5' : 'bg-black/20',
-  };
-};
-
-const getExploreIcon = (query) => {
-  const q = String(query || "").toLowerCase();
-  if (q.includes("停車") || q.includes("parking")) return { text: "🅿️", bg: "#64748b", border: "#475569" };
-  if (q.includes("咖啡") || q.includes("cafe") || q.includes("coffee")) return { text: "☕", bg: "#78350f", border: "#451a03" };
-  if (q.includes("超市") || q.includes("便利") || q.includes("mart") || q.includes("market")) return { text: "🛒", bg: "#16a34a", border: "#14532d" };
-  if (q.includes("景點") || q.includes("公園") || q.includes("park")) return { text: "📸", bg: "#db2777", border: "#9d174d" };
-  if (q.includes("住宿") || q.includes("飯店") || q.includes("hotel")) return { text: "🏨", bg: "#4f46e5", border: "#312e81" };
-  return { text: "📍", bg: "#f97316", border: "#c2410c" };
-};
-
-const timeToMins = (timeStr) => {
-  if (!timeStr) return 0;
-  const [h, m] = String(timeStr).split(':').map(Number);
-  return (h || 0) * 60 + (m || 0);
-};
-
-const minsToTime = (mins) => {
-  const safeMins = Number(mins);
-  if (isNaN(safeMins)) return "";
-  const h = Math.floor(safeMins / 60) % 24;
-  const m = safeMins % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-};
-
-const formatStayTime = (mins) => {
-  const m = Number(mins);
-  if (isNaN(m) || m <= 0) return "🚶‍♂️ 僅經過";
-  if (m < 60) return `${m} 分鐘`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  return rm === 0 ? `${h} 小時` : `${h} 小時 ${rm} 分鐘`;
-};
-
-const safeUrlFormatter = (urlStr) => {
-  const s = String(urlStr || "").trim();
-  if (!s) return "";
-  if (!/^https?:\/\//i.test(s)) return `https://${s}`;
-  return s;
+const useBodyScrollLock = () => {
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = 'unset'; };
+  }, []);
 };
 
 // ============================================================================
-// 🧩 共用組件 (Shared Components)
+// (2) 輕量級 UI 元件 (Loading, UpdateNotice, MemoView, PlaceDetails)
 // ============================================================================
 const LoadingSpinner = ({ t }) => (
   <div className="flex flex-col items-center justify-center h-full w-full bg-transparent">
@@ -162,45 +28,51 @@ const LoadingSpinner = ({ t }) => (
   </div>
 );
 
-const UpdateNoticeModal = ({ notes, onClose, t }) => (
-  <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-300 flex items-center justify-center p-4 transition-opacity" onClick={() => onClose()}>
-    <div className={`border rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
-      <div className="text-center mb-6">
-        <span className="text-6xl mb-4 block drop-shadow-md">🎉</span>
-        <h2 className={`text-2xl font-black mb-1 ${t.mainText}`}>App 更新完成！</h2>
-        <p className={`text-xs font-bold ${t.subText}`}>最新版本 {String(notes.version)} • {String(notes.date)}</p>
+const UpdateNoticeModal = ({ notes, onClose, t }) => {
+  useBodyScrollLock();
+  /** @type {any[]} */
+  const features = Array.isArray(notes.features) ? notes.features : [];
+  return (
+    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity" onClick={() => onClose()}>
+      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
+        <div className="text-center mb-6">
+          <span className="text-6xl mb-4 block drop-shadow-md">🎉</span>
+          <h2 className={`text-2xl font-black mb-1 ${t.mainText}`}>App 更新完成！</h2>
+          <p className={`text-xs font-bold ${t.subText}`}>最新版本 {String(notes.version)} • {String(notes.date)}</p>
+        </div>
+        <div className={`p-5 rounded-2xl border mb-8 space-y-4 shadow-inner overflow-y-auto max-h-[50vh] ${t.cardBg} ${t.cardBorder}`}>
+          {features.map((feat, idx) => (
+            <div key={`feat-${idx}`} className="flex items-start gap-2">
+              <p className={`text-sm font-medium leading-relaxed ${t.mainText}`}>{String(feat)}</p>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => onClose()} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
+          太棒了，開始使用！
+        </button>
       </div>
-      <div className={`p-5 rounded-2xl border mb-8 space-y-4 shadow-inner ${t.cardBg} ${t.cardBorder}`}>
-        {RELEASE_NOTES.features.map((feat, idx) => (
-          <div key={`feat-${idx}`} className="flex items-start gap-2">
-            <p className={`text-sm font-medium leading-relaxed ${t.mainText}`}>{String(feat)}</p>
-          </div>
-        ))}
-      </div>
-      <button onClick={() => onClose()} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
-        太棒了，開始使用！
-      </button>
     </div>
-  </div>
-);
+  );
+};
 
 const MemoViewModal = ({ item, onClose, t }) => {
+  useBodyScrollLock();
   if (!item) return null;
   const displayName = item.customName || item.name;
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-300 flex items-center justify-center p-4 transition-opacity animate-in fade-in" onClick={() => onClose()}>
-      <div className={`border rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
-        <div className="flex justify-between items-start mb-4 border-b pb-4">
-          <div>
-            <h3 className={`text-lg font-black leading-tight ${t.mainText}`}>📝 {String(displayName)}</h3>
+    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity animate-in fade-in overflow-hidden" onClick={() => onClose()}>
+      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col max-h-[85vh] ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-start mb-4 border-b pb-4 shrink-0">
+          <div className="flex-1 min-w-0 pr-4">
+            <h3 className={`text-lg font-black leading-tight truncate ${t.mainText}`}>📝 {String(displayName)}</h3>
             <p className={`text-[10px] mt-1 ${t.subText}`}>筆記與備註</p>
           </div>
-          <button onClick={() => onClose()} className={`text-lg hover:text-red-500 transition-colors ${t.subText}`}>✕</button>
+          <button onClick={() => onClose()} className={`w-8 h-8 rounded-full flex items-center justify-center bg-slate-500/10 hover:bg-red-500 hover:text-white transition-colors shrink-0 ${t.subText}`}>✕</button>
         </div>
-        <div className={`p-5 rounded-xl border min-h-32 ${t.cardBg} ${t.cardBorder}`}>
-          <p className={`text-sm whitespace-pre-wrap leading-relaxed ${t.mainText}`}>{String(item.memo)}</p>
+        <div className={`p-5 rounded-xl border overflow-y-auto overscroll-contain flex-1 ${t.cardBg} ${t.cardBorder}`}>
+          <p className={`text-sm whitespace-pre-wrap wrap-break-word leading-relaxed ${t.mainText}`}>{String(item.memo)}</p>
         </div>
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6 flex justify-end shrink-0">
            <button onClick={() => onClose()} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md active:scale-95 transition-all">關閉</button>
         </div>
       </div>
@@ -209,40 +81,47 @@ const MemoViewModal = ({ item, onClose, t }) => {
 };
 
 const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle, t, isFetching }) => {
+  useBodyScrollLock();
   if (!place) return null;
+
+  /** @type {any[]} */
+  const photos = Array.isArray(place.photos) ? place.photos : [];
+  /** @type {any[]} */
+  const reviews = Array.isArray(place.reviews) ? place.reviews : [];
+
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-300 flex items-center justify-center p-4 transition-opacity animate-in fade-in" onClick={() => onClose()}>
-      <div className={`border rounded-3xl p-0 w-full max-w-lg shadow-2xl flex flex-col overflow-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
-        <div className={`p-5 border-b sticky top-0 z-10 backdrop-blur-xl ${t.cardBg} ${t.cardBorder} flex justify-between items-start gap-4`}>
-          <div>
-            <h2 className={`text-xl font-black leading-tight mb-1 ${t.mainText}`}>{String(place.name)}</h2>
+    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 transition-opacity animate-in fade-in overflow-hidden w-full max-w-[100vw]" onClick={() => onClose()}>
+      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-0 w-full max-w-lg shadow-2xl flex flex-col overflow-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
+        <div className={`p-5 border-b sticky top-0 z-10 backdrop-blur-xl ${t.cardBg} ${t.cardBorder} flex justify-between items-start gap-4 shrink-0`}>
+          <div className="flex-1 min-w-0">
+            <h2 className={`text-xl font-black leading-tight mb-1 wrap-break-word ${t.mainText}`}>{String(place.name)}</h2>
             <p className={`text-[11px] truncate ${t.subText}`}>{String(place.formatted_address || place.vicinity)}</p>
-            <div className="flex items-center gap-3 mt-3">
+            <div className="flex items-center flex-wrap gap-2 mt-3">
               {place.rating ? <span className="bg-orange-500/10 text-orange-600 px-2 py-0.5 rounded-md text-xs font-bold border border-orange-500/20">⭐ {String(place.rating)}</span> : null}
               {place.user_ratings_total ? <span className={`text-[11px] font-bold ${t.subText}`}>({String(place.user_ratings_total)} 則評論)</span> : null}
               {place.website ? <a href={safeUrlFormatter(place.website)} target="_blank" rel="noreferrer" className={`text-[11px] text-blue-500 hover:underline font-bold ml-2`}>🌐 官方網站</a> : null}
             </div>
             {isFetching ? <p className="text-xs text-blue-500 mt-2 font-bold animate-pulse">讀取照片與評論中...</p> : null}
           </div>
-          <button onClick={() => onClose()} className={`w-8 h-8 rounded-full bg-slate-500/10 flex items-center justify-center hover:bg-red-500 hover:text-white transition-colors shrink-0 ${t.subText}`}>✕</button>
+          <button onClick={() => onClose()} className={`w-10 h-10 rounded-full bg-slate-500/10 flex items-center justify-center text-xl hover:bg-red-500 hover:text-white transition-colors shrink-0 ${t.subText}`}>✕</button>
         </div>
         <div className="overflow-y-auto p-5 space-y-6 scrollbar-hide flex-1">
-          {Array.isArray(place.photos) && place.photos.length > 0 ? (
+          {photos.length > 0 ? (
             <div>
               <h3 className={`text-xs font-bold mb-3 uppercase tracking-wider ${t.subText}`}>照片總覽</h3>
               <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide snap-x">
-                {place.photos.slice(0, 8).map((photo, idx) => (
+                {photos.slice(0, 8).map((photo, idx) => (
                   <img key={`photo-${idx}`} src={photo.getUrl({ maxWidth: 400, maxHeight: 300 })} alt="現場照片" className={`h-32 w-auto object-cover rounded-xl border snap-center shrink-0 shadow-sm ${t.cardBorder}`} />
                 ))}
               </div>
             </div>
           ) : null}
-          {Array.isArray(place.reviews) && place.reviews.length > 0 ? (
+          {reviews.length > 0 ? (
             <div>
               <h3 className={`text-xs font-bold mb-3 uppercase tracking-wider ${t.subText}`}>精選評論</h3>
               <div className="space-y-3">
-                {place.reviews.slice(0, 5).map((review, idx) => (
-                  <div key={`review-${idx}`} className={`p-4 rounded-2xl border ${t.itemBg} ${t.cardBorder}`}>
+                {reviews.slice(0, 5).map((review, idx) => (
+                  <div key={`rev-${idx}`} className={`p-4 rounded-2xl border ${t.itemBg} ${t.cardBorder}`}>
                     <div className="flex items-center gap-3 mb-2">
                       <img src={review.profile_photo_url} alt="avatar" className="w-8 h-8 rounded-full shadow-sm" />
                       <div>
@@ -250,32 +129,32 @@ const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle,
                         <p className={`text-[10px] ${t.subText}`}>{String(review.relative_time_description)} • ⭐ {String(review.rating)}</p>
                       </div>
                     </div>
-                    <p className={`text-xs leading-relaxed opacity-90 line-clamp-3 ${t.mainText}`}>{String(review.text)}</p>
+                    <p className={`text-xs leading-relaxed opacity-90 line-clamp-3 wrap-break-word ${t.mainText}`}>{String(review.text)}</p>
                   </div>
                 ))}
               </div>
             </div>
           ) : null}
           {place.url ? (
-            <button onClick={() => window.open(safeUrlFormatter(place.url), '_blank')} className={`w-full py-3 rounded-xl border text-sm font-bold flex items-center justify-center gap-2 transition-colors hover:border-blue-500 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>
+            <button onClick={() => window.open(safeUrlFormatter(place.url), '_blank')} className={`w-full py-3 rounded-xl border text-base md:text-sm font-bold flex items-center justify-center gap-2 transition-colors hover:border-blue-500 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>
               🗺️ 在 Google Maps 中查看完整資訊
             </button>
           ) : null}
         </div>
 
         {onAdd ? (
-          <div className={`p-5 border-t bg-black/5 backdrop-blur-xl ${t.cardBorder}`}>
+          <div className={`p-5 border-t bg-black/5 backdrop-blur-xl shrink-0 ${t.cardBorder}`}>
              {exploreOriginItem ? (
                 <div className="flex gap-2">
-                  <button onClick={() => onAdd(place, 'before')} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-[11px] font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
+                  <button onClick={() => onAdd(place, 'before')} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm md:text-[11px] font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
                     加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」前
                   </button>
-                  <button onClick={() => onAdd(place, 'after')} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl text-[11px] font-bold shadow-lg shadow-emerald-500/30 transition-all active:scale-95">
+                  <button onClick={() => onAdd(place, 'after')} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl text-sm md:text-[11px] font-bold shadow-lg shadow-emerald-500/30 transition-all active:scale-95">
                     加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」後
                   </button>
                 </div>
               ) : (
-                <button onClick={() => onAdd(place, 'end')} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2">
+                <button onClick={() => onAdd(place, 'end')} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-base font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2">
                   <span>➕</span> 加入 {dayTitle} 行程
                 </button>
               )}
@@ -286,7 +165,11 @@ const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle,
   );
 };
 
+// ============================================================================
+// (3) 表單類 UI 元件 (DateRangePicker, ExpenseModal)
+// ============================================================================
 const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t }) => {
+  useBodyScrollLock();
   const normalize = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const [tempStart, setTempStart] = useState(() => initialStart ? normalize(new Date(String(initialStart))) : null);
   const [tempEnd, setTempEnd] = useState(() => initialEnd ? normalize(new Date(String(initialEnd))) : null);
@@ -309,6 +192,7 @@ const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t 
     const month = targetDate.getMonth();
     const lastDay = new Date(year, month + 1, 0).getDate();
     const firstDayIndex = targetDate.getDay();
+    /** @type {any[]} */
     const days = Array(firstDayIndex).fill(null);
     for(let i=1; i<=lastDay; i++) days.push(new Date(year, month, i));
 
@@ -316,7 +200,7 @@ const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t 
       <div className="flex-1 w-full md:w-1/2 shrink-0 p-1 md:p-4">
         <h3 className={`text-center font-bold mb-4 ${t.mainText}`}>{year} 年 {month + 1} 月</h3>
         <div className="grid grid-cols-7 text-center text-[11px] mb-2 gap-y-1 md:gap-y-2">
-          {['日','一','二','三','四','五','六'].map(d => <div key={`wd-${d}`} className={`font-bold pb-2 ${d==='日'||d==='六' ? 'text-red-500' : t.subText}`}>{d}</div>)}
+          {['日','一','二','三','四','五','六'].map((d,i) => <div key={`wd-${i}`} className={`font-bold pb-2 ${i===0||i===6 ? 'text-red-500' : t.subText}`}>{String(d)}</div>)}
           {days.map((d, i) => {
             if (!d) return <div key={`empty-${i}`}/>;
             const ts = d.getTime(); const sTime = tempStart?.getTime(); const eTime = tempEnd?.getTime();
@@ -338,9 +222,9 @@ const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t 
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4 transition-opacity animate-in fade-in" onClick={() => onClose()}>
-      <div className={`border rounded-3xl p-5 md:p-8 w-full max-w-2xl shadow-2xl flex flex-col ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-6"><h2 className={`text-xl font-black ${t.mainText}`}>選擇旅行日期</h2><button onClick={() => onClose()} className={`text-xl hover:text-red-500 transition-colors ${t.subText}`}>✕</button></div>
+    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity animate-in fade-in overflow-hidden w-full max-w-[100vw]" onClick={() => onClose()}>
+      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-5 md:p-8 w-full max-w-2xl shadow-2xl flex flex-col ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-6"><h2 className={`text-xl font-black ${t.mainText}`}>選擇旅行日期</h2><button onClick={() => onClose()} className={`w-10 h-10 flex items-center justify-center rounded-full bg-slate-500/10 text-xl hover:text-red-500 transition-colors ${t.subText}`}>✕</button></div>
         <div className={`flex justify-between items-center p-4 rounded-2xl border mb-6 text-sm font-bold text-center ${t.cardBg} ${t.cardBorder}`}>
            <div className="flex-1 flex flex-col"><span className={`text-[10px] uppercase mb-1 ${t.subText}`}>去程出發</span><span className={tempStart ? 'text-blue-500 text-base' : t.subText}>{formatStr(tempStart) || '-'}</span></div>
            <div className="w-px h-8 bg-slate-500/20 mx-2"></div>
@@ -351,47 +235,69 @@ const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onClose, t 
            <button onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))} className={`w-10 h-10 flex items-center justify-center rounded-full border shadow-sm active:scale-90 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>▶</button>
         </div>
         <div className="flex overflow-hidden">{renderMonth(0)}<div className="hidden md:block w-px bg-slate-500/10 mx-2"></div><div className="hidden md:block">{renderMonth(1)}</div></div>
-        <div className="mt-8"><button onClick={() => { if(tempStart && tempEnd) onConfirm(formatStr(tempStart), formatStr(tempEnd)); else alert('請點擊日期，選擇完整的出發與回程時間！'); }} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">確認日期區間</button></div>
+        <div className="mt-8"><button onClick={() => { if(tempStart && tempEnd) onConfirm(formatStr(tempStart), formatStr(tempEnd)); else alert('請點擊日期，選擇完整的出發與回程時間！'); }} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-base font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">確認日期區間</button></div>
       </div>
     </div>
   );
 };
 
 const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, onSave, t }) => {
-  const [item, setItem] = useState(""); const [cost, setCost] = useState(""); const [dayId, setDayId] = useState(defaultDay);
-  const [category, setCategory] = useState("food"); const [payer, setPayer] = useState(Array.isArray(members) && members.length > 0 ? members[0] : "自己");
-  const [splitType, setSplitType] = useState("EQUAL"); const [involved, setInvolved] = useState(Array.isArray(members) ? members : []);
-  const [customAmounts, setCustomAmounts] = useState(() => { const init = {}; (members || []).forEach(m => init[String(m)] = ""); return init; });
+  useBodyScrollLock();
+
+  /** @type {any[]} */
+  const validMembers = Array.isArray(members) ? members : [];
+  /** @type {any[]} */
+  const validDays = Array.isArray(existingDays) ? existingDays : [];
+
+  const [item, setItem] = useState("");
+  const [cost, setCost] = useState("");
+  const [dayId, setDayId] = useState(defaultDay);
+  const [category, setCategory] = useState("food");
+  const [payer, setPayer] = useState(validMembers.length > 0 ? validMembers[0] : "自己");
+  const [splitType, setSplitType] = useState("EQUAL");
+  const [involved, setInvolved] = useState(validMembers);
+  const [customAmounts, setCustomAmounts] = useState(() => {
+    /** @type {Record<string, string>} */
+    const init = {};
+    validMembers.forEach(m => { init[String(m)] = ""; });
+    return init;
+  });
 
   const handleSave = () => {
     if (!String(item).trim() || !cost || Number(cost) <= 0) return alert("請輸入有效的項目名稱與金額！");
-    const totalCost = Number(cost); const finalSplit = {};
+    const totalCost = Number(cost);
+    /** @type {Record<string, number>} */
+    const finalSplit = {};
+
     if (splitType === "EQUAL") {
-      if (!Array.isArray(involved) || involved.length === 0) return alert("請至少選擇一位參與分帳的人員！");
+      if (involved.length === 0) return alert("請至少選擇一位參與分帳的人員！");
       const splitAmount = Math.floor((totalCost / involved.length) * 100) / 100;
       let sum = 0;
-      involved.forEach((m, idx) => { if (idx === involved.length - 1) { finalSplit[String(m)] = Math.round((totalCost - sum) * 100) / 100; } else { finalSplit[String(m)] = splitAmount; sum += splitAmount; } });
-      (members || []).forEach(m => { if (!involved.includes(m)) finalSplit[String(m)] = 0; });
+      involved.forEach((m, idx) => {
+        if (idx === involved.length - 1) { finalSplit[String(m)] = Math.round((totalCost - sum) * 100) / 100; }
+        else { finalSplit[String(m)] = splitAmount; sum += splitAmount; }
+      });
+      validMembers.forEach(m => { if (!involved.includes(m)) finalSplit[String(m)] = 0; });
     } else {
       let customSum = 0;
-      (members || []).forEach(m => { const val = Number(customAmounts[String(m)]) || 0; finalSplit[String(m)] = val; customSum += val; });
+      validMembers.forEach(m => { const val = Number(customAmounts[String(m)]) || 0; finalSplit[String(m)] = val; customSum += val; });
       if (Math.abs(customSum - totalCost) > 1) return alert(`分帳總和 (${customSum}) 與總金額 (${totalCost}) 不符！`);
     }
     onSave({ id: generateId(), dayId: String(dayId), item: String(item).trim(), cost: totalCost, category: String(category), payer: String(payer), split: finalSplit });
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4 transition-opacity" onClick={() => onClose()}>
-      <div className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
+    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity overflow-hidden w-full max-w-[100vw]" onClick={() => onClose()}>
+      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
         <h2 className={`text-xl font-black mb-5 flex items-center gap-2 ${t.mainText}`}>💰 新增記帳</h2>
         <div className="overflow-y-auto pr-2 space-y-5 scrollbar-hide">
           <div className="flex gap-3">
-            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>項目名稱 *</label><input value={String(item)} onChange={e => setItem(e.target.value)} placeholder="ex: 晚餐燒肉" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>
-            <div className="w-1/3"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>總金額 *</label><input type="number" value={String(cost)} onChange={e => setCost(e.target.value)} placeholder="0" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border font-mono font-bold text-emerald-500 ${t.inputBg} ${t.cardBorder}`} /></div>
+            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>項目名稱 *</label><input value={String(item)} onChange={e => setItem(e.target.value)} placeholder="ex: 晚餐燒肉" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>
+            <div className="w-1/3"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>總金額 *</label><input type="number" value={String(cost)} onChange={e => setCost(e.target.value)} placeholder="0" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border font-mono font-bold text-emerald-500 text-sm ${t.inputBg} ${t.cardBorder}`} /></div>
           </div>
           <div className="flex gap-3">
-            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>日期</label><select value={String(dayId)} onChange={e => setDayId(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{(Array.isArray(existingDays) ? existingDays : []).map(d => <option key={`day-${d}`} value={String(d)}>{getDayDisplay(d, startDate).title} {getDayDisplay(d, startDate).dateStr}</option>)}</select></div>
-            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>誰先付的？</label><select value={String(payer)} onChange={e => setPayer(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{(Array.isArray(members) ? members : []).map(m => <option key={`payer-${m}`} value={String(m)}>{String(m)}</option>)}</select></div>
+            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>日期</label><select value={String(dayId)} onChange={e => setDayId(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{validDays.map(d => <option key={`day-${d}`} value={String(d)}>{getDayDisplay(d, startDate).title} {getDayDisplay(d, startDate).dateStr}</option>)}</select></div>
+            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>誰先付的？</label><select value={String(payer)} onChange={e => setPayer(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{validMembers.map(m => <option key={`payer-${m}`} value={String(m)}>{String(m)}</option>)}</select></div>
           </div>
           <div>
             <label className={`block text-[10px] font-bold mb-2 uppercase ${t.subText}`}>分類</label>
@@ -402,9 +308,9 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
           <div className={`p-4 rounded-2xl border ${t.cardMetaBg} ${t.cardBorder}`}>
             <div className="flex justify-between items-center mb-3"><label className={`text-xs font-bold ${t.subText}`}>分帳方式</label><div className={`flex rounded-lg p-1 border ${t.cardBg} ${t.cardBorder}`}><button onClick={() => setSplitType('EQUAL')} className={`px-3 py-1 text-[10px] font-bold rounded-md ${splitType === 'EQUAL' ? 'bg-blue-600 text-white' : t.subText}`}>勾選平分</button><button onClick={() => setSplitType('CUSTOM')} className={`px-3 py-1 text-[10px] font-bold rounded-md ${splitType === 'CUSTOM' ? 'bg-purple-600 text-white' : t.subText}`}>輸入自訂</button></div></div>
             {splitType === 'EQUAL' ? (
-              <div className="space-y-2"><p className={`text-[10px] mb-2 ${t.subText}`}>請勾選參與此筆消費的成員：</p><div className="flex flex-wrap gap-2">{(Array.isArray(members) ? members : []).map(m => <button key={`inv-${m}`} onClick={() => setInvolved(involved.includes(m) ? involved.filter(x => x !== m) : [...involved, m])} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${involved.includes(m) ? 'bg-blue-500/20 border-blue-500 text-blue-600' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>{involved.includes(m) ? '✓' : '○'} {String(m)}</button>)}</div>{Number(cost) > 0 && Array.isArray(involved) && involved.length > 0 ? <p className="text-[10px] text-emerald-500 font-mono mt-3 text-right font-bold">每人約負擔：${Math.round(Number(cost) / involved.length).toLocaleString()}</p> : null}</div>
+              <div className="space-y-2"><p className={`text-[10px] mb-2 ${t.subText}`}>請勾選參與此筆消費的成員：</p><div className="flex flex-wrap gap-2">{validMembers.map(m => <button key={`inv-${m}`} onClick={() => setInvolved(involved.includes(m) ? involved.filter(x => x !== m) : [...involved, m])} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${involved.includes(m) ? 'bg-blue-500/20 border-blue-500 text-blue-600' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>{involved.includes(m) ? '✓' : '○'} {String(m)}</button>)}</div>{Number(cost) > 0 && involved.length > 0 ? <p className="text-[10px] text-emerald-500 font-mono mt-3 text-right font-bold">每人約負擔：${Math.round(Number(cost) / involved.length).toLocaleString()}</p> : null}</div>
             ) : (
-              <div className="space-y-3"><p className={`text-[10px] ${t.subText}`}>請為每個人輸入精確金額：</p>{(Array.isArray(members) ? members : []).map(m => <div key={`cust-${m}`} className="flex justify-between items-center gap-3"><span className={`text-sm font-bold ${t.mainText}`}>{String(m)}</span><input type="number" value={String(customAmounts[String(m)] || "")} onChange={e => setCustomAmounts({...customAmounts, [String(m)]: e.target.value})} placeholder="0" className={`w-24 p-2 rounded-lg font-mono text-right outline-none focus:ring-2 focus:ring-purple-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>)}{Number(cost) > 0 ? <div className={`border-t pt-2 mt-2 flex justify-between items-center ${t.cardBorder}`}><span className={`text-xs ${t.subText}`}>目前總和</span><span className={`text-sm font-bold font-mono ${Object.values(customAmounts).reduce((a,b) => Number(a) + (Number(b)||0), 0) === Number(cost) ? 'text-emerald-500' : 'text-red-500'}`}>${Object.values(customAmounts).reduce((a,b) => Number(a) + (Number(b)||0), 0).toLocaleString()} / ${Number(cost).toLocaleString()}</span></div> : null}</div>
+              <div className="space-y-3"><p className={`text-[10px] ${t.subText}`}>請為每個人輸入精確金額：</p>{validMembers.map(m => <div key={`cust-${m}`} className="flex justify-between items-center gap-3"><span className={`text-sm font-bold ${t.mainText}`}>{String(m)}</span><input type="number" value={String(customAmounts[String(m)] || "")} onChange={e => setCustomAmounts({...customAmounts, [String(m)]: e.target.value})} placeholder="0" className={`w-24 p-2 rounded-lg font-mono text-right outline-none focus:ring-2 focus:ring-purple-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>)}{Number(cost) > 0 ? <div className={`border-t pt-2 mt-2 flex justify-between items-center ${t.cardBorder}`}><span className={`text-xs ${t.subText}`}>目前總和</span><span className={`text-sm font-bold font-mono ${Object.values(customAmounts).reduce((a,b) => Number(a) + (Number(b)||0), 0) === Number(cost) ? 'text-emerald-500' : 'text-red-500'}`}>${Object.values(customAmounts).reduce((a,b) => Number(a) + (Number(b)||0), 0).toLocaleString()} / ${Number(cost).toLocaleString()}</span></div> : null}</div>
             )}
           </div>
         </div>
@@ -414,8 +320,15 @@ const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, o
   );
 };
 
-// 🌟 防護型 TicketModal
+// ============================================================================
+// (4) 票券專屬彈窗 (TicketModal, FullscreenTicketModal)
+// ============================================================================
 const TicketModal = ({ members, onClose, onSave, t }) => {
+  useBodyScrollLock();
+
+  /** @type {any[]} */
+  const validMembers = Array.isArray(members) ? members : [];
+
   const [title, setTitle] = useState("");
   const [type, setType] = useState("image");
   const [url, setUrl] = useState("");
@@ -424,25 +337,40 @@ const TicketModal = ({ members, onClose, onSave, t }) => {
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
 
-  const ownerOptions = ["所有人", ...(Array.isArray(members) ? members : [])];
+  const ownerOptions = ["所有人", ...validMembers];
 
   const handleSave = async () => {
     if (!String(title).trim()) return alert("請輸入票券名稱！");
     let finalUrl = "";
     let finalType = type;
 
-    if (type === "image" && file) {
-      if (!storage) return alert("尚未設定 Firebase Storage，請改用網址連結！");
+    if (type === "image") {
+      if (!file) {
+        alert("請選擇圖片或 PDF 檔案！");
+        return;
+      }
+      if (!storage) {
+        alert("尚未設定 Firebase Storage，請改用網址連結！");
+        return;
+      }
       setUploading(true);
       try {
         const fileRef = sRef(storage, `tickets/${Date.now()}_${file.name}`);
         const uploadTask = await uploadBytes(fileRef, /** @type {any} */ (file));
-        finalUrl = await getDownloadURL(uploadTask.ref);
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 15000));
+
+        const snapshot = await Promise.race([uploadTask, timeoutPromise]);
+        finalUrl = await getDownloadURL(snapshot.ref);
         if (file.type === "application/pdf" || file.name.endsWith(".pdf")) finalType = "pdf";
       } catch (err) {
         console.warn(err);
         setUploading(false);
-        return alert("上傳失敗，請檢查 Firebase 設定或稍後再試！");
+        if (err && err.message === "Timeout") {
+           alert("⚠️ 上傳逾時！請檢查 Firebase 規則或網路連線。");
+        } else {
+           alert("上傳失敗，請稍後再試！");
+        }
+        return;
       }
     } else if (type === "link") {
       if (!String(url).trim()) return alert("請輸入有效的網址連結！");
@@ -462,17 +390,17 @@ const TicketModal = ({ members, onClose, onSave, t }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4" onClick={() => onClose()}>
-      <div className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
+    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => onClose()}>
+      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
         <h2 className={`text-xl font-black mb-5 flex items-center gap-2 ${t.mainText}`}>🎟️ 新增票券 / 附件</h2>
         <div className="overflow-y-auto pr-2 space-y-5 scrollbar-hide">
           <div>
             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>票券名稱 *</label>
-            <input value={String(title)} onChange={e => setTitle(e.target.value)} placeholder="ex: 關西周遊券" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <input value={String(title)} onChange={e => setTitle(e.target.value)} placeholder="ex: 關西周遊券" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
           </div>
           <div>
             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>使用分配人員</label>
-            <select value={String(owner)} onChange={e => setOwner(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+            <select value={String(owner)} onChange={e => setOwner(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                {ownerOptions.map(opt => <option key={`opt-${opt}`} value={String(opt)}>{String(opt)}</option>)}
             </select>
           </div>
@@ -482,18 +410,18 @@ const TicketModal = ({ members, onClose, onSave, t }) => {
           </div>
           {type === 'image' ? (
              <div className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 border-dashed ${t.cardBg} ${t.cardBorder}`}>
-                <input type="file" accept="image/*,application/pdf" onChange={e => setFile(e.target.files ? e.target.files[0] : null)} className={`text-xs ${t.mainText} w-full`} />
+                <input type="file" accept="image/*,application/pdf" onChange={e => setFile(e.target.files ? e.target.files[0] : null)} className={`text-base md:text-xs ${t.mainText} w-full`} />
                 {file ? <span className="text-[10px] text-emerald-400 font-bold mt-2">✅ 已選檔案: {file.name}</span> : null}
              </div>
           ) : (
             <div>
               <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>連結網址 *</label>
-              <input value={String(url)} onChange={e => setUrl(e.target.value)} placeholder="example.com" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+              <input value={String(url)} onChange={e => setUrl(e.target.value)} placeholder="example.com" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
             </div>
           )}
           <div>
             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>座位 / 備註</label>
-            <input value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="ex: 第2車 5B" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <input value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="ex: 第2車 5B" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
           </div>
         </div>
         <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}>
@@ -507,29 +435,228 @@ const TicketModal = ({ members, onClose, onSave, t }) => {
   );
 };
 
-const FullscreenTicketModal = ({ ticket, onClose }) => (
-  <div className="fixed inset-0 bg-black z-400 flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200" onClick={() => onClose()}>
-    <div className="flex justify-between items-center mb-8 mt-safe">
-       <div className="flex flex-col">
-          <h2 className="text-xl font-black text-white">{String(ticket.title)}</h2>
-          <span className="text-blue-400 text-xs font-bold mt-1">👤 尊屬持有人: {String(ticket.owner || '所有人')}</span>
-       </div>
-       <button onClick={() => onClose()} className="w-10 h-10 rounded-full bg-white/20 text-white flex items-center justify-center font-bold">✕</button>
-    </div>
-    <div className="flex-1 flex flex-col items-center justify-center pb-20">
-       <div className="bg-white p-4 rounded-3xl shadow-2xl w-full max-w-sm max-h-[70vh] flex items-center justify-center overflow-hidden">
-          <img src={ticket.url} alt="ticket" className="w-full h-full object-contain" />
-       </div>
-       {ticket.memo ? <p className="mt-8 text-white/80 text-sm bg-white/10 px-4 py-2 rounded-lg border border-white/20">{String(ticket.memo)}</p> : null}
-    </div>
-  </div>
-);
+const FullscreenTicketModal = ({ ticket, onClose }) => {
+  useEffect(() => {
+    let wakeLock = null;
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await navigator.wakeLock.request('screen');
+        }
+      } catch { /* ignore */ }
+    };
+    void requestWakeLock();
+    return () => { if (wakeLock) void wakeLock.release(); };
+  }, []);
 
-// 🌟 獨立出的地圖渲染防護元件
+  return (
+    <div style={{ zIndex: 99999 }} className="fixed inset-0 bg-white flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200" onClick={() => onClose()}>
+      <div className="flex justify-between items-center mb-8 mt-safe">
+         <div className="flex flex-col">
+            <h2 className="text-2xl font-black text-slate-900">{String(ticket.title)}</h2>
+            <span className="text-blue-600 text-sm font-bold mt-1">👤 尊屬持有人: {String(ticket.owner || '所有人')}</span>
+         </div>
+         <button onClick={() => onClose()} className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center font-bold text-xl shadow-sm">✕</button>
+      </div>
+      <div className="flex-1 flex flex-col items-center justify-center pb-20">
+         <img src={ticket.url} alt="ticket" className="w-full h-full max-h-[70vh] object-contain drop-shadow-xl" />
+         {ticket.memo ? <p className="mt-8 text-slate-700 text-base font-bold bg-slate-50 px-6 py-3 rounded-xl border border-slate-200 shadow-inner">{String(ticket.memo)}</p> : null}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// (5) 編輯與操作元件 (CopyItemModal, EditItemModal)
+// ============================================================================
+const CopyItemModal = ({ item, existingDays, onClose, onCopy, t }) => {
+  useBodyScrollLock();
+  /** @type {any[]} */
+  const validDays = Array.isArray(existingDays) ? existingDays : [];
+  const [targetDay, setTargetDay] = useState(validDays.length > 0 ? validDays[0] : "");
+
+  return (
+    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity animate-in fade-in overflow-hidden w-full max-w-[100vw]" onClick={() => onClose()}>
+      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-xs shadow-2xl flex flex-col ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
+        <h3 className={`text-lg font-black mb-2 ${t.mainText}`}>📋 複製景點</h3>
+        <p className={`text-xs mb-4 ${t.subText}`}>將「{String(item.customName || item.name)}」複製到：</p>
+        <select value={String(targetDay)} onChange={e => setTargetDay(e.target.value)} className={`w-full py-2.5 px-3 mb-6 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+           {validDays.map(d => <option key={`cd-${d}`} value={String(d)}>{String(d)}</option>)}
+        </select>
+        <div className="flex justify-end gap-3">
+          <button onClick={() => onClose()} className={`px-4 py-2 text-sm font-bold opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
+          <button onClick={() => onCopy(targetDay, item)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-md">確認複製</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const EditItemModal = ({ item, onSave, onClose, t }) => {
+  useBodyScrollLock();
+  const [customName, setCustomName] = useState(item.customName || "");
+  const [time, setTime] = useState(item.time || "");
+  const [stayTime, setStayTime] = useState(item.stayTime !== undefined ? item.stayTime : "0");
+  const [memo, setMemo] = useState(item.memo || "");
+  const [tags, setTags] = useState(Array.isArray(item.tags) ? item.tags : []);
+  const [autoCascade, setAutoCascade] = useState(true);
+
+  const [legMode, setLegMode] = useState(item.nextLeg?.mode || "AUTO");
+  const [legMins, setLegMins] = useState(item.nextLeg?.mins || 30);
+
+  const handleQuickTime = (addMins) => setStayTime(prev => String((Number(prev) || 0) + Number(addMins)));
+
+  return (
+    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity" onClick={() => onClose()}>
+      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] overflow-x-hidden animate-in fade-in zoom-in duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
+        <div className="mb-5 shrink-0">
+          <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>自訂地標名稱 (選填)</label>
+          <input
+             value={String(customName)}
+             onChange={e => setCustomName(e.target.value)}
+             placeholder={String(item.name)}
+             className={`w-full py-2 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-base md:text-lg font-black ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+          />
+          <p className={`text-[10px] truncate mt-2 ${t.subText}`}>🗺️ 原始地標：{String(item.name)}</p>
+        </div>
+
+        <div className="overflow-y-auto pr-2 space-y-5 scrollbar-hide flex-1">
+
+          {/* 🌟 核心排版修復：縮小間距(gap-2)，自訂寬度比例，強制設定高度(h-10)對抗 Safari */}
+          <div className="flex flex-row gap-2 items-end">
+            <div className="w-[55%] shrink-0">
+              <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>抵達時間</label>
+              <input
+                type="time"
+                value={String(time)}
+                onClick={e => { if ('showPicker' in e.target && typeof e.target.showPicker === 'function') e.target.showPicker(); }}
+                onChange={e => setTime(e.target.value)}
+                /* 加入 appearance-none 與 h-10 強制瘦身 */
+                className={`w-full h-10 px-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border cursor-pointer text-sm appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+              />
+            </div>
+            <div className="w-[45%] shrink-0">
+              <label className={`flex justify-between text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>
+                <span>停留(分鐘)</span>
+                <span className="text-blue-500 font-black">{formatStayTime(stayTime)}</span>
+              </label>
+              <input
+                type="number"
+                step="5"
+                value={String(stayTime)}
+                onChange={e => setStayTime(e.target.value)}
+                placeholder="0"
+                /* 加入 appearance-none 與 h-10 強制瘦身 */
+                className={`w-full h-10 px-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-1.5 -mt-2">
+            {[0, 30, 60].map(mins => <button key={`qt-${mins}`} onClick={() => {if(mins===0) setStayTime("0"); else handleQuickTime(mins);}} className={`flex-1 text-[10px] py-1.5 rounded-lg font-bold border transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>{mins === 0 ? '僅經過' : mins === 60 ? '+1小時' : '+'+mins+'分'}</button>)}
+          </div>
+
+          <div className={`p-4 rounded-xl border flex flex-col gap-3 ${t.cardBg} ${t.cardBorder}`}>
+            <label className={`block text-[10px] font-bold uppercase tracking-wider ${t.subText}`}>前往下一站的交通方式</label>
+            <div className="flex gap-3">
+              <select value={String(legMode)} onChange={e => setLegMode(e.target.value)} className={`flex-1 h-10 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm font-bold bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                <option value="AUTO">🚗 自動計算車程</option>
+                <option value="FLIGHT">✈️ 搭乘飛機</option>
+                <option value="TRAIN">🚅 火車/高鐵</option>
+                <option value="TRANSIT">🚇 大眾運輸</option>
+                <option value="WALK">🚶 步行前往</option>
+              </select>
+              {legMode !== 'AUTO' ? (
+                <div className="w-1/3 relative shrink-0">
+                  <input type="number" value={String(legMins)} onChange={e => setLegMins(e.target.value)} placeholder="分鐘" className={`w-full h-10 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm text-right pr-6 appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                  <span className={`absolute right-2 top-3 text-[10px] ${t.subText}`}>分</span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className={`p-3 rounded-xl border flex items-center justify-between ${t.cardBg} ${t.cardBorder}`}>
+            <div className="flex flex-col">
+               <span className={`text-xs font-bold ${t.mainText}`}>🔄 自動順延後續行程</span>
+               <span className={`text-[10px] mt-0.5 ${t.subText}`}>系統會根據車程重新計算後面的抵達時間</span>
+            </div>
+            <input type="checkbox" checked={autoCascade} onChange={e => setAutoCascade(e.target.checked)} className="w-5 h-5 cursor-pointer accent-blue-500 rounded" />
+          </div>
+
+          <div>
+            <label className={`block text-[10px] font-bold mb-2 uppercase tracking-wider ${t.subText}`}>快速狀態標籤</label>
+            <div className="flex flex-wrap gap-2">
+              {TAG_OPTIONS.map(tag => {
+                const isActive = tags.includes(tag);
+                return <button key={`tag-${tag}`} onClick={() => setTags(isActive ? tags.filter(x => x !== tag) : [...tags, tag])} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isActive ? 'bg-blue-600 border-transparent text-white shadow-lg' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>{String(tag)}</button>
+              })}
+            </div>
+          </div>
+          <div>
+            <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>筆記 / 備註</label>
+            <textarea value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="輸入你想記下的重點細節..." className={`w-full p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 min-h-20 resize-none transition-colors border text-sm bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+          </div>
+        </div>
+        <div className={`flex justify-end gap-3 mt-6 pt-5 border-t shrink-0 ${t.cardBorder}`}>
+          <button onClick={() => onClose()} className={`px-5 py-2 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
+          <button onClick={() => onSave({ ...item, customName: String(customName).trim(), time: String(time), stayTime: String(stayTime), memo: String(memo), tags, nextLeg: { mode: String(legMode), mins: Number(legMins) } }, autoCascade)} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">儲存變更</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// (6) 地圖輔助元件 (SearchBox, Directions)
+// ============================================================================
+const SearchBox = ({ dayId, onAddPlace, t }) => {
+  const [val, setVal] = useState("");
+  const [sug, setSug] = useState(/** @type {any[]} */ ([]));
+  const lib = useMapsLibrary('places');
+
+  const handleSearch = (e) => {
+    const v = String(e.target.value);
+    setVal(v);
+    if (!lib || v.length < 2) {
+      setSug([]);
+      return;
+    }
+    const service = new lib.AutocompleteService();
+    service.getPlacePredictions({ input: v, language: 'zh-TW' })
+      .then((res) => setSug(Array.isArray(res.predictions) ? res.predictions : []))
+      .catch(() => setSug([]));
+  };
+
+  const select = (p) => {
+    const el = document.createElement('div');
+    const service = new lib.PlacesService(el);
+    service.getDetails({ placeId: p.place_id }, (res, status) => {
+      if (status === window.google.maps.places.PlacesServiceStatus.OK && res && res.geometry) {
+         onAddPlace(dayId, res, String(p.place_id));
+      }
+      setVal("");
+      setSug([]);
+    });
+  };
+
+  return (
+    <div className="relative mb-4">
+      <input className={`w-full py-2.5 px-4 rounded-xl text-base md:text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} placeholder="新增行程地點..." value={String(val)} onChange={handleSearch} />
+      {Array.isArray(sug) && sug.length > 0 ? (
+        <div className={`absolute z-50 w-full mt-1 rounded-xl shadow-2xl border overflow-hidden text-xs backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>
+          {sug.map((s, i) => (
+            <div key={String(s.place_id || i)} onClick={() => select(s)} className={`p-3 cursor-pointer border-b transition-colors hover:opacity-80 ${t.mainText} ${t.cardBorder}`}>{String(s.description)}</div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
   const map = useMap('main-map');
   const routesLib = useMapsLibrary('routes');
-  const renderersRef = useRef([]);
+  const renderersRef = useRef(/** @type {any[]} */ ([]));
 
   useEffect(() => {
     if (!routesLib || !map || !dayId || !itinerary || !itinerary[dayId]) return;
@@ -555,8 +682,8 @@ const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
         }
         try {
           const res = await service.route({
-            origin: { lat: Number(origin.lat), lng: Number(origin.lng) },
-            destination: { lat: Number(dest.lat), lng: Number(dest.lng) },
+            origin: { lat: Number(origin.lat || 0), lng: Number(origin.lng || 0) },
+            destination: { lat: Number(dest.lat || 0), lng: Number(dest.lng || 0) },
             travelMode: window.google.maps.TravelMode.DRIVING
           });
           if (isCancelled) return;
@@ -584,173 +711,15 @@ const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
   return null;
 };
 
-const CopyItemModal = ({ item, existingDays, onClose, onCopy, t }) => {
-  const [targetDay, setTargetDay] = useState(Array.isArray(existingDays) ? existingDays[0] : "");
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-300 flex items-center justify-center p-4 transition-opacity animate-in fade-in" onClick={() => onClose()}>
-      <div className={`border rounded-3xl p-6 w-full max-w-xs shadow-2xl flex flex-col ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
-        <h3 className={`text-lg font-black mb-2 ${t.mainText}`}>📋 複製景點</h3>
-        <p className={`text-xs mb-4 ${t.subText}`}>將「{String(item.customName || item.name)}」複製到：</p>
-        <select value={String(targetDay)} onChange={e => setTargetDay(e.target.value)} className={`w-full py-2.5 px-3 mb-6 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
-           {(Array.isArray(existingDays) ? existingDays : []).map(d => <option key={String(d)} value={String(d)}>{String(d)}</option>)}
-        </select>
-        <div className="flex justify-end gap-3">
-          <button onClick={() => onClose()} className={`px-4 py-2 text-sm font-bold opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
-          <button onClick={() => onCopy(targetDay, item)} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-md">確認複製</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const EditItemModal = ({ item, onSave, onClose, t }) => {
-  const [customName, setCustomName] = useState(item.customName || "");
-  const [time, setTime] = useState(item.time || "");
-  const [stayTime, setStayTime] = useState(item.stayTime !== undefined ? item.stayTime : "0");
-  const [memo, setMemo] = useState(item.memo || "");
-  const [tags, setTags] = useState(Array.isArray(item.tags) ? item.tags : []);
-  const [autoCascade, setAutoCascade] = useState(true);
-
-  const [legMode, setLegMode] = useState(item.nextLeg?.mode || "AUTO");
-  const [legMins, setLegMins] = useState(item.nextLeg?.mins || 30);
-
-  const handleQuickTime = (addMins) => setStayTime(prev => String((Number(prev) || 0) + Number(addMins)));
-
-  return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4 transition-opacity" onClick={() => onClose()}>
-      <div className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in fade-in zoom-in duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
-        <div className="mb-5">
-          <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>自訂地標名稱 (選填)</label>
-          <input
-             value={String(customName)}
-             onChange={e => setCustomName(e.target.value)}
-             placeholder={String(item.name)}
-             className={`w-full py-2 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-lg font-black ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-          />
-          <p className={`text-[10px] truncate mt-2 ${t.subText}`}>🗺️ 原始地標：{String(item.name)}</p>
-          <p className={`text-[10px] truncate mt-0.5 ${t.subText}`}>📍 地址：{String(item.address)}</p>
-        </div>
-
-        <div className="overflow-y-auto pr-2 space-y-6 scrollbar-hide">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>抵達時間</label>
-              <input
-                type="time"
-                value={String(time)}
-                onClick={e => { if ('showPicker' in e.target && typeof e.target.showPicker === 'function') e.target.showPicker(); }}
-                onChange={e => setTime(e.target.value)}
-                className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border cursor-pointer ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-              />
-            </div>
-            <div className="flex-1">
-              <label className={`flex justify-between text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>
-                <span>停留 (分鐘)</span>
-                <span className="text-blue-500 font-black">{formatStayTime(stayTime)}</span>
-              </label>
-              <input type="number" step="5" value={String(stayTime)} onChange={e => setStayTime(e.target.value)} placeholder="0" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
-              <div className="flex gap-1.5 mt-2">
-                {[0, 30, 60].map(mins => <button key={`qt-${mins}`} onClick={() => {if(mins===0) setStayTime("0"); else handleQuickTime(mins);}} className={`flex-1 text-[10px] py-1.5 rounded-lg font-bold border transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>{mins === 0 ? '僅經過' : mins === 60 ? '+1小時' : '+'+mins+'分'}</button>)}
-              </div>
-            </div>
-          </div>
-
-          <div className={`p-4 rounded-xl border flex flex-col gap-3 ${t.cardBg} ${t.cardBorder}`}>
-            <label className={`block text-[10px] font-bold uppercase tracking-wider ${t.subText}`}>前往下一站的交通方式</label>
-            <div className="flex gap-3">
-              <select value={String(legMode)} onChange={e => setLegMode(e.target.value)} className={`flex-1 py-2 px-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
-                <option value="AUTO">🚗 自動計算車程</option>
-                <option value="FLIGHT">✈️ 搭乘飛機</option>
-                <option value="TRAIN">🚅 火車/高鐵</option>
-                <option value="TRANSIT">🚇 大眾運輸</option>
-                <option value="WALK">🚶 步行前往</option>
-              </select>
-              {legMode !== 'AUTO' ? (
-                <div className="w-1/3 relative">
-                  <input type="number" value={String(legMins)} onChange={e => setLegMins(e.target.value)} placeholder="分鐘" className={`w-full py-2 px-3 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-xs text-right pr-6 ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
-                  <span className={`absolute right-2 top-2 text-[10px] ${t.subText}`}>分</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className={`p-3 rounded-xl border flex items-center justify-between ${t.cardBg} ${t.cardBorder}`}>
-            <div className="flex flex-col">
-               <span className={`text-xs font-bold ${t.mainText}`}>🔄 自動順延後續行程</span>
-               <span className={`text-[10px] mt-0.5 ${t.subText}`}>系統會根據車程重新計算後面的抵達時間</span>
-            </div>
-            <input type="checkbox" checked={autoCascade} onChange={e => setAutoCascade(e.target.checked)} className="w-5 h-5 cursor-pointer accent-blue-500 rounded" />
-          </div>
-
-          <div>
-            <label className={`block text-[10px] font-bold mb-2 uppercase tracking-wider ${t.subText}`}>快速狀態標籤</label>
-            <div className="flex flex-wrap gap-2">
-              {TAG_OPTIONS.map(tag => {
-                const isActive = tags.includes(tag);
-                return <button key={`tag-${tag}`} onClick={() => setTags(isActive ? tags.filter(x => x !== tag) : [...tags, tag])} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isActive ? 'bg-blue-600 border-transparent text-white shadow-lg' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>{String(tag)}</button>
-              })}
-            </div>
-          </div>
-          <div>
-            <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>筆記 / 備註</label>
-            <textarea value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="輸入你想記下的重點細節..." className={`w-full p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 min-h-25 resize-none transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
-          </div>
-        </div>
-        <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}>
-          <button onClick={() => onClose()} className={`px-5 py-2 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
-          <button onClick={() => onSave({ ...item, customName: String(customName).trim(), time: String(time), stayTime: String(stayTime), memo: String(memo), tags, nextLeg: { mode: String(legMode), mins: Number(legMins) } }, autoCascade)} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">儲存變更</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// 🌟 獨立抽出的防呆搜尋框 (避免重新渲染導致失焦)
-const SearchBox = ({ dayId, onAddPlace, t }) => {
-  const [val, setVal] = useState("");
-  const [sug, setSug] = useState([]);
-  const lib = useMapsLibrary('places');
-
-  const handleSearch = (e) => {
-    setVal(e.target.value);
-    if (!lib || String(e.target.value).length < 2) return setSug([]);
-    new lib.AutocompleteService().getPlacePredictions({ input: String(e.target.value), language: 'zh-TW' })
-      .then((res) => setSug(Array.isArray(res.predictions) ? res.predictions : []))
-      .catch(() => setSug([]));
-  };
-
-  const select = (p) => {
-    new lib.PlacesService(document.createElement('div')).getDetails({ placeId: p.place_id }, (res) => {
-      if(res && res.geometry) {
-         onAddPlace(dayId, res, p.place_id);
-      }
-      setVal(""); setSug([]);
-    });
-  };
-
-  return (
-    <div className="relative mb-4">
-      <input className={`w-full py-2.5 px-4 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} placeholder="新增行程地點..." value={String(val)} onChange={handleSearch} />
-      {Array.isArray(sug) && sug.length > 0 ? (
-        <div className={`absolute z-50 w-full mt-1 rounded-xl shadow-2xl border overflow-hidden text-xs backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>
-          {sug.map((s, i) => (
-            <div key={String(s.place_id || i)} onClick={() => select(s)} className={`p-3 cursor-pointer border-b transition-colors hover:opacity-80 ${t.mainText} ${t.cardBorder}`}>{String(s.description)}</div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-};
-
 // ============================================================================
-// 🏨 旅程詳細主頁 (TripDetail)
+// (7) 核心功能：旅程明細頁面 (TripDetail)
 // ============================================================================
 const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [meta, setMeta] = useState(null);
   const [itinerary, setItinerary] = useState({ "Day 1": [] });
-  const [expenses, setExpenses] = useState([]);
-  const [tickets, setTickets] = useState([]);
+  const [expenses, setExpenses] = useState(/** @type {any[]} */ ([]));
+  const [tickets, setTickets] = useState(/** @type {any[]} */ ([]));
   const [budget, setBudget] = useState(10000);
 
   const [currentDay, setCurrentDay] = useState("Day 1");
@@ -767,7 +736,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
   const placesLib = useMapsLibrary('places');
   const [exploreQuery, setExploreQuery] = useState("");
-  const [exploreResults, setExploreResults] = useState([]);
+  const [exploreResults, setExploreResults] = useState(/** @type {any[]} */ ([]));
   const [selectedExploreItem, setSelectedExploreItem] = useState(null);
   const [exploreOriginItem, setExploreOriginItem] = useState(null);
 
@@ -779,7 +748,11 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const isRemoteUpdateRef = useRef(false);
 
   useEffect(() => {
-    if (!db || !roomId) return;
+    if (!db || !roomId) {
+      setMeta({ title: "單機預覽模式 (無資料庫)", destination: "沖繩", startDate: "2026-09-20", endDate: "2026-09-24", members: ["自己"], transport: "汽車 🚗", themeColor: "#1e293b", dayThemes: {} });
+      setIsLoading(false);
+      return;
+    }
     const roomRef = dbRef(db, `rooms/${roomId}`);
     const unsub = onValue(roomRef, (snapshot) => {
       const data = snapshot.val();
@@ -851,12 +824,13 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const membersListStr = JSON.stringify(meta?.members || ["自己"]);
   const membersList = useMemo(() => JSON.parse(membersListStr), [membersListStr]);
 
-  const { totalExpense, isOverBudget, budgetPercent, groupedExpenses, balances, transfers } = useMemo(() => {
+  const expenseStats = (() => {
     const total = Array.isArray(expenses) ? expenses.reduce((sum, e) => sum + (Number(e.cost) || 0), 0) : 0;
     const over = total > budget;
     const percent = budget > 0 ? Math.min((total / budget) * 100, 100) : 100;
     const grouped = existingDays.map(day => ({ day, items: Array.isArray(expenses) ? expenses.filter(e => e.dayId === day) : [] }));
 
+    /** @type {Record<string, number>} */
     const userBalances = {};
     membersList.forEach(m => { userBalances[String(m)] = 0; });
 
@@ -872,24 +846,27 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       });
     }
 
-    const debtors = []; const creditors = [];
+    /** @type {{member: string, amount: number}[]} */
+    const debtors = [];
+    /** @type {{member: string, amount: number}[]} */
+    const creditors = [];
     Object.entries(userBalances).forEach(([member, balance]) => {
       if (balance < -0.5) debtors.push({ member: String(member), amount: -balance });
       else if (balance > 0.5) creditors.push({ member: String(member), amount: balance });
     });
     debtors.sort((a, b) => b.amount - a.amount); creditors.sort((a, b) => b.amount - a.amount);
 
+    /** @type {{from: string, to: string, amount: number}[]} */
     const suggestTransfers = [];
-    let d = 0, c = 0;
-    while (d < debtors.length && c < creditors.length) {
-      const amount = Math.min(debtors[d].amount, creditors[c].amount);
-      suggestTransfers.push({ from: debtors[d].member, to: creditors[c].member, amount });
-      debtors[d].amount -= amount; creditors[c].amount -= amount;
-      if (debtors[d].amount < 0.5) d++; if (creditors[c].amount < 0.5) c++;
+    let dIdx = 0, cIdx = 0;
+    while (dIdx < debtors.length && cIdx < creditors.length) {
+      const amount = Math.min(debtors[dIdx].amount, creditors[cIdx].amount);
+      suggestTransfers.push({ from: debtors[dIdx].member, to: creditors[cIdx].member, amount });
+      debtors[dIdx].amount -= amount; creditors[cIdx].amount -= amount;
+      if (debtors[dIdx].amount < 0.5) dIdx++; if (creditors[cIdx].amount < 0.5) cIdx++;
     }
     return { totalExpense: total, isOverBudget: over, budgetPercent: percent, groupedExpenses: grouped, balances: userBalances, transfers: suggestTransfers };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(expenses), budget, itinerary, membersListStr]);
+  })();
 
   const handleDragEnd = useCallback((result) => {
     const { source, destination } = result;
@@ -1038,7 +1015,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     if (!last.time) return "";
     let travelTime = 30;
     if (last.nextLeg && last.nextLeg.mode !== 'AUTO') travelTime = Number(last.nextLeg.mins) || 30;
-    return minsToTime(timeToMins(last.time) + Number(last.stayTime || 0) + travelTime);
+    return minsToTime(timeToMins(String(last.time)) + Number(last.stayTime || 0) + travelTime);
   };
 
   const handleAddExploreToItinerary = (place, position = 'end') => {
@@ -1059,7 +1036,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
             if(dayList[idx].time) {
                let tTime = 15;
                if (dayList[idx].nextLeg && dayList[idx].nextLeg.mode !== 'AUTO') tTime = Number(dayList[idx].nextLeg.mins);
-               newItem.time = minsToTime(timeToMins(dayList[idx].time) + Number(dayList[idx].stayTime || 0) + tTime);
+               newItem.time = minsToTime(timeToMins(String(dayList[idx].time)) + Number(dayList[idx].stayTime || 0) + tTime);
             }
             dayList.splice(idx + 1, 0, newItem);
           }
@@ -1073,7 +1050,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     alert(`✅ 已成功將「${place.name}」加入行程！`);
   };
 
-  // 獨立防呆，防止重新渲染導致搜尋框失焦
   const handleAddPlaceFromSearch = useCallback((dayId, res, place_id) => {
     setItinerary(prev => ({
       ...prev,
@@ -1089,7 +1065,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   return (
     <>
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col overflow-hidden font-sans overscroll-none transition-colors duration-500 ${t.mainText}`}>
+        <div style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
           <div className="flex-1 flex overflow-hidden">
 
             <div className={`flex-col border-r transition-opacity duration-300 backdrop-blur-xl ${t.sidebarBg} ${t.cardBorder} ${activeTab === 'map' ? 'hidden md:flex md:w-2/3 lg:w-1/2' : 'flex w-full md:w-2/3 lg:w-1/2'}`}>
@@ -1101,6 +1077,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                        <input type="color" value={tripThemeColor} onChange={e => handleColorChange(e.target.value)} className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer border-0 p-0" title="更改顏色" />
                     </div>
                     <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
+                    {db ? <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
                 </div>
@@ -1116,9 +1093,8 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 </div>
               </div>
 
-              {/* 行程編輯分頁 */}
               <div onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollBy(Number(e.deltaY), 0); }} className={`flex-1 overflow-x-auto p-4 gap-4 items-start scroll-smooth ${activeTab === 'plan' ? 'flex' : 'hidden'}`}>
-                {Array.isArray(existingDays) && existingDays.map(dayId => {
+                {[].concat(existingDays || []).map(dayId => {
                   const { title, dateStr } = getDayDisplay(dayId, meta.startDate);
                   const isCurrent = safeCurrentDay === dayId;
                   const dayTheme = meta.dayThemes?.[dayId] || "";
@@ -1141,21 +1117,22 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       <Droppable droppableId={String(dayId)}>
                         {(provided) => (
                           <div {...provided.droppableProps} ref={provided.innerRef} className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide">
-                            {Array.isArray(itinerary[dayId]) && itinerary[dayId].map((item, index) => {
+                            {[].concat(itinerary[dayId] || []).map((item, index) => {
                               const displayName = item.customName || item.name;
                               const isCustomName = !!item.customName;
                               return (
                               <Draggable key={String(item.id)} draggableId={String(item.id)} index={index}>
                                 {(prov, snap) => (
-                                  <div ref={prov.innerRef} {...prov.draggableProps} {...prov.dragHandleProps} className={`transition-all relative group mb-1 ${snap.isDragging ? 'z-50 scale-105 touch-none' : ''}`}>
+                                  <div ref={prov.innerRef} {...prov.draggableProps} className={`transition-all relative group mb-1 ${snap.isDragging ? 'z-50 scale-105 touch-none' : ''}`}>
 
                                     <div className={`p-4 rounded-2xl border flex flex-col backdrop-blur-md transition-all relative overflow-hidden ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover}`}`}>
                                       <div className="flex gap-4 items-start">
-                                        <div className="flex flex-col items-center shrink-0 w-10">
+                                        <div {...prov.dragHandleProps} className="flex flex-col items-center shrink-0 w-10 cursor-grab active:cursor-grabbing hover:opacity-80">
                                            <div className={`text-xs font-black p-1.5 rounded-full w-7 h-7 flex items-center justify-center ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
                                               {index + 1}
                                            </div>
                                            {item.time ? <span className={`text-[10px] font-bold mt-1.5 ${snap.isDragging ? 'text-white' : t.mainText}`}>{String(item.time)}</span> : null}
+                                           <span className="text-slate-400 mt-2 text-[10px]">≡</span>
                                         </div>
 
                                         <div className="flex-1 min-w-0 pr-2">
@@ -1180,7 +1157,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                           </div>
                                           {item.stayTime !== undefined ? <p className={`text-[10px] mt-0.5 font-bold ${item.stayTime === "0" || item.stayTime === 0 ? 'text-blue-500' : t.subText}`}>{formatStayTime(item.stayTime)}</p> : null}
                                           <div className="flex flex-wrap gap-1.5 mt-2">
-                                            {Array.isArray(item.tags) && item.tags.map((tag, idx) => <span key={`tag-${idx}`} className={`text-[9px] px-2 py-0.5 rounded-md border ${snap.isDragging ? 'bg-white/10 border-white/20 text-white' : 'bg-blue-500/10 border-blue-500/20 text-blue-600'}`}>{String(tag)}</span>)}
+                                            {[].concat(item.tags || []).map((tag, idx) => <span key={`tag-${idx}`} className={`text-[9px] px-2 py-0.5 rounded-md border ${snap.isDragging ? 'bg-white/10 border-white/20 text-white' : 'bg-blue-500/10 border-blue-500/20 text-blue-600'}`}>{String(tag)}</span>)}
                                           </div>
                                         </div>
                                       </div>
@@ -1220,7 +1197,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 })}
               </div>
 
-              {/* 記帳分頁 */}
               <div className={`flex-1 flex-col overflow-y-auto backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'expense' ? 'flex' : 'hidden'}`}>
                 <div className={`p-6 border-b sticky top-0 z-10 shadow-lg backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
                   <div className="flex justify-between items-center mb-2">
@@ -1231,16 +1207,16 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     </div>
                   </div>
                   <div className="flex items-center justify-between mt-4">
-                    <h2 className={`text-4xl font-black transition-colors ${isOverBudget ? 'text-red-500' : t.mainText}`}>$ {totalExpense.toLocaleString()}</h2>
+                    <h2 className={`text-4xl font-black transition-colors ${expenseStats.isOverBudget ? 'text-red-500' : t.mainText}`}>$ {expenseStats.totalExpense.toLocaleString()}</h2>
                     <button onClick={() => setShowExpenseModal(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all">
                       ➕ 新增記帳
                     </button>
                   </div>
                   <div className="mt-5">
-                    <div className={`flex justify-between text-[10px] mb-1.5 font-bold ${t.subText}`}><span>目前花費 {budgetPercent.toFixed(1)}%</span><span className={isOverBudget ? 'text-red-500' : 'text-emerald-500'}>{isOverBudget ? `超支 $${(totalExpense - budget).toLocaleString()}!` : `剩餘 $${(budget - totalExpense).toLocaleString()}`}</span></div>
+                    <div className={`flex justify-between text-[10px] mb-1.5 font-bold ${t.subText}`}><span>目前花費 {expenseStats.budgetPercent.toFixed(1)}%</span><span className={expenseStats.isOverBudget ? 'text-red-500' : 'text-emerald-500'}>{expenseStats.isOverBudget ? `超支 $${(expenseStats.totalExpense - budget).toLocaleString()}!` : `剩餘 $${(budget - expenseStats.totalExpense).toLocaleString()}`}</span></div>
                     <div className={`flex w-full h-3 rounded-full overflow-hidden border ${t.cardBg} ${t.cardBorder}`}>
-                      {totalExpense === 0 ? null : isOverBudget ? <div className="bg-red-500 h-full w-full animate-pulse"></div> : (
-                        <div style={{ width: `${budgetPercent}%` }} className="bg-blue-500 h-full transition-all duration-500"></div>
+                      {expenseStats.totalExpense === 0 ? null : expenseStats.isOverBudget ? <div className="bg-red-500 h-full w-full animate-pulse"></div> : (
+                        <div style={{ width: `${expenseStats.budgetPercent}%` }} className="bg-blue-500 h-full transition-all duration-500"></div>
                       )}
                     </div>
                   </div>
@@ -1253,7 +1229,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 <div className="p-4 pb-24">
                   {expenseView === 'list' ? (
                     <div className="space-y-6">
-                      {groupedExpenses.map(({ day, items }) => {
+                      {expenseStats.groupedExpenses.map(({ day, items }) => {
                         if (!Array.isArray(items) || items.length === 0) return null;
                         const { title, dateStr } = getDayDisplay(day, meta.startDate);
                         return (
@@ -1292,7 +1268,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       <div className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
                         <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${t.mainText}`}>👤 各自收支總覽</h3>
                         <div className="space-y-3">
-                          {Object.entries(balances).map(([member, balance]) => {
+                          {Object.entries(expenseStats.balances).map(([member, balance]) => {
                             const isPositive = balance > 0.01;
                             const isNegative = balance < -0.01;
                             return (
@@ -1313,9 +1289,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
                       <div className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
                         <h3 className="text-sm font-bold text-blue-500 mb-4 flex items-center gap-2">🤖 AI 建議轉帳方案</h3>
-                        {Array.isArray(transfers) && transfers.length > 0 ? (
+                        {Array.isArray(expenseStats.transfers) && expenseStats.transfers.length > 0 ? (
                           <div className="space-y-3">
-                            {transfers.map((tItem, idx) => (
+                            {expenseStats.transfers.map((tItem, idx) => (
                               <div key={`transfer-${idx}`} className={`flex justify-between items-center p-4 rounded-xl border ${t.isLight ? 'bg-blue-50 border-blue-200' : 'bg-blue-900/20 border-blue-500/30'}`}>
                                 <div className="flex items-center gap-2">
                                   <span className="font-bold text-red-500">{String(tItem.from)}</span>
@@ -1335,7 +1311,6 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 </div>
               </div>
 
-              {/* 票券夾分頁 */}
               <div className={`flex-1 flex-col overflow-y-auto backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'ticket' ? 'flex' : 'hidden'}`}>
                 <div className={`p-6 border-b sticky top-0 z-10 shadow-lg backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
                   <div className="flex items-center justify-between">
@@ -1343,7 +1318,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       <p className={`text-xs font-bold uppercase tracking-widest ${t.subText}`}>隨身協作大廳</p>
                       <h2 className={`text-2xl font-black mt-1 ${t.mainText}`}>共同票券夾 🎟️</h2>
                     </div>
-                    <button onClick={() => setShowTicketModal(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded-2xl text-sm font-bold shadow-lg shadow-amber-500/30">➕ 新增票券</button>
+                    <button onClick={() => setShowTicketModal(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded-2xl text-sm font-bold shadow-lg shadow-amber-500/30 active:scale-95 transition-all">
+                      ➕ 新增票券
+                    </button>
                   </div>
                 </div>
                 <div className="p-4 pb-24 space-y-4">
@@ -1355,7 +1332,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {tickets.map(ticket => (
-                        <div key={String(ticket.id)} className={`relative flex flex-col p-4 rounded-3xl border shadow-sm ${t.itemBg} ${t.cardBorder}`}>
+                        <div key={String(ticket.id)} className={`relative flex flex-col p-4 rounded-3xl border shadow-sm transition-transform hover:-translate-y-1 ${t.itemBg} ${t.cardBorder}`}>
                           <button onClick={() => { if(window.confirm('確定刪除？')) setTickets(prev => prev.filter(x => x.id !== ticket.id)); }} className="absolute top-3 right-3 w-7 h-7 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center text-xs font-bold hover:bg-red-500 hover:text-white transition-colors">✕</button>
                           <div className="mb-2"><span className={`text-[10px] px-2 py-0.5 rounded-md border font-bold ${ticket.owner === '所有人' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'bg-purple-500/10 text-purple-600 border-purple-500/20'}`}>👤 {String(ticket.owner || '所有人')}</span></div>
                           <div className="flex items-center gap-3 mb-4 mt-2">
@@ -1387,9 +1364,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
             <div className={`relative flex-1 transition-opacity duration-300 ease-in-out ${activeTab === 'map' ? 'flex' : 'hidden md:flex'}`}>
               <div className="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-125 z-20 flex flex-col gap-2">
                 <div className={`flex items-center gap-2 p-2 rounded-2xl shadow-lg backdrop-blur-xl border ${t.headerBg} ${t.cardBorder}`}>
-                  <input value={String(exploreQuery)} onChange={e => setExploreQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleExploreSearch(exploreQuery, null); }} placeholder="探索周邊美食地標..." className={`flex-1 bg-transparent px-2 outline-none text-sm font-bold ${t.mainText}`} />
-                  <button onClick={() => handleExploreSearch(exploreQuery, null)} className="bg-orange-500 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md">探索</button>
-                  {Array.isArray(exploreResults) && exploreResults.length > 0 ? (
+                  <input value={String(exploreQuery)} onChange={e => setExploreQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleExploreSearch(exploreQuery, null); }} placeholder="探索周邊美食地標..." className={`flex-1 bg-transparent px-2 outline-none text-sm font-bold ${t.mainText} placeholder:opacity-50`} />
+                  <button onClick={() => handleExploreSearch(exploreQuery, null)} className="bg-orange-500 hover:bg-orange-400 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 whitespace-nowrap">🍽️ 探索</button>
+                  {[].concat(exploreResults || []).length > 0 ? (
                     <button onClick={() => {setExploreResults([]); setSelectedExploreItem(null); setExploreQuery(""); setExploreOriginItem(null);}} className={`px-2 py-2 text-xs font-bold hover:text-red-500 transition-colors ${t.subText}`}>清除</button>
                   ) : null}
                 </div>
@@ -1402,12 +1379,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
               </div>
               <Map id="main-map" defaultCenter={{lat: 22.99, lng: 120.20}} defaultZoom={13} mapId={'739af384c474cc02'}>
                 <Directions itinerary={itinerary} dayId={safeCurrentDay} onRouteCalculated={handleRouteCalculated} />
-                {Array.isArray(itinerary[safeCurrentDay]) && itinerary[safeCurrentDay].map((item, idx) => (
+                {[].concat(itinerary[safeCurrentDay] || []).map((item, idx) => (
                   <AdvancedMarker key={String(item.id)} position={{lat: Number(item.lat), lng: Number(item.lng)}} onClick={() => handleSavedItemDetails(item)}>
                     <Pin background={'#3b82f6'} glyphText={String(idx + 1)} />
                   </AdvancedMarker>
                 ))}
-                {Array.isArray(exploreResults) && exploreResults.map((place) => {
+                {[].concat(exploreResults || []).map((place) => {
                   const expStyle = getExploreIcon(exploreQuery);
                   return (
                     <AdvancedMarker key={String(place.place_id)} position={{lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng())}} onClick={() => setSelectedExploreItem(place)}>
@@ -1416,46 +1393,44 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                   );
                 })}
               </Map>
-              {selectedExploreItem && !detailedPlace ? (
-                <div className="absolute bottom-8 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-100 z-20">
-                  <div className={`p-4 rounded-3xl shadow-2xl border backdrop-blur-2xl ${t.modalBg} ${t.cardBorder}`}>
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className={`text-base font-black pr-4 leading-tight ${t.mainText}`}>{String(selectedExploreItem.name)}</h3>
-                      <button onClick={() => setSelectedExploreItem(null)} className={`text-lg hover:text-red-500 ${t.subText}`}>✕</button>
-                    </div>
-                    <p className={`text-[11px] mb-3 truncate ${t.subText}`}>{String(selectedExploreItem.formatted_address || selectedExploreItem.vicinity)}</p>
-                    <div className="flex items-center gap-3 mb-4">
-                      {selectedExploreItem.rating ? <span className="bg-orange-500/10 text-orange-600 px-2 py-0.5 rounded-md text-[11px] font-bold border border-orange-500/20">⭐ {String(selectedExploreItem.rating)}</span> : null}
-                      {selectedExploreItem.user_ratings_total ? <span className={`text-[10px] font-bold ${t.subText}`}>({String(selectedExploreItem.user_ratings_total)} 則評論)</span> : null}
-                    </div>
-                    <button onClick={() => handleShowDetails(selectedExploreItem.place_id)} className={`w-full py-2.5 rounded-xl text-xs font-bold bg-slate-500/20 ${t.mainText}`}>📖 查看詳情與實景照</button>
-                    {exploreOriginItem ? (
-                      <div className="flex gap-2 mt-2">
-                        <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'before')} className="flex-1 bg-blue-600 text-white py-2 rounded-xl text-[11px] font-bold">加在前面</button>
-                        <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 bg-emerald-600 text-white py-2 rounded-xl text-[11px] font-bold">加在後面</button>
-                      </div>
-                    ) : (
-                      <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'end')} className="w-full mt-2 bg-blue-600 text-white py-2 rounded-xl text-xs font-bold">加入行程最後</button>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-              {detailedPlace ? (
-                <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} />
-              ) : null}
             </div>
           </div>
 
-          <div className={`grid grid-cols-4 border-t h-20 shrink-0 z-30 shadow-lg md:hidden ${t.headerBg} ${t.cardBorder}`}>
-            <button onClick={() => setActiveTab("plan")} className={`flex flex-col items-center justify-center ${activeTab === "plan" ? "text-blue-500 font-bold" : t.subText}`}>📋<span className="text-[10px] mt-1 font-bold">行程</span></button>
-            <button onClick={() => setActiveTab("map")} className={`flex flex-col items-center justify-center ${activeTab === "map" ? "text-blue-500 font-bold" : t.subText}`}>🗺️<span className="text-[10px] mt-1 font-bold">地圖</span></button>
-            <button onClick={() => setActiveTab("ticket")} className={`flex flex-col items-center justify-center ${activeTab === "ticket" ? "text-amber-500 font-bold" : t.subText}`}>🎟️<span className="text-[10px] mt-1 font-bold">票券</span></button>
-            <button onClick={() => setActiveTab("expense")} className={`flex flex-col items-center justify-center ${activeTab === "expense" ? "text-emerald-500 font-bold" : t.subText}`}>💰<span className="text-[10px] mt-1 font-bold">記帳</span></button>
+          <div style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0.5rem)' }} className={`grid grid-cols-4 border-t h-20 shrink-0 z-30 shadow-lg md:hidden ${t.headerBg} ${t.cardBorder}`}>
+            <button onClick={() => setActiveTab("plan")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "plan" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>📋<span className="text-[10px] mt-1 font-bold">行程</span></button>
+            <button onClick={() => setActiveTab("map")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "map" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>🗺️<span className="text-[10px] mt-1 font-bold">地圖</span></button>
+            <button onClick={() => setActiveTab("ticket")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "ticket" ? "text-amber-500 font-bold -translate-y-1" : t.subText}`}>🎟️<span className="text-[10px] mt-1 font-bold">票券</span></button>
+            <button onClick={() => setActiveTab("expense")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "expense" ? "text-emerald-500 font-bold -translate-y-1" : t.subText}`}>💰<span className="text-[10px] mt-1 font-bold">記帳</span></button>
           </div>
         </div>
       </DragDropContext>
 
-      {/* 🌟 彈窗掛載區 */}
+      {/* 🌟 彈窗掛載區 (全數提升至 Root，避免手機版隱藏分頁時被 display none) */}
+      {selectedExploreItem && !detailedPlace ? (
+        <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed bottom-8 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-100 p-5 rounded-3xl shadow-2xl border backdrop-blur-2xl bg-white/95 animate-in slide-in-from-bottom-10" onClick={e => e.stopPropagation()}>
+          <div className="flex justify-between items-start mb-2">
+            <h3 className="text-base font-black text-slate-900 leading-tight pr-4">{String(selectedExploreItem.name)}</h3>
+            <button onClick={() => setSelectedExploreItem(null)} className="text-xl text-slate-400 hover:text-red-500 font-bold -mt-1 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100">✕</button>
+          </div>
+          <p className="text-[11px] mb-3 truncate text-slate-600">{String(selectedExploreItem.formatted_address || selectedExploreItem.vicinity)}</p>
+          <div className="flex items-center gap-3 mb-4">
+            {selectedExploreItem.rating ? <span className="bg-orange-500/10 text-orange-600 px-2 py-0.5 rounded-md text-[11px] font-bold border border-orange-500/20">⭐ {String(selectedExploreItem.rating)}</span> : null}
+            {selectedExploreItem.user_ratings_total ? <span className="text-[10px] font-bold text-slate-500">({String(selectedExploreItem.user_ratings_total)} 則評論)</span> : null}
+          </div>
+          <button onClick={() => handleShowDetails(selectedExploreItem.place_id)} className="w-full py-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200 shadow-sm transition-colors">📖 查看詳情與實景照</button>
+          {exploreOriginItem ? (
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'before')} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在前面</button>
+              <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在後面</button>
+            </div>
+          ) : (
+            <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'end')} className="w-full mt-2 bg-blue-600 text-white py-2.5 rounded-xl text-xs font-bold shadow-md active:scale-95">加入行程最後</button>
+          )}
+        </div>
+      ) : null}
+
+      {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
+
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
       {editingItemData ? <EditItemModal item={editingItemData.item} onSave={saveEditedItem} onClose={() => setEditingItemData(null)} t={t} /> : null}
       {copyingItem ? <CopyItemModal item={copyingItem} existingDays={existingDays} onClose={() => setCopyingItem(null)} onCopy={handleCopyItem} t={t} /> : null}
@@ -1467,10 +1442,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 };
 
 // ============================================================================
-// 🏠 首頁大廳 (Dashboard App)
+// (8) 核心視圖：首頁大廳 (TravelApp)
 // ============================================================================
 export default function TravelApp() {
-  const [myTrips, setMyTrips] = useState(() => { try { return JSON.parse(localStorage.getItem('google-travel-my-trips')) || []; } catch { return []; } });
+  const [myTrips, setMyTrips] = useState(() => { try { const stored = JSON.parse(localStorage.getItem('google-travel-my-trips')); return Array.isArray(stored) ? stored : []; } catch { return []; } });
   const [customBgColor, setCustomBgColor] = useState(() => { try { return localStorage.getItem('google-travel-custom-bg') || '#d8b4e2'; } catch { return '#d8b4e2'; } });
   const [showUpdateNote, setShowUpdateNote] = useState(() => { try { return localStorage.getItem('google-travel-version') !== APP_VERSION; } catch { return false; } });
 
@@ -1535,6 +1510,7 @@ export default function TravelApp() {
     const d1 = new Date(String(newStart)); const d2 = new Date(String(newEnd));
     const diffDays = Math.round(Math.abs(d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24)) + 1;
     if (diffDays < 1 || diffDays > 30) return alert("日期錯誤或天數過長！");
+
     const newMeta = { title: String(newTitle).trim(), destination: String(newDest), startDate: String(newStart), endDate: String(newEnd), members: newMembers, transport: String(newTransport), themeColor: String(newThemeColor) };
 
     if (tripModalMode === 'create') {
@@ -1548,12 +1524,14 @@ export default function TravelApp() {
     }
   };
 
+  const closeTrip = () => { window.history.pushState(null, '', window.location.pathname); setActiveRoomId(null); };
+
   const t = getThemeClasses(customBgColor);
-  if (activeRoomId) return <APIProvider apiKey={API_KEY}><TripDetail roomId={activeRoomId} onBack={() => { window.history.pushState(null, '', window.location.pathname); setActiveRoomId(null); }} onUpdateTripMeta={handleUpdateTripMeta} /></APIProvider>;
+  if (activeRoomId) return <APIProvider apiKey={API_KEY}><TripDetail roomId={activeRoomId} onBack={closeTrip} onUpdateTripMeta={handleUpdateTripMeta} /></APIProvider>;
 
   return (
-    <div style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-y-auto overscroll-none transition-colors duration-500 ${t.mainText}`}>
-      <div className="max-w-5xl w-full mx-auto p-6 md:p-12">
+    <div style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-x-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
+      <div className="max-w-5xl w-full mx-auto p-6 md:p-12 overflow-y-auto">
         <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6">
           <div>
             <div className="flex items-center gap-4 mb-2">
@@ -1569,27 +1547,27 @@ export default function TravelApp() {
               <div className="relative w-8 h-8 rounded-full overflow-hidden border-2 border-white shadow-sm cursor-pointer hover:scale-105 transition-transform"><input type="color" value={String(customBgColor)} onChange={e => setCustomBgColor(e.target.value)} className="absolute -top-2 -left-2 w-12 h-12 cursor-pointer border-0 p-0" title="選擇主頁背景色" /></div>
               <span className={`text-xs font-bold ${t.subText}`}>自訂大廳色</span>
             </div>
-            <button onClick={() => setShowImportModal(true)} className="bg-slate-500/20 border border-slate-500/30 text-sm font-bold px-4 py-3 rounded-2xl">📥 匯入行程</button>
-            <button onClick={() => openCreateModal()} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/30 transition-all flex items-center justify-center gap-2"><span>➕</span> <span>新增旅程</span></button>
+            <button onClick={() => setShowImportModal(true)} className="bg-slate-500/20 border border-slate-500/30 text-sm font-bold px-4 py-3 rounded-2xl transition-transform active:scale-95">📥 匯入</button>
+            <button onClick={() => openCreateModal()} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"><span>➕</span> <span>新增</span></button>
           </div>
         </header>
 
-        {!Array.isArray(myTrips) || myTrips.length === 0 ? (
+        {(!Array.isArray(myTrips) || myTrips.length === 0) ? (
           <div className="flex flex-col items-center justify-center mt-24 opacity-80"><span className="text-7xl mb-6">🌍</span><p className={`text-xl font-bold mb-2 ${t.mainText}`}>目前還沒有任何旅程</p></div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {myTrips.map(trip => {
               const cardColor = String(trip.themeColor || '#1e293b'); const cTheme = getThemeClasses(cardColor);
               return (
-                <div key={String(trip.roomId)} onClick={() => { window.history.pushState(null, '', `?room=${trip.roomId}`); setActiveRoomId(trip.roomId); }} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 ${cTheme.cardBorder}`}>
+                <div key={String(trip.roomId)} onClick={() => { window.history.pushState(null, '', `?room=${trip.roomId}`); setActiveRoomId(trip.roomId); }} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 hover:shadow-2xl ${cTheme.cardBorder}`}>
                   <div className="flex justify-between items-start mb-4">
                     <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${cTheme.isLight ? 'bg-black/5 border-black/10 text-slate-700' : 'bg-white/20 border-white/30 text-white'}`}>{String(trip.transport)}</span>
                     <div className="flex gap-2">
-                      <button onClick={(e) => openEditModal(e, trip)} className={`text-xs p-1 ${cTheme.subText}`}>⚙️ 編輯</button>
-                      <button onClick={(e) => { e.stopPropagation(); if(window.confirm('確定移除？')) setMyTrips(prev => prev.filter(item => item.roomId !== trip.roomId)); }} className={`text-xs p-1 hover:text-red-500 ${cTheme.subText}`}>移除</button>
+                      <button onClick={(e) => openEditModal(e, trip)} className={`text-xs p-1 transition-colors hover:text-blue-500 ${cTheme.subText}`}>⚙️ 編輯</button>
+                      <button onClick={(e) => { e.stopPropagation(); if(window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) setMyTrips(prev => prev.filter(item => item.roomId !== trip.roomId)); }} className={`text-xs p-1 transition-colors hover:text-red-500 ${cTheme.subText}`}>移除</button>
                     </div>
                   </div>
-                  <h2 className={`text-2xl font-black mb-1.5 truncate ${cTheme.mainText}`}>{String(trip.title)}</h2>
+                  <h2 className={`text-2xl font-black mb-1.5 transition-colors line-clamp-2 ${cTheme.mainText}`}>{String(trip.title)}</h2>
                   <p className={`text-sm font-bold mb-5 truncate ${cTheme.subText}`}>📍 {String(trip.destination || '未定地點')}</p>
                   <div className={`p-3.5 rounded-xl border ${cTheme.cardMetaBg} ${cTheme.cardBorder}`}>
                     <p className={`text-xs mb-1.5 font-medium ${cTheme.subText}`}>📅 {String(trip.startDate || '').replace(/-/g, '/')} <span className="mx-1 opacity-50">→</span> {String(trip.endDate || '').replace(/-/g, '/')}</p>
@@ -1603,18 +1581,18 @@ export default function TravelApp() {
       </div>
 
       {showImportModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-250 flex items-center justify-center p-4" onClick={() => setShowImportModal(false)}>
-          <div className={`border rounded-3xl p-6 w-full max-w-sm shadow-2xl ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
+        <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setShowImportModal(false)}>
+          <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
             <h2 className={`text-xl font-black mb-2 ${t.mainText}`}>📥 匯入雲端行程</h2>
-            <input value={String(importInput)} onChange={e => setImportInput(e.target.value)} placeholder="貼上網址或房間 ID..." className={`w-full p-3 rounded-xl outline-none border mb-6 text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <input value={String(importInput)} onChange={e => setImportInput(e.target.value)} placeholder="貼上網址或房間 ID..." className={`w-full p-3 rounded-xl outline-none border mb-6 text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
             <div className="flex justify-end gap-3"><button onClick={() => setShowImportModal(false)} className={`px-4 py-2 text-sm font-bold ${t.subText}`}>取消</button><button onClick={handleImportTrip} className="bg-blue-600 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-md">確認匯入</button></div>
           </div>
         </div>
       )}
 
       {tripModalMode && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-100 flex items-center justify-center p-4" onClick={() => setTripModalMode(null)}>
-          <div className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto max-h-[90vh] ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
+        <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setTripModalMode(null)}>
+          <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto overflow-x-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
             <h2 className={`text-2xl font-black mb-6 ${t.mainText}`}>{tripModalMode === 'create' ? '建立新旅程 🛫' : '編輯旅程設定 ⚙️'}</h2>
             <div className="space-y-5">
               <div>
@@ -1624,13 +1602,13 @@ export default function TravelApp() {
                   <span className={`text-sm font-bold ${t.mainText}`}>{String(newThemeColor).toUpperCase()}</span>
                 </div>
               </div>
-              <div><label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>旅程名稱 *</label><input value={String(newTitle)} onChange={e => setNewTitle(e.target.value)} placeholder="ex: 瘋狂沖繩遊" className={`w-full p-3.5 rounded-xl border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>
-              <div><label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>主要地點</label><input value={String(newDest)} onChange={e => setNewDest(e.target.value)} placeholder="ex: 日本大阪" className={`w-full p-3.5 rounded-xl border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>
+              <div><label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>旅程名稱 *</label><input value={String(newTitle)} onChange={e => setNewTitle(e.target.value)} placeholder="ex: 瘋狂沖繩遊" className={`w-full p-3.5 rounded-xl border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>
+              <div><label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>主要地點</label><input value={String(newDest)} onChange={e => setNewDest(e.target.value)} placeholder="ex: 日本大阪" className={`w-full p-3.5 rounded-xl border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>
               <div><label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>旅行日期 *</label><div onClick={() => setShowDatePicker(true)} className={`w-full p-3.5 rounded-xl border flex justify-between items-center cursor-pointer ${t.inputBg} ${t.cardBorder} ${t.mainText}`}><span>{newStart && newEnd ? `${String(newStart)} 至 ${String(newEnd)}` : '點擊選擇出發與回程日期'}</span><span>📅</span></div></div>
               <div>
                 <label className={`block text-xs font-bold mb-2 uppercase ${t.subText}`}>同行成員 (記帳用)</label>
                 <div className={`flex flex-wrap gap-2 items-center p-3 rounded-xl border min-h-14 ${t.inputBg} ${t.cardBorder}`}>
-                  {(Array.isArray(newMembers) ? newMembers : []).map((m, idx) => (
+                  {([].concat(newMembers || [])).map((m, idx) => (
                     <span key={`mem-${idx}`} className="bg-blue-500/10 text-blue-500 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 border border-blue-500/20 shadow-sm">
                       {String(m)}
                       <button onClick={() => setNewMembers(newMembers.filter(name => name !== m))} className="hover:text-red-400 transition-colors">✕</button>
@@ -1638,7 +1616,7 @@ export default function TravelApp() {
                   ))}
                   {showAddMember ? (
                     <div className={`flex items-center gap-1.5 p-1.5 rounded-lg border border-blue-500 shadow-inner ${t.cardMetaBg}`}>
-                      <input autoFocus value={String(tempMember)} onChange={e => setTempMember(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && String(tempMember).trim()) { if (!newMembers.includes(String(tempMember).trim())) setNewMembers([...newMembers, String(tempMember).trim()]); setTempMember(""); setShowAddMember(false); } }} placeholder="名稱..." className={`bg-transparent text-sm outline-none w-20 px-2 ${t.mainText}`} />
+                      <input autoFocus value={String(tempMember)} onChange={e => setTempMember(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && String(tempMember).trim()) { if (!newMembers.includes(String(tempMember).trim())) setNewMembers([...newMembers, String(tempMember).trim()]); setTempMember(""); setShowAddMember(false); } }} placeholder="名稱..." className={`bg-transparent text-base md:text-sm outline-none w-20 px-2 ${t.mainText}`} />
                       <button onClick={() => { if (String(tempMember).trim() && !newMembers.includes(String(tempMember).trim())) setNewMembers([...newMembers, String(tempMember).trim()]); setTempMember(""); setShowAddMember(false); }} className="bg-blue-600 text-white rounded p-1 text-xs">✓</button>
                       <button onClick={() => setShowAddMember(false)} className={`hover:opacity-70 p-1 text-xs transition-opacity ${t.subText}`}>✕</button>
                     </div>
@@ -1649,7 +1627,7 @@ export default function TravelApp() {
               </div>
               <div>
                 <label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>主要交通</label>
-                <select value={String(newTransport)} onChange={e => setNewTransport(e.target.value)} className={`w-full p-3.5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                <select value={String(newTransport)} onChange={e => setNewTransport(e.target.value)} className={`w-full p-3.5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                   <option value="汽車 🚗">汽車 🚗</option><option value="火車/高鐵 🚅">火車/高鐵 🚅</option><option value="飛機 ✈️">飛機 ✈️</option><option value="機車 🛵">機車 🛵</option><option value="大眾運輸 🚌">大眾運輸 🚌</option>
                 </select>
               </div>
