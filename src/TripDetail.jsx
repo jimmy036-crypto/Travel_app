@@ -11,6 +11,7 @@ import {
   EditItemModal,
   CopyItemModal,
   ExpenseModal,
+  SettlementModal,
   TicketModal,
   FullscreenTicketModal,
   ChecklistModal,
@@ -487,6 +488,8 @@ const useRoomBranchSync = ({
   }, [branch, dirtyBranchesRef, roomId, setSyncStatus, value, writeVersionRef]);
 };
 
+const PRE_TRIP_ID = "PRE_TRIP";
+
 const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const [isLoading, setIsLoading] = useState(true);
 
@@ -499,14 +502,16 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
   const [expenses, setExpensesState] = useState([]);
   /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
+  const [settlements, setSettlementsState] = useState([]);
+  /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
   const [tickets, setTicketsState] = useState([]);
   /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
   const [checklistItems, setChecklistItemsState] = useState([]);
 
   const [syncStatus, setSyncStatus] = useState("idle");
   const [loadError, setLoadError] = useState("");
-  const dirtyBranchesRef = useRef({ meta: false, itinerary: false, expenses: false, tickets: false });
-  const writeVersionRef = useRef({ meta: 0, itinerary: 0, expenses: 0, tickets: 0 });
+  const dirtyBranchesRef = useRef({ meta: false, itinerary: false, expenses: false, settlements: false, tickets: false });
+  const writeVersionRef = useRef({ meta: 0, itinerary: 0, expenses: 0, settlements: 0, tickets: 0 });
   const checklistWriteVersionRef = useRef(0);
 
   const setMeta = useCallback((updater) => {
@@ -524,6 +529,11 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     setExpensesState(updater);
   }, []);
 
+  const setSettlements = useCallback((updater) => {
+    dirtyBranchesRef.current.settlements = true;
+    setSettlementsState(updater);
+  }, []);
+
   const setTickets = useCallback((updater) => {
     dirtyBranchesRef.current.tickets = true;
     setTicketsState(updater);
@@ -539,6 +549,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   /** @type {[any, React.Dispatch<any>]} */
   const [copyingItem, setCopyingItem] = useState(null);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [showSettlementModal, setShowSettlementModal] = useState(false);
   /** @type {[any, React.Dispatch<any>]} */
   const [editingExpense, setEditingExpense] = useState(null);
   const [showTicketModal, setShowTicketModal] = useState(false);
@@ -590,8 +601,8 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   useEffect(() => {
     setLoadError("");
     setIsLoading(true);
-    dirtyBranchesRef.current = { meta: false, itinerary: false, expenses: false, tickets: false };
-    writeVersionRef.current = { meta: 0, itinerary: 0, expenses: 0, tickets: 0 };
+    dirtyBranchesRef.current = { meta: false, itinerary: false, expenses: false, settlements: false, tickets: false };
+    writeVersionRef.current = { meta: 0, itinerary: 0, expenses: 0, settlements: 0, tickets: 0 };
     checklistWriteVersionRef.current = 0;
 
     if (!db || !roomId) {
@@ -604,6 +615,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       });
       setItineraryState({ "Day 1": [] });
       setExpensesState([]);
+      setSettlementsState([]);
       setTicketsState([]);
       setChecklistItemsState([]);
       setIsLoading(false);
@@ -625,12 +637,14 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
         const loadedMeta = normalizeMeta(data.meta);
         const loadedItinerary = normalizeItinerary(data.itinerary, loadedMeta);
         const loadedExpenses = toSafeList(data.expenses);
+        const loadedSettlements = toSafeList(data.settlements);
         const loadedTickets = toSafeList(data.tickets);
         const loadedChecklist = normalizeChecklist(data.checklist);
 
         if (!dirtyBranchesRef.current.meta) setMetaState(loadedMeta);
         if (!dirtyBranchesRef.current.itinerary) setItineraryState(loadedItinerary);
         if (!dirtyBranchesRef.current.expenses) setExpensesState(loadedExpenses);
+        if (!dirtyBranchesRef.current.settlements) setSettlementsState(loadedSettlements);
         if (!dirtyBranchesRef.current.tickets) setTicketsState(loadedTickets);
         setChecklistItemsState(loadedChecklist);
 
@@ -666,6 +680,14 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     roomId,
     branch: "expenses",
     value: expenses,
+    dirtyBranchesRef,
+    writeVersionRef,
+    setSyncStatus,
+  });
+  useRoomBranchSync({
+    roomId,
+    branch: "settlements",
+    value: settlements,
     dirtyBranchesRef,
     writeVersionRef,
     setSyncStatus,
@@ -855,6 +877,21 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     ]);
     closeExpenseEditor();
   }, [closeExpenseEditor, setExpenses]);
+
+  const handleSaveSettlement = useCallback((settlement) => {
+    setSettlements((previous) => [
+      ...(Array.isArray(previous) ? previous : []),
+      settlement,
+    ]);
+    setShowSettlementModal(false);
+  }, [setSettlements]);
+
+  const handleDeleteSettlement = useCallback((settlementId) => {
+    if (!window.confirm("確定刪除這筆結算紀錄嗎？刪除後待結算餘額會重新計算。")) return;
+    setSettlements((previous) => (Array.isArray(previous) ? previous : []).filter(
+      item => String(item.id) !== String(settlementId)
+    ));
+  }, [setSettlements]);
   const activeChecklistMember = membersList.includes(checklistActor)
     ? checklistActor
     : (membersList[0] || '自己');
@@ -870,73 +907,97 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
   const expenseStats = useMemo(() => {
     const safeExpenses = Array.isArray(expenses) ? expenses : [];
+    const safeSettlements = Array.isArray(settlements) ? settlements : [];
     const total = safeExpenses.reduce((sum, expense) => sum + (Number(expense.cost) || 0), 0);
-    const groupedMap = Object.fromEntries(existingDays.map((day) => [day, []]));
+    const groupOrder = [PRE_TRIP_ID, ...existingDays];
+    const groupedMap = Object.fromEntries(groupOrder.map((day) => [day, []]));
 
-    const userBalances = {};
-    const personalSpent = {};
-    membersList.forEach((member) => {
-      userBalances[String(member)] = 0;
-      personalSpent[String(member)] = 0;
-    });
+    const buildBalanceSnapshot = (expenseFilter) => {
+      const balances = {};
+      const personal = {};
+      membersList.forEach((member) => {
+        balances[String(member)] = 0;
+        personal[String(member)] = 0;
+      });
+
+      safeExpenses.filter(expenseFilter).forEach((expense) => {
+        const payer = String(expense.payer);
+        const cost = Number(expense.cost) || 0;
+        if (balances[payer] !== undefined) balances[payer] += cost;
+        if (expense.split && typeof expense.split === "object") {
+          Object.entries(expense.split).forEach(([member, rawAmount]) => {
+            if (balances[member] === undefined) return;
+            const amount = Number(rawAmount) || 0;
+            balances[member] -= amount;
+            personal[member] += amount;
+          });
+        } else {
+          const splitAmount = cost / Math.max(1, membersList.length);
+          membersList.forEach((member) => {
+            const key = String(member);
+            balances[key] -= splitAmount;
+            personal[key] += splitAmount;
+          });
+        }
+      });
+      return { balances, personal };
+    };
 
     safeExpenses.forEach((expense) => {
-      if (groupedMap[expense.dayId]) groupedMap[expense.dayId].push(expense);
-
-      const payer = String(expense.payer);
-      const cost = Number(expense.cost) || 0;
-      if (userBalances[payer] !== undefined) userBalances[payer] += cost;
-
-      if (expense.split && typeof expense.split === "object") {
-        Object.entries(expense.split).forEach(([member, rawAmount]) => {
-          if (userBalances[member] === undefined) return;
-          const amount = Number(rawAmount) || 0;
-          userBalances[member] -= amount;
-          personalSpent[member] += amount;
-        });
-      } else {
-        const splitAmount = cost / Math.max(1, membersList.length);
-        membersList.forEach((member) => {
-          const memberKey = String(member);
-          userBalances[memberKey] -= splitAmount;
-          personalSpent[memberKey] += splitAmount;
-        });
-      }
+      const key = expense.dayId === PRE_TRIP_ID ? PRE_TRIP_ID : String(expense.dayId || "");
+      if (groupedMap[key]) groupedMap[key].push(expense);
     });
 
-    const debtors = [];
-    const creditors = [];
-    Object.entries(userBalances).forEach(([member, balance]) => {
-      if (balance < -0.5) debtors.push({ member, amount: -balance });
-      else if (balance > 0.5) creditors.push({ member, amount: balance });
-    });
-    debtors.sort((a, b) => b.amount - a.amount);
-    creditors.sort((a, b) => b.amount - a.amount);
+    const allSnapshot = buildBalanceSnapshot(() => true);
+    const preTripSnapshot = buildBalanceSnapshot(expense => expense.dayId === PRE_TRIP_ID);
 
-    const transfers = [];
-    let debtorIndex = 0;
-    let creditorIndex = 0;
-    while (debtorIndex < debtors.length && creditorIndex < creditors.length) {
-      const amount = Math.min(debtors[debtorIndex].amount, creditors[creditorIndex].amount);
-      transfers.push({
-        from: debtors[debtorIndex].member,
-        to: creditors[creditorIndex].member,
-        amount,
+    safeSettlements
+      .filter(item => item.scope === "pretrip")
+      .forEach(item => {
+        const from = String(item.from || "");
+        const to = String(item.to || "");
+        const amount = Number(item.amount) || 0;
+        if (preTripSnapshot.balances[from] !== undefined) preTripSnapshot.balances[from] += amount;
+        if (preTripSnapshot.balances[to] !== undefined) preTripSnapshot.balances[to] -= amount;
+        if (allSnapshot.balances[from] !== undefined) allSnapshot.balances[from] += amount;
+        if (allSnapshot.balances[to] !== undefined) allSnapshot.balances[to] -= amount;
       });
-      debtors[debtorIndex].amount -= amount;
-      creditors[creditorIndex].amount -= amount;
-      if (debtors[debtorIndex].amount < 0.5) debtorIndex += 1;
-      if (creditors[creditorIndex].amount < 0.5) creditorIndex += 1;
-    }
+
+    const buildTransfers = (balances) => {
+      const debtors = [];
+      const creditors = [];
+      Object.entries(balances).forEach(([member, balance]) => {
+        if (balance < -0.5) debtors.push({ member, amount: -balance });
+        else if (balance > 0.5) creditors.push({ member, amount: balance });
+      });
+      debtors.sort((a, b) => b.amount - a.amount);
+      creditors.sort((a, b) => b.amount - a.amount);
+      const transfers = [];
+      let debtorIndex = 0;
+      let creditorIndex = 0;
+      while (debtorIndex < debtors.length && creditorIndex < creditors.length) {
+        const amount = Math.min(debtors[debtorIndex].amount, creditors[creditorIndex].amount);
+        transfers.push({ from: debtors[debtorIndex].member, to: creditors[creditorIndex].member, amount });
+        debtors[debtorIndex].amount -= amount;
+        creditors[creditorIndex].amount -= amount;
+        if (debtors[debtorIndex].amount < 0.5) debtorIndex += 1;
+        if (creditors[creditorIndex].amount < 0.5) creditorIndex += 1;
+      }
+      return transfers;
+    };
 
     return {
       totalExpense: total,
-      groupedExpenses: existingDays.map((day) => ({ day, items: groupedMap[day] || [] })),
-      balances: userBalances,
-      personalSpent,
-      transfers,
+      groupedExpenses: groupOrder.map((day) => ({ day, items: groupedMap[day] || [] })),
+      balances: allSnapshot.balances,
+      personalSpent: allSnapshot.personal,
+      transfers: buildTransfers(allSnapshot.balances),
+      preTripBalances: preTripSnapshot.balances,
+      preTripTransfers: buildTransfers(preTripSnapshot.balances),
+      preTripTotal: safeExpenses.filter(expense => expense.dayId === PRE_TRIP_ID).reduce((sum, expense) => sum + (Number(expense.cost) || 0), 0),
+      preTripSettlementTotal: safeSettlements.filter(item => item.scope === "pretrip").reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
     };
-  }, [existingDays, expenses, membersList]);
+  }, [existingDays, expenses, membersList, settlements]);
 
   const categoryStats = useMemo(() => {
     const stats = {};
@@ -2120,7 +2181,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     <div className="space-y-6">
                       {(/** @type {any[]} */ (expenseStats.groupedExpenses)).map(({ day, items }) => {
                         if (!Array.isArray(items) || items.length === 0) return null;
-                        const { title, dateStr } = getDayDisplay(day, meta.startDate);
+                        const { title, dateStr } = day === PRE_TRIP_ID ? { title: "行前支出", dateStr: "出發前共同採購與預付款" } : getDayDisplay(day, meta.startDate);
                         return (
                           <div key={String(day)} className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
                             <div className="flex justify-between items-center mb-4">
@@ -2171,6 +2232,28 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     </div>
                   ) : (
                     <div className="space-y-6">
+                      <div className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                          <div>
+                            <h3 className={`text-sm font-bold flex items-center gap-2 ${t.mainText}`}>🧳 行前結算</h3>
+                            <p className={`text-[10px] mt-1 ${t.subText}`}>結算只記錄成員間的實際轉帳，不會刪除支出，因此總額、預算和圖表仍保留完整資料。</p>
+                          </div>
+                          <button type="button" onClick={() => setShowSettlementModal(true)} disabled={expenseStats.preTripTransfers.length === 0} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-md active:scale-95">
+                            💸 記錄行前結算
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 mb-4">
+                          <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>行前支出</p><p className={`font-mono font-black mt-1 ${t.mainText}`}>NT${Math.round(expenseStats.preTripTotal).toLocaleString()}</p></div>
+                          <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>已記錄轉帳</p><p className="font-mono font-black mt-1 text-indigo-500">NT${Math.round(expenseStats.preTripSettlementTotal).toLocaleString()}</p></div>
+                        </div>
+                        {expenseStats.preTripTransfers.length > 0 ? (
+                          <div className="space-y-2">
+                            {expenseStats.preTripTransfers.map((item, index) => <div key={`pretrip-${index}`} className={`flex justify-between items-center p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><span className={`text-xs ${t.mainText}`}><b className="text-red-500">{item.from}</b> → <b className="text-emerald-500">{item.to}</b></span><b className={`font-mono ${t.mainText}`}>NT${Math.round(item.amount).toLocaleString()}</b></div>)}
+                          </div>
+                        ) : <p className={`text-center py-3 text-xs font-bold ${t.subText}`}>{expenseStats.preTripTotal > 0 ? "行前款項已結清 🎉" : "尚未新增行前支出"}</p>}
+                        {settlements.filter(item => item.scope === "pretrip").length > 0 ? <details className="mt-4"><summary className={`cursor-pointer text-xs font-bold ${t.subText}`}>查看結算紀錄（{settlements.filter(item => item.scope === "pretrip").length}）</summary><div className="space-y-2 mt-3">{settlements.filter(item => item.scope === "pretrip").slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(item => <div key={item.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><div><p className={`text-xs font-bold ${t.mainText}`}>{item.from} → {item.to}　NT${Number(item.amount||0).toLocaleString()}</p><p className={`text-[9px] mt-1 ${t.subText}`}>{item.note || "行前結算"} · {new Date(item.createdAt).toLocaleDateString("zh-TW")}</p></div><button type="button" onClick={() => handleDeleteSettlement(item.id)} className="text-red-500 text-xs font-bold">刪除</button></div>)}</div></details> : null}
+                      </div>
+
                       <div className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
                         <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${t.mainText}`}>👤 各自收支總覽</h3>
                         <div className="space-y-3">
@@ -2382,9 +2465,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       {showExpenseModal ? (
         <ExpenseModal
           members={membersList}
-          existingDays={existingDays}
+          existingDays={[PRE_TRIP_ID, ...existingDays]}
           startDate={meta.startDate}
-          defaultDay={editingExpense?.dayId || safeCurrentDay || existingDays[0] || "Day 1"}
+          defaultDay={editingExpense?.dayId || safeCurrentDay || existingDays[0] || PRE_TRIP_ID}
           expense={editingExpense}
           onClose={closeExpenseEditor}
           onSave={handleSaveExpense}
@@ -2393,6 +2476,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
           t={t}
         />
       ) : null}
+      {showSettlementModal ? <SettlementModal members={membersList} suggestions={expenseStats.preTripTransfers} onClose={() => setShowSettlementModal(false)} onSave={handleSaveSettlement} t={t} /> : null}
       {showTicketModal ? <TicketModal roomId={roomId} members={membersList} onClose={() => setShowTicketModal(false)} onSave={(newTicket) => { setTickets(prev => [...prev, newTicket]); setShowTicketModal(false); }} t={t} /> : null}
       {fullscreenTicket ? <FullscreenTicketModal ticket={fullscreenTicket} onClose={() => setFullscreenTicket(null)} /> : null}
     </>

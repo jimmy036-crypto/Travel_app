@@ -696,7 +696,7 @@ export const ExpenseModal = ({
               >
                 {validDays.map(day => (
                   <option key={`day-${day}`} value={day}>
-                    {getDayDisplay(day, startDate).title} {getDayDisplay(day, startDate).dateStr}
+                    {day === "PRE_TRIP" ? "行前支出（出發前）" : `${getDayDisplay(day, startDate).title} ${getDayDisplay(day, startDate).dateStr}`}
                   </option>
                 ))}
               </select>
@@ -2236,6 +2236,63 @@ export const ExportItineraryModal = ({
             {mode === 'full' ? '開啟列印預覽' : isExportingImage ? '圖片處理中…' : '下載單日圖片'}
           </button>
         </footer>
+      </div>
+    </div>
+  );
+};
+
+
+export const SettlementModal = ({ members, suggestions, onClose, onSave, t }) => {
+  useBodyScrollLock();
+  const safeMembers = useMemo(() => [...new Set((Array.isArray(members) ? members : []).map(String).filter(Boolean))], [members]);
+  const safeSuggestions = Array.isArray(suggestions) ? suggestions : [];
+  const firstSuggestion = safeSuggestions[0] || {};
+  const [from, setFrom] = useState(String(firstSuggestion.from || safeMembers[0] || ""));
+  const [to, setTo] = useState(String(firstSuggestion.to || safeMembers.find(member => member !== from) || ""));
+  const [amount, setAmount] = useState(firstSuggestion.amount ? String(Math.round(Number(firstSuggestion.amount))) : "");
+  const [note, setNote] = useState("行前費用結算");
+
+  const applySuggestion = (suggestion) => {
+    setFrom(String(suggestion.from));
+    setTo(String(suggestion.to));
+    setAmount(String(Math.round(Number(suggestion.amount) || 0)));
+  };
+
+  const submit = () => {
+    const numericAmount = Number(amount);
+    if (!from || !to || from === to) return alert("請選擇不同的付款人與收款人。");
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return alert("請輸入有效的結算金額。");
+    onSave({
+      id: generateId(),
+      scope: "pretrip",
+      from,
+      to,
+      amount: Math.round(numericAmount * 100) / 100,
+      note: String(note).trim(),
+      createdAt: Date.now(),
+    });
+  };
+
+  return (
+    <div style={{ zIndex: 10000, touchAction: "pan-y" }} className="fixed inset-0 bg-black/65 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div style={{ WebkitOverflowScrolling: "touch" }} className={`w-full max-w-md rounded-t-3xl sm:rounded-3xl border shadow-2xl max-h-[92dvh] overflow-y-auto ${t.modalBg} ${t.cardBorder}`} onClick={event => event.stopPropagation()}>
+        <header className={`sticky top-0 z-10 p-5 border-b backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>
+          <div className="flex items-start justify-between gap-4">
+            <div><h2 className={`text-xl font-black ${t.mainText}`}>💸 記錄行前結算</h2><p className={`text-[11px] mt-1 ${t.subText}`}>這是實際轉帳紀錄，不會改動原始支出或統計圖表。</p></div>
+            <button type="button" onClick={onClose} className={`w-11 h-11 rounded-full bg-slate-500/10 font-bold ${t.subText}`}>✕</button>
+          </div>
+        </header>
+        <div className="p-5 space-y-5">
+          {safeSuggestions.length > 0 ? <section><p className={`text-[10px] font-bold uppercase mb-2 ${t.subText}`}>系統建議</p><div className="space-y-2">{safeSuggestions.map((suggestion, index) => <button type="button" key={`${suggestion.from}-${suggestion.to}-${index}`} onClick={() => applySuggestion(suggestion)} className={`w-full flex justify-between items-center p-3 rounded-xl border text-left hover:border-indigo-500 ${t.itemBg} ${t.cardBorder}`}><span className={`text-xs ${t.mainText}`}><b className="text-red-500">{suggestion.from}</b> → <b className="text-emerald-500">{suggestion.to}</b></span><b className={`font-mono ${t.mainText}`}>NT${Math.round(Number(suggestion.amount)).toLocaleString()}</b></button>)}</div></section> : null}
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className={`block text-[10px] font-bold mb-1.5 ${t.subText}`}>付款人</label><select value={from} onChange={event => setFrom(event.target.value)} className={`w-full p-3 rounded-xl border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{safeMembers.map(member => <option key={`from-${member}`} value={member}>{member}</option>)}</select></div>
+            <div><label className={`block text-[10px] font-bold mb-1.5 ${t.subText}`}>收款人</label><select value={to} onChange={event => setTo(event.target.value)} className={`w-full p-3 rounded-xl border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{safeMembers.map(member => <option key={`to-${member}`} value={member}>{member}</option>)}</select></div>
+          </div>
+          <div><label className={`block text-[10px] font-bold mb-1.5 ${t.subText}`}>實際轉帳金額（TWD）</label><input type="number" min="0" step="1" value={amount} onChange={event => setAmount(event.target.value)} className={`w-full p-3.5 rounded-xl border font-mono font-black text-lg ${t.inputBg} ${t.cardBorder} ${t.mainText}`} placeholder="0" /></div>
+          <div><label className={`block text-[10px] font-bold mb-1.5 ${t.subText}`}>備註</label><input value={note} onChange={event => setNote(event.target.value)} className={`w-full p-3 rounded-xl border ${t.inputBg} ${t.cardBorder} ${t.mainText}`} placeholder="例如：已用 LINE Pay 轉帳" /></div>
+          <div className={`p-3 rounded-xl border text-[10px] leading-5 ${t.cardMetaBg} ${t.cardBorder} ${t.subText}`}>結算紀錄只會抵銷「誰欠誰」的餘額。行前機票、住宿、網卡等原始支出仍會完整保留在總花費、預算進度與圓餅圖中。</div>
+        </div>
+        <footer style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }} className={`sticky bottom-0 flex justify-end gap-3 p-5 border-t backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}><button type="button" onClick={onClose} className={`px-5 py-2.5 font-bold ${t.mainText}`}>取消</button><button type="button" onClick={submit} className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black shadow-lg active:scale-95">確認已轉帳</button></footer>
       </div>
     </div>
   );
