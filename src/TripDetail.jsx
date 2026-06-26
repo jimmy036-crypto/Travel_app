@@ -539,6 +539,8 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   /** @type {[any, React.Dispatch<any>]} */
   const [copyingItem, setCopyingItem] = useState(null);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
+  /** @type {[any, React.Dispatch<any>]} */
+  const [editingExpense, setEditingExpense] = useState(null);
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [checklistActor, setChecklistActorState] = useState(() => {
@@ -811,6 +813,48 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   };
 
   const membersList = useMemo(() => normalizeMembers(meta?.members), [meta?.members]);
+
+  const openNewExpense = useCallback(() => {
+    setEditingExpense(null);
+    setShowExpenseModal(true);
+  }, []);
+
+  const openExpenseEditor = useCallback((expense) => {
+    setEditingExpense(expense);
+    setShowExpenseModal(true);
+  }, []);
+
+  const closeExpenseEditor = useCallback(() => {
+    setShowExpenseModal(false);
+    setEditingExpense(null);
+  }, []);
+
+  const handleSaveExpense = useCallback((nextExpense) => {
+    setExpenses((previousExpenses) => {
+      const safeExpenses = Array.isArray(previousExpenses) ? previousExpenses : [];
+      const exists = safeExpenses.some(expense => String(expense.id) === String(nextExpense.id));
+      return exists
+        ? safeExpenses.map(expense => String(expense.id) === String(nextExpense.id) ? nextExpense : expense)
+        : [...safeExpenses, nextExpense];
+    });
+    closeExpenseEditor();
+  }, [closeExpenseEditor, setExpenses]);
+
+  const handleDeleteExpense = useCallback((expenseId) => {
+    setExpenses((previousExpenses) => (
+      (Array.isArray(previousExpenses) ? previousExpenses : [])
+        .filter(expense => String(expense.id) !== String(expenseId))
+    ));
+    closeExpenseEditor();
+  }, [closeExpenseEditor, setExpenses]);
+
+  const handleDuplicateExpense = useCallback((duplicatedExpense) => {
+    setExpenses((previousExpenses) => [
+      ...(Array.isArray(previousExpenses) ? previousExpenses : []),
+      duplicatedExpense,
+    ]);
+    closeExpenseEditor();
+  }, [closeExpenseEditor, setExpenses]);
   const activeChecklistMember = membersList.includes(checklistActor)
     ? checklistActor
     : (membersList[0] || '自己');
@@ -1989,7 +2033,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       <p className={`text-xs font-bold uppercase tracking-widest ${t.subText}`}>全團花費總計</p>
                       <h2 className={`text-3xl font-black mt-1 ${t.mainText}`}>NT$ {expenseStats.totalExpense.toLocaleString()}</h2>
                     </div>
-                    <button onClick={() => setShowExpenseModal(true)} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all">
+                    <button onClick={openNewExpense} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all">
                       ➕ 新增記帳
                     </button>
                   </div>
@@ -2087,22 +2131,36 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                               {(/** @type {any[]} */ (items)).map(e => {
                                 const cat = CATEGORIES.find(c => c.id === e.category) || CATEGORIES[5];
                                 return (
-                                  <div key={String(e.id)} className={`flex justify-between items-center p-3 rounded-2xl border transition-colors ${t.itemBg} ${t.cardBorder} hover:opacity-80`}>
-                                    <div className="flex items-center gap-3">
-                                      <span className={`w-9 h-9 ${cat.color} text-white rounded-full flex items-center justify-center text-sm shadow-inner`}>{cat.icon}</span>
-                                      <div>
-                                        <p className={`text-sm font-bold ${t.mainText}`}>{String(e.item)}</p>
-                                        <p className={`text-[10px] font-bold ${t.subText}`}>{cat.label} • <span className="text-blue-500">{String(e.payer)}</span> 先付</p>
+                                  <button
+                                    type="button"
+                                    key={String(e.id)}
+                                    onClick={() => openExpenseEditor(e)}
+                                    className={`w-full flex justify-between items-center gap-3 p-3 rounded-2xl border transition-all text-left ${t.itemBg} ${t.cardBorder} hover:border-emerald-500/50 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]`}
+                                    aria-label={`編輯帳目 ${String(e.item)}`}
+                                  >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                      <span className={`w-10 h-10 ${cat.color} text-white rounded-full flex items-center justify-center text-sm shadow-inner shrink-0`}>{cat.icon}</span>
+                                      <div className="min-w-0">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <p className={`text-sm font-bold truncate ${t.mainText}`}>{String(e.item)}</p>
+                                          {Number(e.updatedAt) > Number(e.createdAt || e.updatedAt) ? (
+                                            <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-500 font-bold">已編輯</span>
+                                          ) : null}
+                                        </div>
+                                        <p className={`text-[10px] font-bold mt-0.5 ${t.subText}`}>
+                                          {cat.label} • <span className="text-blue-500">{String(e.payer)}</span> 先付 • {Object.values(e.split || {}).filter(amount => Number(amount) > 0).length || membersList.length} 人分攤
+                                        </p>
+                                        {e.note ? <p className={`text-[10px] mt-1 truncate ${t.subText}`}>📝 {String(e.note)}</p> : null}
                                       </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-3 shrink-0">
                                       <div className="flex flex-col items-end">
                                         <span className={`font-mono font-bold ${t.mainText}`}>NT${(Number(e.cost)||0).toLocaleString()}</span>
-                                        {e.currency && e.currency !== 'TWD' && <span className={`text-[9px] font-mono opacity-60 ${t.subText}`}>{e.currency} {Number(e.localCost).toLocaleString()}</span>}
+                                        {e.currency && e.currency !== 'TWD' ? <span className={`text-[9px] font-mono opacity-60 ${t.subText}`}>{e.currency} {(Number(e.localCost) || 0).toLocaleString()}</span> : null}
                                       </div>
-                                      <button onClick={() => { if(window.confirm('刪除這筆帳款？')) setExpenses(expenses.filter(x => x.id !== e.id)); }} className={`p-1 transition-colors hover:text-red-500 ${t.subText}`}>🗑️</button>
+                                      <span className={`text-[11px] font-bold ${t.subText}`}>✏️ <span className="hidden sm:inline">編輯</span></span>
                                     </div>
-                                  </div>
+                                  </button>
                                 );
                               })}
                             </div>
@@ -2321,7 +2379,20 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
           t={t}
         />
       ) : null}
-      {showExpenseModal ? <ExpenseModal members={membersList} existingDays={existingDays} startDate={meta.startDate} defaultDay={existingDays[0] || "Day 1"} onClose={() => setShowExpenseModal(false)} onSave={(newExpense) => { setExpenses(prev => [...prev, newExpense]); setShowExpenseModal(false); }} t={t} /> : null}
+      {showExpenseModal ? (
+        <ExpenseModal
+          members={membersList}
+          existingDays={existingDays}
+          startDate={meta.startDate}
+          defaultDay={editingExpense?.dayId || safeCurrentDay || existingDays[0] || "Day 1"}
+          expense={editingExpense}
+          onClose={closeExpenseEditor}
+          onSave={handleSaveExpense}
+          onDelete={handleDeleteExpense}
+          onDuplicate={handleDuplicateExpense}
+          t={t}
+        />
+      ) : null}
       {showTicketModal ? <TicketModal roomId={roomId} members={membersList} onClose={() => setShowTicketModal(false)} onSave={(newTicket) => { setTickets(prev => [...prev, newTicket]); setShowTicketModal(false); }} t={t} /> : null}
       {fullscreenTicket ? <FullscreenTicketModal ticket={fullscreenTicket} onClose={() => setFullscreenTicket(null)} /> : null}
     </>

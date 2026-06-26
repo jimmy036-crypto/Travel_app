@@ -352,128 +352,524 @@ const CURRENCIES = [
   { code: "THB", rate: 0.023, label: "泰銖 (THB)" }
 ];
 
-export const ExpenseModal = ({ members, existingDays, startDate, defaultDay, onClose, onSave, t }) => {
+export const ExpenseModal = ({
+  members,
+  existingDays,
+  startDate,
+  defaultDay,
+  expense = null,
+  onClose,
+  onSave,
+  onDelete,
+  onDuplicate,
+  t,
+}) => {
   useBodyScrollLock();
 
-  const validMembers = Array.isArray(members) ? members : [];
-  const validDays = Array.isArray(existingDays) ? existingDays : [];
+  const validMembers = useMemo(
+    () => [...new Set((Array.isArray(members) ? members : []).map(String).filter(Boolean))],
+    [members]
+  );
+  const validDays = useMemo(
+    () => (Array.isArray(existingDays) ? existingDays.map(String) : []),
+    [existingDays]
+  );
+  const isEditing = Boolean(expense?.id);
+  const initialCurrency = CURRENCIES.some(option => option.code === expense?.currency)
+    ? String(expense.currency)
+    : "TWD";
+  const currencyDefaultRate = CURRENCIES.find(option => option.code === initialCurrency)?.rate || 1;
+  const initialRate = Number(expense?.exchangeRate) > 0
+    ? Number(expense.exchangeRate)
+    : currencyDefaultRate;
+  const initialLocalCost = Number(expense?.localCost) > 0
+    ? Number(expense.localCost)
+    : Number(expense?.cost) > 0
+      ? Math.round((Number(expense.cost) / initialRate) * 100) / 100
+      : "";
+  const initialDay = validDays.includes(String(expense?.dayId || ""))
+    ? String(expense.dayId)
+    : validDays.includes(String(defaultDay || ""))
+      ? String(defaultDay)
+      : (validDays[0] || "");
+  const initialPayer = validMembers.includes(String(expense?.payer || ""))
+    ? String(expense.payer)
+    : (validMembers[0] || "自己");
+  const initialCategory = CATEGORIES.some(option => option.id === expense?.category)
+    ? String(expense.category)
+    : "food";
 
-  const [item, setItem] = useState("");
-  const [localCost, setLocalCost] = useState("");
-  const [currency, setCurrency] = useState("TWD");
-  const [rate, setRate] = useState(1);
-
-  const [dayId, setDayId] = useState(() => validDays.includes(defaultDay) ? defaultDay : (validDays[0] || ""));
-  const [category, setCategory] = useState("food");
-  const [payer, setPayer] = useState(validMembers.length > 0 ? validMembers[0] : "自己");
-  const [splitType, setSplitType] = useState("EQUAL");
-  const [involved, setInvolved] = useState(validMembers);
-  const [customAmounts, setCustomAmounts] = useState(() => {
-    const init = {};
-    validMembers.forEach(m => { init[String(m)] = ""; });
-    return init;
-  });
-
-  const handleCurrencyChange = (e) => {
-    const newCode = e.target.value;
-    setCurrency(newCode);
-    const found = CURRENCIES.find(c => c.code === newCode);
-    if (found) setRate(found.rate);
-  };
-
-  const twdCost = Math.round((Number(localCost) || 0) * (Number(rate) || 1));
-
-  const handleSave = () => {
-    if (!String(item).trim() || !localCost || Number(localCost) <= 0) return alert("請輸入有效的項目名稱與金額！");
-    if (!dayId || !validDays.includes(dayId)) return alert("找不到可用的旅程日期，請重新開啟記帳視窗。");
-    if (!Number.isFinite(Number(rate)) || Number(rate) <= 0) return alert("請輸入大於 0 的有效匯率！");
-    if (!validMembers.includes(payer)) return alert("代墊人已不在旅程成員中，請重新選擇。");
-
-    const finalSplit = {};
-
-    if (splitType === "EQUAL") {
-      if (involved.length === 0) return alert("請至少選擇一位參與分帳的人員！(個人花費請只勾選自己)");
-      const splitAmount = Math.floor((twdCost / involved.length) * 100) / 100;
-      let sum = 0;
-      involved.forEach((m, idx) => {
-        if (idx === involved.length - 1) { finalSplit[String(m)] = Math.round((twdCost - sum) * 100) / 100; }
-        else { finalSplit[String(m)] = splitAmount; sum += splitAmount; }
-      });
-      validMembers.forEach(m => { if (!involved.includes(m)) finalSplit[String(m)] = 0; });
-    } else {
-      let customSum = 0;
-      validMembers.forEach(m => { const val = Number(customAmounts[String(m)]) || 0; finalSplit[String(m)] = val; customSum += val; });
-      if (Math.abs(customSum - twdCost) > 2) return alert(`分帳總和 (NT$${customSum}) 與折合台幣總計 (NT$${twdCost}) 不符！`);
+  const initialSplitState = useMemo(() => {
+    if (!isEditing || !expense?.split || typeof expense.split !== "object") {
+      return {
+        type: "EQUAL",
+        involved: validMembers,
+        customAmounts: Object.fromEntries(validMembers.map(member => [member, ""])),
+      };
     }
 
-    onSave({
-      id: generateId(), dayId: String(dayId), item: String(item).trim(),
-      cost: twdCost,
-      localCost: Number(localCost), currency: currency, exchangeRate: Number(rate),
-      category: String(category), payer: String(payer), split: finalSplit
+    const amounts = validMembers.map(member => Number(expense.split?.[member]) || 0);
+    const involvedMembers = validMembers.filter((member, index) => amounts[index] > 0.005);
+    const positiveAmounts = amounts.filter(amount => amount > 0.005);
+    const looksEqual = positiveAmounts.length > 0
+      && Math.max(...positiveAmounts) - Math.min(...positiveAmounts) <= 0.02;
+
+    return {
+      type: looksEqual ? "EQUAL" : "CUSTOM",
+      involved: involvedMembers.length > 0 ? involvedMembers : validMembers,
+      customAmounts: Object.fromEntries(
+        validMembers.map(member => [
+          member,
+          Number(expense.split?.[member]) > 0 ? String(Number(expense.split[member])) : "",
+        ])
+      ),
+    };
+  }, [expense, isEditing, validMembers]);
+
+  const [item, setItem] = useState(() => String(expense?.item || ""));
+  const [localCost, setLocalCost] = useState(() => String(initialLocalCost));
+  const [currency, setCurrency] = useState(initialCurrency);
+  const [rate, setRate] = useState(() => String(initialRate));
+  const [dayId, setDayId] = useState(initialDay);
+  const [category, setCategory] = useState(initialCategory);
+  const [payer, setPayer] = useState(initialPayer);
+  const [splitType, setSplitType] = useState(initialSplitState.type);
+  const [involved, setInvolved] = useState(initialSplitState.involved);
+  const [customAmounts, setCustomAmounts] = useState(initialSplitState.customAmounts);
+  const [note, setNote] = useState(() => String(expense?.note || ""));
+
+  const twdCost = Math.round((Number(localCost) || 0) * (Number(rate) || 0));
+  const customTotal = validMembers.reduce(
+    (sum, member) => sum + (Number(customAmounts[member]) || 0),
+    0
+  );
+
+  const initialFingerprintRef = useRef(JSON.stringify({
+    item: String(expense?.item || ""),
+    localCost: String(initialLocalCost),
+    currency: initialCurrency,
+    rate: String(initialRate),
+    dayId: initialDay,
+    category: initialCategory,
+    payer: initialPayer,
+    splitType: initialSplitState.type,
+    involved: initialSplitState.involved,
+    customAmounts: initialSplitState.customAmounts,
+    note: String(expense?.note || ""),
+  }));
+
+  const currentFingerprint = JSON.stringify({
+    item,
+    localCost,
+    currency,
+    rate,
+    dayId,
+    category,
+    payer,
+    splitType,
+    involved,
+    customAmounts,
+    note,
+  });
+  const hasUnsavedChanges = currentFingerprint !== initialFingerprintRef.current;
+
+  const requestClose = () => {
+    if (hasUnsavedChanges && !window.confirm("尚有未儲存的記帳變更，確定要離開嗎？")) return;
+    onClose();
+  };
+
+  const handleCurrencyChange = (event) => {
+    const nextCurrency = String(event.target.value);
+    setCurrency(nextCurrency);
+    const found = CURRENCIES.find(option => option.code === nextCurrency);
+    if (found) setRate(String(found.rate));
+  };
+
+  const rebalanceCustomSplit = () => {
+    if (twdCost <= 0 || validMembers.length === 0) return;
+
+    const activeMembers = validMembers.filter(member => (Number(customAmounts[member]) || 0) > 0);
+    const targets = activeMembers.length > 0 ? activeMembers : validMembers;
+    const existingTotal = targets.reduce(
+      (sum, member) => sum + (Number(customAmounts[member]) || 0),
+      0
+    );
+    const next = Object.fromEntries(validMembers.map(member => [member, ""]));
+    let distributed = 0;
+
+    targets.forEach((member, index) => {
+      const rawShare = existingTotal > 0
+        ? twdCost * ((Number(customAmounts[member]) || 0) / existingTotal)
+        : twdCost / targets.length;
+      const amount = index === targets.length - 1
+        ? Math.round((twdCost - distributed) * 100) / 100
+        : Math.floor(rawShare * 100) / 100;
+      next[member] = String(amount);
+      distributed += amount;
     });
+
+    setCustomAmounts(next);
+  };
+
+  const buildExpense = ({ duplicate = false } = {}) => {
+    const normalizedItem = String(item).trim();
+    const numericLocalCost = Number(localCost);
+    const numericRate = Number(rate);
+
+    if (!normalizedItem || !Number.isFinite(numericLocalCost) || numericLocalCost <= 0) {
+      alert("請輸入有效的項目名稱與金額！");
+      return null;
+    }
+    if (!dayId || !validDays.includes(dayId)) {
+      alert("找不到可用的旅程日期，請重新選擇。");
+      return null;
+    }
+    if (!Number.isFinite(numericRate) || numericRate <= 0) {
+      alert("請輸入大於 0 的有效匯率！");
+      return null;
+    }
+    if (!validMembers.includes(payer)) {
+      alert("代墊人已不在旅程成員中，請重新選擇。");
+      return null;
+    }
+
+    const finalSplit = {};
+    if (splitType === "EQUAL") {
+      const activeMembers = involved.filter(member => validMembers.includes(member));
+      if (activeMembers.length === 0) {
+        alert("請至少選擇一位參與分帳的人員！");
+        return null;
+      }
+
+      const splitAmount = Math.floor((twdCost / activeMembers.length) * 100) / 100;
+      let sum = 0;
+      activeMembers.forEach((member, index) => {
+        const amount = index === activeMembers.length - 1
+          ? Math.round((twdCost - sum) * 100) / 100
+          : splitAmount;
+        finalSplit[member] = amount;
+        sum += amount;
+      });
+      validMembers.forEach(member => {
+        if (finalSplit[member] === undefined) finalSplit[member] = 0;
+      });
+    } else {
+      validMembers.forEach(member => {
+        finalSplit[member] = Number(customAmounts[member]) || 0;
+      });
+      if (Math.abs(customTotal - twdCost) > 0.02) {
+        alert(`分帳總和（NT$${customTotal.toLocaleString()}）與折合台幣總計（NT$${twdCost.toLocaleString()}）不符！`);
+        return null;
+      }
+    }
+
+    const now = Date.now();
+    return {
+      ...(expense && typeof expense === "object" ? expense : {}),
+      id: duplicate || !isEditing ? generateId() : String(expense.id),
+      dayId: String(dayId),
+      item: normalizedItem,
+      cost: twdCost,
+      localCost: numericLocalCost,
+      currency: String(currency),
+      exchangeRate: numericRate,
+      category: String(category),
+      payer: String(payer),
+      split: finalSplit,
+      note: String(note).trim(),
+      createdAt: duplicate || !isEditing ? now : (Number(expense?.createdAt) || now),
+      updatedAt: now,
+    };
+  };
+
+  const handleSave = () => {
+    const nextExpense = buildExpense();
+    if (nextExpense) onSave(nextExpense);
+  };
+
+  const handleDuplicate = () => {
+    const duplicatedExpense = buildExpense({ duplicate: true });
+    if (duplicatedExpense) onDuplicate?.(duplicatedExpense);
+  };
+
+  const handleDelete = () => {
+    if (!isEditing || !onDelete) return;
+    if (window.confirm(`確定刪除「${String(expense.item || "這筆帳目")}」嗎？此動作無法復原。`)) {
+      onDelete(String(expense.id));
+    }
   };
 
   return (
-    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity overflow-hidden w-full max-w-[100vw]" onClick={onClose}>
-      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
-        <h2 className={`text-xl font-black mb-5 flex items-center gap-2 ${t.mainText}`}>💰 新增記帳</h2>
-        <div className="overflow-y-auto pr-2 space-y-5 scrollbar-hide">
+    <div
+      style={{ zIndex: 9999, touchAction: "pan-y" }}
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden w-full max-w-[100vw]"
+      onClick={requestClose}
+    >
+      <div
+        style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}
+        className={`border rounded-t-3xl sm:rounded-3xl w-full max-w-md shadow-2xl flex flex-col max-h-[94dvh] sm:max-h-[90vh] animate-in slide-in-from-bottom-4 sm:zoom-in-95 ${t.modalBg} ${t.cardBorder}`}
+        onClick={event => event.stopPropagation()}
+      >
+        <div className={`flex items-start justify-between gap-4 p-5 sm:p-6 border-b shrink-0 ${t.cardBorder}`}>
           <div>
-             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>項目名稱 (公費或個人花費) *</label>
-             <input value={String(item)} onChange={e => setItem(e.target.value)} placeholder="ex: 晚餐燒肉 / 個人免稅品" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <h2 className={`text-xl font-black flex items-center gap-2 ${t.mainText}`}>
+              {isEditing ? "✏️ 編輯帳目" : "💰 新增記帳"}
+            </h2>
+            <p className={`text-[11px] mt-1 ${t.subText}`}>
+              {isEditing ? "修改後，結算、預算與圓餅圖會自動重新計算。" : "記錄付款人、分攤方式與外幣金額。"}
+            </p>
           </div>
-          <div className="flex gap-2 items-end">
-            <div className="w-[35%]">
-              <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>幣別</label>
-              <select value={currency} onChange={handleCurrencyChange} className={`w-full py-2.5 px-2 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
-                 {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+          <button
+            type="button"
+            onClick={requestClose}
+            className={`w-11 h-11 rounded-full flex items-center justify-center bg-slate-500/10 text-lg shrink-0 hover:text-red-500 ${t.subText}`}
+            aria-label="關閉記帳視窗"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="overflow-y-auto overscroll-contain px-5 sm:px-6 py-5 space-y-5 scrollbar-hide flex-1">
+          <div>
+            <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>項目名稱 *</label>
+            <input
+              value={item}
+              onChange={event => setItem(event.target.value)}
+              placeholder="例如：晚餐燒肉、北部住宿"
+              autoFocus={!isEditing}
+              className={`w-full py-3 px-3.5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-base sm:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+            />
+          </div>
+
+          <div className="grid grid-cols-[minmax(110px,0.85fr)_minmax(0,1.4fr)] gap-2 items-end">
+            <div>
+              <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>幣別</label>
+              <select
+                value={currency}
+                onChange={handleCurrencyChange}
+                className={`w-full py-3 px-2 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+              >
+                {CURRENCIES.map(option => <option key={option.code} value={option.code}>{option.label}</option>)}
               </select>
             </div>
-            <div className="flex-1">
-              <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>當地金額 *</label>
-              <input type="number" value={String(localCost)} onChange={e => setLocalCost(e.target.value)} placeholder="0" className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border font-mono font-bold text-emerald-500 text-sm ${t.inputBg} ${t.cardBorder}`} />
+            <div>
+              <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>當地金額 *</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                value={localCost}
+                onChange={event => setLocalCost(event.target.value)}
+                placeholder="0"
+                className={`w-full py-3 px-3.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border font-mono font-bold text-emerald-500 text-base ${t.inputBg} ${t.cardBorder}`}
+              />
             </div>
           </div>
-          <div className={`p-3 rounded-xl border flex items-center justify-between bg-black/5 dark:bg-white/5 ${t.cardBorder}`}>
-             <div className="flex flex-col">
-               <span className={`text-[10px] font-bold uppercase ${t.subText}`}>換算匯率（可自行更新）</span>
-               <input type="number" step="0.001" value={String(rate)} onChange={e => setRate(e.target.value)} className={`bg-transparent outline-none font-mono text-sm mt-1 w-20 ${t.mainText}`} />
-             </div>
-             <div className="text-right">
-               <span className={`text-[10px] font-bold uppercase block ${t.subText}`}>折合台幣總計</span>
-               <span className="text-base font-black font-mono text-emerald-500">NT$ {twdCost.toLocaleString()}</span>
-             </div>
+
+          <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-4 ${t.cardMetaBg} ${t.cardBorder}`}>
+            <div className="min-w-0">
+              <span className={`text-[10px] font-bold uppercase ${t.subText}`}>換算匯率</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.001"
+                value={rate}
+                onChange={event => setRate(event.target.value)}
+                className={`block bg-transparent outline-none font-mono text-sm mt-1 w-24 ${t.mainText}`}
+              />
+            </div>
+            <div className="text-right shrink-0">
+              <span className={`text-[10px] font-bold uppercase block ${t.subText}`}>折合台幣</span>
+              <span className="text-lg font-black font-mono text-emerald-500">NT$ {twdCost.toLocaleString()}</span>
+            </div>
           </div>
-          <div className="flex gap-3">
-            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>日期</label><select value={String(dayId)} onChange={e => setDayId(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{(validDays).map(d => <option key={`day-${d}`} value={String(d)}>{getDayDisplay(d, startDate).title} {getDayDisplay(d, startDate).dateStr}</option>)}</select></div>
-            <div className="flex-1"><label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>代墊人 (誰先付的)</label><select value={String(payer)} onChange={e => setPayer(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>{(validMembers).map(m => <option key={`payer-${m}`} value={String(m)}>{String(m)}</option>)}</select></div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>日期</label>
+              <select
+                value={dayId}
+                onChange={event => setDayId(event.target.value)}
+                className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+              >
+                {validDays.map(day => (
+                  <option key={`day-${day}`} value={day}>
+                    {getDayDisplay(day, startDate).title} {getDayDisplay(day, startDate).dateStr}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>代墊人</label>
+              <select
+                value={payer}
+                onChange={event => setPayer(event.target.value)}
+                className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+              >
+                {validMembers.map(member => <option key={`payer-${member}`} value={member}>{member}</option>)}
+              </select>
+            </div>
           </div>
+
           <div>
             <label className={`block text-[10px] font-bold mb-2 uppercase ${t.subText}`}>分類</label>
             <div className="flex overflow-x-auto gap-2 pb-1 scrollbar-hide">
-              {CATEGORIES.map(c => <button key={c.id} onClick={() => setCategory(c.id)} className={`px-4 py-2 rounded-xl border flex items-center gap-2 whitespace-nowrap transition-all ${category === c.id ? `${c.color} border-transparent text-white shadow-md` : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}><span>{c.icon}</span><span className="text-xs font-bold">{c.label}</span></button>)}
+              {CATEGORIES.map(option => (
+                <button
+                  type="button"
+                  key={option.id}
+                  onClick={() => setCategory(option.id)}
+                  className={`min-h-11 px-4 py-2 rounded-xl border flex items-center gap-2 whitespace-nowrap transition-all ${category === option.id ? `${option.color} border-transparent text-white shadow-md` : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
+                >
+                  <span>{option.icon}</span><span className="text-xs font-bold">{option.label}</span>
+                </button>
+              ))}
             </div>
           </div>
+
           <div className={`p-4 rounded-2xl border ${t.cardMetaBg} ${t.cardBorder}`}>
-            <div className="flex justify-between items-center mb-3"><label className={`text-xs font-bold ${t.subText}`}>分帳方式</label><div className={`flex rounded-lg p-1 border ${t.cardBg} ${t.cardBorder}`}><button onClick={() => setSplitType('EQUAL')} className={`px-3 py-1 text-[10px] font-bold rounded-md ${splitType === 'EQUAL' ? 'bg-blue-600 text-white' : t.subText}`}>勾選平分</button><button onClick={() => setSplitType('CUSTOM')} className={`px-3 py-1 text-[10px] font-bold rounded-md ${splitType === 'CUSTOM' ? 'bg-purple-600 text-white' : t.subText}`}>輸入自訂</button></div></div>
-            {splitType === 'EQUAL' ? (
-              <div className="space-y-2">
-                <p className={`text-[10px] mb-2 ${t.subText}`}>請勾選參與的成員：<span className="text-blue-500">(若是個人花費，請只勾選自己)</span></p>
-                <div className="flex flex-wrap gap-2">{(validMembers).map(m => <button key={`inv-${m}`} onClick={() => setInvolved(involved.includes(m) ? involved.filter(x => x !== m) : [...involved, m])} className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${involved.includes(m) ? 'bg-blue-500/20 border-blue-500 text-blue-600' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>{involved.includes(m) ? '✓' : '○'} {String(m)}</button>)}</div>
-                {twdCost > 0 && involved.length > 0 ? <p className="text-[10px] text-emerald-500 font-mono mt-3 text-right font-bold">每人分攤：NT${Math.round(twdCost / involved.length).toLocaleString()}</p> : null}
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-3">
+              <label className={`text-xs font-bold ${t.subText}`}>分帳方式</label>
+              <div className={`flex rounded-lg p-1 border ${t.cardBg} ${t.cardBorder}`}>
+                <button
+                  type="button"
+                  onClick={() => setSplitType("EQUAL")}
+                  className={`flex-1 px-3 py-2 text-[11px] font-bold rounded-md ${splitType === "EQUAL" ? "bg-blue-600 text-white" : t.subText}`}
+                >
+                  勾選平分
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSplitType("CUSTOM")}
+                  className={`flex-1 px-3 py-2 text-[11px] font-bold rounded-md ${splitType === "CUSTOM" ? "bg-purple-600 text-white" : t.subText}`}
+                >
+                  自訂金額
+                </button>
+              </div>
+            </div>
+
+            {splitType === "EQUAL" ? (
+              <div className="space-y-3">
+                <p className={`text-[10px] ${t.subText}`}>勾選實際參與這筆消費的人員；個人消費只勾選自己。</p>
+                <div className="flex flex-wrap gap-2">
+                  {validMembers.map(member => {
+                    const selected = involved.includes(member);
+                    return (
+                      <button
+                        type="button"
+                        key={`inv-${member}`}
+                        onClick={() => setInvolved(selected ? involved.filter(value => value !== member) : [...involved, member])}
+                        className={`min-h-11 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${selected ? "bg-blue-500/20 border-blue-500 text-blue-600" : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
+                      >
+                        {selected ? "✓" : "○"} {member}
+                      </button>
+                    );
+                  })}
+                </div>
+                {twdCost > 0 && involved.length > 0 ? (
+                  <p className="text-[11px] text-emerald-500 font-mono text-right font-bold">
+                    每人分攤約 NT$ {Math.round(twdCost / involved.length).toLocaleString()}
+                  </p>
+                ) : null}
               </div>
             ) : (
-              <div className="space-y-3"><p className={`text-[10px] ${t.subText}`}>請為每個人輸入精確台幣金額：</p>{(validMembers).map(m => <div key={`cust-${m}`} className="flex justify-between items-center gap-3"><span className={`text-sm font-bold ${t.mainText}`}>{String(m)}</span><input type="number" value={String(customAmounts[String(m)] || "")} onChange={e => setCustomAmounts({...customAmounts, [String(m)]: e.target.value})} placeholder="0" className={`w-24 p-2 rounded-lg font-mono text-right outline-none focus:ring-2 focus:ring-purple-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>)}{twdCost > 0 ? <div className={`border-t pt-2 mt-2 flex justify-between items-center ${t.cardBorder}`}><span className={`text-xs ${t.subText}`}>目前總和</span><span className={`text-sm font-bold font-mono ${Object.values(customAmounts).reduce((a,b) => Number(a) + (Number(b)||0), 0) === twdCost ? 'text-emerald-500' : 'text-red-500'}`}>NT${Object.values(customAmounts).reduce((a,b) => Number(a) + (Number(b)||0), 0).toLocaleString()} / NT${twdCost.toLocaleString()}</span></div> : null}</div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className={`text-[10px] ${t.subText}`}>直接輸入每位成員應負擔的台幣金額。</p>
+                  <button
+                    type="button"
+                    onClick={rebalanceCustomSplit}
+                    className="shrink-0 text-[10px] font-bold text-purple-600 hover:underline"
+                  >
+                    依比例重算
+                  </button>
+                </div>
+                {validMembers.map(member => (
+                  <div key={`cust-${member}`} className="flex justify-between items-center gap-3">
+                    <span className={`text-sm font-bold ${t.mainText}`}>{member}</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      value={customAmounts[member] || ""}
+                      onChange={event => setCustomAmounts({ ...customAmounts, [member]: event.target.value })}
+                      placeholder="0"
+                      className={`w-28 p-2.5 rounded-lg font-mono text-right outline-none focus:ring-2 focus:ring-purple-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                    />
+                  </div>
+                ))}
+                {twdCost > 0 ? (
+                  <div className={`border-t pt-3 mt-2 flex justify-between items-center ${t.cardBorder}`}>
+                    <span className={`text-xs ${t.subText}`}>目前總和</span>
+                    <span className={`text-sm font-bold font-mono ${Math.abs(customTotal - twdCost) <= 0.02 ? "text-emerald-500" : "text-red-500"}`}>
+                      NT$ {customTotal.toLocaleString()} / {twdCost.toLocaleString()}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
             )}
           </div>
+
+          <div>
+            <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>備註（選填）</label>
+            <textarea
+              value={note}
+              onChange={event => setNote(event.target.value)}
+              placeholder="例如：已含服務費、刷卡、需向店家退稅"
+              maxLength={300}
+              className={`w-full min-h-20 p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border resize-none text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+            />
+          </div>
+
+          {isEditing ? (
+            <details className={`rounded-xl border p-3 ${t.cardBg} ${t.cardBorder}`}>
+              <summary className={`cursor-pointer text-xs font-bold ${t.subText}`}>更多操作</summary>
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={handleDuplicate}
+                  className={`min-h-11 rounded-xl border text-xs font-bold hover:border-blue-500 hover:text-blue-500 ${t.cardBorder} ${t.mainText}`}
+                >
+                  📄 複製成新帳目
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="min-h-11 rounded-xl border border-red-500/30 text-xs font-bold text-red-500 hover:bg-red-500 hover:text-white"
+                >
+                  🗑️ 刪除帳目
+                </button>
+              </div>
+            </details>
+          ) : null}
         </div>
-        <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}><button onClick={onClose} className={`px-5 py-2 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button><button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all">確認新增</button></div>
+
+        <div
+          className={`flex gap-3 p-4 sm:px-6 sm:py-5 border-t shrink-0 ${t.cardBorder}`}
+          style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+        >
+          <button
+            type="button"
+            onClick={requestClose}
+            className={`min-h-12 px-5 text-sm font-bold rounded-xl border flex-1 ${t.cardBorder} ${t.mainText}`}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="min-h-12 bg-emerald-600 hover:bg-emerald-500 text-white px-6 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all flex-[1.4]"
+          >
+            {isEditing ? "儲存變更" : "確認新增"}
+          </button>
+        </div>
       </div>
     </div>
   );
 };
-
 export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
   useBodyScrollLock();
   const validMembers = Array.isArray(members) ? members : [];
@@ -1048,6 +1444,243 @@ export const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, da
 // ============================================================================
 // 5. 共用／個人行前清單
 // ============================================================================
+const ChecklistItemEditorModal = ({
+  mode,
+  item,
+  scope,
+  actor,
+  members,
+  existingItems,
+  defaultCategory,
+  onClose,
+  onSave,
+  onDelete,
+  t,
+}) => {
+  useBodyScrollLock();
+
+  const isEditing = mode === 'edit' && Boolean(item);
+  const actualScope = String(item?.scope || scope || 'shared');
+  const owner = actualScope === 'personal' ? String(item?.owner || actor || '') : '';
+  const safeMembers = Array.isArray(members) && members.length > 0 ? members : ['自己'];
+  const [text, setText] = useState(() => String(item?.text || ''));
+  const [category, setCategory] = useState(() => String(item?.category || defaultCategory || 'todo'));
+  const [assignee, setAssignee] = useState(() => actualScope === 'shared' ? String(item?.assignee || '所有人') : String(actor || ''));
+  const [important, setImportant] = useState(() => Boolean(item?.important));
+  const [showDetails, setShowDetails] = useState(() => isEditing || Boolean(item?.important) || (actualScope === 'shared' && String(item?.assignee || '所有人') !== '所有人'));
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const trimmedText = String(text || '').trim();
+  const categoryInfo = CHECKLIST_CATEGORIES.find(option => option.id === category) || CHECKLIST_CATEGORIES.at(-1);
+  const canSave = trimmedText.length > 0;
+
+  const validateAndSave = () => {
+    if (!trimmedText) {
+      setErrorMessage('請輸入清單項目。');
+      return;
+    }
+
+    const normalizedText = trimmedText.toLocaleLowerCase('zh-TW');
+    const duplicate = (Array.isArray(existingItems) ? existingItems : []).some(existingItem => {
+      if (String(existingItem.id || '') === String(item?.id || '')) return false;
+      if (String(existingItem.scope || '') !== actualScope) return false;
+      if (actualScope === 'personal' && String(existingItem.owner || '') !== owner) return false;
+      return String(existingItem.text || '').trim().toLocaleLowerCase('zh-TW') === normalizedText;
+    });
+
+    if (duplicate) {
+      setErrorMessage('這個清單中已經有相同項目。');
+      return;
+    }
+
+    onSave?.({
+      text: trimmedText,
+      scope: actualScope,
+      owner,
+      assignee: actualScope === 'shared' ? assignee : actor,
+      category,
+      important,
+    });
+  };
+
+  return (
+    <div
+      style={{ zIndex: 10040, touchAction: 'manipulation' }}
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center md:p-6 overflow-hidden"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="checklist-item-editor-title"
+        style={{
+          touchAction: 'pan-y',
+          WebkitOverflowScrolling: 'touch',
+          maxHeight: 'min(92dvh, 760px)',
+        }}
+        className={`w-full md:max-w-lg rounded-t-3xl md:rounded-3xl border shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom-8 md:zoom-in-95 ${t.modalBg} ${t.cardBorder}`}
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="md:hidden flex justify-center pt-2.5">
+          <span className="w-10 h-1 rounded-full bg-slate-400/40" />
+        </div>
+
+        <header className={`px-5 md:px-6 pt-3 md:pt-6 pb-4 border-b shrink-0 ${t.headerBg} ${t.cardBorder}`}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className={`text-[10px] font-black tracking-widest uppercase ${actualScope === 'shared' ? 'text-blue-500' : 'text-purple-500'}`}>
+                {actualScope === 'shared' ? '共享項目' : `${owner || actor} 的個人項目`}
+              </p>
+              <h3 id="checklist-item-editor-title" className={`text-xl font-black mt-1 ${t.mainText}`}>
+                {isEditing ? '編輯清單項目' : '新增清單項目'}
+              </h3>
+              <p className={`text-xs mt-1 leading-5 ${t.subText}`}>
+                先輸入要完成的事情，分類與負責人可再視需要設定。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="關閉項目編輯視窗"
+              className={`min-w-11 min-h-11 rounded-full shrink-0 flex items-center justify-center bg-slate-500/10 hover:bg-red-500 hover:text-white transition-colors ${t.subText}`}
+            >
+              ✕
+            </button>
+          </div>
+        </header>
+
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 md:px-6 py-5 space-y-5 scrollbar-hide">
+          <section>
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <label htmlFor="checklist-item-text" className={`text-xs font-black ${t.mainText}`}>項目內容</label>
+              <span className={`text-[10px] font-mono ${trimmedText.length > 180 ? 'text-amber-500' : t.subText}`}>{String(text || '').length}/200</span>
+            </div>
+            <textarea
+              id="checklist-item-text"
+              value={text}
+              onChange={event => {
+                setText(event.target.value);
+                if (errorMessage) setErrorMessage('');
+              }}
+              onKeyDown={event => {
+                if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') validateAndSave();
+              }}
+              maxLength={200}
+              rows={3}
+              placeholder={actualScope === 'shared' ? '例如：確認護照效期、購買網卡、誰負責帶轉接頭' : `例如：${actor} 要帶耳機、行動電源與個人藥品`}
+              className={`w-full min-h-28 p-4 rounded-2xl border resize-none text-base leading-6 outline-none focus:ring-2 ${errorMessage ? 'border-red-500 focus:ring-red-500/30' : 'focus:ring-blue-500'} ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+            />
+            {errorMessage ? <p className="mt-2 text-xs font-bold text-red-500">⚠️ {errorMessage}</p> : null}
+          </section>
+
+          <section>
+            <p className={`text-xs font-black mb-2 ${t.mainText}`}>分類</p>
+            <div className="grid grid-cols-3 gap-2">
+              {CHECKLIST_CATEGORIES.map(option => (
+                <button
+                  key={`editor-category-${option.id}`}
+                  type="button"
+                  onClick={() => setCategory(option.id)}
+                  aria-pressed={category === option.id}
+                  className={`min-h-12 px-2 py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${category === option.id ? 'bg-blue-600 border-blue-600 text-white shadow-md' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
+                >
+                  <span aria-hidden="true">{option.icon}</span>
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className={`rounded-2xl border overflow-hidden ${t.cardBg} ${t.cardBorder}`}>
+            <button
+              type="button"
+              onClick={() => setShowDetails(value => !value)}
+              aria-expanded={showDetails}
+              className={`w-full min-h-14 px-4 py-3 flex items-center justify-between gap-3 text-left ${t.mainText}`}
+            >
+              <span>
+                <strong className="block text-sm">更多設定</strong>
+                <span className={`block text-[10px] mt-0.5 ${t.subText}`}>
+                  {categoryInfo?.icon} {categoryInfo?.label}
+                  {actualScope === 'shared' ? `・${assignee === '所有人' ? '所有人負責' : `${assignee} 負責`}` : ''}
+                  {important ? '・重要' : ''}
+                </span>
+              </span>
+              <span className={`text-sm transition-transform ${showDetails ? 'rotate-180' : ''}`}>⌄</span>
+            </button>
+
+            {showDetails ? (
+              <div className={`px-4 pb-4 pt-1 border-t space-y-4 ${t.cardBorder}`}>
+                {actualScope === 'shared' ? (
+                  <label className={`block text-xs font-black ${t.mainText}`}>
+                    負責人
+                    <select
+                      value={assignee}
+                      onChange={event => setAssignee(event.target.value)}
+                      className={`w-full min-h-12 mt-2 px-3 rounded-xl border text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                    >
+                      <option value="所有人">👥 所有人</option>
+                      {safeMembers.map(member => <option key={`editor-assignee-${member}`} value={member}>👤 {member}</option>)}
+                    </select>
+                  </label>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() => setImportant(value => !value)}
+                  aria-pressed={important}
+                  className={`w-full min-h-14 px-4 py-3 rounded-xl border flex items-center justify-between gap-3 text-left transition-all ${important ? 'bg-amber-500/15 border-amber-500/50' : `${t.cardMetaBg} ${t.cardBorder}`}`}
+                >
+                  <span>
+                    <strong className={`block text-sm ${important ? 'text-amber-600' : t.mainText}`}>⭐ 標記為重要</strong>
+                    <span className={`block text-[10px] mt-0.5 ${t.subText}`}>重要項目會優先排列並加上醒目提示。</span>
+                  </span>
+                  <span className={`w-11 h-6 p-0.5 rounded-full transition-colors ${important ? 'bg-amber-500' : 'bg-slate-400/40'}`}>
+                    <span className={`block w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${important ? 'translate-x-5' : ''}`} />
+                  </span>
+                </button>
+              </div>
+            ) : null}
+          </section>
+
+          {isEditing && onDelete ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(`確定刪除「${String(item?.text || '此項目')}」？`)) onDelete(item.id);
+              }}
+              className="w-full min-h-12 rounded-xl border border-red-500/30 bg-red-500/10 text-red-600 text-sm font-black hover:bg-red-500 hover:text-white transition-colors"
+            >
+              🗑️ 刪除這個項目
+            </button>
+          ) : null}
+        </div>
+
+        <footer
+          style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+          className={`px-5 md:px-6 pt-4 border-t shrink-0 flex items-center gap-3 ${t.headerBg} ${t.cardBorder}`}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className={`flex-1 min-h-12 rounded-xl border text-sm font-black ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={validateAndSave}
+            disabled={!canSave}
+            className={`flex-[1.4] min-h-12 rounded-xl text-sm font-black text-white shadow-lg transition-all ${canSave ? `${actualScope === 'shared' ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-500/25' : 'bg-purple-600 hover:bg-purple-500 shadow-purple-500/25'} active:scale-95` : 'bg-slate-400 opacity-60 cursor-not-allowed'}`}
+          >
+            {isEditing ? '儲存變更' : '＋ 加入清單'}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+};
+
 export const ChecklistModal = ({
   items,
   members,
@@ -1075,16 +1708,8 @@ export const ChecklistModal = ({
   const [scope, setScope] = useState('shared');
   const [filter, setFilter] = useState('open');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [newText, setNewText] = useState('');
-  const [newCategory, setNewCategory] = useState('todo');
-  const [newAssignee, setNewAssignee] = useState('所有人');
-  const [newImportant, setNewImportant] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [editingText, setEditingText] = useState('');
-  const [editingCategory, setEditingCategory] = useState('todo');
-  const [editingAssignee, setEditingAssignee] = useState('所有人');
-  const [editingImportant, setEditingImportant] = useState(false);
+  const [editorState, setEditorState] = useState(null);
 
   const categoryMap = useMemo(
     () => Object.fromEntries(CHECKLIST_CATEGORIES.map(category => [category.id, category])),
@@ -1101,6 +1726,7 @@ export const ChecklistModal = ({
     [scopedItems]
   );
   const totalCount = scopedItems.length;
+  const openCount = totalCount - completedCount;
   const progressPercent = totalCount > 0
     ? Math.round((completedCount / totalCount) * 100)
     : 0;
@@ -1120,25 +1746,30 @@ export const ChecklistModal = ({
       return Number(a.createdAt || 0) - Number(b.createdAt || 0);
     }), [categoryFilter, filter, scopedItems]);
 
-  const handleCreate = () => {
-    const text = String(newText || '').trim();
-    if (!text) return;
-    const normalizedText = text.toLocaleLowerCase('zh-TW');
-    if (scopedItems.some(item => String(item.text || '').trim().toLocaleLowerCase('zh-TW') === normalizedText)) {
-      alert('這個清單中已經有相同項目囉！');
-      return;
-    }
-
-    onCreate?.({
-      text,
-      scope,
-      owner: scope === 'personal' ? actor : '',
-      assignee: scope === 'shared' ? newAssignee : actor,
-      category: newCategory,
-      important: newImportant,
+  const openCreateEditor = () => {
+    setEditorState({
+      mode: 'create',
+      item: null,
+      defaultCategory: categoryFilter !== 'all' ? categoryFilter : 'todo',
     });
-    setNewText('');
-    setNewImportant(false);
+  };
+
+  const openEditEditor = item => {
+    setEditorState({ mode: 'edit', item, defaultCategory: item.category || 'todo' });
+  };
+
+  const handleEditorSave = draft => {
+    if (editorState?.mode === 'edit' && editorState.item) {
+      onUpdate?.({ ...editorState.item, ...draft });
+    } else {
+      onCreate?.(draft);
+    }
+    setEditorState(null);
+  };
+
+  const handleEditorDelete = itemId => {
+    onDelete?.(itemId);
+    setEditorState(null);
   };
 
   const handleTemplateInsert = () => {
@@ -1163,316 +1794,213 @@ export const ChecklistModal = ({
     setShowTemplates(false);
   };
 
-  const startEditing = item => {
-    setEditingId(item.id);
-    setEditingText(String(item.text || ''));
-    setEditingCategory(String(item.category || 'todo'));
-    setEditingAssignee(String(item.assignee || '所有人'));
-    setEditingImportant(Boolean(item.important));
-  };
-
-  const saveEditing = item => {
-    const text = String(editingText || '').trim();
-    if (!text) return;
-    onUpdate?.({
-      ...item,
-      text,
-      category: editingCategory,
-      assignee: item.scope === 'shared' ? editingAssignee : actor,
-      important: editingImportant,
-    });
-    setEditingId(null);
-    setEditingText('');
-  };
-
-  const handleDelete = item => {
-    if (!window.confirm(`確定刪除「${String(item.text || '此項目')}」？`)) return;
-    onDelete?.(item.id);
-  };
-
   return (
-    <div
-      style={{ zIndex: 10020, touchAction: 'manipulation' }}
-      className="fixed inset-0 bg-black/65 backdrop-blur-md flex items-stretch md:items-center justify-center p-2 md:p-6 overflow-hidden"
-      onClick={onClose}
-    >
+    <>
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="checklist-modal-title"
-        style={{
-          touchAction: 'pan-y',
-          height: 'calc(100dvh - 1rem)',
-          maxHeight: '94dvh',
-        }}
-        className={`w-full max-w-3xl rounded-2xl md:rounded-3xl border shadow-2xl overflow-hidden flex flex-col ${t.modalBg} ${t.cardBorder}`}
-        onClick={event => event.stopPropagation()}
+        style={{ zIndex: 10020, touchAction: 'manipulation' }}
+        className="fixed inset-0 bg-black/65 backdrop-blur-md flex items-stretch md:items-center justify-center p-2 md:p-6 overflow-hidden"
+        onClick={onClose}
       >
-        <header className={`p-4 md:p-6 border-b shrink-0 ${t.headerBg} ${t.cardBorder}`}>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="text-2xl">✅</span>
-                <h2 id="checklist-modal-title" className={`text-xl md:text-2xl font-black ${t.mainText}`}>行前清單</h2>
-              </div>
-              <p className={`text-xs mt-1 leading-5 ${t.subText}`}>不綁定日期，集中管理行李、文件與出發前代辦。</p>
-            </div>
-            <button
-              onClick={onClose}
-              aria-label="關閉行前清單"
-              className={`w-10 h-10 rounded-full shrink-0 flex items-center justify-center bg-slate-500/10 hover:bg-red-500 hover:text-white transition-colors ${t.subText}`}
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="mt-5 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
-            <div>
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <span className={`text-xs font-bold ${t.mainText}`}>
-                  {scope === 'shared' ? '共享進度' : `${actor} 的進度`}
-                </span>
-                <span className={`text-xs font-mono font-black ${progressPercent === 100 && totalCount > 0 ? 'text-emerald-500' : t.subText}`}>
-                  {completedCount}/{totalCount}・{progressPercent}%
-                </span>
-              </div>
-              <div className="h-2.5 rounded-full overflow-hidden bg-slate-500/15">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${progressPercent === 100 && totalCount > 0 ? 'bg-emerald-500' : 'bg-blue-600'}`}
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-            </div>
-
-            <label className={`text-[10px] font-bold ${t.subText}`}>
-              我目前是
-              <select
-                value={actor}
-                onChange={event => onActiveMemberChange?.(event.target.value)}
-                className={`block mt-1 min-w-36 px-3 py-2 rounded-xl border text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-              >
-                {safeMembers.map(member => <option key={`checklist-member-${member}`} value={member}>{member}</option>)}
-              </select>
-            </label>
-          </div>
-        </header>
-
         <div
-          style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
-          className="flex-1 min-h-0 overflow-y-auto overscroll-contain md:overflow-hidden flex flex-col p-3.5 md:p-6 gap-3 md:gap-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="checklist-modal-title"
+          style={{
+            touchAction: 'pan-y',
+            height: 'calc(100dvh - 1rem)',
+            maxHeight: '94dvh',
+          }}
+          className={`w-full max-w-3xl rounded-2xl md:rounded-3xl border shadow-2xl overflow-hidden flex flex-col ${t.modalBg} ${t.cardBorder}`}
+          onClick={event => event.stopPropagation()}
         >
-          <div className={`grid grid-cols-2 p-1 rounded-2xl border shrink-0 ${t.cardBg} ${t.cardBorder}`}>
-            <button
-              onClick={() => { setScope('shared'); setFilter('open'); setCategoryFilter('all'); }}
-              className={`py-2.5 px-3 rounded-xl text-sm font-black transition-all ${scope === 'shared' ? 'bg-blue-600 text-white shadow-md' : t.subText}`}
-            >
-              👥 共用清單
-            </button>
-            <button
-              onClick={() => { setScope('personal'); setFilter('open'); setCategoryFilter('all'); }}
-              className={`py-2.5 px-3 rounded-xl text-sm font-black transition-all ${scope === 'personal' ? 'bg-purple-600 text-white shadow-md' : t.subText}`}
-            >
-              👤 個人清單
-            </button>
-          </div>
-
-          {scope === 'personal' ? (
-            <div className="rounded-xl border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-[11px] leading-5 text-purple-600 shrink-0">
-              個人清單依成員分開顯示；目前仍是共編模式，持有旅程連結的人可切換成員查看。
+          <header className={`p-4 md:p-6 border-b shrink-0 ${t.headerBg} ${t.cardBorder}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl">✅</span>
+                  <h2 id="checklist-modal-title" className={`text-xl md:text-2xl font-black ${t.mainText}`}>行前清單</h2>
+                </div>
+                <p className={`text-xs mt-1 leading-5 ${t.subText}`}>集中查看待辦與行李；新增和編輯會在獨立視窗完成。</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={openCreateEditor}
+                  className={`min-h-11 px-3.5 md:px-4 rounded-xl text-sm font-black text-white shadow-md active:scale-95 transition-all ${scope === 'shared' ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-500/25' : 'bg-purple-600 hover:bg-purple-500 shadow-purple-500/25'}`}
+                >
+                  ＋ 新增
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="關閉行前清單"
+                  className={`min-w-11 min-h-11 rounded-full flex items-center justify-center bg-slate-500/10 hover:bg-red-500 hover:text-white transition-colors ${t.subText}`}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
-          ) : null}
 
-          <div className={`rounded-2xl border p-3 md:p-4 shrink-0 ${t.cardMetaBg} ${t.cardBorder}`}>
-            <div className="flex flex-col md:flex-row gap-2">
-              <input
-                value={newText}
-                onChange={event => setNewText(event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === 'Enter' && !event.nativeEvent.isComposing) handleCreate();
-                }}
-                maxLength={200}
-                placeholder={scope === 'shared' ? '例如：誰負責帶轉接頭？' : `例如：${actor} 要帶耳機`}
-                className={`flex-1 min-w-0 px-4 py-3 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-blue-500 ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-              />
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 md:gap-4 items-end">
+              <div>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <span className={`text-xs font-bold ${t.mainText}`}>
+                    {scope === 'shared' ? '共享進度' : `${actor} 的進度`}
+                  </span>
+                  <span className={`text-xs font-mono font-black ${progressPercent === 100 && totalCount > 0 ? 'text-emerald-500' : t.subText}`}>
+                    {completedCount}/{totalCount}・{progressPercent}%
+                  </span>
+                </div>
+                <div className="h-2.5 rounded-full overflow-hidden bg-slate-500/15">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${progressPercent === 100 && totalCount > 0 ? 'bg-emerald-500' : scope === 'shared' ? 'bg-blue-600' : 'bg-purple-600'}`}
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </div>
+
+              <label className={`text-[10px] font-bold ${t.subText}`}>
+                我目前是
+                <select
+                  value={actor}
+                  onChange={event => onActiveMemberChange?.(event.target.value)}
+                  className={`block mt-1 min-w-36 min-h-11 px-3 rounded-xl border text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                >
+                  {safeMembers.map(member => <option key={`checklist-member-${member}`} value={member}>{member}</option>)}
+                </select>
+              </label>
+            </div>
+          </header>
+
+          <div
+            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+            className="flex-1 min-h-0 overflow-y-auto overscroll-contain md:overflow-hidden flex flex-col p-3.5 md:p-6 gap-3 md:gap-4"
+          >
+            <div className={`grid grid-cols-2 p-1 rounded-2xl border shrink-0 ${t.cardBg} ${t.cardBorder}`}>
               <button
-                onClick={handleCreate}
-                disabled={!String(newText || '').trim()}
-                className={`px-5 py-3 rounded-xl text-sm font-black text-white transition-all ${String(newText || '').trim() ? 'bg-blue-600 hover:bg-blue-500 active:scale-95 shadow-md' : 'bg-slate-400 cursor-not-allowed opacity-60'}`}
+                type="button"
+                onClick={() => { setScope('shared'); setFilter('open'); setCategoryFilter('all'); setShowTemplates(false); }}
+                className={`min-h-11 px-3 rounded-xl text-sm font-black transition-all ${scope === 'shared' ? 'bg-blue-600 text-white shadow-md' : t.subText}`}
               >
-                ＋ 加入
+                👥 共用清單
+              </button>
+              <button
+                type="button"
+                onClick={() => { setScope('personal'); setFilter('open'); setCategoryFilter('all'); setShowTemplates(false); }}
+                className={`min-h-11 px-3 rounded-xl text-sm font-black transition-all ${scope === 'personal' ? 'bg-purple-600 text-white shadow-md' : t.subText}`}
+              >
+                👤 個人清單
               </button>
             </div>
 
-            <div className="flex flex-col md:flex-row gap-3 mt-3">
-              <div className="flex-1 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                {CHECKLIST_CATEGORIES.map(category => (
+            {scope === 'personal' ? (
+              <div className="rounded-xl border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-[11px] leading-5 text-purple-600 shrink-0">
+                這是依成員分開顯示的共編清單，不是私人加密空間；持有旅程連結的人仍可切換成員查看。
+              </div>
+            ) : null}
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+              <div className={`grid grid-cols-3 p-1 rounded-xl border ${t.cardBg} ${t.cardBorder}`}>
+                {[
+                  { id: 'open', label: `待完成 ${openCount}` },
+                  { id: 'all', label: `全部 ${totalCount}` },
+                  { id: 'done', label: `已完成 ${completedCount}` },
+                ].map(option => (
                   <button
-                    key={`new-checklist-category-${category.id}`}
-                    onClick={() => setNewCategory(category.id)}
-                    className={`px-3 py-1.5 rounded-lg border text-[11px] font-bold whitespace-nowrap transition-colors ${newCategory === category.id ? 'bg-blue-600 border-blue-600 text-white' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
+                    key={`checklist-filter-${option.id}`}
+                    type="button"
+                    onClick={() => setFilter(option.id)}
+                    className={`min-h-10 px-2 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap ${filter === option.id ? 'bg-slate-700 text-white shadow-sm' : t.subText}`}
                   >
-                    {category.icon} {category.label}
+                    {option.label}
                   </button>
                 ))}
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                {scope === 'shared' ? (
-                  <select
-                    value={newAssignee}
-                    onChange={event => setNewAssignee(event.target.value)}
-                    className={`px-3 py-2 rounded-xl border text-xs font-bold outline-none ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-                    aria-label="負責人"
-                  >
-                    <option value="所有人">👥 所有人</option>
-                    {safeMembers.map(member => <option key={`assignee-${member}`} value={member}>👤 {member}</option>)}
-                  </select>
-                ) : null}
-                <button
-                  onClick={() => setNewImportant(value => !value)}
-                  className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${newImportant ? 'bg-amber-500 border-amber-500 text-white' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
-                  aria-pressed={newImportant}
+              <div className="flex items-center gap-2 min-w-0">
+                <select
+                  value={categoryFilter}
+                  onChange={event => setCategoryFilter(event.target.value)}
+                  className={`min-w-0 flex-1 sm:flex-none min-h-11 px-3 rounded-xl border text-xs font-bold outline-none ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                  aria-label="分類篩選"
                 >
-                  ⭐ 重要
+                  <option value="all">全部分類</option>
+                  {CHECKLIST_CATEGORIES.map(category => <option key={`filter-category-${category.id}`} value={category.id}>{category.icon} {category.label}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setShowTemplates(value => !value)}
+                  className={`min-h-11 px-3 rounded-xl border text-xs font-bold whitespace-nowrap transition-colors ${showTemplates ? 'bg-indigo-600 border-indigo-600 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
+                >
+                  ✨ 範本
                 </button>
               </div>
             </div>
-          </div>
 
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
-            <div className={`inline-flex p-1 rounded-xl border self-start ${t.cardBg} ${t.cardBorder}`}>
-              {[
-                { id: 'open', label: '待完成' },
-                { id: 'all', label: '全部' },
-                { id: 'done', label: '已完成' },
-              ].map(option => (
-                <button
-                  key={`checklist-filter-${option.id}`}
-                  onClick={() => setFilter(option.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filter === option.id ? 'bg-slate-700 text-white shadow-sm' : t.subText}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <select
-                value={categoryFilter}
-                onChange={event => setCategoryFilter(event.target.value)}
-                className={`px-3 py-2 rounded-xl border text-xs font-bold outline-none ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-                aria-label="分類篩選"
-              >
-                <option value="all">全部分類</option>
-                {CHECKLIST_CATEGORIES.map(category => <option key={`filter-category-${category.id}`} value={category.id}>{category.icon} {category.label}</option>)}
-              </select>
-              <button
-                onClick={() => setShowTemplates(value => !value)}
-                className={`px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${showTemplates ? 'bg-indigo-600 border-indigo-600 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
-              >
-                ✨ 常用範本
-              </button>
-            </div>
-          </div>
-
-          {showTemplates ? (
-            <div className={`rounded-2xl border p-4 shrink-0 ${t.cardBg} ${t.cardBorder}`}>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div>
-                  <p className={`text-sm font-black ${t.mainText}`}>{scope === 'shared' ? '共享行前基本範本' : `${actor} 的個人行李範本`}</p>
-                  <p className={`text-[10px] mt-1 ${t.subText}`}>只加入目前清單中尚未存在的項目，不會建立重複內容。</p>
+            {showTemplates ? (
+              <div className={`rounded-2xl border p-4 shrink-0 ${t.cardBg} ${t.cardBorder}`}>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <p className={`text-sm font-black ${t.mainText}`}>{scope === 'shared' ? '共享行前基本範本' : `${actor} 的個人行李範本`}</p>
+                    <p className={`text-[10px] mt-1 leading-5 ${t.subText}`}>只補上尚未存在的項目，不會建立重複內容。</p>
+                  </div>
+                  <button type="button" onClick={handleTemplateInsert} className="min-h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-md active:scale-95">
+                    一鍵加入 {scope === 'shared' ? SHARED_CHECKLIST_TEMPLATE.length : PERSONAL_CHECKLIST_TEMPLATE.length} 項
+                  </button>
                 </div>
-                <button onClick={handleTemplateInsert} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-md active:scale-95">
-                  一鍵加入 {scope === 'shared' ? SHARED_CHECKLIST_TEMPLATE.length : PERSONAL_CHECKLIST_TEMPLATE.length} 項
-                </button>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          <div
-            style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
-            className="shrink-0 md:flex-1 md:min-h-0 md:overflow-y-auto pr-1 space-y-2 scrollbar-hide"
-          >
-            {visibleItems.length === 0 ? (
-              <div className={`h-full min-h-44 rounded-2xl border border-dashed flex flex-col items-center justify-center text-center p-6 ${t.cardBorder}`}>
-                <span className="text-4xl mb-3">{filter === 'done' ? '🎉' : '🧳'}</span>
-                <p className={`text-sm font-black ${t.mainText}`}>{filter === 'done' ? '目前沒有已完成項目' : '這個清單目前是空的'}</p>
-                <p className={`text-xs mt-1 leading-5 ${t.subText}`}>可以直接新增，或使用常用範本快速開始。</p>
-                <button onClick={() => setShowTemplates(true)} className="mt-4 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold shadow-md">✨ 開啟範本</button>
-              </div>
-            ) : visibleItems.map(item => {
-              const category = categoryMap[item.category] || categoryMap.other;
-              const isEditing = editingId === item.id;
-              return (
-                <div
-                  key={`checklist-item-${item.id}`}
-                  className={`rounded-2xl border p-3 md:p-4 transition-all ${item.completed ? `${t.cardMetaBg} opacity-70` : `${t.itemBg} shadow-sm`} ${item.important && !item.completed ? 'ring-1 ring-amber-400/50' : ''} ${t.cardBorder}`}
-                >
-                  <div className="flex items-start gap-3">
-                    <button
-                      onClick={() => onUpdate?.({
-                        ...item,
-                        completed: !item.completed,
-                        completedAt: !item.completed ? Date.now() : null,
-                        completedBy: !item.completed ? actor : '',
-                      })}
-                      aria-label={item.completed ? '標記為未完成' : '標記為已完成'}
-                      className={`mt-0.5 w-7 h-7 rounded-full border-2 shrink-0 flex items-center justify-center text-sm font-black transition-all ${item.completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-400/60 hover:border-emerald-500'}`}
-                    >
-                      {item.completed ? '✓' : ''}
-                    </button>
+            <div
+              style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+              className="shrink-0 md:flex-1 md:min-h-0 md:overflow-y-auto pr-1 space-y-2 scrollbar-hide"
+            >
+              {visibleItems.length === 0 ? (
+                <div className={`h-full min-h-52 rounded-2xl border border-dashed flex flex-col items-center justify-center text-center p-6 ${t.cardBorder}`}>
+                  <span className="text-4xl mb-3">{filter === 'done' ? '🎉' : '🧳'}</span>
+                  <p className={`text-sm font-black ${t.mainText}`}>{filter === 'done' ? '目前沒有已完成項目' : categoryFilter === 'all' ? '這個清單目前是空的' : '此分類目前沒有項目'}</p>
+                  <p className={`text-xs mt-1 leading-5 max-w-xs ${t.subText}`}>{filter === 'done' ? '勾選完成後，項目會出現在這裡。' : '用新增按鈕建立一個項目，或套用常用範本快速開始。'}</p>
+                  {filter !== 'done' ? (
+                    <div className="flex flex-wrap justify-center gap-2 mt-4">
+                      <button type="button" onClick={openCreateEditor} className={`min-h-11 px-4 rounded-xl text-white text-xs font-black shadow-md ${scope === 'shared' ? 'bg-blue-600' : 'bg-purple-600'}`}>＋ 新增項目</button>
+                      <button type="button" onClick={() => setShowTemplates(true)} className="min-h-11 px-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-600 text-xs font-black">✨ 使用範本</button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : visibleItems.map(item => {
+                const category = categoryMap[item.category] || categoryMap.other;
+                return (
+                  <div
+                    key={`checklist-item-${item.id}`}
+                    className={`rounded-2xl border p-3 transition-all ${item.completed ? `${t.cardMetaBg} opacity-70` : `${t.itemBg} shadow-sm`} ${item.important && !item.completed ? 'ring-1 ring-amber-400/50' : ''} ${t.cardBorder}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onUpdate?.({
+                          ...item,
+                          completed: !item.completed,
+                          completedAt: !item.completed ? Date.now() : null,
+                          completedBy: !item.completed ? actor : '',
+                        })}
+                        aria-label={item.completed ? '標記為未完成' : '標記為已完成'}
+                        className="min-w-11 min-h-11 shrink-0 flex items-center justify-center"
+                      >
+                        <span className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-black transition-all ${item.completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-400/60 hover:border-emerald-500'}`}>
+                          {item.completed ? '✓' : ''}
+                        </span>
+                      </button>
 
-                    <div className="flex-1 min-w-0">
-                      {isEditing ? (
-                        <div className="space-y-2">
-                          <input
-                            autoFocus
-                            value={editingText}
-                            onChange={event => setEditingText(event.target.value)}
-                            onKeyDown={event => {
-                              if (event.key === 'Enter' && !event.nativeEvent.isComposing) saveEditing(item);
-                              if (event.key === 'Escape') setEditingId(null);
-                            }}
-                            maxLength={200}
-                            className={`w-full px-3 py-2 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-blue-500 ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-                          />
-                          <div className="flex flex-wrap gap-2">
-                            <select
-                              value={editingCategory}
-                              onChange={event => setEditingCategory(event.target.value)}
-                              className={`px-3 py-2 rounded-xl border text-xs font-bold outline-none ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-                            >
-                              {CHECKLIST_CATEGORIES.map(option => <option key={`edit-category-${option.id}`} value={option.id}>{option.icon} {option.label}</option>)}
-                            </select>
-                            {item.scope === 'shared' ? (
-                              <select
-                                value={editingAssignee}
-                                onChange={event => setEditingAssignee(event.target.value)}
-                                className={`px-3 py-2 rounded-xl border text-xs font-bold outline-none ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-                              >
-                                <option value="所有人">👥 所有人</option>
-                                {safeMembers.map(member => <option key={`edit-assignee-${member}`} value={member}>👤 {member}</option>)}
-                              </select>
-                            ) : null}
-                            <button
-                              onClick={() => setEditingImportant(value => !value)}
-                              className={`px-3 py-2 rounded-xl border text-xs font-bold ${editingImportant ? 'bg-amber-500 border-amber-500 text-white' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
-                            >
-                              ⭐ 重要
-                            </button>
-                            <div className="flex-1" />
-                            <button onClick={() => saveEditing(item)} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold">儲存</button>
-                            <button onClick={() => setEditingId(null)} className={`px-3 py-2 rounded-xl border text-xs font-bold ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>取消</button>
-                          </div>
-                        </div>
-                      ) : (
+                      <button
+                        type="button"
+                        onClick={() => openEditEditor(item)}
+                        className="flex-1 min-w-0 py-1 text-left"
+                        aria-label={`編輯 ${String(item.text || '清單項目')}`}
+                      >
                         <p className={`text-sm font-bold leading-6 wrap-break-word ${item.completed ? `line-through ${t.subText}` : t.mainText}`}>
                           {item.important ? <span className="mr-1" title="重要項目">⭐</span> : null}
                           {String(item.text)}
                         </p>
-                      )}
-
-                      {!isEditing ? (
                         <div className="flex flex-wrap items-center gap-1.5 mt-2">
                           <span className={`text-[10px] px-2 py-1 rounded-lg border ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
                             {category.icon} {category.label}
@@ -1484,56 +2012,74 @@ export const ChecklistModal = ({
                           ) : (
                             <span className="text-[10px] px-2 py-1 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-600">👤 {String(item.owner || actor)}</span>
                           )}
-                          {item.completed && item.completedBy ? (
-                            <span className={`text-[10px] ${t.subText}`}>由 {String(item.completedBy)} 完成</span>
-                          ) : null}
+                          {item.completed && item.completedBy ? <span className={`text-[10px] ${t.subText}`}>由 {String(item.completedBy)} 完成</span> : null}
                         </div>
-                      ) : null}
-                    </div>
+                      </button>
 
-                    {!isEditing ? (
-                      <div className="flex items-center gap-1 shrink-0">
+                      <div className="flex items-center shrink-0">
                         <button
+                          type="button"
                           onClick={() => onUpdate?.({ ...item, important: !item.important })}
                           aria-label={item.important ? '取消重要標記' : '標記為重要'}
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${item.important ? 'text-amber-500 bg-amber-500/10' : `${t.subText} hover:text-amber-500`}`}
+                          className={`min-w-11 min-h-11 rounded-xl flex items-center justify-center text-lg transition-colors ${item.important ? 'text-amber-500 bg-amber-500/10' : `${t.subText} hover:text-amber-500`}`}
                         >
-                          ☆
+                          {item.important ? '★' : '☆'}
                         </button>
-                        <button onClick={() => startEditing(item)} aria-label="編輯項目" className={`w-8 h-8 rounded-lg hover:text-blue-500 transition-colors ${t.subText}`}>✏️</button>
-                        <button onClick={() => handleDelete(item)} aria-label="刪除項目" className={`w-8 h-8 rounded-lg hover:text-red-500 transition-colors ${t.subText}`}>🗑️</button>
+                        <button
+                          type="button"
+                          onClick={() => openEditEditor(item)}
+                          aria-label="編輯項目"
+                          className={`min-w-11 min-h-11 rounded-xl flex items-center justify-center hover:text-blue-500 transition-colors ${t.subText}`}
+                        >
+                          ✏️
+                        </button>
                       </div>
-                    ) : null}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        <footer
-          style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-          className={`px-4 md:px-6 pt-3 md:py-4 border-t shrink-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 md:gap-3 ${t.headerBg} ${t.cardBorder}`}
-        >
-          <p className={`text-[10px] leading-5 ${t.subText}`}>完成項目預設收起，避免清單越用越長；切換「全部」或「已完成」即可查看與復原。</p>
-          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+          <footer
+            style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+            className={`px-4 md:px-6 pt-3 md:py-4 border-t shrink-0 flex items-center justify-end gap-2 md:gap-3 ${t.headerBg} ${t.cardBorder}`}
+          >
+            <p className={`hidden md:block mr-auto text-[10px] leading-5 ${t.subText}`}>完成項目預設收起；切換「全部」或「已完成」即可查看與復原。</p>
             {completedCount > 0 ? (
               <button
+                type="button"
                 onClick={() => {
                   if (window.confirm(`確定清除這個清單中已完成的 ${completedCount} 個項目？`)) {
                     onClearCompleted?.(scope, scope === 'personal' ? actor : '');
                   }
                 }}
-                className={`px-3 py-2 rounded-xl border text-xs font-bold hover:text-red-500 hover:border-red-500 transition-colors ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                className={`min-h-11 px-3 rounded-xl border text-xs font-bold hover:text-red-500 hover:border-red-500 transition-colors ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
               >
                 清除已完成
               </button>
             ) : null}
-            <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black shadow-md active:scale-95">完成</button>
-          </div>
-        </footer>
+            <button type="button" onClick={onClose} className="min-h-11 px-5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black shadow-md active:scale-95">完成</button>
+          </footer>
+        </div>
       </div>
-    </div>
+
+      {editorState ? (
+        <ChecklistItemEditorModal
+          mode={editorState.mode}
+          item={editorState.item}
+          scope={scope}
+          actor={actor}
+          members={safeMembers}
+          existingItems={safeItems}
+          defaultCategory={editorState.defaultCategory}
+          onClose={() => setEditorState(null)}
+          onSave={handleEditorSave}
+          onDelete={editorState.mode === 'edit' ? handleEditorDelete : undefined}
+          t={t}
+        />
+      ) : null}
+    </>
   );
 };
 
