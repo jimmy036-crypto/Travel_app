@@ -1,23 +1,52 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-TW">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Jimmy's Travel App</title>
+
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+
+    <!-- 瀏覽器分頁圖示 -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/favicon-32x32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/favicon-16x16.png"
+    />
+
+    <!-- iPhone／iPad 加入主畫面的圖示 -->
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/apple-touch-icon.png"
+    />
+
     <meta name="theme-color" content="#0f172a" />
-    <link rel="apple-touch-icon" href="/icon-192x192.png" />
+
+    <title>智の旅行</title>
+
     <style>
-      /* 關鍵設定：讓所有層級都撐滿畫面高度 */
-      html, body, #root {
+      html,
+      body,
+      #root {
         height: 100%;
         width: 100%;
         margin: 0;
         padding: 0;
-        overflow: hidden; /* 防止出現奇怪的雙滾動條 */
+        overflow: hidden;
       }
     </style>
   </head>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>

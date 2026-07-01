@@ -3,37 +3,93 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+/**
+ * 只在 production build 注入更新提示入口。
+ * 這樣不需要修改既有 main.jsx，也不會讓 npm run dev 被 Service Worker 快取干擾。
+ */
+const injectPwaUpdatePrompt = {
+  name: 'inject-pwa-update-prompt',
+  apply: 'build',
+  transformIndexHtml() {
+    return [
+      {
+        tag: 'script',
+        attrs: {
+          type: 'module',
+          src: '/src/pwa-update-entry.jsx'
+        },
+        injectTo: 'body'
+      }
+    ]
+  }
+}
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 新版下載完成後顯示提示，由使用者決定何時重新載入。
+      // 避免正在填記帳、清單或行程時被強制刷新。
+      registerType: 'prompt',
+
+      // 由 PWAUpdatePrompt 統一註冊，避免重複註冊 Service Worker。
+      injectRegister: false,
+
+      // 開發模式不要啟用 Service Worker，避免 localhost 經常看到舊畫面。
+      // 要測試 PWA 請使用：npm run build && npm run preview
       devOptions: {
-        enabled: true // 讓你在 npm run dev 也能測試 PWA
+        enabled: false
       },
+
+      workbox: {
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        navigateFallback: '/index.html'
+      },
+
       manifest: {
+        id: '/',
         name: '智の旅行',
         short_name: '智の旅行',
         description: '專屬旅遊行程與記帳神器',
-        theme_color: '#0f172a', // 配合你的暗色系介面 (slate-900)
-        background_color: '#020617', // App 啟動時的背景色 (slate-950)
-        display: 'standalone', // 🌟 關鍵！這會隱藏瀏覽器的網址列
-        orientation: 'portrait', // 鎖定直向顯示
+        lang: 'zh-TW',
+        start_url: '/',
+        scope: '/',
+        theme_color: '#0f172a',
+        background_color: '#020617',
+        display: 'standalone',
+        orientation: 'portrait',
+        categories: ['travel', 'productivity'],
         icons: [
           {
             src: '/icon-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
             src: '/icon-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: '/icon-maskable-192x192.png',
+            sizes: '192x192',
+            type: 'image/png',
+            purpose: 'maskable'
+          },
+          {
+            src: '/icon-maskable-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
       }
-    })
+    }),
+    injectPwaUpdatePrompt
   ],
   server: {
     host: '0.0.0.0',
