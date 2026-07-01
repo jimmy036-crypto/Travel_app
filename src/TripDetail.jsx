@@ -139,9 +139,766 @@ const cloneRouteItems = (items) => (
   (Array.isArray(items) ? items : []).map((item) => ({
     ...item,
     tags: Array.isArray(item?.tags) ? [...item.tags] : [],
+    resources: Array.isArray(item?.resources) ? item.resources.map((resource) => ({ ...resource })) : [],
+    placePhoto: item?.placePhoto ? { ...item.placePhoto } : null,
     nextLeg: item?.nextLeg ? { ...item.nextLeg } : undefined,
   }))
 );
+
+const PLACE_RESOURCE_META = Object.freeze({
+  menu: { icon: '🍽️', label: '菜單' },
+  reservation: { icon: '📅', label: '訂位' },
+  article: { icon: '📝', label: '推薦文章' },
+  official: { icon: '🌐', label: '官網' },
+  social: { icon: '📱', label: '社群' },
+  other: { icon: '🔗', label: '連結' },
+});
+
+const isImagePlaceResource = (resource) => (
+  String(resource?.contentType || '').toLowerCase().startsWith('image/')
+  || String(resource?.kind || '') === 'image'
+);
+
+const isPdfPlaceResource = (resource) => (
+  String(resource?.contentType || '').toLowerCase() === 'application/pdf'
+  || String(resource?.fileName || '').toLowerCase().endsWith('.pdf')
+  || String(resource?.kind || '') === 'pdf'
+);
+
+const getPlaceResourceMeta = (resourceOrType) => {
+  const resource = typeof resourceOrType === 'object' && resourceOrType !== null
+    ? resourceOrType
+    : { type: resourceOrType };
+  const base = PLACE_RESOURCE_META[resource.type] || PLACE_RESOURCE_META.other;
+  if (isImagePlaceResource(resource)) return { ...base, icon: '🖼️', label: `${base.label}圖片` };
+  if (isPdfPlaceResource(resource)) return { ...base, icon: '📄', label: `${base.label} PDF` };
+  return base;
+};
+
+const getPlaceNavigationUrl = (item) => {
+  const customUrl = String(item?.navigationUrl || '').trim();
+  if (/^https?:\/\//i.test(customUrl)) return customUrl;
+
+  const lat = Number(item?.lat);
+  const lng = Number(item?.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${lat},${lng}`)}`;
+  }
+
+  const query = String(item?.customName || item?.name || '').trim();
+  return query
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+    : 'https://www.google.com/maps';
+};
+
+
+const getPlaceMapUrl = (item) => {
+  const customUrl = String(item?.navigationUrl || '').trim();
+  if (/^https?:\/\//i.test(customUrl)) return customUrl;
+
+  const lat = Number(item?.lat);
+  const lng = Number(item?.lng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`;
+  }
+
+  const query = String(item?.address || item?.customName || item?.name || '').trim();
+  return query
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
+    : 'https://www.google.com/maps';
+};
+
+
+const PlacePhotoLightbox = ({ photo, onClose }) => {
+  const photoUrl = String(photo?.url || '');
+  const [failedImageUrl, setFailedImageUrl] = useState('');
+  const imageError = Boolean(photoUrl) && failedImageUrl === photoUrl;
+
+  useEffect(() => {
+    if (!photo) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [photo, onClose]);
+
+  if (!photoUrl) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-10040 flex items-center justify-center bg-slate-950/95 p-0 sm:p-6 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${String(photo.title || '景點照片')}預覽`}
+      onClick={onClose}
+    >
+      <div
+        className="relative flex h-full w-full max-w-6xl flex-col overflow-hidden bg-black sm:h-auto sm:max-h-[92dvh] sm:rounded-3xl sm:border sm:border-white/15 sm:shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex min-h-16 items-center gap-3 border-b border-white/10 bg-slate-950/90 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-white sm:px-5 sm:pt-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-black">{String(photo.title || '景點參考照片')}</p>
+            <p className="mt-0.5 text-[10px] text-slate-400">留在 App 內查看，不會跳轉到外部網址</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-xl font-bold text-white active:scale-95"
+            aria-label="關閉照片"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-black p-3 sm:p-5">
+          {imageError ? (
+            <div className="max-w-sm rounded-2xl border border-red-400/30 bg-red-500/10 p-6 text-center text-white">
+              <div className="text-4xl">🖼️</div>
+              <p className="mt-3 text-sm font-black">照片載入失敗</p>
+              <p className="mt-1 text-xs text-slate-300">檔案可能已移除，或目前網路連線不穩定。</p>
+            </div>
+          ) : (
+            <img
+              src={photoUrl}
+              alt={String(photo.title || '景點參考照片')}
+              className="max-h-full max-w-full select-none object-contain"
+              draggable={false}
+              onError={() => setFailedImageUrl(photoUrl)}
+            />
+          )}
+        </div>
+
+        <div className="border-t border-white/10 bg-slate-950/90 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-center text-[10px] text-slate-400 sm:pb-3">
+          點擊黑色背景或右上角即可關閉
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+const PlaceResourcesModal = ({ item, mode = 'menu', onClose }) => {
+  const allResources = Array.isArray(item?.resources)
+    ? item.resources.filter((resource) => resource?.url)
+    : [];
+  const resources = allResources.filter((resource) => (
+    mode === 'menu' ? resource.type === 'menu' : resource.type !== 'menu'
+  ));
+  const imageResources = resources.filter(isImagePlaceResource);
+  const externalResources = resources.filter((resource) => !isImagePlaceResource(resource));
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [failedImageUrl, setFailedImageUrl] = useState('');
+  const [zoomState, setZoomState] = useState({ url: '', value: 1 });
+  const touchStartXRef = useRef(null);
+
+  const safeActiveIndex = Math.min(activeIndex, Math.max(0, imageResources.length - 1));
+  const currentImage = imageResources[safeActiveIndex] || null;
+  const currentImageUrl = String(currentImage?.url || '');
+  const imageError = Boolean(currentImageUrl) && failedImageUrl === currentImageUrl;
+  const zoom = zoomState.url === currentImageUrl ? zoomState.value : 1;
+  const title = mode === 'menu' ? '菜單' : '景點資料';
+
+  const updateZoom = (updater) => {
+    setZoomState((previous) => {
+      const currentValue = previous.url === currentImageUrl ? previous.value : 1;
+      const nextValue = typeof updater === 'function' ? updater(currentValue) : updater;
+      return { url: currentImageUrl, value: Number(nextValue) || 1 };
+    });
+  };
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key === 'ArrowLeft' && imageResources.length > 1) {
+        setActiveIndex((index) => (index - 1 + imageResources.length) % imageResources.length);
+      }
+      if (event.key === 'ArrowRight' && imageResources.length > 1) {
+        setActiveIndex((index) => (index + 1) % imageResources.length);
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [imageResources.length, onClose]);
+
+  if (!item || resources.length === 0) return null;
+
+  const goPrevious = () => {
+    if (imageResources.length <= 1) return;
+    setActiveIndex((index) => (index - 1 + imageResources.length) % imageResources.length);
+  };
+
+  const goNext = () => {
+    if (imageResources.length <= 1) return;
+    setActiveIndex((index) => (index + 1) % imageResources.length);
+  };
+
+  const handleTouchStart = (event) => {
+    touchStartXRef.current = event.touches?.[0]?.clientX ?? null;
+  };
+
+  const handleTouchEnd = (event) => {
+    const startX = touchStartXRef.current;
+    const endX = event.changedTouches?.[0]?.clientX ?? null;
+    touchStartXRef.current = null;
+    if (startX === null || endX === null || zoom > 1) return;
+    const delta = endX - startX;
+    if (Math.abs(delta) < 50) return;
+    if (delta > 0) goPrevious();
+    else goNext();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-10020 flex items-end justify-center bg-slate-950/90 backdrop-blur-sm md:items-center md:p-5"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${title}檢視器`}
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[96dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-3xl border border-white/10 bg-slate-950 text-white shadow-2xl md:max-h-[92dvh] md:rounded-3xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex min-h-16 items-center gap-3 border-b border-white/10 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 md:px-5 md:pt-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-black">{title}・{String(item.customName || item.name || '景點')}</p>
+            <p className="mt-0.5 text-[10px] text-slate-400">
+              {imageResources.length > 0 ? `${imageResources.length} 張圖片` : ''}
+              {imageResources.length > 0 && externalResources.length > 0 ? '・' : ''}
+              {externalResources.length > 0 ? `${externalResources.length} 個連結／文件` : ''}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-xl font-bold" aria-label="關閉">
+            ✕
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {currentImage ? (
+            <div className="border-b border-white/10 bg-black">
+              <div
+                className="relative flex min-h-[46dvh] items-center justify-center overflow-auto p-3 md:min-h-[54dvh] md:p-5"
+                onTouchStart={handleTouchStart}
+                onTouchEnd={handleTouchEnd}
+              >
+                {imageError ? (
+                  <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-6 text-center">
+                    <div className="text-4xl">🖼️</div>
+                    <p className="mt-3 text-sm font-black">圖片載入失敗</p>
+                    <p className="mt-1 text-xs text-slate-300">請檢查網路，或重新上傳這張圖片。</p>
+                  </div>
+                ) : (
+                  <img
+                    src={currentImage.url}
+                    alt={String(currentImage.title || title)}
+                    className="max-h-[62dvh] max-w-full select-none object-contain transition-transform duration-150"
+                    style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}
+                    draggable={false}
+                    onDoubleClick={() => updateZoom((value) => value > 1 ? 1 : 2)}
+                    onError={() => setFailedImageUrl(currentImageUrl)}
+                  />
+                )}
+
+                {imageResources.length > 1 ? (
+                  <>
+                    <button type="button" onClick={goPrevious} className="absolute left-2 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/55 text-xl md:left-4" aria-label="上一張">‹</button>
+                    <button type="button" onClick={goNext} className="absolute right-2 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-black/55 text-xl md:right-4" aria-label="下一張">›</button>
+                  </>
+                ) : null}
+
+                <div className="absolute bottom-3 right-3 flex items-center overflow-hidden rounded-xl border border-white/15 bg-black/65 shadow-lg">
+                  <button type="button" onClick={() => updateZoom((value) => Math.max(1, Number((value - 0.5).toFixed(1))))} disabled={zoom <= 1} className="flex h-10 w-10 items-center justify-center text-lg font-bold disabled:opacity-35" aria-label="縮小">−</button>
+                  <button type="button" onClick={() => updateZoom(1)} className="h-10 min-w-14 border-x border-white/10 px-2 text-[10px] font-bold">{Math.round(zoom * 100)}%</button>
+                  <button type="button" onClick={() => updateZoom((value) => Math.min(3, Number((value + 0.5).toFixed(1))))} disabled={zoom >= 3} className="flex h-10 w-10 items-center justify-center text-lg font-bold disabled:opacity-35" aria-label="放大">＋</button>
+                </div>
+              </div>
+
+              <div className="border-t border-white/10 px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="min-w-0 flex-1 truncate text-xs font-bold">{String(currentImage.title || `${title}圖片`)}</p>
+                  <span className="shrink-0 rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold text-slate-300">{safeActiveIndex + 1}/{imageResources.length}</span>
+                </div>
+                {imageResources.length > 1 ? (
+                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                    {imageResources.map((resource, index) => (
+                      <button
+                        key={String(resource.id || resource.url)}
+                        type="button"
+                        onClick={() => setActiveIndex(index)}
+                        className={`h-14 w-20 shrink-0 overflow-hidden rounded-xl border-2 ${index === safeActiveIndex ? 'border-blue-400' : 'border-transparent opacity-60'}`}
+                        aria-label={`查看第 ${index + 1} 張`}
+                      >
+                        <img src={resource.url} alt="" className="h-full w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {externalResources.length > 0 ? (
+            <div className="space-y-2 p-4 md:p-5">
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                {mode === 'menu' ? '其他菜單來源' : '可開啟資料'}
+              </p>
+              {externalResources.map((resource) => {
+                const meta = getPlaceResourceMeta(resource);
+                return (
+                  <button
+                    key={String(resource.id || resource.url)}
+                    type="button"
+                    onClick={() => openExternalUrl(resource.url)}
+                    className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 text-left active:scale-[0.99]"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-xl">{meta.icon}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold">{String(resource.title || meta.label)}</span>
+                      <span className="mt-0.5 block truncate text-[10px] text-slate-400">點擊後開啟{isPdfPlaceResource(resource) ? ' PDF' : '網頁'}</span>
+                    </span>
+                    <span className="text-slate-400">↗</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="border-t border-white/10 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-center text-[10px] text-slate-400 md:pb-3">
+          圖片可左右滑動並放大；PDF、訂位與文章會使用外部瀏覽器開啟
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const PlaceItemDetailModal = ({
+  item,
+  googlePlace,
+  googleError,
+  isFetchingGoogle,
+  onLoadGoogle,
+  onClose,
+  onEdit,
+  onViewMenu,
+  onViewPhoto,
+  t,
+}) => {
+  const [showGoogleSection, setShowGoogleSection] = useState(false);
+  const [copiedLocation, setCopiedLocation] = useState(false);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
+  if (!item) return null;
+
+  const displayName = String(item.customName || item.name || '景點');
+  const originalName = item.customName && item.name && item.customName !== item.name
+    ? String(item.name)
+    : '';
+  const allResources = Array.isArray(item.resources)
+    ? item.resources.filter((resource) => resource?.url)
+    : [];
+  const menuResources = allResources.filter((resource) => resource.type === 'menu');
+  const nonMenuResources = allResources.filter((resource) => resource.type !== 'menu');
+  const practicalResources = nonMenuResources.filter((resource) => (
+    ['reservation', 'official', 'social'].includes(String(resource.type || ''))
+    && !isImagePlaceResource(resource)
+  ));
+  const referenceImages = nonMenuResources.filter(isImagePlaceResource);
+  const referenceResources = nonMenuResources.filter((resource) => (
+    !isImagePlaceResource(resource)
+    && !practicalResources.some((entry) => String(entry.id) === String(resource.id))
+  ));
+  const googlePhotos = Array.isArray(googlePlace?.photos) ? googlePlace.photos.slice(0, 4) : [];
+  const googleReviews = Array.isArray(googlePlace?.reviews) ? googlePlace.reviews.slice(0, 3) : [];
+  const address = String(item.address || googlePlace?.formatted_address || '').trim();
+  const coordinates = isValidCoordinates(item.lat, item.lng)
+    ? `${Number(item.lat).toFixed(6)}, ${Number(item.lng).toFixed(6)}`
+    : '';
+  const locationText = address || coordinates;
+  const hasCustomNavigation = /^https?:\/\//i.test(String(item.navigationUrl || '').trim());
+
+  const handleCopyLocation = async () => {
+    if (!locationText) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(locationText);
+      } else {
+        window.prompt('請複製定位資訊', locationText);
+      }
+      setCopiedLocation(true);
+      window.setTimeout(() => setCopiedLocation(false), 1600);
+    } catch {
+      window.prompt('請複製定位資訊', locationText);
+    }
+  };
+
+  const handleToggleGoogle = () => {
+    const nextOpen = !showGoogleSection;
+    setShowGoogleSection(nextOpen);
+    if (nextOpen && !googlePlace && !isFetchingGoogle) onLoadGoogle?.(item);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-10010 flex items-end justify-center bg-slate-950/80 backdrop-blur-sm md:items-center md:p-5"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${displayName}詳細資訊`}
+      onClick={onClose}
+    >
+      <div
+        className={`flex max-h-[96dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl border shadow-2xl md:max-h-[92dvh] md:rounded-3xl ${t.modalBg} ${t.cardBorder}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className={`flex min-h-16 items-center gap-3 border-b px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-xl md:px-5 md:pt-3 ${t.cardBg} ${t.cardBorder}`}>
+          <div className="min-w-0 flex-1">
+            <h2 className={`truncate text-base font-black ${t.mainText}`}>{displayName}</h2>
+            <div className={`mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold ${t.subText}`}>
+              {item.time ? <span>🕒 {String(item.time)}</span> : null}
+              {item.stayTime !== undefined ? <span>・{formatStayTime(item.stayTime)}</span> : null}
+              {originalName ? <span className="truncate opacity-70">・{originalName}</span> : null}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border text-xl font-bold active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+            aria-label="關閉景點詳細資訊"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-hide">
+          <section className="p-4 md:p-5">
+            {item.placePhoto?.url ? (
+              <button
+                type="button"
+                onClick={() => onViewPhoto?.({
+                  url: String(item.placePhoto.url),
+                  title: `${displayName} 封面照片`,
+                })}
+                className="group relative block aspect-video w-full overflow-hidden rounded-2xl border border-black/10 bg-slate-900 text-left shadow-sm active:scale-[0.995]"
+                title="點擊放大封面照片"
+              >
+                <img
+                  loading="lazy"
+                  src={String(item.placePhoto.url)}
+                  alt={`${displayName} 封面照片`}
+                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                />
+                <span className="absolute left-3 top-3 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-black text-white backdrop-blur-sm">封面照片</span>
+                <span className="absolute bottom-3 right-3 rounded-full bg-black/65 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur-sm">點擊放大</span>
+              </button>
+            ) : (
+              <div className={`flex aspect-16/7 w-full flex-col items-center justify-center rounded-2xl border border-dashed ${t.cardBg} ${t.cardBorder}`}>
+                <span className="text-3xl">🖼️</span>
+                <p className={`mt-2 text-xs font-black ${t.mainText}`}>尚未設定封面照片</p>
+                <p className={`mt-1 text-[10px] ${t.subText}`}>可放店面、入口、集合點或代表餐點</p>
+              </div>
+            )}
+
+            {(Array.isArray(item.tags) && item.tags.length > 0) ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {item.tags.map((tag, index) => (
+                  <span key={`detail-tag-${index}`} className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[9px] font-bold text-blue-600">
+                    {String(tag)}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="grid gap-3 px-4 pb-4 md:grid-cols-2 md:px-5 md:pb-5">
+            <button
+              type="button"
+              onClick={() => menuResources.length > 0 ? onViewMenu?.(item) : onEdit?.()}
+              className={`flex min-h-24 items-center gap-3 rounded-2xl border p-4 text-left active:scale-[0.99] ${menuResources.length > 0 ? 'border-orange-500/25 bg-orange-500/10' : `${t.cardBg} ${t.cardBorder}`}`}
+            >
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-orange-500/15 text-2xl">🍽️</span>
+              <span className="min-w-0 flex-1">
+                <span className={`block text-sm font-black ${menuResources.length > 0 ? 'text-orange-600' : t.mainText}`}>菜單</span>
+                <span className={`mt-1 block text-[10px] ${t.subText}`}>
+                  {menuResources.length > 0 ? `${menuResources.length} 筆圖片、PDF 或網址` : '尚未加入，點擊前往編輯'}
+                </span>
+              </span>
+              <span className={menuResources.length > 0 ? 'text-orange-500' : t.subText}>›</span>
+            </button>
+
+            <div className={`min-h-24 rounded-2xl border p-4 ${t.cardBg} ${t.cardBorder}`}>
+              <div className="flex items-start gap-3">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-2xl">📍</span>
+                <div className="min-w-0 flex-1">
+                  <p className={`text-sm font-black ${t.mainText}`}>定位資訊</p>
+                  <p className={`mt-1 line-clamp-2 text-[10px] leading-relaxed ${t.subText}`}>
+                    {locationText || '尚未儲存地址或座標'}
+                  </p>
+                  {hasCustomNavigation ? <p className="mt-1 text-[9px] font-bold text-emerald-600">已設定自訂導航點</p> : null}
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => openExternalUrl(getPlaceMapUrl(item))}
+                  className="min-h-10 flex-1 rounded-xl border border-blue-500/25 bg-blue-500/10 px-3 text-[10px] font-black text-blue-600 active:scale-95"
+                >
+                  查看定位
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyLocation}
+                  disabled={!locationText}
+                  className={`min-h-10 flex-1 rounded-xl border px-3 text-[10px] font-black active:scale-95 disabled:opacity-40 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                >
+                  {copiedLocation ? '已複製' : '複製地址'}
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {item.memo ? (
+            <section className="px-4 pb-4 md:px-5 md:pb-5">
+              <div className={`rounded-2xl border p-4 ${t.cardBg} ${t.cardBorder}`}>
+                <div className="mb-2 flex items-center gap-2">
+                  <span>📝</span>
+                  <h3 className={`text-xs font-black ${t.mainText}`}>行程筆記</h3>
+                </div>
+                <p className={`whitespace-pre-wrap wrap-break-word text-xs leading-relaxed ${t.mainText}`}>{String(item.memo)}</p>
+              </div>
+            </section>
+          ) : null}
+
+          {practicalResources.length > 0 ? (
+            <section className="px-4 pb-4 md:px-5 md:pb-5">
+              <h3 className={`mb-2 text-[10px] font-black uppercase tracking-wider ${t.subText}`}>實用連結</h3>
+              <div className="space-y-2">
+                {practicalResources.map((resource) => {
+                  const meta = getPlaceResourceMeta(resource);
+                  return (
+                    <button
+                      key={String(resource.id || resource.url)}
+                      type="button"
+                      onClick={() => openExternalUrl(resource.url)}
+                      className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border px-4 text-left active:scale-[0.99] ${t.cardBg} ${t.cardBorder}`}
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-xl">{meta.icon}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className={`block truncate text-sm font-bold ${t.mainText}`}>{String(resource.title || meta.label)}</span>
+                        <span className={`mt-0.5 block text-[10px] ${t.subText}`}>{meta.label}</span>
+                      </span>
+                      <span className={t.subText}>↗</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          {(referenceImages.length > 0 || referenceResources.length > 0) ? (
+            <section className="px-4 pb-4 md:px-5 md:pb-5">
+              <h3 className={`mb-2 text-[10px] font-black uppercase tracking-wider ${t.subText}`}>參考資料</h3>
+              {referenceImages.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {referenceImages.map((resource) => (
+                    <button
+                      key={String(resource.id || resource.url)}
+                      type="button"
+                      onClick={() => onViewPhoto?.({ url: String(resource.url), title: String(resource.title || '參考照片') })}
+                      className="relative aspect-4/3 overflow-hidden rounded-2xl border border-black/10 bg-slate-900 active:scale-[0.99]"
+                    >
+                      <img loading="lazy" src={String(resource.url)} alt={String(resource.title || '參考照片')} className="h-full w-full object-cover" />
+                      <span className="absolute inset-x-0 bottom-0 truncate bg-black/65 px-2 py-1.5 text-left text-[9px] font-bold text-white">{String(resource.title || '參考照片')}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {referenceResources.length > 0 ? (
+                <div className={`${referenceImages.length > 0 ? 'mt-3' : ''} space-y-2`}>
+                  {referenceResources.map((resource) => {
+                    const meta = getPlaceResourceMeta(resource);
+                    return (
+                      <button
+                        key={String(resource.id || resource.url)}
+                        type="button"
+                        onClick={() => openExternalUrl(resource.url)}
+                        className={`flex min-h-13 w-full items-center gap-3 rounded-2xl border px-4 text-left active:scale-[0.99] ${t.cardBg} ${t.cardBorder}`}
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-500/10 text-lg">{meta.icon}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block truncate text-xs font-bold ${t.mainText}`}>{String(resource.title || meta.label)}</span>
+                          <span className={`mt-0.5 block text-[9px] ${t.subText}`}>{isPdfPlaceResource(resource) ? 'PDF 文件' : meta.label}</span>
+                        </span>
+                        <span className={t.subText}>↗</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          <section className="px-4 pb-5 md:px-5">
+            <button
+              type="button"
+              onClick={handleToggleGoogle}
+              className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border px-4 text-left active:scale-[0.99] ${t.cardBg} ${t.cardBorder}`}
+              aria-expanded={showGoogleSection}
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-xl">⭐</span>
+              <span className="min-w-0 flex-1">
+                <span className={`block text-sm font-black ${t.mainText}`}>Google 評價與參考照片</span>
+                <span className={`mt-0.5 block text-[10px] ${t.subText}`}>較少使用，展開時才載入</span>
+              </span>
+              <span className={`transition-transform ${showGoogleSection ? 'rotate-180' : ''} ${t.subText}`}>⌄</span>
+            </button>
+
+            {showGoogleSection ? (
+              <div className={`mt-2 rounded-2xl border p-4 ${t.cardBg} ${t.cardBorder}`}>
+                {isFetchingGoogle ? (
+                  <div className="py-8 text-center">
+                    <div className="text-2xl animate-pulse">⭐</div>
+                    <p className="mt-2 text-xs font-bold text-blue-500">讀取 Google 資訊中…</p>
+                  </div>
+                ) : googleError ? (
+                  <div className="py-5 text-center">
+                    <p className="text-xs font-black text-red-500">{String(googleError)}</p>
+                    <button type="button" onClick={() => onLoadGoogle?.(item)} className="mt-3 rounded-xl bg-blue-600 px-4 py-2 text-[10px] font-bold text-white">重新載入</button>
+                  </div>
+                ) : googlePlace ? (
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {googlePlace.rating ? <span className="rounded-lg border border-orange-500/20 bg-orange-500/10 px-2.5 py-1 text-xs font-black text-orange-600">⭐ {String(googlePlace.rating)}</span> : null}
+                      {googlePlace.user_ratings_total ? <span className={`text-[10px] font-bold ${t.subText}`}>{String(googlePlace.user_ratings_total)} 則評論</span> : null}
+                      {googlePlace.opening_hours?.open_now !== undefined ? (
+                        <span className={`rounded-lg px-2.5 py-1 text-[10px] font-bold ${googlePlace.opening_hours.open_now ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'}`}>
+                          {googlePlace.opening_hours.open_now ? '營業中' : '目前休息'}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {googlePhotos.length > 0 ? (
+                      <div>
+                        <p className={`mb-2 text-[10px] font-black ${t.subText}`}>參考照片</p>
+                        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                          {googlePhotos.map((photo, index) => {
+                            const photoUrl = photo.getUrl({ maxWidth: 900, maxHeight: 700 });
+                            return (
+                              <button
+                                key={`google-photo-${index}`}
+                                type="button"
+                                onClick={() => onViewPhoto?.({ url: photoUrl, title: `${displayName} Google 參考照片 ${index + 1}` })}
+                                className="h-24 w-36 shrink-0 overflow-hidden rounded-xl border border-black/10 bg-slate-900 active:scale-[0.99]"
+                              >
+                                <img src={photoUrl} alt="Google 參考照片" className="h-full w-full object-cover" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {googleReviews.length > 0 ? (
+                      <div>
+                        <p className={`mb-2 text-[10px] font-black ${t.subText}`}>近期評論摘要</p>
+                        <div className="space-y-2">
+                          {googleReviews.map((review, index) => (
+                            <div key={`google-review-${index}`} className={`rounded-xl border p-3 ${t.itemBg} ${t.cardBorder}`}>
+                              <div className="flex items-center justify-between gap-3">
+                                <p className={`truncate text-[10px] font-black ${t.mainText}`}>{String(review.author_name || 'Google 使用者')}</p>
+                                <span className="shrink-0 text-[10px] text-orange-500">⭐ {String(review.rating || '')}</span>
+                              </div>
+                              {review.text ? <p className={`mt-1 line-clamp-3 text-[10px] leading-relaxed ${t.subText}`}>{String(review.text)}</p> : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {googlePlace.url ? (
+                      <button type="button" onClick={() => openExternalUrl(googlePlace.url)} className="w-full rounded-xl border border-blue-500/25 bg-blue-500/10 py-2.5 text-[10px] font-black text-blue-600">
+                        在 Google Maps 查看完整資訊 ↗
+                      </button>
+                    ) : null}
+
+                    {googlePhotos.length === 0 && googleReviews.length === 0 && !googlePlace.rating ? (
+                      <p className={`py-4 text-center text-xs ${t.subText}`}>Google 沒有回傳可顯示的評論或照片。</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="py-5 text-center">
+                    <p className={`text-xs ${t.subText}`}>尚未載入 Google 資訊。</p>
+                    <button type="button" onClick={() => onLoadGoogle?.(item)} className="mt-3 rounded-xl bg-blue-600 px-4 py-2 text-[10px] font-bold text-white">載入</button>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </section>
+        </div>
+
+        <div className={`flex gap-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-5 md:pb-3 ${t.cardBg} ${t.cardBorder}`}>
+          <button type="button" onClick={onClose} className={`min-h-11 flex-1 rounded-xl border text-xs font-bold ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>關閉</button>
+          <button type="button" onClick={onEdit} className="min-h-11 flex-1 rounded-xl bg-blue-600 text-xs font-black text-white shadow-md active:scale-95">✏️ 編輯景點</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const getTravelMinutesForLeg = (item, duration) => {
+  if (item?.nextLeg?.mode && item.nextLeg.mode !== 'AUTO') {
+    return Math.max(0, Number(item.nextLeg.mins) || 0);
+  }
+  const routeMinutes = Number(duration?.value);
+  return Number.isFinite(routeMinutes) && routeMinutes >= 0 ? routeMinutes : 30;
+};
+
+const recalculateArrivalTimes = (items, durations, anchorTime) => {
+  const list = cloneRouteItems(items);
+  if (list.length === 0) return list;
+
+  const anchor = String(anchorTime || list[0]?.time || '').trim();
+  if (!/^\d{2}:\d{2}$/.test(anchor)) return list;
+
+  list[0] = { ...list[0], time: anchor };
+  let currentMinutes = timeToMins(anchor) + Math.max(0, Number(list[0].stayTime) || 0);
+
+  for (let index = 1; index < list.length; index += 1) {
+    currentMinutes += getTravelMinutesForLeg(list[index - 1], durations?.[index - 1]);
+    list[index] = { ...list[index], time: minsToTime(currentMinutes) };
+    currentMinutes += Math.max(0, Number(list[index].stayTime) || 0);
+  }
+
+  return list;
+};
 
 const getRouteTotals = (route) => {
   const legs = Array.isArray(route?.legs) ? route.legs : [];
@@ -422,7 +1179,7 @@ const normalizeMeta = (value) => {
 const normalizeItinerary = (rawValue, meta) => {
   const rawItinerary = rawValue && typeof rawValue === "object" ? rawValue : {};
   const dayCount = Math.max(1, getInclusiveDayCount(meta?.startDate, meta?.endDate));
-  const safeItinerary = {};
+  const safeItinerary = /** @type {Record<string, any[]>} */ ({});
 
   for (let dayNumber = 1; dayNumber <= dayCount; dayNumber += 1) {
     const dayId = `Day ${dayNumber}`;
@@ -493,20 +1250,16 @@ const PRE_TRIP_ID = "PRE_TRIP";
 const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const [isLoading, setIsLoading] = useState(true);
 
-  /** @type {[any, React.Dispatch<any>]} */
-  const [meta, setMetaState] = useState(null);
+  const [meta, setMetaState] = useState(/** @type {any} */ (null));
 
-  /** @type {[Record<string, any[]>, React.Dispatch<React.SetStateAction<Record<string, any[]>>>]} */
-  const [itinerary, setItineraryState] = useState({ "Day 1": [] });
+  const [itinerary, setItineraryState] = useState(
+    /** @type {Record<string, any[]>} */ ({ "Day 1": [] })
+  );
 
-  /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
-  const [expenses, setExpensesState] = useState([]);
-  /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
-  const [settlements, setSettlementsState] = useState([]);
-  /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
-  const [tickets, setTicketsState] = useState([]);
-  /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
-  const [checklistItems, setChecklistItemsState] = useState([]);
+  const [expenses, setExpensesState] = useState(/** @type {any[]} */ ([]));
+  const [settlements, setSettlementsState] = useState(/** @type {any[]} */ ([]));
+  const [tickets, setTicketsState] = useState(/** @type {any[]} */ ([]));
+  const [checklistItems, setChecklistItemsState] = useState(/** @type {any[]} */ ([]));
 
   const [syncStatus, setSyncStatus] = useState("idle");
   const [loadError, setLoadError] = useState("");
@@ -542,16 +1295,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const [currentDay, setCurrentDay] = useState("Day 1");
   const [activeTab, setActiveTab] = useState("plan");
 
-  /** @type {[any, React.Dispatch<any>]} */
-  const [editingItemData, setEditingItemData] = useState(null);
-  /** @type {[any, React.Dispatch<any>]} */
-  const [viewingMemoItem, setViewingMemoItem] = useState(null);
-  /** @type {[any, React.Dispatch<any>]} */
-  const [copyingItem, setCopyingItem] = useState(null);
+  const [editingItemData, setEditingItemData] = useState(/** @type {any} */ (null));
+  const [viewingMemoItem, setViewingMemoItem] = useState(/** @type {any} */ (null));
+  const [copyingItem, setCopyingItem] = useState(/** @type {any} */ (null));
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showSettlementModal, setShowSettlementModal] = useState(false);
-  /** @type {[any, React.Dispatch<any>]} */
-  const [editingExpense, setEditingExpense] = useState(null);
+  const [editingExpense, setEditingExpense] = useState(/** @type {any} */ (null));
   const [showTicketModal, setShowTicketModal] = useState(false);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [checklistActor, setChecklistActorState] = useState(() => {
@@ -561,65 +1310,85 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       return '';
     }
   });
-  /** @type {[any, React.Dispatch<any>]} */
-  const [fullscreenTicket, setFullscreenTicket] = useState(null);
+  const [fullscreenTicket, setFullscreenTicket] = useState(/** @type {any} */ (null));
+  const [viewingPlacePhoto, setViewingPlacePhoto] = useState(
+    /** @type {{url: string, title: string} | null} */ (null)
+  );
+  const [viewingPlaceResources, setViewingPlaceResources] = useState(
+    /** @type {{item: any, mode: 'menu' | 'all'} | null} */ (null)
+  );
+  const [viewingPlaceDetail, setViewingPlaceDetail] = useState(
+    /** @type {{dayId: string, item: any} | null} */ (null)
+  );
+  const [savedPlaceGoogleDetails, setSavedPlaceGoogleDetails] = useState(null);
+  const [savedPlaceGoogleError, setSavedPlaceGoogleError] = useState('');
+  const [isFetchingSavedPlaceGoogle, setIsFetchingSavedPlaceGoogle] = useState(false);
   const [expenseView, setExpenseView] = useState('list');
   const [expenseChartOwner, setExpenseChartOwner] = useState('ALL');
-  /** @type {[Record<string, any>, React.Dispatch<React.SetStateAction<Record<string, any>>>]} */
-  const [routeDurations, setRouteDurations] = useState({});
+  const [routeDurations, setRouteDurations] = useState(
+    /** @type {Record<string, any>} */ ({})
+  );
+  const pendingTimeRecalculationRef = useRef({});
+  const [timeRecalculationDays, setTimeRecalculationDays] = useState({});
 
   const placesLib = useMapsLibrary('places');
   const [exploreQuery, setExploreQuery] = useState("");
 
-  /** @type {[any[], React.Dispatch<React.SetStateAction<any[]>>]} */
-  const [exploreResults, setExploreResults] = useState([]);
-  /** @type {[any, React.Dispatch<any>]} */
-  const [selectedExploreItem, setSelectedExploreItem] = useState(null);
-  /** @type {[any, React.Dispatch<any>]} */
-  const [exploreOriginItem, setExploreOriginItem] = useState(null);
+  const [exploreResults, setExploreResults] = useState(/** @type {any[]} */ ([]));
+  const [selectedExploreItem, setSelectedExploreItem] = useState(/** @type {any} */ (null));
+  const [exploreOriginItem, setExploreOriginItem] = useState(/** @type {any} */ (null));
+  const [detailedPlace, setDetailedPlace] = useState(/** @type {any} */ (null));
 
-  /** @type {[any, React.Dispatch<any>]} */
-  const [detailedPlace, setDetailedPlace] = useState(null);
   const [isFetchingDetails, setIsFetchingDetails] = useState(false);
   const [isSavedItemModal, setIsSavedItemModal] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizationPreview, setOptimizationPreview] = useState(null);
   const [optimizationSummaries, setOptimizationSummaries] = useState({});
-
-  /** @type {[any, React.Dispatch<any>]} */
-  const [backupItin, setBackupItin] = useState(null);
+  const [backupItin, setBackupItin] = useState(/** @type {any} */ (null));
 
   const [isExporting, setIsExporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
-  /** @type {[Record<string, {temp: string, rain: number}>, React.Dispatch<React.SetStateAction<Record<string, {temp: string, rain: number}>>]} */
-  const [weatherInfo, setWeatherInfo] = useState({});
+  const [weatherInfo, setWeatherInfo] = useState(
+    /** @type {Record<string, {temp: string, rain: number}>} */ ({})
+  );
 
 
   const routesLib = useMapsLibrary('routes');
   const map = useMap('main-map');
 
   useEffect(() => {
-    setLoadError("");
-    setIsLoading(true);
+    let cancelled = false;
+
     dirtyBranchesRef.current = { meta: false, itinerary: false, expenses: false, settlements: false, tickets: false };
     writeVersionRef.current = { meta: 0, itinerary: 0, expenses: 0, settlements: 0, tickets: 0 };
     checklistWriteVersionRef.current = 0;
 
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setLoadError("");
+      setIsLoading(true);
+    });
+
     if (!db || !roomId) {
-      setMetaState({
-        ...DEFAULT_META,
-        title: "單機預覽模式 (無資料庫)",
-        destination: "沖繩",
-        startDate: "2026-09-20",
-        endDate: "2026-09-24",
+      queueMicrotask(() => {
+        if (cancelled) return;
+        setMetaState({
+          ...DEFAULT_META,
+          title: "單機預覽模式 (無資料庫)",
+          destination: "沖繩",
+          startDate: "2026-09-20",
+          endDate: "2026-09-24",
+        });
+        setItineraryState({ "Day 1": [] });
+        setExpensesState([]);
+        setSettlementsState([]);
+        setTicketsState([]);
+        setChecklistItemsState([]);
+        setIsLoading(false);
       });
-      setItineraryState({ "Day 1": [] });
-      setExpensesState([]);
-      setSettlementsState([]);
-      setTicketsState([]);
-      setChecklistItemsState([]);
-      setIsLoading(false);
-      return undefined;
+      return () => {
+        cancelled = true;
+      };
     }
 
     const roomRef = dbRef(db, `rooms/${roomId}`);
@@ -634,12 +1403,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
         }
 
         setLoadError("");
-        const loadedMeta = normalizeMeta(data.meta);
-        const loadedItinerary = normalizeItinerary(data.itinerary, loadedMeta);
-        const loadedExpenses = toSafeList(data.expenses);
-        const loadedSettlements = toSafeList(data.settlements);
-        const loadedTickets = toSafeList(data.tickets);
-        const loadedChecklist = normalizeChecklist(data.checklist);
+        const loadedMeta = normalizeMeta(data['meta']);
+        const loadedItinerary = normalizeItinerary(data['itinerary'], loadedMeta);
+        const loadedExpenses = toSafeList(data['expenses']);
+        const loadedSettlements = toSafeList(data['settlements']);
+        const loadedTickets = toSafeList(data['tickets']);
+        const loadedChecklist = normalizeChecklist(data['checklist']);
 
         if (!dirtyBranchesRef.current.meta) setMetaState(loadedMeta);
         if (!dirtyBranchesRef.current.itinerary) setItineraryState(loadedItinerary);
@@ -657,7 +1426,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [roomId]);
 
   useRoomBranchSync({
@@ -751,24 +1523,37 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
             `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(meta.destination)}&count=1&language=zh`,
             { signal: controller.signal }
           );
-          if (!geoRes.ok) throw new Error(`Geocoding failed: ${geoRes.status}`);
+          if (!geoRes.ok) {
+            console.warn(`Geocoding failed: ${geoRes.status}`);
+            return;
+          }
           const geoData = await geoRes.json();
-          if (!geoData.results?.length) return;
-          latitude = Number(geoData.results[0].latitude);
-          longitude = Number(geoData.results[0].longitude);
+          const geoResults = Array.isArray(geoData?.results) ? geoData.results : [];
+          if (geoResults.length === 0) return;
+          latitude = Number(geoResults[0]?.latitude);
+          longitude = Number(geoResults[0]?.longitude);
         }
 
         const weatherRes = await fetch(
           `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=16`,
           { signal: controller.signal }
         );
-        if (!weatherRes.ok) throw new Error(`Weather failed: ${weatherRes.status}`);
+        if (!weatherRes.ok) {
+          console.warn(`Weather failed: ${weatherRes.status}`);
+          return;
+        }
 
         const weatherData = await weatherRes.json();
-        if (!weatherData?.daily) return;
+        const daily = weatherData && typeof weatherData === 'object'
+          ? weatherData['daily']
+          : null;
+        if (!daily || typeof daily !== 'object') return;
 
-        const daily = weatherData.daily;
-        const newWeatherMap = {};
+        const dailyTimes = Array.isArray(daily['time']) ? daily['time'] : [];
+        const dailyMinTemps = Array.isArray(daily['temperature_2m_min']) ? daily['temperature_2m_min'] : [];
+        const dailyMaxTemps = Array.isArray(daily['temperature_2m_max']) ? daily['temperature_2m_max'] : [];
+        const dailyRain = Array.isArray(daily['precipitation_probability_max']) ? daily['precipitation_probability_max'] : [];
+        const newWeatherMap = /** @type {Record<string, {temp: string, rain: number}>} */ ({});
         const tripStart = parseDateOnlyLocal(meta.startDate);
         if (!tripStart) return;
 
@@ -783,12 +1568,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
             String(targetDate.getDate()).padStart(2, '0'),
           ].join('-');
 
-          const index = (daily.time || []).indexOf(dateIso);
+          const index = dailyTimes.indexOf(dateIso);
           if (index === -1) return;
 
           newWeatherMap[dayId] = {
-            temp: `${Math.round(daily.temperature_2m_min[index])}~${Math.round(daily.temperature_2m_max[index])}°C`,
-            rain: Number(daily.precipitation_probability_max[index]) || 0,
+            temp: `${Math.round(Number(dailyMinTemps[index]) || 0)}~${Math.round(Number(dailyMaxTemps[index]) || 0)}°C`,
+            rain: Number(dailyRain[index]) || 0,
           };
         });
 
@@ -834,7 +1619,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     }));
   };
 
-  const membersList = useMemo(() => normalizeMembers(meta?.members), [meta?.members]);
+  const membersList = useMemo(() => normalizeMembers(meta?.members), [meta]);
 
   const openNewExpense = useCallback(() => {
     setEditingExpense(null);
@@ -1092,29 +1877,84 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
     const sourceDay = String(source.droppableId);
     const destinationDay = String(destination.droppableId);
+    const sourceBefore = cloneRouteItems(itinerary[sourceDay] || []);
+    const destinationBefore = sourceDay === destinationDay
+      ? sourceBefore
+      : cloneRouteItems(itinerary[destinationDay] || []);
+    const sourceAnchor = String(sourceBefore[0]?.time || '');
+    const destinationAnchor = String(destinationBefore[0]?.time || '');
+
+    const sourceItems = cloneRouteItems(sourceBefore);
+    const destinationItems = sourceDay === destinationDay
+      ? sourceItems
+      : cloneRouteItems(destinationBefore);
+
+    const [movedItem] = sourceItems.splice(source.index, 1);
+    if (!movedItem) return;
+    destinationItems.splice(destination.index, 0, movedItem);
+
+    const affectedDays = sourceDay === destinationDay ? [sourceDay] : [sourceDay, destinationDay];
+    const nextItinerary = { ...itinerary };
+
+    if (sourceDay === destinationDay) {
+      const anchor = sourceAnchor || String(movedItem.time || '');
+      nextItinerary[sourceDay] = recalculateArrivalTimes(sourceItems, null, anchor);
+      pendingTimeRecalculationRef.current[sourceDay] = { anchorTime: anchor };
+    } else {
+      const sourceNextAnchor = sourceAnchor || String(sourceItems[0]?.time || '');
+      const destinationNextAnchor = destinationAnchor || String(movedItem.time || sourceAnchor || '');
+      nextItinerary[sourceDay] = recalculateArrivalTimes(sourceItems, null, sourceNextAnchor);
+      nextItinerary[destinationDay] = recalculateArrivalTimes(destinationItems, null, destinationNextAnchor);
+      if (sourceItems.length > 0) {
+        pendingTimeRecalculationRef.current[sourceDay] = { anchorTime: sourceNextAnchor };
+      } else {
+        delete pendingTimeRecalculationRef.current[sourceDay];
+      }
+      pendingTimeRecalculationRef.current[destinationDay] = { anchorTime: destinationNextAnchor };
+    }
+
     setBackupItin(null);
-    clearOptimizationSummary(sourceDay, destinationDay);
-    setItinerary((previousItinerary) => {
-      const sourceItems = [...(previousItinerary[sourceDay] || [])];
-      const destinationItems = sourceDay === destinationDay
-        ? sourceItems
-        : [...(previousItinerary[destinationDay] || [])];
-
-      const [movedItem] = sourceItems.splice(source.index, 1);
-      if (!movedItem) return previousItinerary;
-      destinationItems.splice(destination.index, 0, movedItem);
-
-      return {
-        ...previousItinerary,
-        [sourceDay]: sourceItems,
-        [destinationDay]: destinationItems,
-      };
+    clearOptimizationSummary(...affectedDays);
+    setRouteDurations((previous) => {
+      const next = { ...previous };
+      affectedDays.forEach((dayId) => { delete next[dayId]; });
+      return next;
     });
-  }, [clearOptimizationSummary, setItinerary]);
+    setTimeRecalculationDays((previous) => {
+      const next = { ...previous };
+      affectedDays.forEach((dayId) => {
+        if ((nextItinerary[dayId] || []).length > 1) next[dayId] = true;
+        else delete next[dayId];
+      });
+      return next;
+    });
+    setItinerary(nextItinerary);
+  }, [clearOptimizationSummary, itinerary, setItinerary]);
 
   const handleRouteCalculated = useCallback((day, durations) => {
-    setRouteDurations(prev => JSON.stringify(prev[day]) !== JSON.stringify(durations) ? { ...prev, [day]: durations } : prev);
-  }, []);
+    setRouteDurations((previous) => (
+      JSON.stringify(previous[day]) !== JSON.stringify(durations)
+        ? { ...previous, [day]: durations }
+        : previous
+    ));
+
+    const pending = pendingTimeRecalculationRef.current[day];
+    if (!pending) return;
+
+    setItinerary((previous) => {
+      const currentItems = Array.isArray(previous[day]) ? previous[day] : [];
+      const recalculatedItems = recalculateArrivalTimes(currentItems, durations, pending.anchorTime);
+      return { ...previous, [day]: recalculatedItems };
+    });
+
+    delete pendingTimeRecalculationRef.current[day];
+    setTimeRecalculationDays((previous) => {
+      if (!previous[day]) return previous;
+      const next = { ...previous };
+      delete next[day];
+      return next;
+    });
+  }, [setItinerary]);
 
   const saveEditedItem = useCallback((updatedItem, shouldCascade) => {
     const editedDayId = String(editingItemData.dayId);
@@ -1148,19 +1988,55 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       return n;
     });
     setEditingItemData(null);
-  }, [clearOptimizationSummary, editingItemData, routeDurations]);
+  }, [clearOptimizationSummary, editingItemData, routeDurations, setItinerary]);
 
   const handleCopyItem = (targetDay, item) => {
     clearOptimizationSummary(targetDay);
     setItinerary(prev => {
       const dayList = [...(prev[String(targetDay)] || [])];
-      const newItem = { ...item, id: generateId(), time: "" };
+      const newItem = {
+        ...item,
+        id: generateId(),
+        time: "",
+        resources: Array.isArray(item.resources)
+          ? item.resources
+              .filter((resource) => !isPdfPlaceResource(resource) && !resource?.storagePath)
+              .map((resource) => ({ ...resource, id: generateId() }))
+          : [],
+        placePhoto: null,
+      };
       dayList.push(newItem);
       return { ...prev, [String(targetDay)]: dayList };
     });
     setCopyingItem(null);
     alert(`✅ 已將「${item.customName || item.name}」複製到 ${targetDay}！`);
   };
+
+  const handleDeleteItineraryItem = useCallback((dayId, item) => {
+    if (!window.confirm('確定刪除此景點？')) return;
+
+    setBackupItin(null);
+    clearOptimizationSummary(dayId);
+    setItinerary((previous) => ({
+      ...previous,
+      [dayId]: (previous[dayId] || []).filter((place) => place.id !== item.id),
+    }));
+
+    const storagePaths = [
+      String(item?.placePhoto?.storagePath || ''),
+      ...(Array.isArray(item?.resources)
+        ? item.resources.map((resource) => String(resource?.storagePath || ''))
+        : []),
+    ].filter(Boolean);
+
+    if (storage) {
+      storagePaths.forEach((storagePath) => {
+        void deleteObject(storageRef(storage, storagePath)).catch((error) => {
+          console.warn('景點附件刪除失敗：', error);
+        });
+      });
+    }
+  }, [clearOptimizationSummary, setItinerary]);
 
   const handleDeleteTicket = useCallback(async (ticket) => {
     if (!window.confirm(`確定刪除「${String(ticket?.title || '此票券')}」？`)) return;
@@ -1310,12 +2186,13 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     } catch {
       window.prompt("請手動複製共編連結：", url);
     }
-  }, [meta?.title, roomId]);
+  }, [meta, roomId]);
 
   const handleExploreSearch = (customQuery = null, customLocation = null) => {
     const q = typeof customQuery === 'string' ? customQuery : String(exploreQuery);
     if (!q.trim() || !placesLib || !map) return;
 
+    // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
     const service = new placesLib.PlacesService(map);
     const request = { query: q };
     if (customLocation) { request.location = customLocation; request.radius = 1500; }
@@ -1380,6 +2257,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
     setIsOptimizing(true);
     setOptimizationPreview(null);
+    // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
     const service = new routesLib.DirectionsService();
     const origin = { lat: Number(items[0].lat), lng: Number(items[0].lng) };
     const destination = {
@@ -1543,24 +2421,26 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
         return;
       }
 
-      const capture = html2canvas.default || html2canvas;
+      const capture = html2canvas;
       const canvas = await capture(targetElement, {
         scale: 2,
         useCORS: true,
         allowTaint: false,
         backgroundColor: tripThemeColor,
         onclone: (clonedDoc, clonedElement) => {
-          clonedElement.querySelectorAll('.export-hide').forEach(el => {
-            el.style.display = 'none';
+          clonedElement.querySelectorAll('.export-hide').forEach((element) => {
+            if (element instanceof HTMLElement) element.style.display = 'none';
           });
-          clonedElement.style.maxHeight = 'none';
-          clonedElement.style.height = 'auto';
-          clonedElement.style.overflow = 'visible';
+          if (clonedElement instanceof HTMLElement) {
+            clonedElement.style.maxHeight = 'none';
+            clonedElement.style.height = 'auto';
+            clonedElement.style.overflow = 'visible';
+          }
           const scrollArea = clonedElement.querySelector('.overflow-y-auto');
-          if (scrollArea) {
-             scrollArea.style.maxHeight = 'none';
-             scrollArea.style.height = 'auto';
-             scrollArea.style.overflow = 'visible';
+          if (scrollArea instanceof HTMLElement) {
+            scrollArea.style.maxHeight = 'none';
+            scrollArea.style.height = 'auto';
+            scrollArea.style.overflow = 'visible';
           }
         }
       });
@@ -1650,6 +2530,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
         </section>`;
     }).join("");
 
+    const exportAccent = /^#[0-9a-f]{6}$/i.test(String(tripThemeColor))
+      ? String(tripThemeColor)
+      : '#3b82f6';
+
     return `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -1657,11 +2541,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeExportHtml(meta.title || "旅程")}－完整行程</title>
 <style>
-  :root { --accent: ${escapeExportHtml(tripThemeColor)}; --ink:#172033; --muted:#64748b; --line:#dbe3ef; --paper:#ffffff; --soft:#f6f8fc; }
   * { box-sizing:border-box; }
-  body { margin:0; color:var(--ink); background:#e8edf5; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","Microsoft JhengHei",sans-serif; }
-  .document { width:min(900px, calc(100% - 24px)); margin:24px auto; background:var(--paper); box-shadow:0 18px 60px rgba(15,23,42,.16); }
-  .cover { min-height:440px; padding:54px; position:relative; overflow:hidden; color:white; background:linear-gradient(135deg, var(--accent), #2563eb 62%, #14b8a6); }
+  body { margin:0; color:#172033; background:#e8edf5; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","Microsoft JhengHei",sans-serif; }
+  .document { width:min(900px, calc(100% - 24px)); margin:24px auto; background:#ffffff; box-shadow:0 18px 60px rgba(15,23,42,.16); }
+  .cover { min-height:440px; padding:54px; position:relative; overflow:hidden; color:white; background:linear-gradient(135deg, ${exportAccent}, #2563eb 62%, #14b8a6); }
   .cover:after { content:""; position:absolute; width:360px; height:360px; border-radius:50%; right:-110px; top:-120px; background:rgba(255,255,255,.13); }
   .cover-label { font-size:13px; font-weight:800; letter-spacing:.2em; opacity:.82; }
   .cover h1 { font-size:42px; line-height:1.15; margin:54px 0 12px; max-width:650px; }
@@ -1670,31 +2553,31 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   .cover-card { border:1px solid rgba(255,255,255,.25); background:rgba(255,255,255,.13); border-radius:18px; padding:16px 18px; backdrop-filter:blur(8px); }
   .cover-card small { display:block; opacity:.75; margin-bottom:5px; }
   .cover-card strong { font-size:15px; }
-  .summary { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; padding:28px 42px; border-bottom:1px solid var(--line); background:var(--soft); }
-  .summary div { background:white; border:1px solid var(--line); border-radius:16px; padding:15px; text-align:center; }
-  .summary strong { display:block; font-size:23px; color:var(--accent); }
-  .summary span { font-size:12px; color:var(--muted); }
+  .summary { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; padding:28px 42px; border-bottom:1px solid #dbe3ef; background:#f6f8fc; }
+  .summary div { background:white; border:1px solid #dbe3ef; border-radius:16px; padding:15px; text-align:center; }
+  .summary strong { display:block; font-size:23px; color:${exportAccent}; }
+  .summary span { font-size:12px; color:#64748b; }
   .day-section { padding:38px 42px 44px; }
-  .day-header { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; padding-bottom:18px; margin-bottom:20px; border-bottom:3px solid var(--accent); }
-  .day-kicker { color:var(--accent); font-size:11px; letter-spacing:.18em; font-weight:900; }
+  .day-header { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; padding-bottom:18px; margin-bottom:20px; border-bottom:3px solid ${exportAccent}; }
+  .day-kicker { color:${exportAccent}; font-size:11px; letter-spacing:.18em; font-weight:900; }
   .day-header h2 { font-size:25px; margin:4px 0 5px; }
-  .day-header p { margin:0; color:var(--muted); font-size:13px; }
-  .weather { text-align:right; padding:9px 12px; border-radius:14px; background:var(--soft); color:#334155; font-size:12px; line-height:1.7; white-space:nowrap; }
+  .day-header p { margin:0; color:#64748b; font-size:13px; }
+  .weather { text-align:right; padding:9px 12px; border-radius:14px; background:#f6f8fc; color:#334155; font-size:12px; line-height:1.7; white-space:nowrap; }
   .timeline { position:relative; }
-  .timeline:before { content:""; position:absolute; left:17px; top:19px; bottom:19px; width:2px; background:var(--line); }
+  .timeline:before { content:""; position:absolute; left:17px; top:19px; bottom:19px; width:2px; background:#dbe3ef; }
   .stop { position:relative; display:grid; grid-template-columns:36px 60px 1fr; gap:12px; margin:0 0 13px; break-inside:avoid; page-break-inside:avoid; }
-  .stop-index { z-index:1; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--accent); color:white; font-size:12px; font-weight:900; box-shadow:0 4px 12px rgba(15,23,42,.15); }
-  .stop-time { padding-top:8px; color:var(--accent); font-weight:900; font-size:12px; }
-  .stop-main { border:1px solid var(--line); border-radius:16px; padding:14px 16px; background:white; }
+  .stop-index { z-index:1; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:${exportAccent}; color:white; font-size:12px; font-weight:900; box-shadow:0 4px 12px rgba(15,23,42,.15); }
+  .stop-time { padding-top:8px; color:${exportAccent}; font-weight:900; font-size:12px; }
+  .stop-main { border:1px solid #dbe3ef; border-radius:16px; padding:14px 16px; background:white; }
   .stop.compact .stop-main { padding:10px 13px; }
   .stop-heading { font-size:15px; line-height:1.4; }
-  .original-name { display:block; color:var(--muted); font-size:10px; font-weight:500; margin-top:2px; }
-  .stop-meta { display:flex; flex-wrap:wrap; gap:7px; margin-top:7px; color:var(--muted); font-size:10px; }
-  .tag, .leg { border-radius:999px; padding:3px 7px; background:var(--soft); border:1px solid var(--line); }
+  .original-name { display:block; color:#64748b; font-size:10px; font-weight:500; margin-top:2px; }
+  .stop-meta { display:flex; flex-wrap:wrap; gap:7px; margin-top:7px; color:#64748b; font-size:10px; }
+  .tag, .leg { border-radius:999px; padding:3px 7px; background:#f6f8fc; border:1px solid #dbe3ef; }
   .detail-line { margin-top:9px; color:#475569; font-size:10px; }
-  .memo { margin-top:10px; padding:9px 11px; border-left:3px solid var(--accent); background:var(--soft); border-radius:0 9px 9px 0; color:#334155; font-size:11px; line-height:1.55; }
-  .empty-day { padding:26px; text-align:center; border:1px dashed var(--line); border-radius:16px; color:var(--muted); }
-  .footer-note { padding:20px 42px 34px; color:var(--muted); font-size:10px; text-align:center; border-top:1px solid var(--line); }
+  .memo { margin-top:10px; padding:9px 11px; border-left:3px solid ${exportAccent}; background:#f6f8fc; border-radius:0 9px 9px 0; color:#334155; font-size:11px; line-height:1.55; }
+  .empty-day { padding:26px; text-align:center; border:1px dashed #dbe3ef; border-radius:16px; color:#64748b; }
+  .footer-note { padding:20px 42px 34px; color:#64748b; font-size:10px; text-align:center; border-top:1px solid #dbe3ef; }
   .no-print { padding:12px; text-align:center; background:#0f172a; color:white; position:sticky; top:0; z-index:2; }
   .no-print button { border:0; background:#2563eb; color:white; padding:9px 18px; border-radius:10px; font-weight:800; cursor:pointer; }
   @media print {
@@ -1718,7 +2601,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 </style>
 </head>
 <body>
-  <div class="no-print">預覽完整行程　<button onclick="window.print()">列印／另存 PDF</button></div>
+  <div class="no-print">預覽完整行程 <button onclick="window.print()">列印／另存 PDF</button></div>
   <main class="document">
     <section class="cover">
       <div class="cover-label">SMART TRAVEL ITINERARY</div>
@@ -1767,6 +2650,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     if (!placesLib || !map) return;
     setIsFetchingDetails(true);
     setIsSavedItemModal(false);
+    // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
     const service = new placesLib.PlacesService(map);
     service.getDetails({
       placeId: String(placeId),
@@ -1778,34 +2662,80 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     });
   };
 
-  const handleSavedItemDetails = (item) => {
-    if (!placesLib || !map) return;
-    setIsFetchingDetails(true);
-    setIsSavedItemModal(true);
+  const handleSavedItemDetails = (item, dayId = safeCurrentDay) => {
+    setViewingPlaceDetail({ dayId: String(dayId || safeCurrentDay || ''), item });
+    setSavedPlaceGoogleDetails(null);
+    setSavedPlaceGoogleError('');
+    setIsFetchingSavedPlaceGoogle(false);
+  };
 
+  const handleLoadSavedPlaceGoogleDetails = (item) => {
+    if (!item || isFetchingSavedPlaceGoogle) return;
+    if (!placesLib || !map || !window.google?.maps?.places) {
+      setSavedPlaceGoogleError('Google 地點服務尚未準備完成，請稍後再試。');
+      return;
+    }
+
+    setIsFetchingSavedPlaceGoogle(true);
+    setSavedPlaceGoogleError('');
+    // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
     const service = new placesLib.PlacesService(map);
-    const request = item.place_id ? { placeId: item.place_id } : { query: item.name, location: new window.google.maps.LatLng(Number(item.lat), Number(item.lng)), radius: 50 };
+    const fields = [
+      'name',
+      'rating',
+      'user_ratings_total',
+      'formatted_address',
+      'geometry',
+      'photos',
+      'reviews',
+      'opening_hours',
+      'website',
+      'formatted_phone_number',
+      'url',
+      'place_id',
+    ];
+
+    const finishWithError = (message) => {
+      setIsFetchingSavedPlaceGoogle(false);
+      setSavedPlaceGoogleDetails(null);
+      setSavedPlaceGoogleError(message);
+    };
 
     const fetchDetails = (placeId) => {
-      service.getDetails({ placeId, fields: ['name', 'rating', 'user_ratings_total', 'formatted_address', 'geometry', 'photos', 'reviews', 'opening_hours', 'website', 'formatted_phone_number', 'url', 'place_id'] }, (place, status) => {
-        setIsFetchingDetails(false);
-        if (status === window.google.maps.places.PlacesServiceStatus.OK && place) { setDetailedPlace(place); }
-        else { alert("無法取得該地點的 Google 評論資訊！"); }
+      service.getDetails({ placeId: String(placeId), fields }, (place, status) => {
+        setIsFetchingSavedPlaceGoogle(false);
+        if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
+          setSavedPlaceGoogleDetails(place);
+          setSavedPlaceGoogleError('');
+        } else {
+          setSavedPlaceGoogleDetails(null);
+          setSavedPlaceGoogleError('無法取得這個景點的 Google 評價與照片。');
+        }
       });
     };
 
     if (item.place_id) {
-       fetchDetails(item.place_id);
-    } else {
-       service.textSearch(request, (results, status) => {
-          if (status === window.google.maps.places.PlacesServiceStatus.OK && Array.isArray(results) && results.length > 0) {
-             fetchDetails(results[0].place_id);
-          } else {
-             setIsFetchingDetails(false);
-             alert("無法在 Google Maps 上反查到此地標的詳細資訊。");
-          }
-       });
+      fetchDetails(item.place_id);
+      return;
     }
+
+    const request = { query: String(item.name || item.customName || '') };
+    if (isValidCoordinates(item.lat, item.lng)) {
+      request.location = new window.google.maps.LatLng(Number(item.lat), Number(item.lng));
+      request.radius = 80;
+    }
+
+    service.textSearch(request, (results, status) => {
+      if (
+        status === window.google.maps.places.PlacesServiceStatus.OK
+        && Array.isArray(results)
+        && results[0]?.place_id
+      ) {
+        fetchDetails(results[0].place_id);
+      } else {
+        finishWithError('Google Maps 找不到可對應的地點，仍可使用你自行加入的封面、菜單與連結。');
+      }
+    });
   };
 
   const handleAddExploreToItinerary = (place, position = 'end') => {
@@ -1996,6 +2926,11 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                               ✅ {optimizationSummaries[dayId].savedMinutes > 0 ? `預估省 ${formatRouteMinutes(optimizationSummaries[dayId].savedMinutes)}` : `距離少 ${formatRouteDistance(optimizationSummaries[dayId].savedMeters)}`}
                             </span>
                           ) : null}
+                          {timeRecalculationDays[dayId] ? (
+                            <span className="export-hide text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-500 animate-pulse">
+                              {dayId === safeCurrentDay ? '⏱ 正在依新順序精算時間' : '⏱ 已重排，切換此日後精算'}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
 
@@ -2014,9 +2949,14 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                 {(prov, snap) => (
                                   <div ref={prov.innerRef} {...prov.draggableProps} className={`transition-all relative group mb-1 ${snap.isDragging ? 'z-50 scale-105 touch-none' : ''}`}>
 
-                                    <div className={`p-4 rounded-2xl border flex flex-col backdrop-blur-md transition-all relative overflow-hidden ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover}`}`}>
+                                    <div
+                                      className={`p-4 rounded-2xl border flex flex-col backdrop-blur-md transition-all relative overflow-hidden ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover} cursor-pointer`}`}
+                                      onClick={() => {
+                                        if (!snap.isDragging) handleSavedItemDetails(item, dayId);
+                                      }}
+                                    >
                                       <div className="flex gap-4 items-start">
-                                        <div {...prov.dragHandleProps} className="flex flex-col items-center shrink-0 w-10 cursor-grab active:cursor-grabbing hover:opacity-80">
+                                        <div {...prov.dragHandleProps} onClick={(event) => event.stopPropagation()} className="flex flex-col items-center shrink-0 w-10 cursor-grab active:cursor-grabbing hover:opacity-80">
                                            <div className={`text-xs font-black p-1.5 rounded-full w-7 h-7 flex items-center justify-center ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
                                               {index + 1}
                                            </div>
@@ -2024,40 +2964,85 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                            <span className="export-hide text-slate-400 mt-2 text-[10px]">≡</span>
                                         </div>
 
-                                        <div className="flex-1 min-w-0 pr-2">
-                                          <div className="flex justify-between items-start gap-2">
-                                            <h3
-                                              className={`font-bold text-sm truncate cursor-pointer hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.mainText}`}
-                                              onClick={(e) => { e.stopPropagation(); handleSavedItemDetails(item); }}
-                                              title="點擊查看詳細資訊與照片"
-                                            >
-                                              {String(displayName)}
-                                              {isCustomName ? <span className="text-[10px] ml-1.5 font-normal opacity-60">({String(item.name)})</span> : null}
-                                            </h3>
-                                            {item.memo ? (
-                                              <button
-                                                onClick={(e) => { e.stopPropagation(); setViewingMemoItem(item); }}
-                                                className={`export-hide shrink-0 px-2 py-1 rounded-lg border flex items-center gap-1 cursor-pointer transition-transform hover:scale-105 shadow-sm font-bold text-[10px] ${snap.isDragging ? 'bg-white/20 border-white/40 text-white' : 'bg-amber-100 border-amber-300 text-amber-700'}`}
-                                                title="點擊查看筆記內容"
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0 flex-1">
+                                              <h3
+                                                className={`truncate text-sm font-bold transition-colors group-hover:text-blue-500 ${snap.isDragging ? 'text-white' : t.mainText}`}
+                                                title="點擊卡片查看詳細資訊"
+                                                role="button"
+                                                tabIndex={0}
+                                                onKeyDown={(event) => {
+                                                  if (event.key === 'Enter' || event.key === ' ') {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                    handleSavedItemDetails(item, dayId);
+                                                  }
+                                                }}
                                               >
-                                                <span>📝</span> 附筆記
-                                              </button>
-                                            ) : null}
+                                                {String(displayName)}
+                                                {isCustomName ? <span className="ml-1.5 text-[10px] font-normal opacity-60">({String(item.name)})</span> : null}
+                                              </h3>
+                                              {item.stayTime !== undefined ? (
+                                                <p className={`mt-0.5 text-[10px] font-bold ${item.stayTime === "0" || item.stayTime === 0 ? 'text-blue-500' : t.subText}`}>
+                                                  {formatStayTime(item.stayTime)}
+                                                </p>
+                                              ) : null}
+                                            </div>
+
+                                            <button
+                                              type="button"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                openExternalUrl(getPlaceNavigationUrl(item));
+                                              }}
+                                              className={`export-hide flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[10px] font-black shadow-sm active:scale-95 ${snap.isDragging ? 'border-white/30 bg-white/15 text-white' : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600'}`}
+                                              title="開啟導航"
+                                              aria-label={`導航到${String(displayName)}`}
+                                            >
+                                              <span>🧭</span>
+                                              <span>導航</span>
+                                            </button>
                                           </div>
-                                          {item.stayTime !== undefined ? <p className={`text-[10px] mt-0.5 font-bold ${item.stayTime === "0" || item.stayTime === 0 ? 'text-blue-500' : t.subText}`}>{formatStayTime(item.stayTime)}</p> : null}
-                                          <div className="flex flex-wrap gap-1.5 mt-2">
-                                            {(Array.isArray(item.tags) ? item.tags : []).map((tag, idx) => <span key={`tag-${idx}`} className={`text-[9px] px-2 py-0.5 rounded-md border ${snap.isDragging ? 'bg-white/10 border-white/20 text-white' : 'bg-blue-500/10 border-blue-500/20 text-blue-600'}`}>{String(tag)}</span>)}
+
+                                          <div className="mt-2 flex flex-wrap gap-1.5">
+                                            {(Array.isArray(item.tags) ? item.tags : []).map((tag, idx) => (
+                                              <span key={`tag-${idx}`} className={`rounded-md border px-2 py-0.5 text-[9px] ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : 'border-blue-500/20 bg-blue-500/10 text-blue-600'}`}>
+                                                {String(tag)}
+                                              </span>
+                                            ))}
                                           </div>
+
+                                          {(() => {
+                                            const allResources = Array.isArray(item.resources) ? item.resources.filter((resource) => resource?.url) : [];
+                                            const menuCount = allResources.filter((resource) => resource.type === 'menu').length;
+                                            const otherCount = allResources.length - menuCount;
+                                            const detailParts = [
+                                              item.placePhoto?.url ? '封面' : '',
+                                              menuCount > 0 ? `菜單 ${menuCount}` : '',
+                                              item.memo ? '筆記' : '',
+                                              otherCount > 0 ? `資料 ${otherCount}` : '',
+                                            ].filter(Boolean);
+                                            return (
+                                              <div className={`export-hide mt-3 flex min-h-10 items-center gap-2 rounded-xl border px-3 ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder}`}`}>
+                                                <span className="text-sm">ⓘ</span>
+                                                <span className={`shrink-0 text-[10px] font-black ${snap.isDragging ? 'text-white' : t.mainText}`}>查看詳情</span>
+                                                <span className={`min-w-0 flex-1 truncate text-[9px] ${snap.isDragging ? 'text-white/75' : t.subText}`}>
+                                                  {detailParts.length > 0 ? detailParts.join('・') : '地址、定位與景點資訊'}
+                                                </span>
+                                                <span className={snap.isDragging ? 'text-white/70' : t.subText}>›</span>
+                                              </div>
+                                            );
+                                          })()}
                                         </div>
                                       </div>
 
                                       <div className={`export-hide mt-3 pt-3 border-t flex items-center gap-4 transition-all duration-300 ${snap.isDragging ? 'border-white/20' : t.cardBorder} flex md:max-h-0 md:opacity-0 md:group-hover:max-h-14 md:group-hover:opacity-100 max-h-14 opacity-100`}>
-                                        <button onClick={() => setEditingItemData({ dayId, item })} className={`flex items-center gap-1 text-[11px] font-bold hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>✏️ 編輯</button>
-                                        <button onClick={() => openExternalUrl(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${item.lat},${item.lng}`)}`)} className={`flex items-center gap-1 text-[11px] font-bold hover:text-emerald-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🧭 導航</button>
-                                        <button onClick={() => handleSearchNearby(item)} className={`flex items-center gap-1 text-[11px] font-bold hover:text-orange-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🔍 周邊</button>
-                                        <button onClick={() => setCopyingItem(item)} className={`flex items-center gap-1 text-[11px] font-bold hover:text-purple-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>📋 複製</button>
+                                        <button onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>✏️ 編輯</button>
+                                        <button onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-orange-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🔍 周邊</button>
+                                        <button onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-purple-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>📋 複製</button>
                                         <div className="flex-1"></div>
-                                        <button onClick={() => { if (window.confirm('確定刪除此景點？')) { setBackupItin(null); clearOptimizationSummary(dayId); setItinerary(prev => ({...prev, [dayId]: prev[dayId].filter(p => p.id !== item.id)})); } }} className={`text-[11px] hover:text-red-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>刪除</button>
+                                        <button onClick={(event) => { event.stopPropagation(); handleDeleteItineraryItem(dayId, item); }} className={`text-[11px] hover:text-red-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>刪除</button>
                                       </div>
                                     </div>
 
@@ -2251,7 +3236,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                             {expenseStats.preTripTransfers.map((item, index) => <div key={`pretrip-${index}`} className={`flex justify-between items-center p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><span className={`text-xs ${t.mainText}`}><b className="text-red-500">{item.from}</b> → <b className="text-emerald-500">{item.to}</b></span><b className={`font-mono ${t.mainText}`}>NT${Math.round(item.amount).toLocaleString()}</b></div>)}
                           </div>
                         ) : <p className={`text-center py-3 text-xs font-bold ${t.subText}`}>{expenseStats.preTripTotal > 0 ? "行前款項已結清 🎉" : "尚未新增行前支出"}</p>}
-                        {settlements.filter(item => item.scope === "pretrip").length > 0 ? <details className="mt-4"><summary className={`cursor-pointer text-xs font-bold ${t.subText}`}>查看結算紀錄（{settlements.filter(item => item.scope === "pretrip").length}）</summary><div className="space-y-2 mt-3">{settlements.filter(item => item.scope === "pretrip").slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(item => <div key={item.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><div><p className={`text-xs font-bold ${t.mainText}`}>{item.from} → {item.to}　NT${Number(item.amount||0).toLocaleString()}</p><p className={`text-[9px] mt-1 ${t.subText}`}>{item.note || "行前結算"} · {new Date(item.createdAt).toLocaleDateString("zh-TW")}</p></div><button type="button" onClick={() => handleDeleteSettlement(item.id)} className="text-red-500 text-xs font-bold">刪除</button></div>)}</div></details> : null}
+                        {settlements.filter(item => item.scope === "pretrip").length > 0 ? <details className="mt-4"><summary className={`cursor-pointer text-xs font-bold ${t.subText}`}>查看結算紀錄（{settlements.filter(item => item.scope === "pretrip").length}）</summary><div className="space-y-2 mt-3">{settlements.filter(item => item.scope === "pretrip").slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(item => <div key={item.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><div><p className={`text-xs font-bold ${t.mainText}`}>{item.from} → {item.to} NT${Number(item.amount||0).toLocaleString()}</p><p className={`text-[9px] mt-1 ${t.subText}`}>{item.note || "行前結算"} · {new Date(item.createdAt).toLocaleDateString("zh-TW")}</p></div><button type="button" onClick={() => handleDeleteSettlement(item.id)} className="text-red-500 text-xs font-bold">刪除</button></div>)}</div></details> : null}
                       </div>
 
                       <div className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
@@ -2371,7 +3356,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 {(/** @type {any[]} */ (Array.isArray(itinerary[safeCurrentDay]) ? itinerary[safeCurrentDay] : []))
                   .filter((item) => isValidCoordinates(item?.lat, item?.lng))
                   .map((item, idx) => (
-                    <AdvancedMarker key={String(item.id)} position={{lat: Number(item.lat), lng: Number(item.lng)}} onClick={() => handleSavedItemDetails(item)}>
+                    <AdvancedMarker key={String(item.id)} position={{lat: Number(item.lat), lng: Number(item.lng)}} onClick={() => handleSavedItemDetails(item, safeCurrentDay)}>
                       <Pin background={'#3b82f6'} glyphText={String(idx + 1)} />
                     </AdvancedMarker>
                   ))}
@@ -2434,7 +3419,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
 
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
-      {editingItemData ? <EditItemModal item={editingItemData.item} onSave={saveEditedItem} onClose={() => setEditingItemData(null)} t={t} /> : null}
+      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={roomId} onSave={saveEditedItem} onClose={() => setEditingItemData(null)} t={t} /> : null}
       {copyingItem ? <CopyItemModal item={copyingItem} existingDays={existingDays} onClose={() => setCopyingItem(null)} onCopy={handleCopyItem} t={t} /> : null}
       {showExportModal ? (
         <ExportItineraryModal
@@ -2479,6 +3464,46 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       {showSettlementModal ? <SettlementModal members={membersList} suggestions={expenseStats.preTripTransfers} onClose={() => setShowSettlementModal(false)} onSave={handleSaveSettlement} t={t} /> : null}
       {showTicketModal ? <TicketModal roomId={roomId} members={membersList} onClose={() => setShowTicketModal(false)} onSave={(newTicket) => { setTickets(prev => [...prev, newTicket]); setShowTicketModal(false); }} t={t} /> : null}
       {fullscreenTicket ? <FullscreenTicketModal ticket={fullscreenTicket} onClose={() => setFullscreenTicket(null)} /> : null}
+      {viewingPlaceDetail ? (
+        <PlaceItemDetailModal
+          key={`place-detail-${String(viewingPlaceDetail.item?.id || viewingPlaceDetail.dayId)}`}
+          item={viewingPlaceDetail.item}
+          googlePlace={savedPlaceGoogleDetails}
+          googleError={savedPlaceGoogleError}
+          isFetchingGoogle={isFetchingSavedPlaceGoogle}
+          onLoadGoogle={handleLoadSavedPlaceGoogleDetails}
+          onClose={() => {
+            setViewingPlaceDetail(null);
+            setSavedPlaceGoogleDetails(null);
+            setSavedPlaceGoogleError('');
+            setIsFetchingSavedPlaceGoogle(false);
+          }}
+          onEdit={() => {
+            setEditingItemData({ dayId: viewingPlaceDetail.dayId, item: viewingPlaceDetail.item });
+            setViewingPlaceDetail(null);
+            setSavedPlaceGoogleDetails(null);
+            setSavedPlaceGoogleError('');
+          }}
+          onViewMenu={(item) => setViewingPlaceResources({ item, mode: 'menu' })}
+          onViewPhoto={(photo) => setViewingPlacePhoto(photo)}
+          t={t}
+        />
+      ) : null}
+      {viewingPlacePhoto ? (
+        <PlacePhotoLightbox
+          key={`place-photo-${String(viewingPlacePhoto.url)}`}
+          photo={viewingPlacePhoto}
+          onClose={() => setViewingPlacePhoto(null)}
+        />
+      ) : null}
+      {viewingPlaceResources ? (
+        <PlaceResourcesModal
+          key={`place-resources-${String(viewingPlaceResources.item?.id || 'item')}-${viewingPlaceResources.mode}`}
+          item={viewingPlaceResources.item}
+          mode={viewingPlaceResources.mode}
+          onClose={() => setViewingPlaceResources(null)}
+        />
+      ) : null}
     </>
   );
 };

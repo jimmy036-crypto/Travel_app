@@ -3,13 +3,27 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useMapsLibrary, useMap } from '@vis.gl/react-google-maps';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { APP_VERSION, CATEGORIES, TAG_OPTIONS } from "../constants";
-import { safeUrlFormatter, getDayDisplay, generateId, formatStayTime, parseDateOnlyLocal, extractRoomId, isValidCoordinates } from "../helpers";
+import { safeUrlFormatter, getDayDisplay, generateId, formatStayTime, parseDateOnlyLocal, extractRoomId, isValidCoordinates, openExternalUrl } from "../helpers";
 import { storage } from "../firebase";
-import { ref as sRef, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { ref as sRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 
 const AUTOCOMPLETE_DELAY_MS = 300;
 const REGION_AUTOCOMPLETE_TYPES = Object.freeze(['(regions)']);
 const MAX_TICKET_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_PLACE_PHOTO_BYTES = 5 * 1024 * 1024;
+const MAX_PLACE_PDF_BYTES = 15 * 1024 * 1024;
+const MAX_PLACE_RESOURCES = 12;
+
+const getCurrentTimestamp = () => Date.now();
+
+const PLACE_RESOURCE_TYPES = Object.freeze([
+  { id: 'menu', icon: '🍽️', label: '菜單' },
+  { id: 'reservation', icon: '📅', label: '訂位' },
+  { id: 'article', icon: '📝', label: '推薦文章' },
+  { id: 'official', icon: '🌐', label: '官網' },
+  { id: 'social', icon: '📱', label: '社群' },
+  { id: 'other', icon: '🔗', label: '其他' },
+]);
 
 const CHECKLIST_CATEGORIES = Object.freeze([
   { id: 'document', icon: '🛂', label: '證件' },
@@ -45,7 +59,8 @@ const PERSONAL_CHECKLIST_TEMPLATE = Object.freeze([
   { text: '耳機與個人 3C', category: 'electronics', important: false },
 ]);
 
-const usePlacePredictions = ({ input, placesLibrary, types }) => {
+/** @returns {[any[], () => void]} */
+const usePlacePredictions = ({ input, placesLibrary, types = undefined }) => {
   const [resultState, setResultState] = useState({ query: '', items: [] });
   const requestIdRef = useRef(0);
   const query = String(input || '').trim();
@@ -63,6 +78,7 @@ const usePlacePredictions = ({ input, placesLibrary, types }) => {
     if (!canSearch) return undefined;
 
     const timer = window.setTimeout(() => {
+      // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
       const service = new placesLibrary.AutocompleteService();
       const request = { input: query, language: 'zh-TW' };
       if (normalizedTypes?.length) request.types = normalizedTypes;
@@ -99,6 +115,113 @@ const isAllowedTicketFile = (file) => {
   const name = String(file.name || '').toLowerCase();
   return type.startsWith('image/') || type === 'application/pdf' || name.endsWith('.pdf');
 };
+
+
+const isAllowedPlacePhoto = (file) => {
+  if (!file) return false;
+  return String(file.type || '').toLowerCase().startsWith('image/');
+};
+
+const isAllowedPlacePdf = (file) => {
+  if (!file) return false;
+  const type = String(file.type || '').toLowerCase();
+  const name = String(file.name || '').toLowerCase();
+  return type === 'application/pdf' || name.endsWith('.pdf');
+};
+
+const isImageResource = (resource) => (
+  String(resource?.contentType || '').toLowerCase().startsWith('image/')
+  || String(resource?.kind || '') === 'image'
+);
+
+const isPdfResource = (resource) => (
+  String(resource?.contentType || '').toLowerCase() === 'application/pdf'
+  || String(resource?.fileName || '').toLowerCase().endsWith('.pdf')
+  || String(resource?.kind || '') === 'pdf'
+);
+
+const isFileResource = (resource) => Boolean(
+  resource?.pendingFile
+  || resource?.storagePath
+  || String(resource?.kind || '') === 'file'
+  || isImageResource(resource)
+  || isPdfResource(resource)
+);
+
+const formatFileSize = (bytes) => {
+  const size = Number(bytes) || 0;
+  if (size <= 0) return '';
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const normalizeHttpUrl = (value) => {
+  const formatted = safeUrlFormatter(value);
+  if (!formatted) return '';
+  try {
+    const parsed = new URL(formatted);
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.href : '';
+  } catch {
+    return '';
+  }
+};
+
+const getPlaceResourceType = (type) => (
+  PLACE_RESOURCE_TYPES.find((entry) => entry.id === type) || PLACE_RESOURCE_TYPES.at(-1)
+);
+
+/** @returns {any[]} */
+const normalizePlaceResources = (resources) => (
+  (Array.isArray(resources) ? resources : [])
+    .map((resource) => {
+      const type = getPlaceResourceType(String(resource?.type || 'other')).id;
+      const fallbackLabel = getPlaceResourceType(type).label;
+      const pendingFile = resource?.pendingFile || null;
+      const fileResource = isFileResource(resource);
+      const url = normalizeHttpUrl(resource?.url);
+
+      if (fileResource) {
+        if (!url && !pendingFile) return null;
+        const contentType = String(
+          resource?.contentType
+          || pendingFile?.type
+          || (String(resource?.fileName || pendingFile?.name || '').toLowerCase().endsWith('.pdf')
+            ? 'application/pdf'
+            : 'image/jpeg')
+        ).toLowerCase();
+        return {
+          id: String(resource?.id || generateId()),
+          kind: 'file',
+          type,
+          title: String(resource?.title || fallbackLabel).trim().slice(0, 60) || fallbackLabel,
+          url,
+          storagePath: String(resource?.storagePath || ''),
+          fileName: String(resource?.fileName || pendingFile?.name || ''),
+          contentType,
+          size: Number(resource?.size || pendingFile?.size || 0),
+          uploadedAt: Number(resource?.uploadedAt || 0) || null,
+          ...(pendingFile ? { pendingFile } : {}),
+        };
+      }
+
+      if (!url) return null;
+      return {
+        id: String(resource?.id || generateId()),
+        kind: 'link',
+        type,
+        title: String(resource?.title || fallbackLabel).trim().slice(0, 60) || fallbackLabel,
+        url,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, MAX_PLACE_RESOURCES)
+);
+
+const serializePlaceResources = (resources) => normalizePlaceResources(resources).map((resource) => {
+  const serializable = { ...resource };
+  Reflect.deleteProperty(serializable, 'pendingFile');
+  return serializable;
+});
 
 // ============================================================================
 // 1. 輕量級 UI 與提示
@@ -256,6 +379,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
     const selectedText = String(prediction.description || '');
     clearSug();
 
+    // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
     const service = new lib.PlacesService(document.createElement('div'));
     service.getDetails({ placeId: prediction.place_id, fields: ['geometry'] }, (result, status) => {
       const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK;
@@ -300,6 +424,7 @@ export const SearchBox = ({ dayId, onAddPlace, t }) => {
   const select = (prediction) => {
     if (!lib || !prediction?.place_id || isAdding) return;
     setIsAdding(true);
+    // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
     const service = new lib.PlacesService(document.createElement('div'));
     service.getDetails({
       placeId: prediction.place_id,
@@ -444,7 +569,7 @@ export const ExpenseModal = ({
     0
   );
 
-  const initialFingerprintRef = useRef(JSON.stringify({
+  const [initialFingerprint] = useState(() => JSON.stringify({
     item: String(expense?.item || ""),
     localCost: String(initialLocalCost),
     currency: initialCurrency,
@@ -471,7 +596,7 @@ export const ExpenseModal = ({
     customAmounts,
     note,
   });
-  const hasUnsavedChanges = currentFingerprint !== initialFingerprintRef.current;
+  const hasUnsavedChanges = currentFingerprint !== initialFingerprint;
 
   const requestClose = () => {
     if (hasUnsavedChanges && !window.confirm("尚有未儲存的記帳變更，確定要離開嗎？")) return;
@@ -511,7 +636,7 @@ export const ExpenseModal = ({
     setCustomAmounts(next);
   };
 
-  const buildExpense = ({ duplicate = false } = {}) => {
+  const buildExpense = ({ duplicate = false, timestamp = 0 } = {}) => {
     const normalizedItem = String(item).trim();
     const numericLocalCost = Number(localCost);
     const numericRate = Number(rate);
@@ -563,7 +688,9 @@ export const ExpenseModal = ({
       }
     }
 
-    const now = Date.now();
+    const now = Number(timestamp) || 0;
+    if (now <= 0) return null;
+
     return {
       ...(expense && typeof expense === "object" ? expense : {}),
       id: duplicate || !isEditing ? generateId() : String(expense.id),
@@ -583,12 +710,12 @@ export const ExpenseModal = ({
   };
 
   const handleSave = () => {
-    const nextExpense = buildExpense();
+    const nextExpense = buildExpense({ timestamp: getCurrentTimestamp() });
     if (nextExpense) onSave(nextExpense);
   };
 
   const handleDuplicate = () => {
-    const duplicatedExpense = buildExpense({ duplicate: true });
+    const duplicatedExpense = buildExpense({ duplicate: true, timestamp: getCurrentTimestamp() });
     if (duplicatedExpense) onDuplicate?.(duplicatedExpense);
   };
 
@@ -1072,8 +1199,9 @@ export const CopyItemModal = ({ item, existingDays, onClose, onCopy, t }) => {
   );
 };
 
-export const EditItemModal = ({ item, onSave, onClose, t }) => {
+export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
   useBodyScrollLock();
+  const safeRoomId = extractRoomId(roomId);
   const [customName, setCustomName] = useState(item.customName || "");
   const [time, setTime] = useState(item.time || "");
   const [stayTime, setStayTime] = useState(item.stayTime !== undefined ? item.stayTime : "0");
@@ -1083,80 +1211,830 @@ export const EditItemModal = ({ item, onSave, onClose, t }) => {
 
   const [legMode, setLegMode] = useState(item.nextLeg?.mode || "AUTO");
   const [legMins, setLegMins] = useState(item.nextLeg?.mins || 30);
+  const [navigationUrl, setNavigationUrl] = useState(item.navigationUrl || '');
+
+  const [showResources, setShowResources] = useState(
+    Boolean(item.placePhoto?.url || (Array.isArray(item.resources) && item.resources.length > 0))
+  );
+  const [resources, setResources] = useState(() => normalizePlaceResources(item.resources));
+  const [resourceAddMode, setResourceAddMode] = useState('image');
+  const [resourceDraft, setResourceDraft] = useState({ type: 'menu', title: '', url: '' });
+  const [imageDraft, setImageDraft] = useState({ type: 'menu', title: '', file: null });
+  const [pdfDraft, setPdfDraft] = useState({ type: 'menu', title: '', file: null });
+  const [editingResourceId, setEditingResourceId] = useState('');
+  const [editingResourceKind, setEditingResourceKind] = useState('');
+  const [photoFile, setPhotoFile] = useState(null);
+  const [removeExistingPhoto, setRemoveExistingPhoto] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const photoObjectUrl = useMemo(
+    () => photoFile ? URL.createObjectURL(photoFile) : '',
+    [photoFile]
+  );
+
+  useEffect(() => () => {
+    if (photoObjectUrl) URL.revokeObjectURL(photoObjectUrl);
+  }, [photoObjectUrl]);
+
+  const visiblePhotoUrl = photoObjectUrl || (!removeExistingPhoto ? String(item.placePhoto?.url || '') : '');
+  const imageCount = resources.filter(isImageResource).length;
+  const pdfCount = resources.filter(isPdfResource).length;
+  const linkCount = resources.filter((resource) => !isFileResource(resource)).length;
+  const menuCount = resources.filter((resource) => resource.type === 'menu').length;
+  const resourceSummary = [
+    visiblePhotoUrl ? '1 張封面' : '',
+    menuCount > 0 ? `${menuCount} 筆菜單` : '',
+    imageCount > 0 ? `${imageCount} 張資料圖片` : '',
+    pdfCount > 0 ? `${pdfCount} 份 PDF` : '',
+    linkCount > 0 ? `${linkCount} 個網址` : '',
+  ].filter(Boolean).join('・') || '尚未加入資料';
+  const hasPendingUploads = Boolean(photoFile || resources.some((resource) => resource?.pendingFile));
 
   const handleQuickTime = (addMins) => setStayTime(prev => String((Number(prev) || 0) + Number(addMins)));
 
+  const handlePhotoChange = (event) => {
+    const selectedFile = event.target.files?.[0] || null;
+    if (!selectedFile) return;
+    if (!isAllowedPlacePhoto(selectedFile)) {
+      event.target.value = '';
+      alert('只能上傳圖片檔案。');
+      return;
+    }
+    if (selectedFile.size > MAX_PLACE_PHOTO_BYTES) {
+      event.target.value = '';
+      alert('景點照片不可超過 5 MB。');
+      return;
+    }
+    setPhotoFile(selectedFile);
+    setRemoveExistingPhoto(false);
+    setShowResources(true);
+  };
+
+  const resetResourceDrafts = () => {
+    setResourceDraft({ type: 'menu', title: '', url: '' });
+    setImageDraft({ type: 'menu', title: '', file: null });
+    setPdfDraft({ type: 'menu', title: '', file: null });
+    setEditingResourceId('');
+    setEditingResourceKind('');
+  };
+
+  const handleSaveResource = () => {
+    const url = normalizeHttpUrl(resourceDraft.url);
+    if (!url) return alert('請輸入有效的 http 或 https 網址。');
+
+    const typeMeta = getPlaceResourceType(resourceDraft.type);
+    const title = String(resourceDraft.title || typeMeta.label).trim().slice(0, 60) || typeMeta.label;
+    const editingLink = editingResourceId && editingResourceKind === 'link';
+
+    if (!editingLink && resources.length >= MAX_PLACE_RESOURCES) {
+      return alert(`每個景點最多可加入 ${MAX_PLACE_RESOURCES} 筆快速資料。`);
+    }
+
+    const duplicate = resources.some((resource) => (
+      resource.url === url && resource.id !== editingResourceId
+    ));
+    if (duplicate) return alert('這個網址已經加入過了。');
+
+    const nextResource = {
+      id: editingLink ? editingResourceId : generateId(),
+      kind: 'link',
+      type: typeMeta.id,
+      title,
+      url,
+    };
+
+    setResources((previous) => editingLink
+      ? previous.map((resource) => resource.id === editingResourceId ? nextResource : resource)
+      : [...previous, nextResource]
+    );
+    resetResourceDrafts();
+  };
+
+  const handleImageResourceChange = (event) => {
+    const selectedFile = event.target.files?.[0] || null;
+    if (!selectedFile) return;
+    if (!isAllowedPlacePhoto(selectedFile)) {
+      event.target.value = '';
+      alert('只能上傳圖片檔案。');
+      return;
+    }
+    if (selectedFile.size > MAX_PLACE_PHOTO_BYTES) {
+      event.target.value = '';
+      alert('資料圖片不可超過 5 MB。');
+      return;
+    }
+
+    const defaultTitle = String(selectedFile.name || '菜單照片')
+      .replace(/\.[^.]+$/i, '')
+      .trim();
+    setImageDraft((previous) => ({
+      ...previous,
+      file: selectedFile,
+      title: previous.title || defaultTitle,
+    }));
+    setShowResources(true);
+  };
+
+  const handleSaveImageResource = () => {
+    const editingFile = editingResourceId && editingResourceKind === 'image';
+    const existingResource = editingFile
+      ? resources.find((resource) => resource.id === editingResourceId)
+      : null;
+    const selectedFile = imageDraft.file;
+
+    if (!editingFile && !selectedFile) return alert('請先選擇圖片檔案。');
+    if (!editingFile && resources.length >= MAX_PLACE_RESOURCES) {
+      return alert(`每個景點最多可加入 ${MAX_PLACE_RESOURCES} 筆快速資料。`);
+    }
+
+    const typeMeta = getPlaceResourceType(imageDraft.type);
+    const fallbackTitle = selectedFile?.name
+      ? String(selectedFile.name).replace(/\.[^.]+$/i, '')
+      : existingResource?.title || `${typeMeta.label}圖片`;
+    const title = String(imageDraft.title || fallbackTitle).trim().slice(0, 60) || `${typeMeta.label}圖片`;
+
+    if (selectedFile) {
+      const duplicate = resources.some((resource) => (
+        resource.id !== editingResourceId
+        && isImageResource(resource)
+        && String(resource.fileName || '').toLowerCase() === String(selectedFile.name || '').toLowerCase()
+        && Number(resource.size || 0) === Number(selectedFile.size || 0)
+      ));
+      if (duplicate) return alert('這張圖片已經加入過了。');
+    }
+
+    const nextResource = {
+      ...(existingResource || {}),
+      id: editingFile ? editingResourceId : generateId(),
+      kind: 'file',
+      type: typeMeta.id,
+      title,
+      url: selectedFile ? '' : String(existingResource?.url || ''),
+      storagePath: selectedFile ? '' : String(existingResource?.storagePath || ''),
+      fileName: String(selectedFile?.name || existingResource?.fileName || 'image.jpg'),
+      contentType: String(selectedFile?.type || existingResource?.contentType || 'image/jpeg'),
+      size: Number(selectedFile?.size || existingResource?.size || 0),
+      uploadedAt: selectedFile ? null : Number(existingResource?.uploadedAt || 0) || null,
+      ...(selectedFile ? { pendingFile: selectedFile } : {}),
+    };
+
+    setResources((previous) => editingFile
+      ? previous.map((resource) => resource.id === editingResourceId ? nextResource : resource)
+      : [...previous, nextResource]
+    );
+    resetResourceDrafts();
+  };
+
+  const handlePdfChange = (event) => {
+    const selectedFile = event.target.files?.[0] || null;
+    if (!selectedFile) return;
+    if (!isAllowedPlacePdf(selectedFile)) {
+      event.target.value = '';
+      alert('只能上傳 PDF 檔案。');
+      return;
+    }
+    if (selectedFile.size > MAX_PLACE_PDF_BYTES) {
+      event.target.value = '';
+      alert('PDF 不可超過 15 MB。');
+      return;
+    }
+
+    const defaultTitle = String(selectedFile.name || '菜單 PDF').replace(/\.pdf$/i, '').trim();
+    setPdfDraft((previous) => ({
+      ...previous,
+      file: selectedFile,
+      title: previous.title || defaultTitle,
+    }));
+    setShowResources(true);
+  };
+
+  const handleSavePdfResource = () => {
+    const editingFile = editingResourceId && editingResourceKind === 'file';
+    const existingResource = editingFile
+      ? resources.find((resource) => resource.id === editingResourceId)
+      : null;
+    const selectedFile = pdfDraft.file;
+
+    if (!editingFile && !selectedFile) return alert('請先選擇 PDF 檔案。');
+    if (!editingFile && resources.length >= MAX_PLACE_RESOURCES) {
+      return alert(`每個景點最多可加入 ${MAX_PLACE_RESOURCES} 筆快速資料。`);
+    }
+
+    const typeMeta = getPlaceResourceType(pdfDraft.type);
+    const fallbackTitle = selectedFile?.name
+      ? String(selectedFile.name).replace(/\.pdf$/i, '')
+      : existingResource?.title || `${typeMeta.label} PDF`;
+    const title = String(pdfDraft.title || fallbackTitle).trim().slice(0, 60) || `${typeMeta.label} PDF`;
+
+    if (selectedFile) {
+      const duplicate = resources.some((resource) => (
+        resource.id !== editingResourceId
+        && isPdfResource(resource)
+        && String(resource.fileName || '').toLowerCase() === String(selectedFile.name || '').toLowerCase()
+        && Number(resource.size || 0) === Number(selectedFile.size || 0)
+      ));
+      if (duplicate) return alert('這份 PDF 已經加入過了。');
+    }
+
+    const nextResource = {
+      ...(existingResource || {}),
+      id: editingFile ? editingResourceId : generateId(),
+      kind: 'file',
+      type: typeMeta.id,
+      title,
+      url: selectedFile ? '' : String(existingResource?.url || ''),
+      storagePath: selectedFile ? '' : String(existingResource?.storagePath || ''),
+      fileName: String(selectedFile?.name || existingResource?.fileName || 'document.pdf'),
+      contentType: 'application/pdf',
+      size: Number(selectedFile?.size || existingResource?.size || 0),
+      uploadedAt: selectedFile ? null : Number(existingResource?.uploadedAt || 0) || null,
+      ...(selectedFile ? { pendingFile: selectedFile } : {}),
+    };
+
+    setResources((previous) => editingFile
+      ? previous.map((resource) => resource.id === editingResourceId ? nextResource : resource)
+      : [...previous, nextResource]
+    );
+    resetResourceDrafts();
+  };
+
+  const handleEditResource = (resource) => {
+    setEditingResourceId(resource.id);
+    setShowResources(true);
+
+    if (isImageResource(resource)) {
+      setEditingResourceKind('image');
+      setResourceAddMode('image');
+      setImageDraft({
+        type: resource.type,
+        title: resource.title,
+        file: null,
+      });
+      return;
+    }
+
+    if (isPdfResource(resource)) {
+      setEditingResourceKind('file');
+      setResourceAddMode('pdf');
+      setPdfDraft({
+        type: resource.type,
+        title: resource.title,
+        file: null,
+      });
+      return;
+    }
+
+    setEditingResourceKind('link');
+    setResourceAddMode('link');
+    setResourceDraft({
+      type: resource.type,
+      title: resource.title,
+      url: resource.url,
+    });
+  };
+
+  const handleRemoveResource = (resourceId) => {
+    setResources((previous) => previous.filter((entry) => entry.id !== resourceId));
+    if (editingResourceId === resourceId) resetResourceDrafts();
+  };
+
+  const uploadPlacePhoto = async () => {
+    if (!photoFile) return null;
+    if (!storage) throw new Error('尚未設定 Firebase Storage。');
+    if (!safeRoomId) throw new Error('旅程房間 ID 無效，無法上傳照片。');
+
+    const storagePath = `rooms/${safeRoomId}/places/${String(item.id)}/${Date.now()}_${sanitizeFileName(photoFile.name || 'place-photo')}`;
+    const photoRef = sRef(storage, storagePath);
+    const uploadTask = uploadBytesResumable(photoRef, photoFile, {
+      contentType: photoFile.type || 'image/jpeg',
+      customMetadata: {
+        roomId: safeRoomId,
+        itemId: String(item.id),
+      },
+    });
+
+    const snapshot = await new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        uploadTask.cancel();
+        reject(new Error('照片上傳逾時，請檢查網路後重試。'));
+      }, 45000);
+
+      uploadTask.on(
+        'state_changed',
+        (progressSnapshot) => {
+          const total = Number(progressSnapshot.totalBytes) || 1;
+          setUploadProgress(Math.round((Number(progressSnapshot.bytesTransferred) / total) * 100));
+        },
+        (error) => {
+          window.clearTimeout(timer);
+          reject(error);
+        },
+        () => {
+          window.clearTimeout(timer);
+          resolve(uploadTask.snapshot);
+        },
+      );
+    });
+
+    return {
+      url: await getDownloadURL(snapshot.ref),
+      storagePath,
+      fileName: String(photoFile.name || 'place-photo'),
+      contentType: String(photoFile.type || 'image/jpeg'),
+      uploadedAt: Date.now(),
+    };
+  };
+
+  const uploadPendingFileResource = async (resource, position, totalPending) => {
+    const file = resource?.pendingFile;
+    if (!file) return resource;
+    if (!storage) throw new Error('尚未設定 Firebase Storage。');
+    if (!safeRoomId) throw new Error('旅程房間 ID 無效，無法上傳附件。');
+
+    const imageFile = isAllowedPlacePhoto(file);
+    const pdfFile = isAllowedPlacePdf(file);
+    if (!imageFile && !pdfFile) throw new Error('景點附件只支援圖片或 PDF。');
+    if (imageFile && file.size > MAX_PLACE_PHOTO_BYTES) throw new Error('資料圖片不可超過 5 MB。');
+    if (pdfFile && file.size > MAX_PLACE_PDF_BYTES) throw new Error('PDF 不可超過 15 MB。');
+
+    const contentType = pdfFile ? 'application/pdf' : String(file.type || 'image/jpeg');
+    const fallbackName = pdfFile ? 'document.pdf' : 'image.jpg';
+    const storagePath = `rooms/${safeRoomId}/places/${String(item.id)}/${Date.now()}_${String(resource.id)}_${sanitizeFileName(file.name || fallbackName)}`;
+    const fileRef = sRef(storage, storagePath);
+    const uploadTask = uploadBytesResumable(fileRef, file, {
+      contentType,
+      customMetadata: {
+        roomId: safeRoomId,
+        itemId: String(item.id),
+        resourceId: String(resource.id),
+        resourceType: String(resource.type || 'other'),
+      },
+    });
+
+    const snapshot = await new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        uploadTask.cancel();
+        reject(new Error('附件上傳逾時，請檢查網路後重試。'));
+      }, 60000);
+
+      uploadTask.on(
+        'state_changed',
+        (progressSnapshot) => {
+          const totalBytes = Number(progressSnapshot.totalBytes) || 1;
+          const currentPercent = Number(progressSnapshot.bytesTransferred) / totalBytes;
+          const overall = ((position + currentPercent) / Math.max(1, totalPending)) * 100;
+          setUploadProgress(Math.round(overall));
+        },
+        (error) => {
+          window.clearTimeout(timer);
+          reject(error);
+        },
+        () => {
+          window.clearTimeout(timer);
+          resolve(uploadTask.snapshot);
+        },
+      );
+    });
+
+    const resourceWithoutPending = { ...resource };
+    Reflect.deleteProperty(resourceWithoutPending, 'pendingFile');
+    return {
+      ...resourceWithoutPending,
+      kind: 'file',
+      url: await getDownloadURL(snapshot.ref),
+      storagePath,
+      fileName: String(file.name || fallbackName),
+      contentType,
+      size: Number(file.size || 0),
+      uploadedAt: Date.now(),
+    };
+  };
+
+  const handleSave = async () => {
+    if (saving) return;
+    const normalizedNavigationUrl = normalizeHttpUrl(navigationUrl);
+    if (String(navigationUrl || '').trim() && !normalizedNavigationUrl) {
+      alert('定位網址格式不正確，請貼上完整的 http 或 https 網址。');
+      return;
+    }
+    setSaving(true);
+    setUploadProgress(0);
+
+    let uploadedPhoto = null;
+    const uploadedResourcePaths = [];
+    const previousPhoto = item.placePhoto?.storagePath ? item.placePhoto : null;
+    const previousResourcePaths = new Set(
+      (Array.isArray(item.resources) ? item.resources : [])
+        .map((resource) => String(resource?.storagePath || ''))
+        .filter(Boolean)
+    );
+
+    try {
+      uploadedPhoto = await uploadPlacePhoto();
+
+      const pendingResources = resources.filter((resource) => resource?.pendingFile);
+      const finalResources = [];
+      let pendingIndex = 0;
+
+      for (const resource of resources) {
+        if (resource?.pendingFile) {
+          const uploadedResource = await uploadPendingFileResource(
+            resource,
+            pendingIndex,
+            pendingResources.length,
+          );
+          pendingIndex += 1;
+          if (uploadedResource.storagePath) uploadedResourcePaths.push(uploadedResource.storagePath);
+          finalResources.push(uploadedResource);
+        } else {
+          finalResources.push(resource);
+        }
+      }
+
+      const finalPhoto = uploadedPhoto || (removeExistingPhoto ? null : item.placePhoto || null);
+      const serializableResources = serializePlaceResources(finalResources);
+      const updatedItem = {
+        ...item,
+        customName: String(customName).trim(),
+        time: String(time),
+        stayTime: String(stayTime),
+        memo: String(memo),
+        tags,
+        nextLeg: { mode: String(legMode), mins: Number(legMins) },
+        navigationUrl: normalizedNavigationUrl,
+        placePhoto: finalPhoto,
+        resources: serializableResources,
+      };
+
+      await Promise.resolve(onSave(updatedItem, autoCascade));
+
+      const shouldDeletePrevious = previousPhoto?.storagePath && (
+        removeExistingPhoto || (uploadedPhoto && uploadedPhoto.storagePath !== previousPhoto.storagePath)
+      );
+      if (shouldDeletePrevious && storage) {
+        void deleteObject(sRef(storage, previousPhoto.storagePath)).catch((error) => {
+          console.warn('舊景點照片刪除失敗：', error);
+        });
+      }
+
+      const finalResourcePaths = new Set(
+        serializableResources
+          .map((resource) => String(resource?.storagePath || ''))
+          .filter(Boolean)
+      );
+      if (storage) {
+        previousResourcePaths.forEach((storagePath) => {
+          if (!finalResourcePaths.has(storagePath)) {
+            void deleteObject(sRef(storage, storagePath)).catch((error) => {
+              console.warn('舊景點附件刪除失敗：', error);
+            });
+          }
+        });
+      }
+    } catch (error) {
+      const cleanupPaths = [
+        uploadedPhoto?.storagePath,
+        ...uploadedResourcePaths,
+      ].filter(Boolean);
+      if (storage) {
+        cleanupPaths.forEach((storagePath) => {
+          void deleteObject(sRef(storage, storagePath)).catch(() => {});
+        });
+      }
+      console.error('儲存景點資料失敗：', error);
+      alert(error?.message || '儲存景點資料失敗，請稍後再試。');
+      setSaving(false);
+    }
+  };
+
+  const handleClose = () => {
+    if (!saving) onClose();
+  };
+
   return (
-    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity" onClick={onClose}>
-      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] overflow-x-hidden animate-in fade-in zoom-in duration-200 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
-        <div className="mb-5 shrink-0">
-          <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>自訂地標名稱 (選填)</label>
-          <input
-             value={String(customName)}
-             onChange={e => setCustomName(e.target.value)}
-             placeholder={String(item.name)}
-             className={`w-full py-2 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-lg font-black ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-          />
-          <p className={`text-[10px] truncate mt-2 ${t.subText}`}>🗺️ 原始地標：{String(item.name)}</p>
+    <div
+      style={{ zIndex: 9999, touchAction: 'none', overscrollBehaviorX: 'none' }}
+      className="fixed inset-0 w-full max-w-[100vw] overflow-hidden bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 transition-opacity"
+      onClick={handleClose}
+    >
+      <div
+        style={{ touchAction: 'pan-y', maxHeight: '94dvh', overscrollBehaviorX: 'none' }}
+        className={`min-w-0 w-full max-w-lg overflow-hidden border rounded-t-3xl md:rounded-3xl p-5 md:p-6 shadow-2xl flex flex-col animate-in fade-in slide-in-from-bottom-4 md:zoom-in duration-200 ${t.modalBg} ${t.cardBorder}`}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="mb-5 shrink-0 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>自訂地標名稱（選填）</label>
+            <input
+              value={String(customName)}
+              onChange={e => setCustomName(e.target.value)}
+              placeholder={String(item.name)}
+              className={`w-full py-2 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-lg font-black ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+            />
+            <p className={`text-[10px] truncate mt-2 ${t.subText}`}>🗺️ 原始地標：{String(item.name)}</p>
+          </div>
+          <button type="button" onClick={handleClose} disabled={saving} className={`w-10 h-10 rounded-full bg-slate-500/10 shrink-0 text-lg ${t.subText}`}>✕</button>
         </div>
 
-        <div className="overflow-y-auto pr-2 space-y-5 scrollbar-hide flex-1">
-          <div className="flex flex-row gap-2 items-end">
-            <div className="w-[55%] shrink-0">
+        <div className="min-w-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain pr-1 md:pr-2 scrollbar-hide">
+          <div className="grid min-w-0 grid-cols-2 gap-2 items-end">
+            <div className="min-w-0">
               <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>抵達時間</label>
               <input
                 type="time"
                 value={String(time)}
                 onClick={e => { if ('showPicker' in e.target && typeof e.target.showPicker === 'function') e.target.showPicker(); }}
                 onChange={e => setTime(e.target.value)}
-                className={`w-full h-10 px-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border cursor-pointer text-sm appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                className={`w-full h-11 px-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border cursor-pointer text-sm appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               />
             </div>
-            <div className="w-[45%] shrink-0">
+            <div className="min-w-0">
               <label className={`flex justify-between text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>
-                <span>停留(分鐘)</span>
+                <span>停留（分鐘）</span>
                 <span className="text-blue-500 font-black">{formatStayTime(stayTime)}</span>
               </label>
               <input
                 type="number"
                 step="5"
+                min="0"
                 value={String(stayTime)}
                 onChange={e => setStayTime(e.target.value)}
                 placeholder="0"
-                className={`w-full h-10 px-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                className={`w-full h-11 px-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               />
             </div>
           </div>
 
           <div className="flex gap-1.5 -mt-2">
-            {[0, 30, 60].map(mins => <button key={`qt-${mins}`} onClick={() => {if(mins===0) setStayTime("0"); else handleQuickTime(mins);}} className={`flex-1 text-[10px] py-1.5 rounded-lg font-bold border transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>{mins === 0 ? '僅經過' : mins === 60 ? '+1小時' : '+'+mins+'分'}</button>)}
+            {[0, 30, 60].map(mins => <button type="button" key={`qt-${mins}`} onClick={() => {if(mins===0) setStayTime("0"); else handleQuickTime(mins);}} className={`flex-1 min-h-10 text-[10px] py-1.5 rounded-lg font-bold border transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>{mins === 0 ? '僅經過' : mins === 60 ? '+1小時' : `+${mins}分`}</button>)}
           </div>
 
           <div className={`p-4 rounded-xl border flex flex-col gap-3 ${t.cardBg} ${t.cardBorder}`}>
             <label className={`block text-[10px] font-bold uppercase tracking-wider ${t.subText}`}>前往下一站的交通方式</label>
-            <div className="flex gap-3">
-              <select value={String(legMode)} onChange={e => setLegMode(e.target.value)} className={`flex-1 h-10 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm font-bold bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+            <div className="flex min-w-0 gap-3">
+              <select value={String(legMode)} onChange={e => setLegMode(e.target.value)} className={`min-w-0 flex-1 h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm font-bold bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                 <option value="AUTO">🚗 自動計算車程</option>
                 <option value="FLIGHT">✈️ 搭乘飛機</option>
-                <option value="TRAIN">🚅 火車/高鐵</option>
+                <option value="TRAIN">🚅 火車／高鐵</option>
                 <option value="TRANSIT">🚇 大眾運輸</option>
                 <option value="WALK">🚶 步行前往</option>
               </select>
               {legMode !== 'AUTO' ? (
                 <div className="w-1/3 relative shrink-0">
-                  <input type="number" value={String(legMins)} onChange={e => setLegMins(e.target.value)} placeholder="分鐘" className={`w-full h-10 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm text-right pr-6 appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
-                  <span className={`absolute right-2 top-3 text-[10px] ${t.subText}`}>分</span>
+                  <input type="number" min="0" value={String(legMins)} onChange={e => setLegMins(e.target.value)} placeholder="分鐘" className={`w-full h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm text-right pr-6 appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                  <span className={`absolute right-2 top-3.5 text-[10px] ${t.subText}`}>分</span>
                 </div>
               ) : null}
             </div>
           </div>
 
           <div className={`p-3 rounded-xl border flex items-center justify-between ${t.cardBg} ${t.cardBorder}`}>
-            <div className="flex flex-col">
-               <span className={`text-xs font-bold ${t.mainText}`}>🔄 自動順延後續行程</span>
-               <span className={`text-[10px] mt-0.5 ${t.subText}`}>系統會根據車程重新計算後面的抵達時間</span>
+            <div className="flex flex-col pr-3">
+              <span className={`text-xs font-bold ${t.mainText}`}>🔄 自動順延後續行程</span>
+              <span className={`text-[10px] mt-0.5 ${t.subText}`}>儲存後依車程重新計算後續抵達時間</span>
             </div>
-            <input type="checkbox" checked={autoCascade} onChange={e => setAutoCascade(e.target.checked)} className="w-5 h-5 cursor-pointer accent-blue-500 rounded" />
+            <input type="checkbox" checked={autoCascade} onChange={e => setAutoCascade(e.target.checked)} className="w-5 h-5 cursor-pointer accent-blue-500 rounded shrink-0" />
+          </div>
+
+          <div className={`rounded-2xl border overflow-hidden ${t.cardBg} ${t.cardBorder}`}>
+            <button type="button" onClick={() => setShowResources((value) => !value)} className="flex min-h-14 w-full min-w-0 items-center justify-between gap-3 p-4 text-left">
+              <div className="min-w-0 flex-1">
+                <p className={`text-xs font-black ${t.mainText}`}>🗂️ 照片與快速資料</p>
+                <p className={`text-[10px] mt-1 ${t.subText}`}>{resourceSummary}</p>
+              </div>
+              <span className={`shrink-0 text-sm ${t.subText}`}>{showResources ? '收起 ▲' : '展開 ▼'}</span>
+            </button>
+
+            {showResources ? (
+              <div className={`min-w-0 p-4 pt-0 border-t space-y-4 overflow-x-hidden ${t.cardBorder}`}>
+                <div>
+                  <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+                    <label className={`text-[10px] font-bold uppercase tracking-wider ${t.subText}`}>景點封面照片</label>
+                    <span className={`shrink-0 text-right text-[10px] ${t.subText}`}>JPG／PNG／WebP，最多 5 MB</span>
+                  </div>
+                  {visiblePhotoUrl ? (
+                    <div className="relative rounded-xl overflow-hidden border aspect-video bg-black/5">
+                      <button type="button" onClick={() => openExternalUrl(visiblePhotoUrl)} className="block w-full h-full">
+                        <img src={visiblePhotoUrl} alt={`${customName || item.name} 參考照片`} className="w-full h-full object-cover" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setPhotoFile(null); setRemoveExistingPhoto(true); }}
+                        className="absolute top-2 right-2 min-h-10 px-3 rounded-xl bg-black/70 text-white text-xs font-bold"
+                      >
+                        移除照片
+                      </button>
+                    </div>
+                  ) : (
+                    <label className={`min-h-24 rounded-xl border border-dashed flex flex-col items-center justify-center cursor-pointer ${t.cardBorder} ${t.inputBg}`}>
+                      <span className="text-2xl">📷</span>
+                      <span className={`text-xs font-bold mt-1 ${t.mainText}`}>上傳店面、餐點或集合地點照片</span>
+                      <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                    </label>
+                  )}
+                  {visiblePhotoUrl ? (
+                    <label className={`mt-2 min-h-11 px-3 rounded-xl border flex items-center justify-center cursor-pointer text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                      更換照片
+                      <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                    </label>
+                  ) : null}
+                </div>
+
+                <div className={`rounded-xl border p-3 ${t.inputBg} ${t.cardBorder}`}>
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div>
+                      <label className={`block text-[10px] font-bold uppercase tracking-wider ${t.subText}`}>定位與導航</label>
+                      <p className={`text-[10px] mt-1 ${t.subText}`}>留空時使用此景點座標；也可貼上店家提供的 Google Maps／Apple Maps 定位網址。</p>
+                    </div>
+                    {navigationUrl ? (
+                      <button type="button" onClick={() => setNavigationUrl('')} className={`min-h-10 px-3 rounded-xl border text-[10px] font-bold shrink-0 ${t.cardBorder} ${t.mainText}`}>
+                        使用座標
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={String(navigationUrl)}
+                      onChange={(event) => setNavigationUrl(event.target.value)}
+                      placeholder="選填：https://maps.app.goo.gl/..."
+                      inputMode="url"
+                      className={`h-11 flex-1 min-w-0 px-3 rounded-xl border text-sm ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                    />
+                    {normalizeHttpUrl(navigationUrl) ? (
+                      <button type="button" onClick={() => openExternalUrl(normalizeHttpUrl(navigationUrl))} className="min-h-11 px-3 rounded-xl bg-emerald-600 text-white text-xs font-bold shrink-0">
+                        預覽
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <label className={`block text-[10px] font-bold uppercase tracking-wider ${t.subText}`}>菜單與快速資料</label>
+                      <p className={`text-[10px] mt-1 ${t.subText}`}>封面只放一張代表照；菜單照片可多張並在 App 內滑動查看。</p>
+                    </div>
+                    <span className={`text-[10px] shrink-0 ${t.subText}`}>{resources.length}/{MAX_PLACE_RESOURCES}</span>
+                  </div>
+
+                  {resources.length > 0 ? (
+                    <div className="space-y-2 mb-3">
+                      {resources.map((resource) => {
+                        const typeMeta = getPlaceResourceType(resource.type);
+                        const imageResource = isImageResource(resource);
+                        const pdfResource = isPdfResource(resource);
+                        const pendingUpload = Boolean(resource.pendingFile);
+                        let detailText = '';
+                        if (imageResource) {
+                          const fileDetail = pendingUpload ? '待儲存上傳' : String(resource.fileName || '圖片');
+                          const sizeText = formatFileSize(resource.size);
+                          detailText = `${typeMeta.label}圖片・${fileDetail}${sizeText ? `・${sizeText}` : ''}`;
+                        } else if (pdfResource) {
+                          const fileDetail = pendingUpload ? '待儲存上傳' : String(resource.fileName || 'PDF 文件');
+                          const sizeText = formatFileSize(resource.size);
+                          detailText = `${typeMeta.label} PDF・${fileDetail}${sizeText ? `・${sizeText}` : ''}`;
+                        } else {
+                          let hostname = '';
+                          try { hostname = new URL(resource.url).hostname.replace(/^www\./, ''); } catch { hostname = resource.url; }
+                          detailText = `${typeMeta.label}・${hostname}`;
+                        }
+
+                        return (
+                          <div key={resource.id} className={`flex min-w-0 items-center gap-2 rounded-xl border p-3 sm:gap-3 ${t.itemBg} ${t.cardBorder}`}>
+                            <button
+                              type="button"
+                              onClick={() => { if (resource.url) openExternalUrl(resource.url); }}
+                              disabled={!resource.url}
+                              className={`w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center text-lg shrink-0 ${imageResource ? 'bg-slate-500/10' : pdfResource ? 'bg-red-500/10' : 'bg-blue-500/10'} disabled:opacity-60`}
+                              title={resource.url ? '開啟資料' : '儲存後即可開啟'}
+                            >
+                              {imageResource && resource.url ? <img src={resource.url} alt="" className="w-full h-full object-cover" /> : imageResource ? '🖼️' : pdfResource ? '📄' : typeMeta.icon}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { if (resource.url) openExternalUrl(resource.url); else handleEditResource(resource); }}
+                              className="flex-1 min-w-0 text-left"
+                            >
+                              <p className={`text-xs font-bold truncate ${t.mainText}`}>{resource.title}</p>
+                              <p className={`text-[10px] truncate mt-0.5 ${pendingUpload ? 'text-amber-500' : t.subText}`}>{detailText}</p>
+                            </button>
+                            <button type="button" onClick={() => handleEditResource(resource)} className={`w-10 h-10 rounded-xl ${t.subText}`} title="編輯資料">✏️</button>
+                            <button type="button" onClick={() => handleRemoveResource(resource.id)} className="w-10 h-10 rounded-xl text-red-500" title="移除資料">✕</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className={`text-[11px] mb-3 ${t.subText}`}>可加入多張菜單照片、PDF 菜單、訂位頁、推薦文章或官網。</p>
+                  )}
+
+                  <div className={`rounded-xl border p-1 grid grid-cols-3 gap-1 mb-2 ${t.inputBg} ${t.cardBorder}`}>
+                    <button
+                      type="button"
+                      onClick={() => { resetResourceDrafts(); setResourceAddMode('image'); }}
+                      className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'image' ? 'bg-violet-600 text-white shadow-sm' : t.subText}`}
+                    >
+                      🖼️ 圖片
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { resetResourceDrafts(); setResourceAddMode('pdf'); }}
+                      className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'pdf' ? 'bg-red-500 text-white shadow-sm' : t.subText}`}
+                    >
+                      📄 PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { resetResourceDrafts(); setResourceAddMode('link'); }}
+                      className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'link' ? 'bg-blue-600 text-white shadow-sm' : t.subText}`}
+                    >
+                      🔗 網址
+                    </button>
+                  </div>
+
+                  {resourceAddMode === 'image' ? (
+                    <div className={`min-w-0 overflow-hidden rounded-xl border p-3 space-y-3 ${t.inputBg} ${t.cardBorder}`}>
+                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
+                        <select value={imageDraft.type} onChange={(event) => setImageDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                          {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
+                        </select>
+                        <input value={imageDraft.title} onChange={(event) => setImageDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：菜單第 1 頁）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                      </div>
+
+                      <label className={`min-h-16 min-w-0 px-3 rounded-xl border border-dashed flex items-center gap-3 cursor-pointer overflow-hidden ${t.cardBorder}`}>
+                        <span className="text-2xl">🖼️</span>
+                        <span className="flex-1 min-w-0">
+                          <span className={`block text-xs font-bold truncate ${t.mainText}`}>
+                            {imageDraft.file?.name || (editingResourceId && editingResourceKind === 'image' ? '保留目前圖片；點此可替換' : '選擇菜單或參考圖片')}
+                          </span>
+                          <span className={`block text-[10px] mt-1 ${t.subText}`}>
+                            {imageDraft.file ? `${formatFileSize(imageDraft.file.size)}・儲存景點時上傳` : 'JPG／PNG／WebP，最多 5 MB'}
+                          </span>
+                        </span>
+                        <input type="file" accept="image/*" onChange={handleImageResourceChange} className="hidden" />
+                      </label>
+
+                      <p className={`text-[10px] leading-relaxed ${t.subText}`}>菜單照片會合併成 App 內相簿，可左右滑動，不會當成景點封面。</p>
+
+                      <div className="flex gap-2">
+                        {editingResourceId && editingResourceKind === 'image' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
+                        <button type="button" onClick={handleSaveImageResource} className="flex-1 min-h-11 rounded-xl bg-violet-600 text-white text-xs font-bold">
+                          {editingResourceId && editingResourceKind === 'image' ? '更新圖片資料' : '＋ 加入圖片'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : resourceAddMode === 'link' ? (
+                    <div className={`min-w-0 overflow-hidden rounded-xl border p-3 space-y-2 ${t.inputBg} ${t.cardBorder}`}>
+                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
+                        <select value={resourceDraft.type} onChange={(event) => setResourceDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                          {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
+                        </select>
+                        <input value={resourceDraft.title} onChange={(event) => setResourceDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：線上訂位）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                      </div>
+                      <input value={resourceDraft.url} onChange={(event) => setResourceDraft((previous) => ({ ...previous, url: event.target.value }))} placeholder="貼上網址 https://..." inputMode="url" className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                      <div className="flex gap-2">
+                        {editingResourceId && editingResourceKind === 'link' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
+                        <button type="button" onClick={handleSaveResource} className="flex-1 min-h-11 rounded-xl bg-blue-600 text-white text-xs font-bold">
+                          {editingResourceId && editingResourceKind === 'link' ? '更新連結' : '＋ 加入連結'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`min-w-0 overflow-hidden rounded-xl border p-3 space-y-3 ${t.inputBg} ${t.cardBorder}`}>
+                      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
+                        <select value={pdfDraft.type} onChange={(event) => setPdfDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                          {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
+                        </select>
+                        <input value={pdfDraft.title} onChange={(event) => setPdfDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：午餐菜單）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                      </div>
+
+                      <label className={`min-h-16 min-w-0 px-3 rounded-xl border border-dashed flex items-center gap-3 cursor-pointer overflow-hidden ${t.cardBorder}`}>
+                        <span className="text-2xl">📄</span>
+                        <span className="flex-1 min-w-0">
+                          <span className={`block text-xs font-bold truncate ${t.mainText}`}>
+                            {pdfDraft.file?.name || (editingResourceId && editingResourceKind === 'file' ? '保留目前 PDF；點此可替換' : '選擇菜單或參考 PDF')}
+                          </span>
+                          <span className={`block text-[10px] mt-1 ${t.subText}`}>
+                            {pdfDraft.file ? `${formatFileSize(pdfDraft.file.size)}・儲存景點時上傳` : '僅支援 PDF，最多 15 MB'}
+                          </span>
+                        </span>
+                        <input type="file" accept="application/pdf,.pdf" onChange={handlePdfChange} className="hidden" />
+                      </label>
+
+                      <p className={`text-[10px] leading-relaxed ${t.subText}`}>PDF 會集中在「菜單」或「資料」面板中，不會塞滿行程卡片。</p>
+
+                      <div className="flex gap-2">
+                        {editingResourceId && editingResourceKind === 'file' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
+                        <button type="button" onClick={handleSavePdfResource} className="flex-1 min-h-11 rounded-xl bg-red-500 text-white text-xs font-bold">
+                          {editingResourceId && editingResourceKind === 'file' ? '更新 PDF 資料' : '＋ 加入 PDF'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -1164,18 +2042,20 @@ export const EditItemModal = ({ item, onSave, onClose, t }) => {
             <div className="flex flex-wrap gap-2">
               {TAG_OPTIONS.map(tag => {
                 const isActive = tags.includes(tag);
-                return <button key={`tag-${tag}`} onClick={() => setTags(isActive ? tags.filter(x => x !== tag) : [...tags, tag])} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isActive ? 'bg-blue-600 border-transparent text-white shadow-lg' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>{String(tag)}</button>
+                return <button type="button" key={`tag-${tag}`} onClick={() => setTags(isActive ? tags.filter(x => x !== tag) : [...tags, tag])} className={`min-h-10 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isActive ? 'bg-blue-600 border-transparent text-white shadow-lg' : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}>{String(tag)}</button>
               })}
             </div>
           </div>
           <div>
-            <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>筆記 / 備註</label>
-            <textarea value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="輸入你想記下的重點細節..." className={`w-full p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 min-h-20 resize-none transition-colors border text-sm bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>筆記／備註</label>
+            <textarea value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="輸入推薦餐點、集合方式或其他細節..." className={`w-full p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 min-h-24 resize-none transition-colors border text-sm bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
           </div>
         </div>
-        <div className={`flex justify-end gap-3 mt-6 pt-5 border-t shrink-0 ${t.cardBorder}`}>
-          <button onClick={onClose} className={`px-5 py-2 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
-          <button onClick={() => onSave({ ...item, customName: String(customName).trim(), time: String(time), stayTime: String(stayTime), memo: String(memo), tags, nextLeg: { mode: String(legMode), mins: Number(legMins) } }, autoCascade)} className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">儲存變更</button>
+        <div className={`flex justify-end gap-3 mt-4 pt-4 border-t shrink-0 pb-[max(0px,env(safe-area-inset-bottom))] ${t.cardBorder}`}>
+          <button type="button" onClick={handleClose} disabled={saving} className={`min-h-11 px-5 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
+          <button type="button" onClick={() => void handleSave()} disabled={saving} className="min-h-11 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-8 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">
+            {saving ? (hasPendingUploads ? `上傳中 ${uploadProgress}%` : '儲存中…') : '儲存變更'}
+          </button>
         </div>
       </div>
     </div>
@@ -1210,6 +2090,7 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
     const activeRenderers = [];
 
     const createRenderer = (result) => {
+      // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
       const renderer = new routesLib.DirectionsRenderer({
         map,
         suppressMarkers: true,
@@ -1226,6 +2107,7 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
         return;
       }
 
+      // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
       const service = new routesLib.DirectionsService();
       const allCoordinatesValid = routeInputs.every((item) => isValidCoordinates(item.lat, item.lng));
       const allAutomaticDriving = routeInputs.slice(0, -1).every((item) => item.mode === 'AUTO');
