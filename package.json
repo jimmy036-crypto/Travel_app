@@ -13,7 +13,10 @@
     "test:coverage": "vitest run --coverage",
     "check": "npm run lint && npm run test:run && npm run build",
     "dev:emulator": "vite --mode emulator",
-    "build:emulator": "vite build --mode emulator"
+    "build:emulator": "vite build --mode emulator",
+    "dev:emulator": "vite --mode emulator",
+    "emulators": "firebase emulators:start --only database,storage",
+    "dev:test": "concurrently -k -n FIREBASE,VITE \"npm run emulators\" \"npm run dev:emulator\""
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",
@@ -43,6 +46,7 @@
     "@vitejs/plugin-react": "^5.1.1",
     "@vitest/coverage-v8": "^4.1.9",
     "autoprefixer": "^10.4.27",
+    "concurrently": "^10.0.3",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
