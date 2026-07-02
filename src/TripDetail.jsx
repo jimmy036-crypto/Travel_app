@@ -2815,6 +2815,19 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
   return (
     <>
+      <style>{`
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+      `}</style>
+
       <DragDropContext onDragEnd={handleDragEnd}>
         <div style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
           <div className="flex-1 flex overflow-hidden">
@@ -2875,7 +2888,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 </div>
               </div>
 
-              <div onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollBy(Number(e.deltaY), 0); }} className={`flex-1 overflow-x-auto p-4 gap-4 items-start ${(activeTab === 'plan' || activeTab === 'map') ? 'flex' : 'hidden'}`}>
+              <div onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollBy(Number(e.deltaY), 0); }} className={`scrollbar-hide flex-1 overflow-x-auto overscroll-x-contain p-4 gap-4 items-start ${(activeTab === 'plan' || activeTab === 'map') ? 'flex' : 'hidden'}`}>
                 {existingDays.map(dayId => {
                   const { title, dateStr } = getDayDisplay(dayId, meta.startDate);
                   const isCurrent = safeCurrentDay === dayId;
@@ -3071,7 +3084,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 })}
               </div>
 
-              <div className={`flex-1 flex-col overflow-y-auto backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'expense' ? 'flex' : 'hidden'}`}>
+              <div className={`scrollbar-hide flex-1 flex-col overflow-y-auto overscroll-y-contain backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'expense' ? 'flex' : 'hidden'}`}>
                 <div className={`p-6 border-b shrink-0 shadow-sm ${t.headerBg} ${t.cardBorder}`}>
 
                   <div className="flex items-center justify-between mb-2">
@@ -3285,7 +3298,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 </div>
               </div>
 
-              <div className={`flex-1 flex-col overflow-y-auto backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'ticket' ? 'flex' : 'hidden'}`}>
+              <div className={`scrollbar-hide flex-1 flex-col overflow-y-auto overscroll-y-contain backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'ticket' ? 'flex' : 'hidden'}`}>
                 <div className={`p-6 border-b sticky top-0 z-10 shadow-lg backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
                   <div className="flex items-center justify-between">
                     <div>
