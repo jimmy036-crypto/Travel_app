@@ -731,6 +731,8 @@ export const ExpenseModal = ({
 
   return (
     <div
+      data-testid="expense-modal"
+      data-mode={isEditing ? "edit" : "create"}
       style={{ zIndex: 9999, touchAction: "pan-y" }}
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden w-full max-w-[100vw]"
       onClick={requestClose}
@@ -742,7 +744,10 @@ export const ExpenseModal = ({
       >
         <div className={`flex items-start justify-between gap-4 p-5 sm:p-6 border-b shrink-0 ${t.cardBorder}`}>
           <div>
-            <h2 className={`text-xl font-black flex items-center gap-2 ${t.mainText}`}>
+            <h2
+              data-testid="expense-modal-title"
+              className={`text-xl font-black flex items-center gap-2 ${t.mainText}`}
+            >
               {isEditing ? "✏️ 編輯帳目" : "💰 新增記帳"}
             </h2>
             <p className={`text-[11px] mt-1 ${t.subText}`}>
@@ -763,6 +768,7 @@ export const ExpenseModal = ({
           <div>
             <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>項目名稱 *</label>
             <input
+              data-testid="expense-item-input"
               value={item}
               onChange={event => setItem(event.target.value)}
               placeholder="例如：晚餐燒肉、北部住宿"
@@ -775,6 +781,7 @@ export const ExpenseModal = ({
             <div>
               <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>幣別</label>
               <select
+                data-testid="expense-currency-select"
                 value={currency}
                 onChange={handleCurrencyChange}
                 className={`w-full py-3 px-2 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
@@ -785,6 +792,7 @@ export const ExpenseModal = ({
             <div>
               <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>當地金額 *</label>
               <input
+                data-testid="expense-local-cost-input"
                 type="number"
                 inputMode="decimal"
                 min="0"
@@ -801,6 +809,7 @@ export const ExpenseModal = ({
             <div className="min-w-0">
               <span className={`text-[10px] font-bold uppercase ${t.subText}`}>換算匯率</span>
               <input
+                data-testid="expense-rate-input"
                 type="number"
                 inputMode="decimal"
                 min="0"
@@ -812,7 +821,12 @@ export const ExpenseModal = ({
             </div>
             <div className="text-right shrink-0">
               <span className={`text-[10px] font-bold uppercase block ${t.subText}`}>折合台幣</span>
-              <span className="text-lg font-black font-mono text-emerald-500">NT$ {twdCost.toLocaleString()}</span>
+              <span
+                data-testid="expense-twd-total"
+                className="text-lg font-black font-mono text-emerald-500"
+              >
+                NT$ {twdCost.toLocaleString()}
+              </span>
             </div>
           </div>
 
@@ -820,6 +834,7 @@ export const ExpenseModal = ({
             <div>
               <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>日期</label>
               <select
+                data-testid="expense-day-select"
                 value={dayId}
                 onChange={event => setDayId(event.target.value)}
                 className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
@@ -834,6 +849,7 @@ export const ExpenseModal = ({
             <div>
               <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>代墊人</label>
               <select
+                data-testid="expense-payer-select"
                 value={payer}
                 onChange={event => setPayer(event.target.value)}
                 className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
@@ -850,6 +866,8 @@ export const ExpenseModal = ({
                 <button
                   type="button"
                   key={option.id}
+                  data-testid="expense-category-button"
+                  data-category={option.id}
                   onClick={() => setCategory(option.id)}
                   className={`min-h-11 px-4 py-2 rounded-xl border flex items-center gap-2 whitespace-nowrap transition-all ${category === option.id ? `${option.color} border-transparent text-white shadow-md` : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
                 >
@@ -865,6 +883,7 @@ export const ExpenseModal = ({
               <div className={`flex rounded-lg p-1 border ${t.cardBg} ${t.cardBorder}`}>
                 <button
                   type="button"
+                  data-testid="expense-split-equal-button"
                   onClick={() => setSplitType("EQUAL")}
                   className={`flex-1 px-3 py-2 text-[11px] font-bold rounded-md ${splitType === "EQUAL" ? "bg-blue-600 text-white" : t.subText}`}
                 >
@@ -872,6 +891,7 @@ export const ExpenseModal = ({
                 </button>
                 <button
                   type="button"
+                  data-testid="expense-split-custom-button"
                   onClick={() => setSplitType("CUSTOM")}
                   className={`flex-1 px-3 py-2 text-[11px] font-bold rounded-md ${splitType === "CUSTOM" ? "bg-purple-600 text-white" : t.subText}`}
                 >
@@ -890,6 +910,9 @@ export const ExpenseModal = ({
                       <button
                         type="button"
                         key={`inv-${member}`}
+                        data-testid="expense-involved-member"
+                        data-member={member}
+                        aria-pressed={selected}
                         onClick={() => setInvolved(selected ? involved.filter(value => value !== member) : [...involved, member])}
                         className={`min-h-11 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${selected ? "bg-blue-500/20 border-blue-500 text-blue-600" : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
                       >
@@ -920,6 +943,9 @@ export const ExpenseModal = ({
                   <div key={`cust-${member}`} className="flex justify-between items-center gap-3">
                     <span className={`text-sm font-bold ${t.mainText}`}>{member}</span>
                     <input
+                      data-testid="expense-custom-amount-input"
+                      data-member={member}
+                      aria-label={`${member} 自訂分帳金額`}
                       type="number"
                       inputMode="decimal"
                       min="0"
@@ -934,7 +960,10 @@ export const ExpenseModal = ({
                 {twdCost > 0 ? (
                   <div className={`border-t pt-3 mt-2 flex justify-between items-center ${t.cardBorder}`}>
                     <span className={`text-xs ${t.subText}`}>目前總和</span>
-                    <span className={`text-sm font-bold font-mono ${Math.abs(customTotal - twdCost) <= 0.02 ? "text-emerald-500" : "text-red-500"}`}>
+                    <span
+                      data-testid="expense-custom-total"
+                      className={`text-sm font-bold font-mono ${Math.abs(customTotal - twdCost) <= 0.02 ? "text-emerald-500" : "text-red-500"}`}
+                    >
                       NT$ {customTotal.toLocaleString()} / {twdCost.toLocaleString()}
                     </span>
                   </div>
@@ -946,6 +975,7 @@ export const ExpenseModal = ({
           <div>
             <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>備註（選填）</label>
             <textarea
+              data-testid="expense-note-input"
               value={note}
               onChange={event => setNote(event.target.value)}
               placeholder="例如：已含服務費、刷卡、需向店家退稅"
@@ -955,11 +985,15 @@ export const ExpenseModal = ({
           </div>
 
           {isEditing ? (
-            <details className={`rounded-xl border p-3 ${t.cardBg} ${t.cardBorder}`}>
+            <details
+              data-testid="expense-more-actions"
+              className={`rounded-xl border p-3 ${t.cardBg} ${t.cardBorder}`}
+            >
               <summary className={`cursor-pointer text-xs font-bold ${t.subText}`}>更多操作</summary>
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <button
                   type="button"
+                  data-testid="expense-duplicate-button"
                   onClick={handleDuplicate}
                   className={`min-h-11 rounded-xl border text-xs font-bold hover:border-blue-500 hover:text-blue-500 ${t.cardBorder} ${t.mainText}`}
                 >
@@ -967,6 +1001,7 @@ export const ExpenseModal = ({
                 </button>
                 <button
                   type="button"
+                  data-testid="expense-delete-button"
                   onClick={handleDelete}
                   className="min-h-11 rounded-xl border border-red-500/30 text-xs font-bold text-red-500 hover:bg-red-500 hover:text-white"
                 >
@@ -983,6 +1018,7 @@ export const ExpenseModal = ({
         >
           <button
             type="button"
+            data-testid="expense-cancel-button"
             onClick={requestClose}
             className={`min-h-12 px-5 text-sm font-bold rounded-xl border flex-1 ${t.cardBorder} ${t.mainText}`}
           >
@@ -990,6 +1026,7 @@ export const ExpenseModal = ({
           </button>
           <button
             type="button"
+            data-testid="expense-save-button"
             onClick={handleSave}
             className="min-h-12 bg-emerald-600 hover:bg-emerald-500 text-white px-6 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all flex-[1.4]"
           >

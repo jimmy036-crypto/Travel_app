@@ -156,9 +156,18 @@ export async function seedTestTrip(
     title?: string;
     startDate?: string;
     endDate?: string;
+    members?: string[];
+    memberBudgets?: Record<string, number>;
+    expenses?: unknown[];
   } = {},
 ): Promise<void> {
   const now = Date.now();
+  const members = Array.isArray(options.members) && options.members.length > 0
+    ? [...new Set(options.members.map(String).filter(Boolean))]
+    : ['自己'];
+  const memberBudgets = options.memberBudgets || Object.fromEntries(
+    members.map((member) => [member, 10000]),
+  );
 
   await writeEmulatorData(`rooms/${roomId}`, {
     meta: {
@@ -168,10 +177,8 @@ export async function seedTestTrip(
       destLng: 121.5654,
       startDate: options.startDate || '2026-09-20',
       endDate: options.endDate || '2026-09-22',
-      members: ['自己'],
-      memberBudgets: {
-        自己: 10000,
-      },
+      members,
+      memberBudgets,
       transport: '汽車 🚗',
       themeColor: '#3b82f6',
       dayThemes: {},
@@ -199,7 +206,7 @@ export async function seedTestTrip(
         },
       ],
     },
-    expenses: [],
+    expenses: Array.isArray(options.expenses) ? options.expenses : [],
     settlements: [],
     tickets: [],
     checklist: {},

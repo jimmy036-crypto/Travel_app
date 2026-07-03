@@ -2785,7 +2785,15 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 <div className="flex items-center gap-2">
                   <div className={`hidden md:flex p-1 rounded-lg border shadow-inner ${t.cardBg} ${t.cardBorder}`}>
                     <button onClick={() => setActiveTab('plan')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${(activeTab === 'plan' || activeTab === 'map') ? 'bg-blue-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>📋 行程</button>
-                    <button onClick={() => setActiveTab('expense')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'expense' ? 'bg-emerald-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>💰 記帳</button>
+                    <button
+                      type="button"
+                      data-testid="expense-tab-button"
+                      data-layout="desktop"
+                      onClick={() => setActiveTab('expense')}
+                      className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'expense' ? 'bg-emerald-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}
+                    >
+                      💰 記帳
+                    </button>
                     <button onClick={() => setActiveTab('ticket')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'ticket' ? 'bg-amber-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>🎟️ 票券</button>
                   </div>
                   <button
@@ -3013,15 +3021,28 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 })}
               </div>
 
-              <div className={`scrollbar-hide flex-1 flex-col overflow-y-auto overscroll-y-contain backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'expense' ? 'flex' : 'hidden'}`}>
+              <div
+                data-testid="expense-panel"
+                className={`scrollbar-hide flex-1 flex-col overflow-y-auto overscroll-y-contain backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'expense' ? 'flex' : 'hidden'}`}
+              >
                 <div className={`p-6 border-b shrink-0 shadow-sm ${t.headerBg} ${t.cardBorder}`}>
 
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <p className={`text-xs font-bold uppercase tracking-widest ${t.subText}`}>全團花費總計</p>
-                      <h2 className={`text-3xl font-black mt-1 ${t.mainText}`}>NT$ {expenseStats.totalExpense.toLocaleString()}</h2>
+                      <h2
+                        data-testid="expense-total"
+                        className={`text-3xl font-black mt-1 ${t.mainText}`}
+                      >
+                        NT$ {expenseStats.totalExpense.toLocaleString()}
+                      </h2>
                     </div>
-                    <button onClick={openNewExpense} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all">
+                    <button
+                      type="button"
+                      data-testid="add-expense-button"
+                      onClick={openNewExpense}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all"
+                    >
                       ➕ 新增記帳
                     </button>
                   </div>
@@ -3034,11 +3055,22 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       const pOver = pSpent > pBudget;
                       const pPercent = pBudget > 0 ? Math.min((pSpent / pBudget) * 100, 100) : 100;
                       return (
-                        <div key={`budget-${m}`} className={`p-3 rounded-xl border bg-black/5 dark:bg-white/5 ${t.cardBorder}`}>
+                        <div
+                          key={`budget-${m}`}
+                          data-testid="member-budget-row"
+                          data-member={String(m)}
+                          className={`p-3 rounded-xl border bg-black/5 dark:bg-white/5 ${t.cardBorder}`}
+                        >
                            <div className="flex justify-between items-center mb-2">
                               <span className={`text-xs font-bold ${t.mainText}`}>{String(m)}</span>
                               <div className="flex items-center gap-2">
-                                 <span className={`text-[10px] font-bold ${pOver ? 'text-red-500' : 'text-emerald-500'}`}>已花 NT${Math.round(pSpent).toLocaleString()}</span>
+                                 <span
+                                   data-testid="member-spent"
+                                   data-member={String(m)}
+                                   className={`text-[10px] font-bold ${pOver ? 'text-red-500' : 'text-emerald-500'}`}
+                                 >
+                                   已花 NT${Math.round(pSpent).toLocaleString()}
+                                 </span>
                                  <span className={`text-[10px] opacity-40 ${t.mainText}`}>/</span>
                                  <input type="number" value={String(pBudget)} onChange={e => handleBudgetChange(m, e.target.value)} className={`bg-transparent outline-none w-14 text-right text-[10px] font-bold border-b border-dashed focus:border-blue-500 ${t.mainText}`} title="點擊修改預算" />
                               </div>
@@ -3052,9 +3084,30 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                   </div>
 
                   <div className={`flex p-1.5 rounded-xl border mt-6 shadow-inner ${t.cardBg} ${t.cardBorder}`}>
-                    <button onClick={() => setExpenseView('list')} className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'list' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}>📜 歷史明細</button>
-                    <button onClick={() => setExpenseView('settle')} className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'settle' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}>⚖️ 結算表</button>
-                    <button onClick={() => setExpenseView('chart')} className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'chart' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}>📊 圓餅圖</button>
+                    <button
+                      type="button"
+                      data-testid="expense-list-view-button"
+                      onClick={() => setExpenseView('list')}
+                      className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'list' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
+                    >
+                      📜 歷史明細
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="expense-settlement-view-button"
+                      onClick={() => setExpenseView('settle')}
+                      className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'settle' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
+                    >
+                      ⚖️ 結算表
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="expense-chart-view-button"
+                      onClick={() => setExpenseView('chart')}
+                      className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'chart' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
+                    >
+                      📊 圓餅圖
+                    </button>
                   </div>
                 </div>
 
@@ -3122,6 +3175,8 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                   <button
                                     type="button"
                                     key={String(e.id)}
+                                    data-testid="expense-record"
+                                    data-expense-id={String(e.id)}
                                     onClick={() => openExpenseEditor(e)}
                                     className={`w-full flex justify-between items-center gap-3 p-3 rounded-2xl border transition-all text-left ${t.itemBg} ${t.cardBorder} hover:border-emerald-500/50 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]`}
                                     aria-label={`編輯帳目 ${String(e.item)}`}
@@ -3130,7 +3185,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                       <span className={`w-10 h-10 ${cat.color} text-white rounded-full flex items-center justify-center text-sm shadow-inner shrink-0`}>{cat.icon}</span>
                                       <div className="min-w-0">
                                         <div className="flex items-center gap-2 min-w-0">
-                                          <p className={`text-sm font-bold truncate ${t.mainText}`}>{String(e.item)}</p>
+                                          <p
+                                            data-testid="expense-record-title"
+                                            className={`text-sm font-bold truncate ${t.mainText}`}
+                                          >
+                                            {String(e.item)}
+                                          </p>
                                           {Number(e.updatedAt) > Number(e.createdAt || e.updatedAt) ? (
                                             <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-500 font-bold">已編輯</span>
                                           ) : null}
@@ -3143,7 +3203,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                     </div>
                                     <div className="flex items-center gap-3 shrink-0">
                                       <div className="flex flex-col items-end">
-                                        <span className={`font-mono font-bold ${t.mainText}`}>NT${(Number(e.cost)||0).toLocaleString()}</span>
+                                        <span
+                                          data-testid="expense-record-cost"
+                                          className={`font-mono font-bold ${t.mainText}`}
+                                        >
+                                          NT${(Number(e.cost)||0).toLocaleString()}
+                                        </span>
                                         {e.currency && e.currency !== 'TWD' ? <span className={`text-[9px] font-mono opacity-60 ${t.subText}`}>{e.currency} {(Number(e.localCost) || 0).toLocaleString()}</span> : null}
                                       </div>
                                       <span className={`text-[11px] font-bold ${t.subText}`}>✏️ <span className="hidden sm:inline">編輯</span></span>
@@ -3320,7 +3385,15 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
             <button onClick={() => setActiveTab("plan")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "plan" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>📋<span className="text-[10px] mt-1 font-bold">行程</span></button>
             <button onClick={() => setActiveTab("map")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "map" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>🗺️<span className="text-[10px] mt-1 font-bold">地圖</span></button>
             <button onClick={() => setActiveTab("ticket")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "ticket" ? "text-amber-500 font-bold -translate-y-1" : t.subText}`}>🎟️<span className="text-[10px] mt-1 font-bold">票券</span></button>
-            <button onClick={() => setActiveTab("expense")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "expense" ? "text-emerald-500 font-bold -translate-y-1" : t.subText}`}>💰<span className="text-[10px] mt-1 font-bold">記帳</span></button>
+            <button
+              type="button"
+              data-testid="expense-tab-button"
+              data-layout="mobile"
+              onClick={() => setActiveTab("expense")}
+              className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "expense" ? "text-emerald-500 font-bold -translate-y-1" : t.subText}`}
+            >
+              💰<span className="text-[10px] mt-1 font-bold">記帳</span>
+            </button>
           </div>
         </div>
       </DragDropContext>
