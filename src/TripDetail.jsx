@@ -45,6 +45,12 @@ import {
   calculateExpenseStats,
   calculateMemberCategoryStats,
 } from "./features/expenses/expenseCalculations";
+import {
+  cloneRouteItems,
+  moveItineraryItem,
+  recalculateArrivalTimes,
+  recalculateArrivalTimesFromIndex,
+} from "./features/itinerary/itineraryCalculations";
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -143,16 +149,6 @@ const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
   );
 };
 
-
-const cloneRouteItems = (items) => (
-  (Array.isArray(items) ? items : []).map((item) => ({
-    ...item,
-    tags: Array.isArray(item?.tags) ? [...item.tags] : [],
-    resources: Array.isArray(item?.resources) ? item.resources.map((resource) => ({ ...resource })) : [],
-    placePhoto: item?.placePhoto ? { ...item.placePhoto } : null,
-    nextLeg: item?.nextLeg ? { ...item.nextLeg } : undefined,
-  }))
-);
 
 const PLACE_RESOURCE_META = Object.freeze({
   menu: { icon: '🍽️', label: '菜單' },
@@ -883,33 +879,6 @@ const PlaceItemDetailModal = ({
   );
 };
 
-const getTravelMinutesForLeg = (item, duration) => {
-  if (item?.nextLeg?.mode && item.nextLeg.mode !== 'AUTO') {
-    return Math.max(0, Number(item.nextLeg.mins) || 0);
-  }
-  const routeMinutes = Number(duration?.value);
-  return Number.isFinite(routeMinutes) && routeMinutes >= 0 ? routeMinutes : 30;
-};
-
-const recalculateArrivalTimes = (items, durations, anchorTime) => {
-  const list = cloneRouteItems(items);
-  if (list.length === 0) return list;
-
-  const anchor = String(anchorTime || list[0]?.time || '').trim();
-  if (!/^\d{2}:\d{2}$/.test(anchor)) return list;
-
-  list[0] = { ...list[0], time: anchor };
-  let currentMinutes = timeToMins(anchor) + Math.max(0, Number(list[0].stayTime) || 0);
-
-  for (let index = 1; index < list.length; index += 1) {
-    currentMinutes += getTravelMinutesForLeg(list[index - 1], durations?.[index - 1]);
-    list[index] = { ...list[index], time: minsToTime(currentMinutes) };
-    currentMinutes += Math.max(0, Number(list[index].stayTime) || 0);
-  }
-
-  return list;
-};
-
 const getRouteTotals = (route) => {
   const legs = Array.isArray(route?.legs) ? route.legs : [];
   return legs.reduce((totals, leg) => ({
@@ -1212,10 +1181,6 @@ const normalizeItinerary = (rawValue, meta) => {
   return safeItinerary;
 };
 
-const getRouteDurationMinutes = (duration) => {
-  const value = Number(duration?.mins ?? duration?.minutes ?? duration?.value);
-  return Number.isFinite(value) && value >= 0 ? value : 30;
-};
 
 const useRoomBranchSync = ({
   roomId,
@@ -1756,45 +1721,28 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const handleDragEnd = useCallback((result) => {
     const { source, destination } = result;
     if (!destination) return;
-    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
-    const sourceDay = String(source.droppableId);
-    const destinationDay = String(destination.droppableId);
-    const sourceBefore = cloneRouteItems(itinerary[sourceDay] || []);
-    const destinationBefore = sourceDay === destinationDay
-      ? sourceBefore
-      : cloneRouteItems(itinerary[destinationDay] || []);
-    const sourceAnchor = String(sourceBefore[0]?.time || '');
-    const destinationAnchor = String(destinationBefore[0]?.time || '');
+    const moveResult = moveItineraryItem({
+      itinerary,
+      sourceDay: source.droppableId,
+      destinationDay: destination.droppableId,
+      sourceIndex: source.index,
+      destinationIndex: destination.index,
+    });
 
-    const sourceItems = cloneRouteItems(sourceBefore);
-    const destinationItems = sourceDay === destinationDay
-      ? sourceItems
-      : cloneRouteItems(destinationBefore);
+    if (!moveResult.ok || moveResult.noop) return;
 
-    const [movedItem] = sourceItems.splice(source.index, 1);
-    if (!movedItem) return;
-    destinationItems.splice(destination.index, 0, movedItem);
+    const {
+      nextItinerary,
+      affectedDays,
+      pendingRecalculations,
+    } = moveResult;
 
-    const affectedDays = sourceDay === destinationDay ? [sourceDay] : [sourceDay, destinationDay];
-    const nextItinerary = { ...itinerary };
-
-    if (sourceDay === destinationDay) {
-      const anchor = sourceAnchor || String(movedItem.time || '');
-      nextItinerary[sourceDay] = recalculateArrivalTimes(sourceItems, null, anchor);
-      pendingTimeRecalculationRef.current[sourceDay] = { anchorTime: anchor };
-    } else {
-      const sourceNextAnchor = sourceAnchor || String(sourceItems[0]?.time || '');
-      const destinationNextAnchor = destinationAnchor || String(movedItem.time || sourceAnchor || '');
-      nextItinerary[sourceDay] = recalculateArrivalTimes(sourceItems, null, sourceNextAnchor);
-      nextItinerary[destinationDay] = recalculateArrivalTimes(destinationItems, null, destinationNextAnchor);
-      if (sourceItems.length > 0) {
-        pendingTimeRecalculationRef.current[sourceDay] = { anchorTime: sourceNextAnchor };
-      } else {
-        delete pendingTimeRecalculationRef.current[sourceDay];
-      }
-      pendingTimeRecalculationRef.current[destinationDay] = { anchorTime: destinationNextAnchor };
-    }
+    affectedDays.forEach((dayId) => {
+      const pending = pendingRecalculations[dayId];
+      if (pending) pendingTimeRecalculationRef.current[dayId] = pending;
+      else delete pendingTimeRecalculationRef.current[dayId];
+    });
 
     setBackupItin(null);
     clearOptimizationSummary(...affectedDays);
@@ -1851,23 +1799,15 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
       if (idx !== -1) {
         dayList[idx] = updatedItem;
-        if (shouldCascade && updatedItem.time) {
-          let currentMins = timeToMins(updatedItem.time) + Number(updatedItem.stayTime || 0);
-          for (let i = idx + 1; i < dayList.length; i++) {
-             const prevItem = dayList[i-1];
-             let travelTime = 30;
-             if (prevItem.nextLeg && prevItem.nextLeg.mode !== 'AUTO') {
-                travelTime = Number(prevItem.nextLeg.mins) || 30;
-             } else if (routeDurations[dayId]?.[i - 1]) {
-                travelTime = getRouteDurationMinutes(routeDurations[dayId][i - 1]);
-             }
-             currentMins += travelTime;
-             dayList[i] = { ...dayList[i], time: minsToTime(currentMins) };
-             currentMins += Number(dayList[i].stayTime || 0);
-          }
-        }
       }
-      n[dayId] = dayList;
+
+      n[dayId] = shouldCascade && idx !== -1 && updatedItem.time
+        ? recalculateArrivalTimesFromIndex(
+            dayList,
+            idx,
+            routeDurations[dayId],
+          )
+        : dayList;
       return n;
     });
     setEditingItemData(null);
