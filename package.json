@@ -5,18 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:emulator": "vite --mode emulator",
+    "dev:e2e": "vite --mode emulator --host 127.0.0.1 --port 4174 --strictPort --force",
+    "emulators": "firebase emulators:start --only database,storage",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "check": "npm run lint && npm run test:run && npm run build",
-    "dev:emulator": "vite --mode emulator",
-    "build:emulator": "vite build --mode emulator",
-    "dev:emulator": "vite --mode emulator",
-    "emulators": "firebase emulators:start --only database,storage",
-    "dev:test": "concurrently -k -n FIREBASE,VITE \"npm run emulators\" \"npm run dev:emulator\""
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",

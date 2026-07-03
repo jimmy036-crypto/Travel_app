@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { clearEmulatorDatabase } from './support/emulator';
 
 async function closeUpdateNoticeIfVisible(page: Page) {
   const closeButton = page.getByRole("button", {
@@ -29,6 +30,10 @@ async function readTripMeta(
   return (await response.json()) as TripMeta | null;
 }
 
+test.beforeEach(async () => {
+  await clearEmulatorDatabase();
+});
+
 test("建立旅程後，重新整理仍保留 Firebase Emulator 資料", async ({
   page,
   request,
@@ -58,14 +63,14 @@ test("建立旅程後，重新整理仍保留 Firebase Emulator 資料", async (
 
   await page.getByTestId("create-trip-submit").click();
 
-  const activeTrip = page.getByTestId("active-trip-view");
-  await expect(activeTrip).toBeAttached({ timeout: 15_000 });
+  const tripRouteContext = page.getByTestId("trip-route-context");
+  await expect(tripRouteContext).toBeAttached({ timeout: 15_000 });
 
   const tripUrl = page.url();
   expect(tripUrl).toContain("?room=");
 
-  const roomId = await activeTrip.getAttribute("data-room-id");
-  const databaseNamespace = await activeTrip.getAttribute(
+  const roomId = await tripRouteContext.getAttribute("data-room-id");
+  const databaseNamespace = await tripRouteContext.getAttribute(
     "data-database-namespace",
   );
 
@@ -85,7 +90,7 @@ test("建立旅程後，重新整理仍保留 Firebase Emulator 資料", async (
   await page.reload({ waitUntil: "domcontentloaded" });
 
   await expect(page).toHaveURL(tripUrl);
-  await expect(page.getByTestId("active-trip-view")).toBeAttached({
+  await expect(page.getByTestId("trip-route-context")).toBeAttached({
     timeout: 15_000,
   });
 

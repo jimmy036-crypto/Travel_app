@@ -22,6 +22,11 @@ const firebaseConfig = {
 const shouldUseEmulators =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
 
+if (typeof document !== "undefined") {
+  document.documentElement.dataset.firebaseEmulator =
+    shouldUseEmulators ? "true" : "false";
+}
+
 const initFirebase = () => {
   if (!firebaseConfig.apiKey || !firebaseConfig.databaseURL) {
     console.warn("Firebase 環境變數不完整。");

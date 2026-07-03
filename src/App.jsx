@@ -278,7 +278,7 @@ export default function TravelApp() {
   if (activeRoomId) return (
     <APIProvider apiKey={API_KEY}>
       <span
-        data-testid="active-trip-view"
+        data-testid="trip-route-context"
         data-room-id={String(activeRoomId)}
         data-database-namespace={FIREBASE_DATABASE_NAMESPACE}
         className="sr-only"

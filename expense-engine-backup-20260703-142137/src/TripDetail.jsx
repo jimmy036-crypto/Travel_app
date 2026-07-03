@@ -40,11 +40,6 @@ import {
   timeToMins
 } from "./helpers";
 import { CATEGORIES, MAP_ID } from "./constants";
-import {
-  calculateCategoryStats,
-  calculateExpenseStats,
-  calculateMemberCategoryStats,
-} from "./features/expenses/expenseCalculations";
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -1700,23 +1695,150 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     };
   }, [checklistItems]);
 
-  const expenseStats = useMemo(() => calculateExpenseStats({
-    expenses,
-    settlements,
-    members: membersList,
-    existingDays,
-    preTripId: PRE_TRIP_ID,
-  }), [existingDays, expenses, membersList, settlements]);
+  const expenseStats = useMemo(() => {
+    const safeExpenses = Array.isArray(expenses) ? expenses : [];
+    const safeSettlements = Array.isArray(settlements) ? settlements : [];
+    const total = safeExpenses.reduce((sum, expense) => sum + (Number(expense.cost) || 0), 0);
+    const groupOrder = [PRE_TRIP_ID, ...existingDays];
+    const groupedMap = Object.fromEntries(groupOrder.map((day) => [day, []]));
 
-  const categoryStats = useMemo(
-    () => calculateCategoryStats(expenses, CATEGORIES),
-    [expenses],
-  );
+    const buildBalanceSnapshot = (expenseFilter) => {
+      const balances = {};
+      const personal = {};
+      membersList.forEach((member) => {
+        balances[String(member)] = 0;
+        personal[String(member)] = 0;
+      });
 
-  const memberCategoryStats = useMemo(
-    () => calculateMemberCategoryStats(expenses, membersList, CATEGORIES),
-    [expenses, membersList],
-  );
+      safeExpenses.filter(expenseFilter).forEach((expense) => {
+        const payer = String(expense.payer);
+        const cost = Number(expense.cost) || 0;
+        if (balances[payer] !== undefined) balances[payer] += cost;
+        if (expense.split && typeof expense.split === "object") {
+          Object.entries(expense.split).forEach(([member, rawAmount]) => {
+            if (balances[member] === undefined) return;
+            const amount = Number(rawAmount) || 0;
+            balances[member] -= amount;
+            personal[member] += amount;
+          });
+        } else {
+          const splitAmount = cost / Math.max(1, membersList.length);
+          membersList.forEach((member) => {
+            const key = String(member);
+            balances[key] -= splitAmount;
+            personal[key] += splitAmount;
+          });
+        }
+      });
+      return { balances, personal };
+    };
+
+    safeExpenses.forEach((expense) => {
+      const key = expense.dayId === PRE_TRIP_ID ? PRE_TRIP_ID : String(expense.dayId || "");
+      if (groupedMap[key]) groupedMap[key].push(expense);
+    });
+
+    const allSnapshot = buildBalanceSnapshot(() => true);
+    const preTripSnapshot = buildBalanceSnapshot(expense => expense.dayId === PRE_TRIP_ID);
+
+    safeSettlements
+      .filter(item => item.scope === "pretrip")
+      .forEach(item => {
+        const from = String(item.from || "");
+        const to = String(item.to || "");
+        const amount = Number(item.amount) || 0;
+        if (preTripSnapshot.balances[from] !== undefined) preTripSnapshot.balances[from] += amount;
+        if (preTripSnapshot.balances[to] !== undefined) preTripSnapshot.balances[to] -= amount;
+        if (allSnapshot.balances[from] !== undefined) allSnapshot.balances[from] += amount;
+        if (allSnapshot.balances[to] !== undefined) allSnapshot.balances[to] -= amount;
+      });
+
+    const buildTransfers = (balances) => {
+      const debtors = [];
+      const creditors = [];
+      Object.entries(balances).forEach(([member, balance]) => {
+        if (balance < -0.5) debtors.push({ member, amount: -balance });
+        else if (balance > 0.5) creditors.push({ member, amount: balance });
+      });
+      debtors.sort((a, b) => b.amount - a.amount);
+      creditors.sort((a, b) => b.amount - a.amount);
+      const transfers = [];
+      let debtorIndex = 0;
+      let creditorIndex = 0;
+      while (debtorIndex < debtors.length && creditorIndex < creditors.length) {
+        const amount = Math.min(debtors[debtorIndex].amount, creditors[creditorIndex].amount);
+        transfers.push({ from: debtors[debtorIndex].member, to: creditors[creditorIndex].member, amount });
+        debtors[debtorIndex].amount -= amount;
+        creditors[creditorIndex].amount -= amount;
+        if (debtors[debtorIndex].amount < 0.5) debtorIndex += 1;
+        if (creditors[creditorIndex].amount < 0.5) creditorIndex += 1;
+      }
+      return transfers;
+    };
+
+    return {
+      totalExpense: total,
+      groupedExpenses: groupOrder.map((day) => ({ day, items: groupedMap[day] || [] })),
+      balances: allSnapshot.balances,
+      personalSpent: allSnapshot.personal,
+      transfers: buildTransfers(allSnapshot.balances),
+      preTripBalances: preTripSnapshot.balances,
+      preTripTransfers: buildTransfers(preTripSnapshot.balances),
+      preTripTotal: safeExpenses.filter(expense => expense.dayId === PRE_TRIP_ID).reduce((sum, expense) => sum + (Number(expense.cost) || 0), 0),
+      preTripSettlementTotal: safeSettlements.filter(item => item.scope === "pretrip").reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+    };
+  }, [existingDays, expenses, membersList, settlements]);
+
+  const categoryStats = useMemo(() => {
+    const stats = {};
+    CATEGORIES.forEach(c => { stats[c.id] = { ...c, amount: 0 }; });
+    (Array.isArray(expenses) ? expenses : []).forEach(e => {
+      if (stats[e.category]) {
+        stats[e.category].amount += (Number(e.cost) || 0);
+      }
+    });
+    return Object.values(stats).filter(s => s.amount > 0).sort((a, b) => b.amount - a.amount);
+  }, [expenses]);
+
+  const memberCategoryStats = useMemo(() => {
+    const result = {};
+    const safeMembers = Array.isArray(membersList) ? membersList.map(String) : [];
+    const knownCategoryIds = new Set(CATEGORIES.map(category => category.id));
+
+    safeMembers.forEach(member => {
+      const categories = {};
+      CATEGORIES.forEach(category => {
+        categories[category.id] = { ...category, amount: 0 };
+      });
+      result[member] = { total: 0, categories };
+    });
+
+    (Array.isArray(expenses) ? expenses : []).forEach(expense => {
+      const categoryId = knownCategoryIds.has(expense.category) ? expense.category : 'other';
+      const addShare = (member, rawAmount) => {
+        const memberKey = String(member);
+        const amount = Number(rawAmount) || 0;
+        if (amount <= 0 || !result[memberKey]) return;
+        result[memberKey].total += amount;
+        result[memberKey].categories[categoryId].amount += amount;
+      };
+
+      if (expense.split && typeof expense.split === 'object') {
+        Object.entries(expense.split).forEach(([member, amount]) => addShare(member, amount));
+      } else if (safeMembers.length > 0) {
+        const equalShare = (Number(expense.cost) || 0) / safeMembers.length;
+        safeMembers.forEach(member => addShare(member, equalShare));
+      }
+    });
+
+    Object.values(result).forEach(memberStats => {
+      memberStats.categories = Object.values(memberStats.categories)
+        .filter(category => category.amount > 0)
+        .sort((a, b) => b.amount - a.amount);
+    });
+
+    return result;
+  }, [expenses, membersList]);
 
   const safeExpenseChartOwner =
     expenseChartOwner === 'ALL' || membersList.includes(expenseChartOwner)

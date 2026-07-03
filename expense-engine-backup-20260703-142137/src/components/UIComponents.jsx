@@ -6,14 +6,6 @@ import { APP_VERSION, CATEGORIES, TAG_OPTIONS } from "../constants";
 import { safeUrlFormatter, getDayDisplay, generateId, formatStayTime, parseDateOnlyLocal, extractRoomId, isValidCoordinates, openExternalUrl } from "../helpers";
 import { storage } from "../firebase";
 import { ref as sRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
-import {
-  buildEqualSplit,
-  calculateCustomTotal,
-  calculateTwdCost,
-  inferExpenseSplitState,
-  rebalanceCustomAmounts,
-  validateCustomSplit,
-} from "../features/expenses/expenseCalculations";
 
 const AUTOCOMPLETE_DELAY_MS = 300;
 const REGION_AUTOCOMPLETE_TYPES = Object.freeze(['(regions)']);
@@ -569,11 +561,32 @@ export const ExpenseModal = ({
     ? String(expense.category)
     : "food";
 
-  const initialSplitState = useMemo(() => inferExpenseSplitState({
-    expense,
-    isEditing,
-    members: validMembers,
-  }), [expense, isEditing, validMembers]);
+  const initialSplitState = useMemo(() => {
+    if (!isEditing || !expense?.split || typeof expense.split !== "object") {
+      return {
+        type: "EQUAL",
+        involved: validMembers,
+        customAmounts: Object.fromEntries(validMembers.map(member => [member, ""])),
+      };
+    }
+
+    const amounts = validMembers.map(member => Number(expense.split?.[member]) || 0);
+    const involvedMembers = validMembers.filter((member, index) => amounts[index] > 0.005);
+    const positiveAmounts = amounts.filter(amount => amount > 0.005);
+    const looksEqual = positiveAmounts.length > 0
+      && Math.max(...positiveAmounts) - Math.min(...positiveAmounts) <= 0.02;
+
+    return {
+      type: looksEqual ? "EQUAL" : "CUSTOM",
+      involved: involvedMembers.length > 0 ? involvedMembers : validMembers,
+      customAmounts: Object.fromEntries(
+        validMembers.map(member => [
+          member,
+          Number(expense.split?.[member]) > 0 ? String(Number(expense.split[member])) : "",
+        ])
+      ),
+    };
+  }, [expense, isEditing, validMembers]);
 
   const [item, setItem] = useState(() => String(expense?.item || ""));
   const [localCost, setLocalCost] = useState(() => String(initialLocalCost));
@@ -587,8 +600,11 @@ export const ExpenseModal = ({
   const [customAmounts, setCustomAmounts] = useState(initialSplitState.customAmounts);
   const [note, setNote] = useState(() => String(expense?.note || ""));
 
-  const twdCost = calculateTwdCost(localCost, rate);
-  const customTotal = calculateCustomTotal(validMembers, customAmounts);
+  const twdCost = Math.round((Number(localCost) || 0) * (Number(rate) || 0));
+  const customTotal = validMembers.reduce(
+    (sum, member) => sum + (Number(customAmounts[member]) || 0),
+    0
+  );
 
   const [initialFingerprint] = useState(() => JSON.stringify({
     item: String(expense?.item || ""),
@@ -632,12 +648,29 @@ export const ExpenseModal = ({
   };
 
   const rebalanceCustomSplit = () => {
-    const next = rebalanceCustomAmounts({
-      total: twdCost,
-      members: validMembers,
-      customAmounts,
+    if (twdCost <= 0 || validMembers.length === 0) return;
+
+    const activeMembers = validMembers.filter(member => (Number(customAmounts[member]) || 0) > 0);
+    const targets = activeMembers.length > 0 ? activeMembers : validMembers;
+    const existingTotal = targets.reduce(
+      (sum, member) => sum + (Number(customAmounts[member]) || 0),
+      0
+    );
+    const next = Object.fromEntries(validMembers.map(member => [member, ""]));
+    let distributed = 0;
+
+    targets.forEach((member, index) => {
+      const rawShare = existingTotal > 0
+        ? twdCost * ((Number(customAmounts[member]) || 0) / existingTotal)
+        : twdCost / targets.length;
+      const amount = index === targets.length - 1
+        ? Math.round((twdCost - distributed) * 100) / 100
+        : Math.floor(rawShare * 100) / 100;
+      next[member] = String(amount);
+      distributed += amount;
     });
-    if (next) setCustomAmounts(next);
+
+    setCustomAmounts(next);
   };
 
   const buildExpense = ({ duplicate = false, timestamp = 0 } = {}) => {
@@ -662,33 +695,34 @@ export const ExpenseModal = ({
       return null;
     }
 
-    let finalSplit = {};
+    const finalSplit = {};
     if (splitType === "EQUAL") {
-      const result = buildEqualSplit({
-        total: twdCost,
-        members: validMembers,
-        involved,
-      });
-      if (!result.ok) {
+      const activeMembers = involved.filter(member => validMembers.includes(member));
+      if (activeMembers.length === 0) {
         alert("請至少選擇一位參與分帳的人員！");
         return null;
       }
-      finalSplit = result.split;
-    } else {
-      const result = validateCustomSplit({
-        total: twdCost,
-        members: validMembers,
-        customAmounts,
+
+      const splitAmount = Math.floor((twdCost / activeMembers.length) * 100) / 100;
+      let sum = 0;
+      activeMembers.forEach((member, index) => {
+        const amount = index === activeMembers.length - 1
+          ? Math.round((twdCost - sum) * 100) / 100
+          : splitAmount;
+        finalSplit[member] = amount;
+        sum += amount;
       });
-      if (!result.ok) {
-        if (result.error === "NEGATIVE_AMOUNT") {
-          alert("自訂分帳金額不可為負數！");
-        } else {
-          alert(`分帳總和（NT$${result.customTotal.toLocaleString()}）與折合台幣總計（NT$${twdCost.toLocaleString()}）不符！`);
-        }
+      validMembers.forEach(member => {
+        if (finalSplit[member] === undefined) finalSplit[member] = 0;
+      });
+    } else {
+      validMembers.forEach(member => {
+        finalSplit[member] = Number(customAmounts[member]) || 0;
+      });
+      if (Math.abs(customTotal - twdCost) > 0.02) {
+        alert(`分帳總和（NT$${customTotal.toLocaleString()}）與折合台幣總計（NT$${twdCost.toLocaleString()}）不符！`);
         return null;
       }
-      finalSplit = result.split;
     }
 
     const now = Number(timestamp) || 0;

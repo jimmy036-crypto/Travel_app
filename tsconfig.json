@@ -21,15 +21,19 @@
     ]
   },
   "include": [
-    "src/**/*.js",
-    "src/**/*.jsx",
-    "src/**/*.d.ts"
+    "src",
+    "e2e/**/*.ts",
+    "playwright.config.ts",
+    "vite.config.js",
+    "vitest.config.js"
   ],
   "exclude": [
     "node_modules",
     "dist",
     "dev-dist",
-    "vite.config.js",
-    "vite.config.ts"
+    "coverage",
+    "playwright-report",
+    "test-results",
+    ".firebase"
   ]
 }

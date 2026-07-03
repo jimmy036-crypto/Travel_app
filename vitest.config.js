@@ -5,34 +5,39 @@ export default defineConfig({
   plugins: [react()],
 
   test: {
-    // 提供 window、document、localStorage 等瀏覽器環境
+    // 只允許執行正式 src 資料夾內的 Vitest 測試。
+    include: [
+      'src/**/*.{test,spec}.{js,jsx,ts,tsx}',
+    ],
+
     environment: 'jsdom',
-
-    // 所有測試執行前載入
     setupFiles: './src/test/setup.js',
-
-    // 測試中可以直接使用 describe、it、expect、vi
     globals: true,
-
-    // 元件匯入 CSS 時仍能測試
     css: true,
 
-    // 每個測試後清除 mock
     clearMocks: true,
     restoreMocks: true,
 
-    // 避免將 Playwright 測試誤當成 Vitest
     exclude: [
       'node_modules/**',
       'dist/**',
+      'dev-dist/**',
+      'coverage/**',
+
+      // Playwright 測試不能交給 Vitest 執行。
       'e2e/**',
+      'test-results/**',
+      'playwright-report/**',
+
+      // 避免未來的診斷包與安裝備份被誤掃。
+      'travel-e2e-debug-current/**',
+      'react-root-fix-backup-*/**',
     ],
 
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
 
-      // 初期先只統計 helpers
       include: [
         'src/helpers.js',
       ],
