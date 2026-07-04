@@ -1946,7 +1946,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                         }
 
                         return (
-                          <div key={resource.id} className={`flex min-w-0 items-center gap-2 rounded-xl border p-3 sm:gap-3 ${t.itemBg} ${t.cardBorder}`}>
+                          <div data-testid="place-resource-row" key={resource.id} className={`flex min-w-0 items-center gap-2 rounded-xl border p-3 sm:gap-3 ${t.itemBg} ${t.cardBorder}`}>
                             <button
                               type="button"
                               onClick={() => { if (resource.url) openExternalUrl(resource.url); }}
@@ -1965,7 +1965,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                               <p className={`text-[10px] truncate mt-0.5 ${pendingUpload ? 'text-amber-500' : t.subText}`}>{detailText}</p>
                             </button>
                             <button type="button" onClick={() => handleEditResource(resource)} className={`w-10 h-10 rounded-xl ${t.subText}`} title="編輯資料">✏️</button>
-                            <button type="button" onClick={() => handleRemoveResource(resource.id)} className="w-10 h-10 rounded-xl text-red-500" title="移除資料">✕</button>
+                            <button type="button" data-testid="place-resource-remove-button" onClick={() => handleRemoveResource(resource.id)} className="w-10 h-10 rounded-xl text-red-500" title="移除資料">✕</button>
                           </div>
                         );
                       })}
@@ -1977,6 +1977,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                   <div className={`rounded-xl border p-1 grid grid-cols-3 gap-1 mb-2 ${t.inputBg} ${t.cardBorder}`}>
                     <button
                       type="button"
+                      data-testid="place-resource-mode-image-button"
                       onClick={() => { resetResourceDrafts(); setResourceAddMode('image'); }}
                       className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'image' ? 'bg-violet-600 text-white shadow-sm' : t.subText}`}
                     >
@@ -2004,7 +2005,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                         <select value={imageDraft.type} onChange={(event) => setImageDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                           {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
                         </select>
-                        <input value={imageDraft.title} onChange={(event) => setImageDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：菜單第 1 頁）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                        <input data-testid="place-resource-image-title-input" value={imageDraft.title} onChange={(event) => setImageDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：菜單第 1 頁）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                       </div>
 
                       <label className={`min-h-16 min-w-0 px-3 rounded-xl border border-dashed flex items-center gap-3 cursor-pointer overflow-hidden ${t.cardBorder}`}>
@@ -2017,14 +2018,14 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                             {imageDraft.file ? `${formatFileSize(imageDraft.file.size)}・儲存景點時上傳` : 'JPG／PNG／WebP，最多 5 MB'}
                           </span>
                         </span>
-                        <input type="file" accept="image/*" onChange={handleImageResourceChange} className="hidden" />
+                        <input data-testid="place-resource-image-input" type="file" accept="image/*" onChange={handleImageResourceChange} className="hidden" />
                       </label>
 
                       <p className={`text-[10px] leading-relaxed ${t.subText}`}>菜單照片會合併成 App 內相簿，可左右滑動，不會當成景點封面。</p>
 
                       <div className="flex gap-2">
                         {editingResourceId && editingResourceKind === 'image' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
-                        <button type="button" onClick={handleSaveImageResource} className="flex-1 min-h-11 rounded-xl bg-violet-600 text-white text-xs font-bold">
+                        <button type="button" data-testid="place-resource-image-add-button" onClick={handleSaveImageResource} className="flex-1 min-h-11 rounded-xl bg-violet-600 text-white text-xs font-bold">
                           {editingResourceId && editingResourceKind === 'image' ? '更新圖片資料' : '＋ 加入圖片'}
                         </button>
                       </div>

@@ -13,6 +13,8 @@ const ROOM_ID = 'e2eplacestorageroom0001';
 const STORAGE_PREFIX = `rooms/${ROOM_ID}/places`;
 const PLACE_NAME = 'E2E 測試餐廳';
 const PHOTO_FILE_NAME = 'phase-4-place-cover.png';
+const RESOURCE_IMAGE_FILE_NAME = 'phase-4-place-menu.png';
+const RESOURCE_IMAGE_TITLE = 'E2E 菜單圖片';
 
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC'
@@ -28,11 +30,25 @@ type PlacePhoto = {
   uploadedAt?: number;
 };
 
+type PlaceResource = {
+  id?: string;
+  kind?: string;
+  type?: string;
+  title?: string;
+  url?: string;
+  storagePath?: string;
+  fileName?: string;
+  contentType?: string;
+  size?: number;
+  uploadedAt?: number | null;
+};
+
 type PlaceItem = {
   id?: string;
   name?: string;
   customName?: string;
   placePhoto?: PlacePhoto | null;
+  resources?: PlaceResource[];
 };
 
 async function readDayOnePlaces(): Promise<PlaceItem[]> {
@@ -219,6 +235,163 @@ test('景點封面圖片會上傳、持久化並從 Database 與 Storage 一併�
       {
         timeout: 15_000,
         message: '移除後 Database Emulator 不應保留景點封面資料',
+      },
+    )
+    .toBe(false);
+
+  await expect.poll(async () => {
+    return await storageObjectExists(storagePath);
+  }).toBe(false);
+});
+
+
+test('景點資料圖片會上傳、持久化並從 Database 與 Storage 一併刪除', async ({
+  page,
+}) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+  await addTestPlace(page);
+
+  let placeId = '';
+  await expect
+    .poll(
+      async () => {
+        const place = (await readDayOnePlaces()).find(
+          (item) => item.name === PLACE_NAME,
+        );
+        placeId = String(place?.id || '');
+        return placeId;
+      },
+      {
+        timeout: 15_000,
+        message: '測試景點應寫入 Database Emulator',
+      },
+    )
+    .not.toBe('');
+
+  await openPlaceEditor(page);
+  await page.getByTestId('place-resources-toggle').click();
+  await page.getByTestId('place-resource-mode-image-button').click();
+  await page.getByTestId('place-resource-image-input').setInputFiles({
+    name: RESOURCE_IMAGE_FILE_NAME,
+    mimeType: 'image/png',
+    buffer: PNG_1X1,
+  });
+  await page
+    .getByTestId('place-resource-image-title-input')
+    .fill(RESOURCE_IMAGE_TITLE);
+  await page.getByTestId('place-resource-image-add-button').click();
+
+  const pendingResourceRow = page
+    .getByTestId('place-resource-row')
+    .filter({ hasText: RESOURCE_IMAGE_TITLE })
+    .first();
+  await expect(pendingResourceRow).toBeVisible();
+  await expect(pendingResourceRow).toContainText('待儲存上傳');
+
+  await page.getByTestId('save-place-button').click();
+  await expect(page.getByTestId('edit-place-modal')).toBeHidden({
+    timeout: 45_000,
+  });
+
+  let savedResource: PlaceResource | undefined;
+
+  await expect
+    .poll(
+      async () => {
+        const place = (await readDayOnePlaces()).find(
+          (item) => String(item.id) === placeId,
+        );
+        savedResource = place?.resources?.find(
+          (resource) => resource.title === RESOURCE_IMAGE_TITLE,
+        );
+
+        return savedResource
+          ? {
+              hasId: Boolean(savedResource.id),
+              hasDownloadUrl: Boolean(savedResource.url),
+              correctPrefix: String(savedResource.storagePath || '').startsWith(
+                `${STORAGE_PREFIX}/${placeId}/`,
+              ),
+              correctFileName: String(savedResource.storagePath || '').endsWith(
+                `_${RESOURCE_IMAGE_FILE_NAME}`,
+              ),
+              kind: savedResource.kind,
+              type: savedResource.type,
+              fileName: savedResource.fileName,
+              contentType: savedResource.contentType,
+              size: savedResource.size,
+              hasUploadedAt: Number(savedResource.uploadedAt || 0) > 0,
+            }
+          : null;
+      },
+      {
+        timeout: 15_000,
+        message: '景點資料圖片應寫入 Database Emulator',
+      },
+    )
+    .toEqual({
+      hasId: true,
+      hasDownloadUrl: true,
+      correctPrefix: true,
+      correctFileName: true,
+      kind: 'file',
+      type: 'menu',
+      fileName: RESOURCE_IMAGE_FILE_NAME,
+      contentType: 'image/png',
+      size: PNG_1X1.byteLength,
+      hasUploadedAt: true,
+    });
+
+  const resourceId = String(savedResource?.id || '');
+  const storagePath = String(savedResource?.storagePath || '');
+  expect(resourceId).not.toBe('');
+  expect(storagePath).not.toBe('');
+
+  await expect.poll(async () => {
+    return await storageObjectExists(storagePath);
+  }).toBe(true);
+
+  const metadata = await readEmulatorStorageObjectMetadata(storagePath);
+  expect(metadata?.contentType).toBe('image/png');
+  expect(Number(metadata?.size)).toBe(PNG_1X1.byteLength);
+  expect(metadata?.metadata?.roomId).toBe(ROOM_ID);
+  expect(metadata?.metadata?.itemId).toBe(placeId);
+  expect(metadata?.metadata?.resourceId).toBe(resourceId);
+  expect(metadata?.metadata?.resourceType).toBe('menu');
+
+  await page.reload();
+  await expect(placeCard(page)).toBeVisible({ timeout: 20_000 });
+  await openPlaceEditor(page);
+
+  const persistedResourceRow = page
+    .getByTestId('place-resource-row')
+    .filter({ hasText: RESOURCE_IMAGE_TITLE })
+    .first();
+  await expect(persistedResourceRow).toBeVisible();
+  await expect(persistedResourceRow).toContainText(RESOURCE_IMAGE_FILE_NAME);
+
+  await persistedResourceRow
+    .getByTestId('place-resource-remove-button')
+    .click();
+  await expect(persistedResourceRow).toBeHidden();
+  await page.getByTestId('save-place-button').click();
+  await expect(page.getByTestId('edit-place-modal')).toBeHidden({
+    timeout: 20_000,
+  });
+
+  await expect
+    .poll(
+      async () => {
+        const place = (await readDayOnePlaces()).find(
+          (item) => String(item.id) === placeId,
+        );
+        return Boolean(
+          place?.resources?.some((resource) => resource.id === resourceId),
+        );
+      },
+      {
+        timeout: 15_000,
+        message: '移除後 Database Emulator 不應保留景點資料圖片',
       },
     )
     .toBe(false);
