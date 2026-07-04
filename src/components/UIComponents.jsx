@@ -1145,17 +1145,17 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
   };
 
   return (
-    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={onClose}>
+    <div data-testid="ticket-modal" style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={onClose}>
       <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
         <h2 className={`text-xl font-black mb-5 flex items-center gap-2 ${t.mainText}`}>🎟️ 新增票券 / 附件</h2>
         <div className="overflow-y-auto pr-2 space-y-5 scrollbar-hide">
           <div>
             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>票券名稱 *</label>
-            <input value={String(title)} maxLength={80} onChange={e => setTitle(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <input data-testid="ticket-title-input" value={String(title)} maxLength={80} onChange={e => setTitle(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
           </div>
           <div>
             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>使用分配人員</label>
-            <select value={String(owner)} onChange={e => setOwner(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+            <select data-testid="ticket-owner-select" value={String(owner)} onChange={e => setOwner(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                {ownerOptions.map(opt => <option key={`opt-${opt}`} value={String(opt)}>{String(opt)}</option>)}
             </select>
           </div>
@@ -1165,7 +1165,7 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
           </div>
           {type === 'image' ? (
              <div className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 border-dashed ${t.cardBg} ${t.cardBorder}`}>
-                <input type="file" accept="image/*,application/pdf" onChange={handleFileChange} className={`text-xs ${t.mainText} w-full`} />
+                <input data-testid="ticket-file-input" type="file" accept="image/*,application/pdf" onChange={handleFileChange} className={`text-xs ${t.mainText} w-full`} />
                 <p className={`text-[10px] ${t.subText}`}>僅限圖片或 PDF，單檔上限 10 MB</p>
                 {file ? <p className="text-[10px] text-emerald-500 font-bold">已選擇：{String(file.name)}（{(file.size / 1024 / 1024).toFixed(2)} MB）</p> : null}
              </div>
@@ -1177,12 +1177,12 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
           )}
           <div>
             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>座位 / 備註</label>
-            <input value={String(memo)} maxLength={200} onChange={e => setMemo(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <input data-testid="ticket-memo-input" value={String(memo)} maxLength={200} onChange={e => setMemo(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
           </div>
         </div>
         <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}>
-          <button type="button" onClick={onClose} disabled={uploading} className={`px-5 py-2 text-sm font-bold opacity-70 hover:opacity-100 disabled:opacity-30 ${t.mainText}`}>取消</button>
-          <button type="button" onClick={() => void handleSave()} disabled={uploading} className={`bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 transition-all ${uploading ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}>
+          <button type="button" data-testid="ticket-cancel-button" onClick={onClose} disabled={uploading} className={`px-5 py-2 text-sm font-bold opacity-70 hover:opacity-100 disabled:opacity-30 ${t.mainText}`}>取消</button>
+          <button type="button" data-testid="ticket-save-button" onClick={() => void handleSave()} disabled={uploading} className={`bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 transition-all ${uploading ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}>
             {uploading ? '上傳儲存中...' : '確認新增'}
           </button>
         </div>
