@@ -2643,14 +2643,52 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       );
     };
 
+    const moveTestItineraryItem = ({
+      sourceDay = safeCurrentDay || "Day 1",
+      destinationDay = sourceDay,
+      sourceIndex,
+      destinationIndex,
+    } = {}) => {
+      const normalizedSourceIndex = Number(sourceIndex);
+      const normalizedDestinationIndex = Number(destinationIndex);
+
+      if (
+        !Number.isInteger(normalizedSourceIndex)
+        || !Number.isInteger(normalizedDestinationIndex)
+      ) {
+        return false;
+      }
+
+      handleDragEnd({
+        source: {
+          droppableId: String(sourceDay),
+          index: normalizedSourceIndex,
+        },
+        destination: {
+          droppableId: String(destinationDay),
+          index: normalizedDestinationIndex,
+        },
+      });
+
+      return true;
+    };
+
     e2eWindow.__TRAVEL_E2E__ = {
       ...(e2eWindow.__TRAVEL_E2E__ || {}),
       addTestPlace,
+      moveTestItineraryItem,
     };
 
     return () => {
       if (e2eWindow.__TRAVEL_E2E__?.addTestPlace === addTestPlace) {
         delete e2eWindow.__TRAVEL_E2E__.addTestPlace;
+      }
+
+      if (
+        e2eWindow.__TRAVEL_E2E__?.moveTestItineraryItem
+        === moveTestItineraryItem
+      ) {
+        delete e2eWindow.__TRAVEL_E2E__.moveTestItineraryItem;
       }
 
       if (
@@ -2660,7 +2698,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
         delete e2eWindow.__TRAVEL_E2E__;
       }
     };
-  }, [handleAddPlaceFromSearch, safeCurrentDay]);
+  }, [handleAddPlaceFromSearch, handleDragEnd, safeCurrentDay]);
 
   if (loadError) {
     return (
@@ -2769,7 +2807,14 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                   const dayTheme = meta.dayThemes?.[dayId] || "";
 
                   return (
-                    <div key={String(dayId)} id={`day-card-${dayId}`} onClick={() => setCurrentDay(dayId)} className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-4 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}>
+                    <div
+                      key={String(dayId)}
+                      id={`day-card-${dayId}`}
+                      data-testid="itinerary-day-card"
+                      data-day-id={String(dayId)}
+                      onClick={() => setCurrentDay(dayId)}
+                      className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-4 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}
+                    >
                       <div className="flex flex-col gap-1 mb-3 group">
                         <div className="flex justify-between items-start">
                           <div className="flex items-center gap-2 cursor-pointer" onClick={() => handleDayThemeUpdate(dayId)}>
@@ -2827,7 +2872,13 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
                       <Droppable droppableId={String(dayId)}>
                         {(provided) => (
-                          <div {...provided.droppableProps} ref={provided.innerRef} className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide">
+                          <div
+                            {...provided.droppableProps}
+                            ref={provided.innerRef}
+                            data-testid="itinerary-day-dropzone"
+                            data-day-id={String(dayId)}
+                            className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide"
+                          >
                             {(/** @type {any[]} */ (Array.isArray(itinerary[dayId]) ? itinerary[dayId] : [])).map((item, index) => {
                               const displayName = item.customName || item.name;
                               const isCustomName = !!item.customName;
@@ -2845,11 +2896,24 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                       }}
                                     >
                                       <div className="flex gap-4 items-start">
-                                        <div {...prov.dragHandleProps} onClick={(event) => event.stopPropagation()} className="flex flex-col items-center shrink-0 w-10 cursor-grab active:cursor-grabbing hover:opacity-80">
+                                        <div
+                                          {...prov.dragHandleProps}
+                                          data-testid="place-drag-handle"
+                                          data-place-id={String(item.id)}
+                                          onClick={(event) => event.stopPropagation()}
+                                          className="flex flex-col items-center shrink-0 w-10 cursor-grab active:cursor-grabbing hover:opacity-80"
+                                        >
                                            <div className={`text-xs font-black p-1.5 rounded-full w-7 h-7 flex items-center justify-center ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
                                               {index + 1}
                                            </div>
-                                           {item.time ? <span className={`text-[10px] font-bold mt-1.5 ${snap.isDragging ? 'text-white' : t.mainText}`}>{String(item.time)}</span> : null}
+                                           {item.time ? (
+                                             <span
+                                               data-testid="place-card-time"
+                                               className={`text-[10px] font-bold mt-1.5 ${snap.isDragging ? 'text-white' : t.mainText}`}
+                                             >
+                                               {String(item.time)}
+                                             </span>
+                                           ) : null}
                                            <span className="export-hide text-slate-400 mt-2 text-[10px]">≡</span>
                                         </div>
 

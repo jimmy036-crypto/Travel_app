@@ -159,6 +159,7 @@ export async function seedTestTrip(
     members?: string[];
     memberBudgets?: Record<string, number>;
     expenses?: unknown[];
+    itinerary?: Record<string, unknown[]>;
   } = {},
 ): Promise<void> {
   const now = Date.now();
@@ -168,6 +169,33 @@ export async function seedTestTrip(
   const memberBudgets = options.memberBudgets || Object.fromEntries(
     members.map((member) => [member, 10000]),
   );
+
+  const defaultItinerary = {
+    'Day 1': [
+      {
+        id: 'e2e-baseline-place',
+        name: 'E2E 基準起點',
+        place_id: 'e2e-baseline-place-id',
+        customName: '',
+        lat: 25.0324,
+        lng: 121.5645,
+        address: '台北市信義區',
+        time: '09:00',
+        stayTime: '30',
+        memo: '用來確保 Day 1 在 Database Emulator 中存在',
+        tags: [],
+        nextLeg: {
+          mode: 'AUTO',
+          mins: 30,
+        },
+      },
+    ],
+  };
+
+  const itinerary = options.itinerary
+    && typeof options.itinerary === 'object'
+    ? options.itinerary
+    : defaultItinerary;
 
   await writeEmulatorData(`rooms/${roomId}`, {
     meta: {
@@ -185,27 +213,7 @@ export async function seedTestTrip(
       createdAt: now,
       updatedAt: now,
     },
-    itinerary: {
-      'Day 1': [
-        {
-          id: 'e2e-baseline-place',
-          name: 'E2E 基準起點',
-          place_id: 'e2e-baseline-place-id',
-          customName: '',
-          lat: 25.0324,
-          lng: 121.5645,
-          address: '台北市信義區',
-          time: '09:00',
-          stayTime: '30',
-          memo: '用來確保 Day 1 在 Database Emulator 中存在',
-          tags: [],
-          nextLeg: {
-            mode: 'AUTO',
-            mins: 30,
-          },
-        },
-      ],
-    },
+    itinerary,
     expenses: Array.isArray(options.expenses) ? options.expenses : [],
     settlements: [],
     tickets: [],
