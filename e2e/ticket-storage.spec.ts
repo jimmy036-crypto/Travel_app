@@ -14,10 +14,17 @@ const STORAGE_PREFIX = `rooms/${ROOM_ID}/tickets`;
 const TICKET_TITLE = 'E2E 圖片票券';
 const TICKET_FILE_NAME = 'phase-4-ticket.png';
 const TICKET_MEMO = 'Phase 4 圖片上傳與刪除測試';
+const PDF_TICKET_TITLE = 'E2E PDF 票券';
+const PDF_TICKET_FILE_NAME = 'phase-4-ticket.pdf';
+const PDF_TICKET_MEMO = 'Phase 4 PDF 上傳與刪除測試';
 
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC'
   + 'AAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
+const PDF_TICKET_BYTES = Buffer.from(
+  'JVBERi0xLjMKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYgZG9jdW1lbnQgKG9wZW5zb3VyY2UpCjEgMCBvYmoKPDwKL0YxIDIgMCBSCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9CYXNlRm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nIC9OYW1lIC9GMSAvU3VidHlwZSAvVHlwZTEgL1R5cGUgL0ZvbnQKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL0NvbnRlbnRzIDcgMCBSIC9NZWRpYUJveCBbIDAgMCA3MiA3MiBdIC9QYXJlbnQgNiAwIFIgL1Jlc291cmNlcyA8PAovRm9udCAxIDAgUiAvUHJvY1NldCBbIC9QREYgL1RleHQgL0ltYWdlQiAvSW1hZ2VDIC9JbWFnZUkgXQo+PiAvUm90YXRlIDAgL1RyYW5zIDw8Cgo+PiAKICAvVHlwZSAvUGFnZQo+PgplbmRvYmoKNCAwIG9iago8PAovUGFnZU1vZGUgL1VzZU5vbmUgL1BhZ2VzIDYgMCBSIC9UeXBlIC9DYXRhbG9nCj4+CmVuZG9iago1IDAgb2JqCjw8Ci9BdXRob3IgKGFub255bW91cykgL0NyZWF0aW9uRGF0ZSAoRDoyMDI2MDcwNTAwMDAwMCswMCcwMCcpIC9DcmVhdG9yIChSZXBvcnRMYWIgUERGIExpYnJhcnkgLSB3d3cucmVwb3J0bGFiLmNvbSkgL0tleXdvcmRzICgpIC9Nb2REYXRlIChEOjIwMjYwNzA1MDAwMDAwKzAwJzAwJykgL1Byb2R1Y2VyIChSZXBvcnRMYWIgUERGIExpYnJhcnkgLSB3d3cucmVwb3J0bGFiLmNvbSkgCiAgL1N1YmplY3QgKHVuc3BlY2lmaWVkKSAvVGl0bGUgKHVudGl0bGVkKSAvVHJhcHBlZCAvRmFsc2UKPj4KZW5kb2JqCjYgMCBvYmoKPDwKL0NvdW50IDEgL0tpZHMgWyAzIDAgUiBdIC9UeXBlIC9QYWdlcwo+PgplbmRvYmoKNyAwIG9iago8PAovRmlsdGVyIFsgL0FTQ0lJODVEZWNvZGUgL0ZsYXRlRGVjb2RlIF0gL0xlbmd0aCA5NQo+PgpzdHJlYW0KR2FwUWgwRT1GLDBVXEgzVFxwTllUXlFLaz90Yz5JUCw7VyNVMV4yM2loUEVNXz9DVzRLSVNpOTBNakdeMixGU1w2QVViSVA+X2hrXWZQU2InQmY/TS5XKk0wRlx2RUdkKDplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA4CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDA3MyAwMDAwMCBuIAowMDAwMDAwMTA0IDAwMDAwIG4gCjAwMDAwMDAyMTEgMDAwMDAgbiAKMDAwMDAwMDQwNCAwMDAwMCBuIAowMDAwMDAwNDcyIDAwMDAwIG4gCjAwMDAwMDA3NjggMDAwMDAgbiAKMDAwMDAwMDgyNyAwMDAwMCBuIAp0cmFpbGVyCjw8Ci9JRCAKWzw0ZTRmOTdmYzM0NDRmYTNhNWZlOWI3YTM3ZWU0NDQzNj48NGU0Zjk3ZmMzNDQ0ZmEzYTVmZTliN2EzN2VlNDQ0MzY+XQovSW5mbyA1IDAgUgovUm9vdCA0IDAgUgovU2l6ZSA4Cj4+CnN0YXJ0eHJlZgoxMDExCiUlRU9GCg==',
   'base64',
 );
 
@@ -59,10 +66,10 @@ async function openTicketPanel(page: Page): Promise<void> {
   await expect(page.getByTestId('ticket-panel')).toBeVisible();
 }
 
-function ticketCard(page: Page) {
+function ticketCard(page: Page, title = TICKET_TITLE) {
   return page
     .getByTestId('ticket-card')
-    .filter({ hasText: TICKET_TITLE })
+    .filter({ hasText: title })
     .first();
 }
 
@@ -174,6 +181,120 @@ test('圖片票券會上傳、持久化並從 Database 與 Storage 一併刪除'
       {
         timeout: 15_000,
         message: '刪除後 Database Emulator 不應保留票券紀錄',
+      },
+    )
+    .toBe(false);
+
+  await expect.poll(async () => {
+    return await storageObjectExists(storagePath);
+  }).toBe(false);
+});
+
+test('PDF 票券會上傳、持久化並從 Database 與 Storage 一併刪除', async ({
+  page,
+}) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openTicketPanel(page);
+
+  await page.getByTestId('add-ticket-button').click();
+  await expect(page.getByTestId('ticket-modal')).toBeVisible();
+
+  await page.getByTestId('ticket-title-input').fill(PDF_TICKET_TITLE);
+  await page.getByTestId('ticket-memo-input').fill(PDF_TICKET_MEMO);
+  await page.getByTestId('ticket-file-input').setInputFiles({
+    name: PDF_TICKET_FILE_NAME,
+    mimeType: 'application/pdf',
+    buffer: PDF_TICKET_BYTES,
+  });
+
+  await page.getByTestId('ticket-save-button').click();
+  await expect(page.getByTestId('ticket-modal')).toBeHidden({
+    timeout: 35_000,
+  });
+
+  const pdfCard = ticketCard(page, PDF_TICKET_TITLE);
+  await expect(pdfCard).toBeVisible();
+  await expect(
+    pdfCard.getByRole('button', { name: /開啟 PDF 文件檔案/ }),
+  ).toBeVisible();
+
+  let savedTicket: TicketItem | undefined;
+
+  await expect
+    .poll(
+      async () => {
+        savedTicket = (await readTickets()).find(
+          (ticket) => ticket.title === PDF_TICKET_TITLE,
+        );
+
+        return savedTicket
+          ? {
+              type: savedTicket.type,
+              memo: savedTicket.memo,
+              owner: savedTicket.owner,
+              hasDownloadUrl: Boolean(savedTicket.url),
+              correctPrefix: String(savedTicket.storagePath || '').startsWith(
+                `${STORAGE_PREFIX}/`,
+              ),
+              correctFileName: String(savedTicket.storagePath || '').endsWith(
+                `/${PDF_TICKET_FILE_NAME}`,
+              ),
+            }
+          : null;
+      },
+      {
+        timeout: 15_000,
+        message: 'PDF 票券應寫入 Database Emulator',
+      },
+    )
+    .toEqual({
+      type: 'pdf',
+      memo: PDF_TICKET_MEMO,
+      owner: '所有人',
+      hasDownloadUrl: true,
+      correctPrefix: true,
+      correctFileName: true,
+    });
+
+  const storagePath = String(savedTicket?.storagePath || '');
+  expect(storagePath).not.toBe('');
+
+  await expect.poll(async () => {
+    return await storageObjectExists(storagePath);
+  }).toBe(true);
+
+  const metadata = await readEmulatorStorageObjectMetadata(storagePath);
+  expect(metadata?.contentType).toBe('application/pdf');
+  expect(Number(metadata?.size)).toBe(PDF_TICKET_BYTES.byteLength);
+  expect(metadata?.metadata?.roomId).toBe(ROOM_ID);
+  expect(metadata?.metadata?.ticketId).toBe(savedTicket?.id);
+
+  await page.reload();
+  await openTicketPanel(page);
+
+  const reloadedPdfCard = ticketCard(page, PDF_TICKET_TITLE);
+  await expect(reloadedPdfCard).toBeVisible();
+  await expect(
+    reloadedPdfCard.getByRole('button', { name: /開啟 PDF 文件檔案/ }),
+  ).toBeVisible();
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('confirm');
+    await dialog.accept();
+  });
+  await reloadedPdfCard.getByTestId('ticket-delete-button').click();
+  await expect(reloadedPdfCard).toBeHidden();
+
+  await expect
+    .poll(
+      async () => {
+        return (await readTickets()).some(
+          (ticket) => ticket.title === PDF_TICKET_TITLE,
+        );
+      },
+      {
+        timeout: 15_000,
+        message: '刪除後 Database Emulator 不應保留 PDF 票券紀錄',
       },
     )
     .toBe(false);
