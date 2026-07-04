@@ -7,6 +7,24 @@ type FirebaseRc = {
   };
 };
 
+type StorageObjectMetadata = {
+  name: string;
+  bucket?: string;
+  contentType?: string;
+  size?: string;
+  generation?: string;
+  metageneration?: string;
+  timeCreated?: string;
+  updated?: string;
+  metadata?: Record<string, string>;
+};
+
+type StorageObjectListResponse = {
+  items?: StorageObjectMetadata[];
+  prefixes?: string[];
+  nextPageToken?: string;
+};
+
 function parseEnvFile(fileName: string): Record<string, string> {
   const filePath = resolve(process.cwd(), fileName);
   if (!existsSync(filePath)) return {};
@@ -53,6 +71,64 @@ function getFirebaseProjectId(): string {
   );
 }
 
+function getStorageBucket(): string {
+  const env = {
+    ...parseEnvFile('.env.local'),
+    ...parseEnvFile('.env.emulator.local'),
+  };
+
+  const storageBucket = env.VITE_FIREBASE_STORAGE_BUCKET;
+  if (storageBucket) return storageBucket;
+
+  return `${getFirebaseProjectId()}.appspot.com`;
+}
+
+function normalizeStoragePath(path: string): string {
+  return String(path || '')
+    .trim()
+    .replace(/^\/+|\/+$/gu, '');
+}
+
+function getStorageObjectsUrl(
+  prefix = '',
+  pageToken = '',
+): string {
+  const query = new URLSearchParams({ delimiter: '/' });
+  const normalizedPrefix = normalizeStoragePath(prefix);
+
+  // Firebase Web SDK 的 list() 會把資料夾 path 轉成 `path/`。
+  // Storage Emulator 也依照這個格式解析 prefix。
+  query.set('prefix', normalizedPrefix ? `${normalizedPrefix}/` : '');
+  if (pageToken) query.set('pageToken', pageToken);
+
+  return (
+    `http://127.0.0.1:9199/v0/b/`
+    + `${encodeURIComponent(getStorageBucket())}/o?${query.toString()}`
+  );
+}
+
+function getStorageUploadUrl(path: string): string {
+  const normalizedPath = normalizeStoragePath(path);
+  if (!normalizedPath) throw new Error('Storage object path 不可為空。');
+
+  const query = new URLSearchParams({ name: normalizedPath });
+  return (
+    `http://127.0.0.1:9199/v0/b/`
+    + `${encodeURIComponent(getStorageBucket())}/o?${query.toString()}`
+  );
+}
+
+function getStorageObjectUrl(path: string): string {
+  const normalizedPath = normalizeStoragePath(path);
+  if (!normalizedPath) throw new Error('Storage object path 不可為空。');
+
+  return (
+    `http://127.0.0.1:9199/v0/b/`
+    + `${encodeURIComponent(getStorageBucket())}/o/`
+    + encodeURIComponent(normalizedPath)
+  );
+}
+
 function getDatabaseNamespace(): string {
   const env = {
     ...parseEnvFile('.env.local'),
@@ -95,6 +171,51 @@ async function wait(milliseconds: number): Promise<void> {
   await new Promise((resolvePromise) => {
     setTimeout(resolvePromise, milliseconds);
   });
+}
+
+async function requestStorage(
+  url: string,
+  init?: RequestInit,
+  acceptedStatuses: number[] = [],
+): Promise<Response> {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
+    let response: Response;
+
+    try {
+      response = await fetch(url, init);
+    } catch (error) {
+      lastError = error;
+      await wait(200);
+      continue;
+    }
+
+    if (response.ok || acceptedStatuses.includes(response.status)) {
+      return response;
+    }
+
+    const responseBody = (await response.text()).trim();
+    const requestMethod = String(init?.method || 'GET').toUpperCase();
+    const detail = responseBody ? `：${responseBody}` : '';
+    lastError = new Error(
+      `Storage Emulator 回傳 ${response.status} ${response.statusText}`
+      + `${detail}\n${requestMethod} ${url}`,
+    );
+
+    // 400、401、403 等是固定請求錯誤，重試不會改善；
+    // 408、429 與伺服器錯誤才保留短暫重試。
+    const shouldRetry = response.status === 408
+      || response.status === 429
+      || response.status >= 500;
+
+    if (!shouldRetry) throw lastError;
+    await wait(200);
+  }
+
+  throw new Error(
+    `Storage Emulator 請求失敗：${String(lastError)}`,
+  );
 }
 
 async function requestDatabase(
@@ -219,4 +340,123 @@ export async function seedTestTrip(
     tickets: [],
     checklist: {},
   });
+}
+
+export async function uploadEmulatorStorageObject(
+  path: string,
+  contents: string | Uint8Array,
+  contentType = 'application/octet-stream',
+): Promise<StorageObjectMetadata> {
+  const normalizedPath = normalizeStoragePath(path);
+  if (!normalizedPath) throw new Error('Storage object path 不可為空。');
+
+  const boundary = (
+    `phase-4-storage-${Date.now()}-`
+    + Math.random().toString(16).slice(2)
+  );
+  const metadata = JSON.stringify({
+    name: normalizedPath,
+    contentType,
+  });
+  const prefix = Buffer.from(
+    `--${boundary}\r\n`
+    + 'Content-Type: application/json; charset=utf-8\r\n\r\n'
+    + `${metadata}\r\n`
+    + `--${boundary}\r\n`
+    + `Content-Type: ${contentType}\r\n\r\n`,
+  );
+  const data = Buffer.from(contents);
+  const suffix = Buffer.from(`\r\n--${boundary}--`);
+
+  const response = await requestStorage(
+    getStorageUploadUrl(normalizedPath),
+    {
+      method: 'POST',
+      headers: {
+        'content-type': `multipart/related; boundary=${boundary}`,
+        'x-goog-upload-protocol': 'multipart',
+      },
+      body: Buffer.concat([prefix, data, suffix]),
+    },
+  );
+
+  return await response.json() as StorageObjectMetadata;
+}
+
+export async function listEmulatorStorageObjects(
+  prefix = '',
+): Promise<StorageObjectMetadata[]> {
+  const objects: StorageObjectMetadata[] = [];
+  const pendingPrefixes = [normalizeStoragePath(prefix)];
+  const visitedPrefixes = new Set<string>();
+
+  while (pendingPrefixes.length > 0) {
+    const currentPrefix = pendingPrefixes.shift() || '';
+    if (visitedPrefixes.has(currentPrefix)) continue;
+    visitedPrefixes.add(currentPrefix);
+
+    let pageToken = '';
+    do {
+      const response = await requestStorage(
+        getStorageObjectsUrl(currentPrefix, pageToken),
+      );
+      const payload = await response.json() as StorageObjectListResponse;
+
+      if (Array.isArray(payload.items)) objects.push(...payload.items);
+
+      for (const childPrefix of payload.prefixes || []) {
+        const normalizedChildPrefix = normalizeStoragePath(childPrefix);
+        if (!visitedPrefixes.has(normalizedChildPrefix)) {
+          pendingPrefixes.push(normalizedChildPrefix);
+        }
+      }
+
+      pageToken = String(payload.nextPageToken || '');
+    } while (pageToken);
+  }
+
+  return objects;
+}
+
+export async function readEmulatorStorageObjectMetadata(
+  path: string,
+): Promise<StorageObjectMetadata | null> {
+  const response = await requestStorage(
+    getStorageObjectUrl(path),
+    undefined,
+    [404],
+  );
+
+  if (response.status === 404) return null;
+  return await response.json() as StorageObjectMetadata;
+}
+
+export async function storageObjectExists(
+  path: string,
+): Promise<boolean> {
+  return (await readEmulatorStorageObjectMetadata(path)) !== null;
+}
+
+export async function deleteEmulatorStorageObject(
+  path: string,
+): Promise<void> {
+  const response = await requestStorage(
+    getStorageObjectUrl(path),
+    { method: 'DELETE' },
+    [404],
+  );
+
+  if (response.status !== 404 && !response.ok) {
+    throw new Error(`刪除 Storage object 失敗：${path}`);
+  }
+}
+
+export async function clearEmulatorStorage(
+  prefix = '',
+): Promise<void> {
+  const objects = await listEmulatorStorageObjects(prefix);
+
+  for (const object of objects) {
+    await deleteEmulatorStorageObject(object.name);
+  }
 }
