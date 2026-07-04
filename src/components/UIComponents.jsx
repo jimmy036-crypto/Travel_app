@@ -1985,6 +1985,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                     </button>
                     <button
                       type="button"
+                      data-testid="place-resource-mode-pdf-button"
                       onClick={() => { resetResourceDrafts(); setResourceAddMode('pdf'); }}
                       className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'pdf' ? 'bg-red-500 text-white shadow-sm' : t.subText}`}
                     >
@@ -2052,7 +2053,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                         <select value={pdfDraft.type} onChange={(event) => setPdfDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                           {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
                         </select>
-                        <input value={pdfDraft.title} onChange={(event) => setPdfDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：午餐菜單）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                        <input data-testid="place-resource-pdf-title-input" value={pdfDraft.title} onChange={(event) => setPdfDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：午餐菜單）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                       </div>
 
                       <label className={`min-h-16 min-w-0 px-3 rounded-xl border border-dashed flex items-center gap-3 cursor-pointer overflow-hidden ${t.cardBorder}`}>
@@ -2065,14 +2066,14 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                             {pdfDraft.file ? `${formatFileSize(pdfDraft.file.size)}・儲存景點時上傳` : '僅支援 PDF，最多 15 MB'}
                           </span>
                         </span>
-                        <input type="file" accept="application/pdf,.pdf" onChange={handlePdfChange} className="hidden" />
+                        <input data-testid="place-resource-pdf-input" type="file" accept="application/pdf,.pdf" onChange={handlePdfChange} className="hidden" />
                       </label>
 
                       <p className={`text-[10px] leading-relaxed ${t.subText}`}>PDF 會集中在「菜單」或「資料」面板中，不會塞滿行程卡片。</p>
 
                       <div className="flex gap-2">
                         {editingResourceId && editingResourceKind === 'file' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
-                        <button type="button" onClick={handleSavePdfResource} className="flex-1 min-h-11 rounded-xl bg-red-500 text-white text-xs font-bold">
+                        <button type="button" data-testid="place-resource-pdf-add-button" onClick={handleSavePdfResource} className="flex-1 min-h-11 rounded-xl bg-red-500 text-white text-xs font-bold">
                           {editingResourceId && editingResourceKind === 'file' ? '更新 PDF 資料' : '＋ 加入 PDF'}
                         </button>
                       </div>
