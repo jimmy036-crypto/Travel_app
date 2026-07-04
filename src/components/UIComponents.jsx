@@ -1842,7 +1842,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
           </div>
 
           <div className={`rounded-2xl border overflow-hidden ${t.cardBg} ${t.cardBorder}`}>
-            <button type="button" onClick={() => setShowResources((value) => !value)} className="flex min-h-14 w-full min-w-0 items-center justify-between gap-3 p-4 text-left">
+            <button type="button" data-testid="place-resources-toggle" onClick={() => setShowResources((value) => !value)} className="flex min-h-14 w-full min-w-0 items-center justify-between gap-3 p-4 text-left">
               <div className="min-w-0 flex-1">
                 <p className={`text-xs font-black ${t.mainText}`}>🗂️ 照片與快速資料</p>
                 <p className={`text-[10px] mt-1 ${t.subText}`}>{resourceSummary}</p>
@@ -1860,10 +1860,11 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                   {visiblePhotoUrl ? (
                     <div className="relative rounded-xl overflow-hidden border aspect-video bg-black/5">
                       <button type="button" onClick={() => openExternalUrl(visiblePhotoUrl)} className="block w-full h-full">
-                        <img src={visiblePhotoUrl} alt={`${customName || item.name} 參考照片`} className="w-full h-full object-cover" />
+                        <img data-testid="place-photo-preview" src={visiblePhotoUrl} alt={`${customName || item.name} 參考照片`} className="w-full h-full object-cover" />
                       </button>
                       <button
                         type="button"
+                        data-testid="place-photo-remove-button"
                         onClick={() => { setPhotoFile(null); setRemoveExistingPhoto(true); }}
                         className="absolute top-2 right-2 min-h-10 px-3 rounded-xl bg-black/70 text-white text-xs font-bold"
                       >
@@ -1874,13 +1875,13 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                     <label className={`min-h-24 rounded-xl border border-dashed flex flex-col items-center justify-center cursor-pointer ${t.cardBorder} ${t.inputBg}`}>
                       <span className="text-2xl">📷</span>
                       <span className={`text-xs font-bold mt-1 ${t.mainText}`}>上傳店面、餐點或集合地點照片</span>
-                      <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      <input data-testid="place-photo-input" type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
                     </label>
                   )}
                   {visiblePhotoUrl ? (
                     <label className={`mt-2 min-h-11 px-3 rounded-xl border flex items-center justify-center cursor-pointer text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                       更換照片
-                      <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      <input data-testid="place-photo-input" type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
                     </label>
                   ) : null}
                 </div>
