@@ -11,6 +11,7 @@ import {
 
 const ROOM_ID = 'e2eticketstorageroom0001';
 const STORAGE_PREFIX = `rooms/${ROOM_ID}/tickets`;
+const TRIP_TITLE = 'E2E 票券 Storage 測試旅程';
 const TICKET_TITLE = 'E2E 圖片票券';
 const TICKET_FILE_NAME = 'phase-4-ticket.png';
 const TICKET_MEMO = 'Phase 4 圖片上傳與刪除測試';
@@ -52,10 +53,35 @@ async function readTickets(): Promise<TicketItem[]> {
   return toList(value);
 }
 
-async function openTicketPanel(page: Page): Promise<void> {
-  await expect(page.getByTestId('active-trip-view')).toBeVisible({
-    timeout: 20_000,
+async function waitForActiveTrip(page: Page): Promise<void> {
+  const routeContext = page.getByTestId('trip-route-context');
+  await expect(routeContext).toHaveAttribute('data-room-id', ROOM_ID, {
+    timeout: 15_000,
   });
+
+  const activeTripView = page.getByTestId('active-trip-view');
+  const loadedOnFirstAttempt = await activeTripView
+    .waitFor({ state: 'visible', timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (!loadedOnFirstAttempt) {
+    const seededMeta = await readEmulatorData<{ title?: string }>(
+      `rooms/${ROOM_ID}/meta`,
+    );
+    expect(seededMeta?.title).toBe(TRIP_TITLE);
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(routeContext).toHaveAttribute('data-room-id', ROOM_ID, {
+      timeout: 15_000,
+    });
+  }
+
+  await expect(activeTripView).toBeVisible({ timeout: 20_000 });
+}
+
+async function openTicketPanel(page: Page): Promise<void> {
+  await waitForActiveTrip(page);
 
   const ticketTab = page.locator(
     '[data-testid="ticket-tab-button"]:visible',
@@ -77,7 +103,7 @@ test.beforeEach(async () => {
   await clearEmulatorDatabase();
   await clearEmulatorStorage(STORAGE_PREFIX);
   await seedTestTrip(ROOM_ID, {
-    title: 'E2E 票券 Storage 測試旅程',
+    title: TRIP_TITLE,
     members: ['自己', '朋友'],
   });
 });
