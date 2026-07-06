@@ -10,11 +10,16 @@
     "emulators": "firebase emulators:start --only database,storage",
     "build": "vite build",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "agent:guardrails": "node scripts/agent-guardrails.mjs",
+    "agent:verify": "node scripts/agent-verify.mjs fast",
+    "agent:verify:e2e": "node scripts/agent-verify.mjs e2e",
+    "agent:verify:all": "node scripts/agent-verify.mjs all"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",
