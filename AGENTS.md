@@ -1,4 +1,4 @@
-# Travel 專案 AI Agent 規範
+﻿# Travel 專案 AI Agent 規範
 
 本檔是所有 AI coding agent 的最高層專案規範。若工具有自己的指令檔，也必須以本檔為準。
 
