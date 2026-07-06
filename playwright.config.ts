@@ -1,16 +1,33 @@
+import { resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+
+const isCI = Boolean(process.env.CI);
+const firebaseCliHome = resolve('.tmp/firebase-home');
+
+const firebaseCliEnv = {
+  NO_UPDATE_NOTIFIER: '1',
+  FIREBASE_CLI_SKIP_UPDATE_CHECK: 'true',
+  APPDATA: resolve(firebaseCliHome, 'appdata'),
+  HOME: firebaseCliHome,
+  USERPROFILE: firebaseCliHome,
+  XDG_CONFIG_HOME: resolve(firebaseCliHome, '.config'),
+};
 
 const e2eFirebaseEnv = {
   VITE_USE_FIREBASE_EMULATOR: 'true',
   VITE_FIREBASE_API_KEY: 'emulator-api-key',
-  VITE_FIREBASE_AUTH_DOMAIN: 'travel-app-923ef.firebaseapp.com',
+  VITE_FIREBASE_AUTH_DOMAIN: 'demo-travel-e2e.firebaseapp.com',
   VITE_FIREBASE_DATABASE_URL:
-    'https://travel-app-923ef-default-rtdb.firebaseio.com',
-  VITE_FIREBASE_PROJECT_ID: 'travel-app-923ef',
-  VITE_FIREBASE_STORAGE_BUCKET: 'travel-app-923ef.appspot.com',
+    'https://demo-travel-e2e-default-rtdb.firebaseio.com',
+  VITE_FIREBASE_PROJECT_ID: 'demo-travel-e2e',
+  VITE_FIREBASE_STORAGE_BUCKET: 'demo-travel-e2e.appspot.com',
   VITE_FIREBASE_MESSAGING_SENDER_ID: '000000000000',
   VITE_FIREBASE_APP_ID: '1:000000000000:web:e2e',
 };
+
+if (isCI) {
+  Object.assign(process.env, e2eFirebaseEnv, firebaseCliEnv);
+}
 
 const inheritedEnv = Object.fromEntries(
   Object.entries(process.env).filter(
@@ -18,16 +35,19 @@ const inheritedEnv = Object.fromEntries(
   ),
 );
 
-const firebaseEmulatorCommand = process.env.CI
-  ? 'npx -y firebase-tools@15.22.4 emulators:start --only database,storage --project travel-app-923ef'
-  : 'firebase emulators:start --only database,storage --project travel-app-923ef';
+const firebaseEmulatorCommand = 'npm run emulators:e2e';
 
-const e2eDevServerEnv = process.env.CI
+const e2eWebServerEnv = {
+  ...inheritedEnv,
+  ...firebaseCliEnv,
+};
+
+const e2eDevServerEnv = isCI
   ? {
-      ...inheritedEnv,
+      ...e2eWebServerEnv,
       ...e2eFirebaseEnv,
     }
-  : inheritedEnv;
+  : e2eWebServerEnv;
 
 export default defineConfig({
   testDir: './e2e',
@@ -73,16 +93,23 @@ export default defineConfig({
 
   webServer: [
     {
+      name: 'Firebase Emulator',
       command: firebaseEmulatorCommand,
+      env: e2eWebServerEnv,
       url: 'http://127.0.0.1:4000',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
+      stdout: 'pipe',
+      stderr: 'pipe',
       timeout: 120_000,
     },
     {
+      name: 'Vite E2E',
       command: 'npm run dev:e2e',
       env: e2eDevServerEnv,
       url: 'http://127.0.0.1:4174',
       reuseExistingServer: false,
+      stdout: isCI ? 'pipe' : 'ignore',
+      stderr: 'pipe',
       timeout: 120_000,
     },
   ],

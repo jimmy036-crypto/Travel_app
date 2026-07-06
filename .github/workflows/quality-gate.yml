@@ -54,6 +54,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Install dependencies
         run: npm ci
 
@@ -86,13 +92,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Firebase CLI
-        run: npm install --global firebase-tools
+      - name: Verify Firebase CLI
+        run: npm run firebase:version
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium webkit
 
       - name: Run E2E with Firebase Emulator
+        env:
+          DEBUG: pw:webserver
+          FIREBASE_CLI_SKIP_UPDATE_CHECK: 'true'
+          NO_UPDATE_NOTIFIER: '1'
         run: npm run test:e2e
 
       - name: Upload Playwright artifacts

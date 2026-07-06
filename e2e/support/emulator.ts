@@ -46,7 +46,19 @@ function parseEnvFile(fileName: string): Record<string, string> {
   );
 }
 
+const emulatorLocalEnv = parseEnvFile('.env.emulator.local');
+
+function getEmulatorEnvValue(key: string): string | undefined {
+  const value = process.env.CI
+    ? process.env[key] ?? emulatorLocalEnv[key]
+    : emulatorLocalEnv[key] ?? process.env[key];
+  return value ? String(value) : undefined;
+}
+
 function getFirebaseProjectId(): string {
+  const envProjectId = getEmulatorEnvValue('VITE_FIREBASE_PROJECT_ID');
+  if (envProjectId) return envProjectId;
+
   const firebaseRcPath = resolve(process.cwd(), '.firebaserc');
 
   if (existsSync(firebaseRcPath)) {
@@ -58,26 +70,13 @@ function getFirebaseProjectId(): string {
     if (projectId) return projectId;
   }
 
-  const env = {
-    ...parseEnvFile('.env.local'),
-    ...parseEnvFile('.env.emulator.local'),
-  };
-
-  const projectId = env.VITE_FIREBASE_PROJECT_ID;
-  if (projectId) return projectId;
-
   throw new Error(
     '無法從 .firebaserc 或環境檔讀取 Firebase project ID。',
   );
 }
 
 function getStorageBucket(): string {
-  const env = {
-    ...parseEnvFile('.env.local'),
-    ...parseEnvFile('.env.emulator.local'),
-  };
-
-  const storageBucket = env.VITE_FIREBASE_STORAGE_BUCKET;
+  const storageBucket = getEmulatorEnvValue('VITE_FIREBASE_STORAGE_BUCKET');
   if (storageBucket) return storageBucket;
 
   return `${getFirebaseProjectId()}.appspot.com`;
@@ -130,12 +129,7 @@ function getStorageObjectUrl(path: string): string {
 }
 
 function getDatabaseNamespace(): string {
-  const env = {
-    ...parseEnvFile('.env.local'),
-    ...parseEnvFile('.env.emulator.local'),
-  };
-
-  const databaseUrl = env.VITE_FIREBASE_DATABASE_URL;
+  const databaseUrl = getEmulatorEnvValue('VITE_FIREBASE_DATABASE_URL');
 
   if (databaseUrl) {
     try {
