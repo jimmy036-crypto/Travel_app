@@ -91,6 +91,7 @@ Write-Host ""
 $codexArgs = @(
     "--ask-for-approval", "never",
     "--sandbox", "workspace-write",
+    "--config", 'windows.sandbox="unelevated"',
     "-C", $repoPath,
     "exec",
     "--json",
