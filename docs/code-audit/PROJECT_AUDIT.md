@@ -51,6 +51,7 @@ Each item below has at least two checks: project-wide reference search plus conf
 - `expense-engine-backup-20260703-142137/`
   - `rg --fixed-strings "expense-engine-backup-20260703-142137"` returned no references.
   - Directory name and contents indicate a dated backup copy outside `src/`; it is not in `tsconfig.json` include and is not imported by application or tests.
+  - Not removed in this pass because deleting it would create a 6000+ line non-test diff, which exceeds the task's conservative diff boundary.
 - ESLint missing ignore for `.tmp/**`
   - Baseline `npm run lint` failed only because ESLint scanned `.tmp/firebase-home/.../index-*.js`.
   - `npx eslint . --ignore-pattern ".tmp/**"` passed, confirming the failure is an ignore-scope mismatch.

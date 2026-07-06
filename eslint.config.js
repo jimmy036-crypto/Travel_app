@@ -6,12 +6,13 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
   globalIgnores([
-  'dist/**',
-  'dev-dist/**',
-  'coverage/**',
-  'playwright-report/**',
-  'test-results/**',
-  '.firebase/**',
+    'dist/**',
+    'dev-dist/**',
+    'coverage/**',
+    'playwright-report/**',
+    'test-results/**',
+    '.firebase/**',
+    '.tmp/**',
   ]),
   {
     files: ['**/*.{js,jsx}'],
