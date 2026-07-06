@@ -7,13 +7,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Prefer the npm .cmd launcher on Windows. It avoids PowerShell wrapper behavior.
 $codexCommand = Get-Command codex.cmd -ErrorAction SilentlyContinue
-
 if (-not $codexCommand) {
     $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
 }
-
 if (-not $codexCommand) {
     throw "codex was not found. Run 'codex --version' first."
 }
@@ -21,7 +18,6 @@ if (-not $codexCommand) {
 $codexExecutable = $codexCommand.Source
 $repoPath = (Resolve-Path $Repo).Path
 $taskPath = (Resolve-Path $TaskFile).Path
-
 Set-Location $repoPath
 
 if (-not (Test-Path ".git")) {
@@ -29,33 +25,31 @@ if (-not (Test-Path ".git")) {
 }
 
 $branch = (git branch --show-current).Trim()
-
 if (-not $branch) {
     throw "Detached HEAD is not allowed."
 }
-
 if ($branch -in @("main", "master")) {
     throw "Refusing to run on main/master. Create a feature branch first."
 }
 
 $workingTree = git status --porcelain
-
 if ($workingTree) {
     Write-Host "The working tree is not clean:" -ForegroundColor Yellow
     $workingTree | ForEach-Object { Write-Host $_ }
     throw "Commit, stash, or remove existing changes before running Codex."
 }
 
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $runDir = Join-Path $repoPath ".codex-runs"
-
 New-Item -ItemType Directory -Force $runDir | Out-Null
 
-$logPath = Join-Path $runDir "$stamp-full.log"
+$logPath = Join-Path $runDir "$stamp-full.jsonl"
 $summaryPath = Join-Path $runDir "$stamp-summary.md"
 $promptPath = Join-Path $runDir "$stamp-prompt.md"
 
-$task = [System.IO.File]::ReadAllText($taskPath)
+# Read the task explicitly as UTF-8. PowerShell 5.1 defaults are not reliable.
+$task = [System.IO.File]::ReadAllText($taskPath, $utf8NoBom)
 
 $fixedRules = @'
 
@@ -83,8 +77,6 @@ $fixedRules = @'
 '@
 
 $prompt = $task + $fixedRules
-
-$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($promptPath, $prompt, $utf8NoBom)
 
 Write-Host "Codex unattended task started." -ForegroundColor Cyan
@@ -92,7 +84,7 @@ Write-Host "Repository : $repoPath"
 Write-Host "Branch     : $branch"
 Write-Host "Task       : $taskPath"
 Write-Host "Codex      : $codexExecutable"
-Write-Host "Full log   : $logPath"
+Write-Host "JSONL log  : $logPath"
 Write-Host "Summary    : $summaryPath"
 Write-Host ""
 
@@ -101,18 +93,29 @@ $codexArgs = @(
     "--sandbox", "workspace-write",
     "-C", $repoPath,
     "exec",
+    "--json",
+    "--color", "never",
     "--output-last-message", $summaryPath,
     "-"
 )
 
-# codex exec intentionally streams progress to stderr.
-# PowerShell 5.1 can wrap native stderr as NativeCommandError.
-# Do not let normal progress lines terminate the unattended run.
 $previousErrorActionPreference = $ErrorActionPreference
+$previousOutputEncoding = $OutputEncoding
+$previousConsoleInputEncoding = [Console]::InputEncoding
+$previousConsoleOutputEncoding = [Console]::OutputEncoding
+
 $ErrorActionPreference = "Continue"
+$OutputEncoding = $utf8NoBom
+[Console]::InputEncoding = $utf8NoBom
+[Console]::OutputEncoding = $utf8NoBom
 
 try {
-    Get-Content $promptPath -Raw |
+    # Pipe a .NET UTF-8 string to the native Codex process.
+    # --json keeps progress on stdout and avoids PowerShell wrapping normal
+    # progress output as NativeCommandError.
+    $promptText = [System.IO.File]::ReadAllText($promptPath, $utf8NoBom)
+
+    $promptText |
         & $codexExecutable @codexArgs 2>&1 |
         Tee-Object -FilePath $logPath
 
@@ -120,6 +123,9 @@ try {
 }
 finally {
     $ErrorActionPreference = $previousErrorActionPreference
+    $OutputEncoding = $previousOutputEncoding
+    [Console]::InputEncoding = $previousConsoleInputEncoding
+    [Console]::OutputEncoding = $previousConsoleOutputEncoding
 }
 
 Write-Host ""
@@ -127,7 +133,7 @@ Write-Host ""
 if ($exitCode -eq 0) {
     Write-Host "Codex task completed." -ForegroundColor Green
     Write-Host "Summary: $summaryPath"
-    Write-Host "Full log: $logPath"
+    Write-Host "JSONL log: $logPath"
 } else {
     Write-Host "Codex task failed. Exit code: $exitCode" -ForegroundColor Red
     Write-Host "See log: $logPath"
