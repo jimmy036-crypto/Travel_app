@@ -26,7 +26,9 @@ const e2eFirebaseEnv = {
 };
 
 if (isCI) {
-  Object.assign(process.env, e2eFirebaseEnv, firebaseCliEnv);
+  // CI 測試與 helper 需要 Firebase Emulator 設定，
+  // 但不可在全域覆寫 HOME，否則 Playwright 會改變瀏覽器快取位置。
+  Object.assign(process.env, e2eFirebaseEnv);
 }
 
 const inheritedEnv = Object.fromEntries(
@@ -37,17 +39,20 @@ const inheritedEnv = Object.fromEntries(
 
 const firebaseEmulatorCommand = 'npm run emulators:e2e';
 
-const e2eWebServerEnv = {
+// Firebase CLI 可以使用獨立 HOME，避免 update check 或 config
+// 寫入 runner 的真實使用者目錄。
+const firebaseEmulatorEnv = {
   ...inheritedEnv,
   ...firebaseCliEnv,
 };
 
+// Vite 與 Playwright 不應繼承 Firebase CLI 的假 HOME。
 const e2eDevServerEnv = isCI
   ? {
-      ...e2eWebServerEnv,
+      ...inheritedEnv,
       ...e2eFirebaseEnv,
     }
-  : e2eWebServerEnv;
+  : inheritedEnv;
 
 export default defineConfig({
   testDir: './e2e',
@@ -95,7 +100,7 @@ export default defineConfig({
     {
       name: 'Firebase Emulator',
       command: firebaseEmulatorCommand,
-      env: e2eWebServerEnv,
+      env: firebaseEmulatorEnv,
       url: 'http://127.0.0.1:4000',
       reuseExistingServer: false,
       stdout: 'pipe',
