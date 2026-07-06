@@ -7,10 +7,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
+# Prefer the npm .cmd launcher on Windows. It avoids PowerShell wrapper behavior.
+$codexCommand = Get-Command codex.cmd -ErrorAction SilentlyContinue
+
+if (-not $codexCommand) {
+    $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
+}
+
+if (-not $codexCommand) {
     throw "codex was not found. Run 'codex --version' first."
 }
 
+$codexExecutable = $codexCommand.Source
 $repoPath = (Resolve-Path $Repo).Path
 $taskPath = (Resolve-Path $TaskFile).Path
 
@@ -83,6 +91,7 @@ Write-Host "Codex unattended task started." -ForegroundColor Cyan
 Write-Host "Repository : $repoPath"
 Write-Host "Branch     : $branch"
 Write-Host "Task       : $taskPath"
+Write-Host "Codex      : $codexExecutable"
 Write-Host "Full log   : $logPath"
 Write-Host "Summary    : $summaryPath"
 Write-Host ""
@@ -96,11 +105,22 @@ $codexArgs = @(
     "-"
 )
 
-Get-Content $promptPath -Raw |
-    & codex @codexArgs 2>&1 |
-    Tee-Object -FilePath $logPath
+# codex exec intentionally streams progress to stderr.
+# PowerShell 5.1 can wrap native stderr as NativeCommandError.
+# Do not let normal progress lines terminate the unattended run.
+$previousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
 
-$exitCode = $LASTEXITCODE
+try {
+    Get-Content $promptPath -Raw |
+        & $codexExecutable @codexArgs 2>&1 |
+        Tee-Object -FilePath $logPath
+
+    $exitCode = $LASTEXITCODE
+}
+finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
 
 Write-Host ""
 
