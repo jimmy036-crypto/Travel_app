@@ -10,6 +10,7 @@ import {
   calculateCustomTotal,
   calculateExpenseStats,
   calculateMemberCategoryStats,
+  calculateSettlementSummary,
   calculateTwdCost,
   inferExpenseSplitState,
   rebalanceCustomAmounts,
@@ -343,6 +344,46 @@ describe('結算與誰欠誰', () => {
   it('小於門檻的浮點尾差不產生轉帳', () => {
     expect(buildSettlementTransfers({ 自己: 0.4, 小明: -0.4 })).toEqual([]);
   });
+
+  it('會產生結算摘要供 UI 顯示應收應付與轉帳筆數', () => {
+    const transfers = buildSettlementTransfers({
+      自己: 600,
+      小明: -300,
+      小美: -300,
+      小王: 0,
+    });
+
+    expect(calculateSettlementSummary({
+      balances: { 自己: 600, 小明: -300, 小美: -300, 小王: 0 },
+      transfers,
+      members: ['自己', '小明', '小美', '小王'],
+    })).toEqual({
+      receivableTotal: 600,
+      payableTotal: 600,
+      balancedMemberCount: 1,
+      receivableMemberCount: 1,
+      payableMemberCount: 2,
+      unsettledMemberCount: 3,
+      transferCount: 2,
+      transfersTotal: 600,
+      isSettled: false,
+    });
+  });
+
+  it('已結清時結算摘要會標示沒有未結清成員', () => {
+    expect(calculateSettlementSummary({
+      balances: { 自己: 0.2, 小明: -0.2 },
+      members: ['自己', '小明'],
+    })).toMatchObject({
+      receivableTotal: 0,
+      payableTotal: 0,
+      balancedMemberCount: 2,
+      unsettledMemberCount: 0,
+      transferCount: 0,
+      transfersTotal: 0,
+      isSettled: true,
+    });
+  });
 });
 
 describe('完整支出統計', () => {
@@ -384,6 +425,18 @@ describe('完整支出統計', () => {
       ['Day 2', 0],
     ]);
     expect(stats.balanceTotal).toBe(0);
+    expect(stats.settlementSummary).toMatchObject({
+      receivableTotal: 200,
+      payableTotal: 200,
+      transferCount: 1,
+      unsettledMemberCount: 2,
+    });
+    expect(stats.preTripSettlementSummary).toMatchObject({
+      receivableTotal: 500,
+      payableTotal: 500,
+      transferCount: 1,
+      unsettledMemberCount: 2,
+    });
   });
 
   it('結算只抵銷餘額，不改變總花費與個人負擔', () => {
