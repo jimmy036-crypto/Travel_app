@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useMapsLibrary, useMap } from '@vis.gl/react-google-maps';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
+import { ResponsiveBottomSheet } from './ResponsiveBottomSheet';
 import { APP_VERSION, CATEGORIES, TAG_OPTIONS } from "../constants";
 import { safeUrlFormatter, getDayDisplay, generateId, formatStayTime, parseDateOnlyLocal, extractRoomId, isValidCoordinates, openExternalUrl } from "../helpers";
 import { storage } from "../firebase";
@@ -534,8 +535,6 @@ export const ExpenseModal = ({
   onDuplicate,
   t,
 }) => {
-  useBodyScrollLock();
-
   const validMembers = useMemo(
     () => [...new Set((Array.isArray(members) ? members : []).map(String).filter(Boolean))],
     [members]
@@ -730,21 +729,18 @@ export const ExpenseModal = ({
   };
 
   return (
-    <div
-      data-testid="expense-modal"
-      data-mode={isEditing ? "edit" : "create"}
-      style={{ zIndex: 9999, touchAction: "pan-y" }}
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden w-full max-w-[100vw]"
-      onClick={requestClose}
+    <ResponsiveBottomSheet
+      testId="expense-modal"
+      dataMode={isEditing ? "edit" : "create"}
+      labelledBy="expense-modal-title"
+      initialFocusSelector='[data-testid="expense-item-input"]'
+      onClose={requestClose}
+      panelClassName={`${t.modalBg} ${t.cardBorder}`}
     >
-      <div
-        style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}
-        className={`border rounded-t-3xl sm:rounded-3xl w-full max-w-md shadow-2xl flex flex-col max-h-[94dvh] sm:max-h-[90vh] animate-in slide-in-from-bottom-4 sm:zoom-in-95 ${t.modalBg} ${t.cardBorder}`}
-        onClick={event => event.stopPropagation()}
-      >
         <div className={`flex items-start justify-between gap-4 p-5 sm:p-6 border-b shrink-0 ${t.cardBorder}`}>
           <div>
             <h2
+              id="expense-modal-title"
               data-testid="expense-modal-title"
               className={`text-xl font-black flex items-center gap-2 ${t.mainText}`}
             >
@@ -756,6 +752,7 @@ export const ExpenseModal = ({
           </div>
           <button
             type="button"
+            data-testid="expense-close-button"
             onClick={requestClose}
             className={`w-11 h-11 rounded-full flex items-center justify-center bg-slate-500/10 text-lg shrink-0 hover:text-red-500 ${t.subText}`}
             aria-label="關閉記帳視窗"
@@ -772,7 +769,6 @@ export const ExpenseModal = ({
               value={item}
               onChange={event => setItem(event.target.value)}
               placeholder="例如：晚餐燒肉、北部住宿"
-              autoFocus={!isEditing}
               className={`w-full py-3 px-3.5 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-base sm:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
             />
           </div>
@@ -1033,8 +1029,7 @@ export const ExpenseModal = ({
             {isEditing ? "儲存變更" : "確認新增"}
           </button>
         </div>
-      </div>
-    </div>
+    </ResponsiveBottomSheet>
   );
 };
 export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
