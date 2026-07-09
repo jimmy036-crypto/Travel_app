@@ -3241,6 +3241,8 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                         <div className="grid grid-cols-2 gap-3 mb-4">
                           <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>行前支出</p><p className={`font-mono font-black mt-1 ${t.mainText}`}>NT${Math.round(expenseStats.preTripTotal).toLocaleString()}</p></div>
                           <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>已記錄轉帳</p><p className="font-mono font-black mt-1 text-indigo-500">NT${Math.round(expenseStats.preTripSettlementTotal).toLocaleString()}</p></div>
+                          <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>行前剩餘應收</p><p className="font-mono font-black mt-1 text-emerald-500">NT${Math.round(expenseStats.preTripSettlementSummary?.receivableTotal || 0).toLocaleString()}</p></div>
+                          <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>行前建議轉帳筆數</p><p className={`font-mono font-black mt-1 ${t.mainText}`}>{expenseStats.preTripSettlementSummary?.transferCount || 0} 筆</p></div>
                         </div>
                         {expenseStats.preTripTransfers.length > 0 ? (
                           <div className="space-y-2">
@@ -3252,6 +3254,24 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
                       <div className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
                         <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${t.mainText}`}>👤 各自收支總覽</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                          <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
+                            <p className={`text-[9px] font-bold ${t.subText}`}>全程應收</p>
+                            <p className="font-mono font-black mt-1 text-emerald-500">NT${Math.round(expenseStats.settlementSummary?.receivableTotal || 0).toLocaleString()}</p>
+                          </div>
+                          <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
+                            <p className={`text-[9px] font-bold ${t.subText}`}>全程應付</p>
+                            <p className="font-mono font-black mt-1 text-red-500">NT${Math.round(expenseStats.settlementSummary?.payableTotal || 0).toLocaleString()}</p>
+                          </div>
+                          <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
+                            <p className={`text-[9px] font-bold ${t.subText}`}>最少轉帳筆數</p>
+                            <p className={`font-mono font-black mt-1 ${t.mainText}`}>{expenseStats.settlementSummary?.transferCount || 0} 筆</p>
+                          </div>
+                          <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
+                            <p className={`text-[9px] font-bold ${t.subText}`}>已結清人數</p>
+                            <p className={`font-mono font-black mt-1 ${t.mainText}`}>{expenseStats.settlementSummary?.balancedMemberCount || 0} 人</p>
+                          </div>
+                        </div>
                         <div className="space-y-3">
                           {Object.entries(expenseStats.balances).map(([member, balance]) => {
                             const isPositive = balance > 0.01;

@@ -315,6 +315,60 @@ export const calculateBalanceTotal = (balances) => (
   )
 );
 
+export const calculateSettlementSummary = ({
+  balances,
+  transfers,
+  members,
+  threshold = DEFAULT_TRANSFER_THRESHOLD,
+} = {}) => {
+  const safeThreshold = Math.max(0, toFiniteNumber(threshold, DEFAULT_TRANSFER_THRESHOLD));
+  const memberOrder = toMemberList([
+    ...toMemberList(members),
+    ...Object.keys(balances && typeof balances === 'object' ? balances : {}),
+  ]);
+  const safeTransfers = Array.isArray(transfers)
+    ? transfers
+    : buildSettlementTransfers(balances, safeThreshold);
+
+  let receivableTotal = 0;
+  let payableTotal = 0;
+  let balancedMemberCount = 0;
+  let receivableMemberCount = 0;
+  let payableMemberCount = 0;
+
+  memberOrder.forEach((member) => {
+    const balance = toFiniteNumber(balances?.[member], 0);
+    if (balance > safeThreshold) {
+      receivableTotal += balance;
+      receivableMemberCount += 1;
+      return;
+    }
+
+    if (balance < -safeThreshold) {
+      payableTotal += Math.abs(balance);
+      payableMemberCount += 1;
+      return;
+    }
+
+    balancedMemberCount += 1;
+  });
+
+  return {
+    receivableTotal: roundMoney(receivableTotal, 2),
+    payableTotal: roundMoney(payableTotal, 2),
+    balancedMemberCount,
+    receivableMemberCount,
+    payableMemberCount,
+    unsettledMemberCount: receivableMemberCount + payableMemberCount,
+    transferCount: safeTransfers.length,
+    transfersTotal: roundMoney(
+      safeTransfers.reduce((sum, transfer) => sum + toFiniteNumber(transfer?.amount, 0), 0),
+      2,
+    ),
+    isSettled: safeTransfers.length === 0 && receivableMemberCount === 0 && payableMemberCount === 0,
+  };
+};
+
 export const calculateExpenseStats = ({
   expenses,
   settlements,
@@ -363,6 +417,9 @@ export const calculateExpenseStats = ({
     scope: 'pretrip',
   });
 
+  const transfers = buildSettlementTransfers(allBalances);
+  const preTripTransfers = buildSettlementTransfers(preTripBalances);
+
   return {
     totalExpense: safeExpenses.reduce(
       (sum, expense) => sum + toFiniteNumber(expense?.cost, 0),
@@ -371,9 +428,19 @@ export const calculateExpenseStats = ({
     groupedExpenses: groupOrder.map((day) => ({ day, items: groupedMap[day] || [] })),
     balances: allBalances,
     personalSpent: allSnapshot.personal,
-    transfers: buildSettlementTransfers(allBalances),
+    transfers,
+    settlementSummary: calculateSettlementSummary({
+      balances: allBalances,
+      transfers,
+      members: validMembers,
+    }),
     preTripBalances,
-    preTripTransfers: buildSettlementTransfers(preTripBalances),
+    preTripTransfers,
+    preTripSettlementSummary: calculateSettlementSummary({
+      balances: preTripBalances,
+      transfers: preTripTransfers,
+      members: validMembers,
+    }),
     preTripTotal: safeExpenses
       .filter((expense) => expense?.dayId === safePreTripId)
       .reduce((sum, expense) => sum + toFiniteNumber(expense?.cost, 0), 0),
