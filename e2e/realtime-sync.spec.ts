@@ -19,6 +19,10 @@ const INITIAL_TITLE = 'E2E realtime sync initial trip';
 const FIRST_UPDATED_TITLE = 'E2E realtime sync first update';
 const SECOND_UPDATED_TITLE = 'E2E realtime sync second update';
 const LOCAL_STORAGE_KEY = 'e2e-realtime-sync-context-marker';
+const SYNCED_PLACE_NAME = 'E2E realtime sync coffee stop';
+const SYNCED_PLACE_ARRIVAL_TIME = '12:30';
+const SYNCED_PLACE_STAY_MINUTES = '75';
+const SYNCED_PLACE_NOTE = 'E2E realtime place creation note';
 
 function contextOptionsForProject(projectName: string): BrowserContextOptions {
   const deviceOptions = projectName === 'Mobile Safari'
@@ -83,6 +87,92 @@ async function getLocalStorageMarker(page: Page): Promise<string | null> {
   );
 }
 
+function syncedPlaceCard(page: Page) {
+  return page
+    .getByTestId('place-card')
+    .filter({ hasText: SYNCED_PLACE_NAME })
+    .first();
+}
+
+async function addPlaceThroughUi(page: Page): Promise<void> {
+  const cards = page.getByTestId('place-card');
+  const initialCount = await cards.count();
+
+  await page.getByTestId('add-emulator-place-button').first().click();
+
+  await expect
+    .poll(async () => await cards.count(), {
+      timeout: 15_000,
+      message: 'new place card appears after adding through the UI',
+    })
+    .toBe(initialCount + 1);
+}
+
+async function editNewestPlaceThroughUi(page: Page): Promise<void> {
+  await page.getByTestId('place-card').last().click();
+
+  await expect(page.getByTestId('place-detail-sheet')).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.getByTestId('place-detail-edit-button').click();
+
+  await expect(page.getByTestId('edit-place-modal')).toBeVisible();
+  await page.getByTestId('place-name-input').fill(SYNCED_PLACE_NAME);
+  await page
+    .getByTestId('place-arrival-time-input')
+    .fill(SYNCED_PLACE_ARRIVAL_TIME);
+  await page
+    .getByTestId('place-stay-duration-input')
+    .fill(SYNCED_PLACE_STAY_MINUTES);
+  await page.getByTestId('place-note-input').fill(SYNCED_PLACE_NOTE);
+  await page.getByTestId('save-place-button').click();
+
+  await expect(page.getByTestId('edit-place-modal')).toBeHidden({
+    timeout: 15_000,
+  });
+  await expect(syncedPlaceCard(page)).toBeVisible({ timeout: 15_000 });
+}
+
+async function expectSyncedPlaceDetails(page: Page): Promise<void> {
+  const placeCard = syncedPlaceCard(page);
+
+  await expect(placeCard).toBeVisible({ timeout: 20_000 });
+  await expect(placeCard.getByTestId('place-card-title')).toContainText(
+    SYNCED_PLACE_NAME,
+  );
+  await expect(placeCard.getByTestId('place-card-time')).toHaveText(
+    SYNCED_PLACE_ARRIVAL_TIME,
+  );
+
+  await placeCard.click();
+
+  await expect(page.getByTestId('place-detail-sheet')).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByTestId('place-detail-title')).toHaveText(
+    SYNCED_PLACE_NAME,
+  );
+  await expect(page.getByTestId('place-detail-note')).toHaveText(
+    SYNCED_PLACE_NOTE,
+  );
+
+  await page.getByTestId('place-detail-edit-button').click();
+
+  await expect(page.getByTestId('edit-place-modal')).toBeVisible();
+  await expect(page.getByTestId('place-name-input')).toHaveValue(
+    SYNCED_PLACE_NAME,
+  );
+  await expect(page.getByTestId('place-arrival-time-input')).toHaveValue(
+    SYNCED_PLACE_ARRIVAL_TIME,
+  );
+  await expect(page.getByTestId('place-stay-duration-input')).toHaveValue(
+    SYNCED_PLACE_STAY_MINUTES,
+  );
+  await expect(page.getByTestId('place-note-input')).toHaveValue(
+    SYNCED_PLACE_NOTE,
+  );
+}
+
 test.beforeEach(async () => {
   await clearEmulatorDatabase();
   await seedTestTrip(ROOM_ID, { title: INITIAL_TITLE });
@@ -123,6 +213,30 @@ test('keeps isolated contexts synced through Firebase realtime listener', async 
     if (!contextA.context.pages().every((page) => page.isClosed())) {
       await contextA.context.close();
     }
+    await contextB.context.close();
+  }
+});
+
+test('syncs place creation between active browser contexts in realtime', async ({
+  browser,
+}, testInfo) => {
+  const contextA = await openRoom(browser, testInfo.project.name);
+  const contextB = await openRoom(browser, testInfo.project.name);
+
+  try {
+    await addPlaceThroughUi(contextA.page);
+    await editNewestPlaceThroughUi(contextA.page);
+
+    await expectSyncedPlaceDetails(contextB.page);
+
+    await contextB.page.reload();
+    await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expectTripTitle(contextB.page, INITIAL_TITLE);
+    await expectSyncedPlaceDetails(contextB.page);
+  } finally {
+    await contextA.context.close();
     await contextB.context.close();
   }
 });
