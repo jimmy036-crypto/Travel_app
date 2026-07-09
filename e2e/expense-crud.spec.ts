@@ -83,6 +83,49 @@ test.beforeEach(async () => {
   });
 });
 
+test('expense editor uses an accessible responsive sheet and supports every close action', async ({
+  page,
+}) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page);
+  await openNewExpenseModal(page);
+
+  const overlay = page.getByTestId('expense-modal');
+  const dialog = page.getByRole('dialog');
+  const viewport = page.viewportSize();
+
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute('aria-modal', 'true');
+  await expect(dialog).toHaveAccessibleName(/新增記帳/);
+  await expect(dialog.locator(':focus')).toHaveCount(1);
+
+  if (!viewport) throw new Error('Expense E2E requires a browser viewport');
+
+  const dialogBox = await dialog.boundingBox();
+  if (!dialogBox) throw new Error('Expense dialog has no bounding box');
+
+  if (viewport.width < 640) {
+    expect(Math.abs(dialogBox.y + dialogBox.height - viewport.height)).toBeLessThanOrEqual(1);
+  } else {
+    const dialogCenter = dialogBox.y + dialogBox.height / 2;
+    expect(Math.abs(dialogCenter - viewport.height / 2)).toBeLessThanOrEqual(2);
+  }
+
+  await page.keyboard.press('Escape');
+  await expect(overlay).toBeHidden();
+  if (viewport.width >= 640) {
+    await expect(page.getByTestId('add-expense-button')).toBeFocused();
+  }
+
+  await openNewExpenseModal(page);
+  await page.getByTestId('expense-modal').click({ position: { x: 4, y: 4 } });
+  await expect(page.getByTestId('expense-modal')).toBeHidden();
+
+  await openNewExpenseModal(page);
+  await page.getByTestId('expense-close-button').click();
+  await expect(page.getByTestId('expense-modal')).toBeHidden();
+});
+
 test('新增平均分帳後會更新統計並保存到 Firebase Emulator', async ({
   page,
 }) => {
