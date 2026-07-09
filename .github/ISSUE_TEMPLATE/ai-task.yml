@@ -1,0 +1,46 @@
+name: AI Agent 開發任務
+description: 提供給 Claude Code、Codex、Copilot 或其他 Agent 的標準任務格式
+title: "[AI Task] "
+labels:
+  - ai-task
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 目標
+      description: 要解決的問題或新增的能力
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 驗收標準
+      description: 使用可測試、可觀察的條件逐條列出
+      placeholder: |
+        - [ ] 使用者 A 新增景點後，使用者 B 在 3 秒內看到
+        - [ ] Firebase Emulator 資料正確
+        - [ ] Desktop 與 Mobile E2E 通過
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: 不在本次範圍
+      description: 避免 Agent 順便擴大重構
+  - type: dropdown
+    id: risk
+    attributes:
+      label: 預估風險
+      options:
+        - 低：文件或純樣式
+        - 中：一般產品功能
+        - 高：Firebase、資料模型、測試契約、CI 或安全規則
+    validations:
+      required: true
+  - type: textarea
+    id: manual
+    attributes:
+      label: 需要人工驗證的項目
+      description: 真機、相機、地圖、分享、視覺等；沒有請填「無」
+    validations:
+      required: true

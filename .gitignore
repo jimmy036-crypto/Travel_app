@@ -35,3 +35,20 @@ build/
 .env
 .env.local
 .DS_Store
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+.env.local
+.env.*.local
+
+.firebase/
+*-debug.log
+database-debug.log
+storage-debug.log
+
+coverage/

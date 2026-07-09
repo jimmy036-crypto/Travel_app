@@ -40,6 +40,21 @@ import {
   timeToMins
 } from "./helpers";
 import { CATEGORIES, MAP_ID } from "./constants";
+import {
+  calculateCategoryStats,
+  calculateExpenseStats,
+  calculateMemberCategoryStats,
+} from "./features/expenses/expenseCalculations";
+import {
+  cloneRouteItems,
+  moveItineraryItem,
+  recalculateArrivalTimes,
+  recalculateArrivalTimesFromIndex,
+} from "./features/itinerary/itineraryCalculations";
+
+const IS_FIREBASE_EMULATOR =
+  import.meta.env.MODE === "emulator"
+  || import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
 
 
 const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
@@ -134,16 +149,6 @@ const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
   );
 };
 
-
-const cloneRouteItems = (items) => (
-  (Array.isArray(items) ? items : []).map((item) => ({
-    ...item,
-    tags: Array.isArray(item?.tags) ? [...item.tags] : [],
-    resources: Array.isArray(item?.resources) ? item.resources.map((resource) => ({ ...resource })) : [],
-    placePhoto: item?.placePhoto ? { ...item.placePhoto } : null,
-    nextLeg: item?.nextLeg ? { ...item.nextLeg } : undefined,
-  }))
-);
 
 const PLACE_RESOURCE_META = Object.freeze({
   menu: { icon: '🍽️', label: '菜單' },
@@ -569,6 +574,7 @@ const PlaceItemDetailModal = ({
 
   return (
     <div
+      data-testid="place-detail-sheet"
       className="fixed inset-0 z-10010 flex items-end justify-center bg-slate-950/80 backdrop-blur-sm md:items-center md:p-5"
       role="dialog"
       aria-modal="true"
@@ -581,7 +587,7 @@ const PlaceItemDetailModal = ({
       >
         <div className={`flex min-h-16 items-center gap-3 border-b px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-xl md:px-5 md:pt-3 ${t.cardBg} ${t.cardBorder}`}>
           <div className="min-w-0 flex-1">
-            <h2 className={`truncate text-base font-black ${t.mainText}`}>{displayName}</h2>
+            <h2 data-testid="place-detail-title" className={`truncate text-base font-black ${t.mainText}`}>{displayName}</h2>
             <div className={`mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-bold ${t.subText}`}>
               {item.time ? <span>🕒 {String(item.time)}</span> : null}
               {item.stayTime !== undefined ? <span>・{formatStayTime(item.stayTime)}</span> : null}
@@ -692,7 +698,7 @@ const PlaceItemDetailModal = ({
                   <span>📝</span>
                   <h3 className={`text-xs font-black ${t.mainText}`}>行程筆記</h3>
                 </div>
-                <p className={`whitespace-pre-wrap wrap-break-word text-xs leading-relaxed ${t.mainText}`}>{String(item.memo)}</p>
+                <p data-testid="place-detail-note" className={`whitespace-pre-wrap wrap-break-word text-xs leading-relaxed ${t.mainText}`}>{String(item.memo)}</p>
               </div>
             </section>
           ) : null}
@@ -866,38 +872,11 @@ const PlaceItemDetailModal = ({
 
         <div className={`flex gap-2 border-t px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-5 md:pb-3 ${t.cardBg} ${t.cardBorder}`}>
           <button type="button" onClick={onClose} className={`min-h-11 flex-1 rounded-xl border text-xs font-bold ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>關閉</button>
-          <button type="button" onClick={onEdit} className="min-h-11 flex-1 rounded-xl bg-blue-600 text-xs font-black text-white shadow-md active:scale-95">✏️ 編輯景點</button>
+          <button type="button" data-testid="place-detail-edit-button" onClick={onEdit} className="min-h-11 flex-1 rounded-xl bg-blue-600 text-xs font-black text-white shadow-md active:scale-95">✏️ 編輯景點</button>
         </div>
       </div>
     </div>
   );
-};
-
-const getTravelMinutesForLeg = (item, duration) => {
-  if (item?.nextLeg?.mode && item.nextLeg.mode !== 'AUTO') {
-    return Math.max(0, Number(item.nextLeg.mins) || 0);
-  }
-  const routeMinutes = Number(duration?.value);
-  return Number.isFinite(routeMinutes) && routeMinutes >= 0 ? routeMinutes : 30;
-};
-
-const recalculateArrivalTimes = (items, durations, anchorTime) => {
-  const list = cloneRouteItems(items);
-  if (list.length === 0) return list;
-
-  const anchor = String(anchorTime || list[0]?.time || '').trim();
-  if (!/^\d{2}:\d{2}$/.test(anchor)) return list;
-
-  list[0] = { ...list[0], time: anchor };
-  let currentMinutes = timeToMins(anchor) + Math.max(0, Number(list[0].stayTime) || 0);
-
-  for (let index = 1; index < list.length; index += 1) {
-    currentMinutes += getTravelMinutesForLeg(list[index - 1], durations?.[index - 1]);
-    list[index] = { ...list[index], time: minsToTime(currentMinutes) };
-    currentMinutes += Math.max(0, Number(list[index].stayTime) || 0);
-  }
-
-  return list;
 };
 
 const getRouteTotals = (route) => {
@@ -1202,10 +1181,6 @@ const normalizeItinerary = (rawValue, meta) => {
   return safeItinerary;
 };
 
-const getRouteDurationMinutes = (duration) => {
-  const value = Number(duration?.mins ?? duration?.minutes ?? duration?.value);
-  return Number.isFinite(value) && value >= 0 ? value : 30;
-};
 
 const useRoomBranchSync = ({
   roomId,
@@ -1690,150 +1665,23 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     };
   }, [checklistItems]);
 
-  const expenseStats = useMemo(() => {
-    const safeExpenses = Array.isArray(expenses) ? expenses : [];
-    const safeSettlements = Array.isArray(settlements) ? settlements : [];
-    const total = safeExpenses.reduce((sum, expense) => sum + (Number(expense.cost) || 0), 0);
-    const groupOrder = [PRE_TRIP_ID, ...existingDays];
-    const groupedMap = Object.fromEntries(groupOrder.map((day) => [day, []]));
+  const expenseStats = useMemo(() => calculateExpenseStats({
+    expenses,
+    settlements,
+    members: membersList,
+    existingDays,
+    preTripId: PRE_TRIP_ID,
+  }), [existingDays, expenses, membersList, settlements]);
 
-    const buildBalanceSnapshot = (expenseFilter) => {
-      const balances = {};
-      const personal = {};
-      membersList.forEach((member) => {
-        balances[String(member)] = 0;
-        personal[String(member)] = 0;
-      });
+  const categoryStats = useMemo(
+    () => calculateCategoryStats(expenses, CATEGORIES),
+    [expenses],
+  );
 
-      safeExpenses.filter(expenseFilter).forEach((expense) => {
-        const payer = String(expense.payer);
-        const cost = Number(expense.cost) || 0;
-        if (balances[payer] !== undefined) balances[payer] += cost;
-        if (expense.split && typeof expense.split === "object") {
-          Object.entries(expense.split).forEach(([member, rawAmount]) => {
-            if (balances[member] === undefined) return;
-            const amount = Number(rawAmount) || 0;
-            balances[member] -= amount;
-            personal[member] += amount;
-          });
-        } else {
-          const splitAmount = cost / Math.max(1, membersList.length);
-          membersList.forEach((member) => {
-            const key = String(member);
-            balances[key] -= splitAmount;
-            personal[key] += splitAmount;
-          });
-        }
-      });
-      return { balances, personal };
-    };
-
-    safeExpenses.forEach((expense) => {
-      const key = expense.dayId === PRE_TRIP_ID ? PRE_TRIP_ID : String(expense.dayId || "");
-      if (groupedMap[key]) groupedMap[key].push(expense);
-    });
-
-    const allSnapshot = buildBalanceSnapshot(() => true);
-    const preTripSnapshot = buildBalanceSnapshot(expense => expense.dayId === PRE_TRIP_ID);
-
-    safeSettlements
-      .filter(item => item.scope === "pretrip")
-      .forEach(item => {
-        const from = String(item.from || "");
-        const to = String(item.to || "");
-        const amount = Number(item.amount) || 0;
-        if (preTripSnapshot.balances[from] !== undefined) preTripSnapshot.balances[from] += amount;
-        if (preTripSnapshot.balances[to] !== undefined) preTripSnapshot.balances[to] -= amount;
-        if (allSnapshot.balances[from] !== undefined) allSnapshot.balances[from] += amount;
-        if (allSnapshot.balances[to] !== undefined) allSnapshot.balances[to] -= amount;
-      });
-
-    const buildTransfers = (balances) => {
-      const debtors = [];
-      const creditors = [];
-      Object.entries(balances).forEach(([member, balance]) => {
-        if (balance < -0.5) debtors.push({ member, amount: -balance });
-        else if (balance > 0.5) creditors.push({ member, amount: balance });
-      });
-      debtors.sort((a, b) => b.amount - a.amount);
-      creditors.sort((a, b) => b.amount - a.amount);
-      const transfers = [];
-      let debtorIndex = 0;
-      let creditorIndex = 0;
-      while (debtorIndex < debtors.length && creditorIndex < creditors.length) {
-        const amount = Math.min(debtors[debtorIndex].amount, creditors[creditorIndex].amount);
-        transfers.push({ from: debtors[debtorIndex].member, to: creditors[creditorIndex].member, amount });
-        debtors[debtorIndex].amount -= amount;
-        creditors[creditorIndex].amount -= amount;
-        if (debtors[debtorIndex].amount < 0.5) debtorIndex += 1;
-        if (creditors[creditorIndex].amount < 0.5) creditorIndex += 1;
-      }
-      return transfers;
-    };
-
-    return {
-      totalExpense: total,
-      groupedExpenses: groupOrder.map((day) => ({ day, items: groupedMap[day] || [] })),
-      balances: allSnapshot.balances,
-      personalSpent: allSnapshot.personal,
-      transfers: buildTransfers(allSnapshot.balances),
-      preTripBalances: preTripSnapshot.balances,
-      preTripTransfers: buildTransfers(preTripSnapshot.balances),
-      preTripTotal: safeExpenses.filter(expense => expense.dayId === PRE_TRIP_ID).reduce((sum, expense) => sum + (Number(expense.cost) || 0), 0),
-      preTripSettlementTotal: safeSettlements.filter(item => item.scope === "pretrip").reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
-    };
-  }, [existingDays, expenses, membersList, settlements]);
-
-  const categoryStats = useMemo(() => {
-    const stats = {};
-    CATEGORIES.forEach(c => { stats[c.id] = { ...c, amount: 0 }; });
-    (Array.isArray(expenses) ? expenses : []).forEach(e => {
-      if (stats[e.category]) {
-        stats[e.category].amount += (Number(e.cost) || 0);
-      }
-    });
-    return Object.values(stats).filter(s => s.amount > 0).sort((a, b) => b.amount - a.amount);
-  }, [expenses]);
-
-  const memberCategoryStats = useMemo(() => {
-    const result = {};
-    const safeMembers = Array.isArray(membersList) ? membersList.map(String) : [];
-    const knownCategoryIds = new Set(CATEGORIES.map(category => category.id));
-
-    safeMembers.forEach(member => {
-      const categories = {};
-      CATEGORIES.forEach(category => {
-        categories[category.id] = { ...category, amount: 0 };
-      });
-      result[member] = { total: 0, categories };
-    });
-
-    (Array.isArray(expenses) ? expenses : []).forEach(expense => {
-      const categoryId = knownCategoryIds.has(expense.category) ? expense.category : 'other';
-      const addShare = (member, rawAmount) => {
-        const memberKey = String(member);
-        const amount = Number(rawAmount) || 0;
-        if (amount <= 0 || !result[memberKey]) return;
-        result[memberKey].total += amount;
-        result[memberKey].categories[categoryId].amount += amount;
-      };
-
-      if (expense.split && typeof expense.split === 'object') {
-        Object.entries(expense.split).forEach(([member, amount]) => addShare(member, amount));
-      } else if (safeMembers.length > 0) {
-        const equalShare = (Number(expense.cost) || 0) / safeMembers.length;
-        safeMembers.forEach(member => addShare(member, equalShare));
-      }
-    });
-
-    Object.values(result).forEach(memberStats => {
-      memberStats.categories = Object.values(memberStats.categories)
-        .filter(category => category.amount > 0)
-        .sort((a, b) => b.amount - a.amount);
-    });
-
-    return result;
-  }, [expenses, membersList]);
+  const memberCategoryStats = useMemo(
+    () => calculateMemberCategoryStats(expenses, membersList, CATEGORIES),
+    [expenses, membersList],
+  );
 
   const safeExpenseChartOwner =
     expenseChartOwner === 'ALL' || membersList.includes(expenseChartOwner)
@@ -1873,45 +1721,28 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const handleDragEnd = useCallback((result) => {
     const { source, destination } = result;
     if (!destination) return;
-    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
-    const sourceDay = String(source.droppableId);
-    const destinationDay = String(destination.droppableId);
-    const sourceBefore = cloneRouteItems(itinerary[sourceDay] || []);
-    const destinationBefore = sourceDay === destinationDay
-      ? sourceBefore
-      : cloneRouteItems(itinerary[destinationDay] || []);
-    const sourceAnchor = String(sourceBefore[0]?.time || '');
-    const destinationAnchor = String(destinationBefore[0]?.time || '');
+    const moveResult = moveItineraryItem({
+      itinerary,
+      sourceDay: source.droppableId,
+      destinationDay: destination.droppableId,
+      sourceIndex: source.index,
+      destinationIndex: destination.index,
+    });
 
-    const sourceItems = cloneRouteItems(sourceBefore);
-    const destinationItems = sourceDay === destinationDay
-      ? sourceItems
-      : cloneRouteItems(destinationBefore);
+    if (!moveResult.ok || moveResult.noop) return;
 
-    const [movedItem] = sourceItems.splice(source.index, 1);
-    if (!movedItem) return;
-    destinationItems.splice(destination.index, 0, movedItem);
+    const {
+      nextItinerary,
+      affectedDays,
+      pendingRecalculations,
+    } = moveResult;
 
-    const affectedDays = sourceDay === destinationDay ? [sourceDay] : [sourceDay, destinationDay];
-    const nextItinerary = { ...itinerary };
-
-    if (sourceDay === destinationDay) {
-      const anchor = sourceAnchor || String(movedItem.time || '');
-      nextItinerary[sourceDay] = recalculateArrivalTimes(sourceItems, null, anchor);
-      pendingTimeRecalculationRef.current[sourceDay] = { anchorTime: anchor };
-    } else {
-      const sourceNextAnchor = sourceAnchor || String(sourceItems[0]?.time || '');
-      const destinationNextAnchor = destinationAnchor || String(movedItem.time || sourceAnchor || '');
-      nextItinerary[sourceDay] = recalculateArrivalTimes(sourceItems, null, sourceNextAnchor);
-      nextItinerary[destinationDay] = recalculateArrivalTimes(destinationItems, null, destinationNextAnchor);
-      if (sourceItems.length > 0) {
-        pendingTimeRecalculationRef.current[sourceDay] = { anchorTime: sourceNextAnchor };
-      } else {
-        delete pendingTimeRecalculationRef.current[sourceDay];
-      }
-      pendingTimeRecalculationRef.current[destinationDay] = { anchorTime: destinationNextAnchor };
-    }
+    affectedDays.forEach((dayId) => {
+      const pending = pendingRecalculations[dayId];
+      if (pending) pendingTimeRecalculationRef.current[dayId] = pending;
+      else delete pendingTimeRecalculationRef.current[dayId];
+    });
 
     setBackupItin(null);
     clearOptimizationSummary(...affectedDays);
@@ -1968,23 +1799,15 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
       if (idx !== -1) {
         dayList[idx] = updatedItem;
-        if (shouldCascade && updatedItem.time) {
-          let currentMins = timeToMins(updatedItem.time) + Number(updatedItem.stayTime || 0);
-          for (let i = idx + 1; i < dayList.length; i++) {
-             const prevItem = dayList[i-1];
-             let travelTime = 30;
-             if (prevItem.nextLeg && prevItem.nextLeg.mode !== 'AUTO') {
-                travelTime = Number(prevItem.nextLeg.mins) || 30;
-             } else if (routeDurations[dayId]?.[i - 1]) {
-                travelTime = getRouteDurationMinutes(routeDurations[dayId][i - 1]);
-             }
-             currentMins += travelTime;
-             dayList[i] = { ...dayList[i], time: minsToTime(currentMins) };
-             currentMins += Number(dayList[i].stayTime || 0);
-          }
-        }
       }
-      n[dayId] = dayList;
+
+      n[dayId] = shouldCascade && idx !== -1 && updatedItem.time
+        ? recalculateArrivalTimesFromIndex(
+            dayList,
+            idx,
+            routeDurations[dayId],
+          )
+        : dayList;
       return n;
     });
     setEditingItemData(null);
@@ -2796,6 +2619,87 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     });
   }, [clearOptimizationSummary, setItinerary]);
 
+  useEffect(() => {
+    if (!IS_FIREBASE_EMULATOR || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const e2eWindow = /** @type {any} */ (window);
+
+    const addTestPlace = () => {
+      handleAddPlaceFromSearch(
+        safeCurrentDay || "Day 1",
+        {
+          name: "E2E 測試餐廳",
+          formatted_address: "台北市信義區信義路五段 7 號",
+          geometry: {
+            location: {
+              lat: () => 25.033,
+              lng: () => 121.5654,
+            },
+          },
+        },
+        "e2e-test-place-id",
+      );
+    };
+
+    const moveTestItineraryItem = ({
+      sourceDay = safeCurrentDay || "Day 1",
+      destinationDay = sourceDay,
+      sourceIndex,
+      destinationIndex,
+    } = {}) => {
+      const normalizedSourceIndex = Number(sourceIndex);
+      const normalizedDestinationIndex = Number(destinationIndex);
+
+      if (
+        !Number.isInteger(normalizedSourceIndex)
+        || !Number.isInteger(normalizedDestinationIndex)
+      ) {
+        return false;
+      }
+
+      handleDragEnd({
+        source: {
+          droppableId: String(sourceDay),
+          index: normalizedSourceIndex,
+        },
+        destination: {
+          droppableId: String(destinationDay),
+          index: normalizedDestinationIndex,
+        },
+      });
+
+      return true;
+    };
+
+    e2eWindow.__TRAVEL_E2E__ = {
+      ...(e2eWindow.__TRAVEL_E2E__ || {}),
+      addTestPlace,
+      moveTestItineraryItem,
+    };
+
+    return () => {
+      if (e2eWindow.__TRAVEL_E2E__?.addTestPlace === addTestPlace) {
+        delete e2eWindow.__TRAVEL_E2E__.addTestPlace;
+      }
+
+      if (
+        e2eWindow.__TRAVEL_E2E__?.moveTestItineraryItem
+        === moveTestItineraryItem
+      ) {
+        delete e2eWindow.__TRAVEL_E2E__.moveTestItineraryItem;
+      }
+
+      if (
+        e2eWindow.__TRAVEL_E2E__
+        && Object.keys(e2eWindow.__TRAVEL_E2E__).length === 0
+      ) {
+        delete e2eWindow.__TRAVEL_E2E__;
+      }
+    };
+  }, [handleAddPlaceFromSearch, handleDragEnd, safeCurrentDay]);
+
   if (loadError) {
     return (
       <div style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex items-center justify-center p-6 ${t.mainText}`}>
@@ -2815,8 +2719,21 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
   return (
     <>
+      <style>{`
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+          width: 0;
+          height: 0;
+        }
+      `}</style>
+
       <DragDropContext onDragEnd={handleDragEnd}>
-        <div style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
+        <div data-testid="active-trip-view" style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
           <div className="flex-1 flex overflow-hidden">
 
             <div className={`flex-col border-r transition-opacity duration-300 backdrop-blur-xl ${t.sidebarBg} ${t.cardBorder} ${activeTab === 'map' ? 'hidden md:flex md:w-2/3 lg:w-1/2' : 'flex w-full md:w-2/3 lg:w-1/2'}`}>
@@ -2846,8 +2763,16 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 <div className="flex items-center gap-2">
                   <div className={`hidden md:flex p-1 rounded-lg border shadow-inner ${t.cardBg} ${t.cardBorder}`}>
                     <button onClick={() => setActiveTab('plan')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${(activeTab === 'plan' || activeTab === 'map') ? 'bg-blue-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>📋 行程</button>
-                    <button onClick={() => setActiveTab('expense')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'expense' ? 'bg-emerald-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>💰 記帳</button>
-                    <button onClick={() => setActiveTab('ticket')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'ticket' ? 'bg-amber-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>🎟️ 票券</button>
+                    <button
+                      type="button"
+                      data-testid="expense-tab-button"
+                      data-layout="desktop"
+                      onClick={() => setActiveTab('expense')}
+                      className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'expense' ? 'bg-emerald-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}
+                    >
+                      💰 記帳
+                    </button>
+                    <button type="button" data-testid="ticket-tab-button" data-layout="desktop" onClick={() => setActiveTab('ticket')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'ticket' ? 'bg-amber-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>🎟️ 票券</button>
                   </div>
                   <button
                     onClick={() => setShowExportModal(true)}
@@ -2875,14 +2800,21 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 </div>
               </div>
 
-              <div onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollBy(Number(e.deltaY), 0); }} className={`flex-1 overflow-x-auto p-4 gap-4 items-start ${(activeTab === 'plan' || activeTab === 'map') ? 'flex' : 'hidden'}`}>
+              <div onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollBy(Number(e.deltaY), 0); }} className={`scrollbar-hide flex-1 overflow-x-auto overscroll-x-contain p-4 gap-4 items-start ${(activeTab === 'plan' || activeTab === 'map') ? 'flex' : 'hidden'}`}>
                 {existingDays.map(dayId => {
                   const { title, dateStr } = getDayDisplay(dayId, meta.startDate);
                   const isCurrent = safeCurrentDay === dayId;
                   const dayTheme = meta.dayThemes?.[dayId] || "";
 
                   return (
-                    <div key={String(dayId)} id={`day-card-${dayId}`} onClick={() => setCurrentDay(dayId)} className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-4 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}>
+                    <div
+                      key={String(dayId)}
+                      id={`day-card-${dayId}`}
+                      data-testid="itinerary-day-card"
+                      data-day-id={String(dayId)}
+                      onClick={() => setCurrentDay(dayId)}
+                      className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-4 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}
+                    >
                       <div className="flex flex-col gap-1 mb-3 group">
                         <div className="flex justify-between items-start">
                           <div className="flex items-center gap-2 cursor-pointer" onClick={() => handleDayThemeUpdate(dayId)}>
@@ -2940,7 +2872,13 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
                       <Droppable droppableId={String(dayId)}>
                         {(provided) => (
-                          <div {...provided.droppableProps} ref={provided.innerRef} className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide">
+                          <div
+                            {...provided.droppableProps}
+                            ref={provided.innerRef}
+                            data-testid="itinerary-day-dropzone"
+                            data-day-id={String(dayId)}
+                            className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide"
+                          >
                             {(/** @type {any[]} */ (Array.isArray(itinerary[dayId]) ? itinerary[dayId] : [])).map((item, index) => {
                               const displayName = item.customName || item.name;
                               const isCustomName = !!item.customName;
@@ -2950,17 +2888,32 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                   <div ref={prov.innerRef} {...prov.draggableProps} className={`transition-all relative group mb-1 ${snap.isDragging ? 'z-50 scale-105 touch-none' : ''}`}>
 
                                     <div
+                                      data-testid="place-card"
+                                      data-place-id={String(item.id)}
                                       className={`p-4 rounded-2xl border flex flex-col backdrop-blur-md transition-all relative overflow-hidden ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover} cursor-pointer`}`}
                                       onClick={() => {
                                         if (!snap.isDragging) handleSavedItemDetails(item, dayId);
                                       }}
                                     >
                                       <div className="flex gap-4 items-start">
-                                        <div {...prov.dragHandleProps} onClick={(event) => event.stopPropagation()} className="flex flex-col items-center shrink-0 w-10 cursor-grab active:cursor-grabbing hover:opacity-80">
+                                        <div
+                                          {...prov.dragHandleProps}
+                                          data-testid="place-drag-handle"
+                                          data-place-id={String(item.id)}
+                                          onClick={(event) => event.stopPropagation()}
+                                          className="flex flex-col items-center shrink-0 w-10 cursor-grab active:cursor-grabbing hover:opacity-80"
+                                        >
                                            <div className={`text-xs font-black p-1.5 rounded-full w-7 h-7 flex items-center justify-center ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
                                               {index + 1}
                                            </div>
-                                           {item.time ? <span className={`text-[10px] font-bold mt-1.5 ${snap.isDragging ? 'text-white' : t.mainText}`}>{String(item.time)}</span> : null}
+                                           {item.time ? (
+                                             <span
+                                               data-testid="place-card-time"
+                                               className={`text-[10px] font-bold mt-1.5 ${snap.isDragging ? 'text-white' : t.mainText}`}
+                                             >
+                                               {String(item.time)}
+                                             </span>
+                                           ) : null}
                                            <span className="export-hide text-slate-400 mt-2 text-[10px]">≡</span>
                                         </div>
 
@@ -2968,6 +2921,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                           <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0 flex-1">
                                               <h3
+                                                data-testid="place-card-title"
                                                 className={`truncate text-sm font-bold transition-colors group-hover:text-blue-500 ${snap.isDragging ? 'text-white' : t.mainText}`}
                                                 title="點擊卡片查看詳細資訊"
                                                 role="button"
@@ -3038,7 +2992,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                       </div>
 
                                       <div className={`export-hide mt-3 pt-3 border-t flex items-center gap-4 transition-all duration-300 ${snap.isDragging ? 'border-white/20' : t.cardBorder} flex md:max-h-0 md:opacity-0 md:group-hover:max-h-14 md:group-hover:opacity-100 max-h-14 opacity-100`}>
-                                        <button onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>✏️ 編輯</button>
+                                        <button data-testid="edit-place-button" onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>✏️ 編輯</button>
                                         <button onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-orange-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🔍 周邊</button>
                                         <button onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-purple-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>📋 複製</button>
                                         <div className="flex-1"></div>
@@ -3071,15 +3025,28 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 })}
               </div>
 
-              <div className={`flex-1 flex-col overflow-y-auto backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'expense' ? 'flex' : 'hidden'}`}>
+              <div
+                data-testid="expense-panel"
+                className={`scrollbar-hide flex-1 flex-col overflow-y-auto overscroll-y-contain backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'expense' ? 'flex' : 'hidden'}`}
+              >
                 <div className={`p-6 border-b shrink-0 shadow-sm ${t.headerBg} ${t.cardBorder}`}>
 
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <p className={`text-xs font-bold uppercase tracking-widest ${t.subText}`}>全團花費總計</p>
-                      <h2 className={`text-3xl font-black mt-1 ${t.mainText}`}>NT$ {expenseStats.totalExpense.toLocaleString()}</h2>
+                      <h2
+                        data-testid="expense-total"
+                        className={`text-3xl font-black mt-1 ${t.mainText}`}
+                      >
+                        NT$ {expenseStats.totalExpense.toLocaleString()}
+                      </h2>
                     </div>
-                    <button onClick={openNewExpense} className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all">
+                    <button
+                      type="button"
+                      data-testid="add-expense-button"
+                      onClick={openNewExpense}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all"
+                    >
                       ➕ 新增記帳
                     </button>
                   </div>
@@ -3092,11 +3059,22 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       const pOver = pSpent > pBudget;
                       const pPercent = pBudget > 0 ? Math.min((pSpent / pBudget) * 100, 100) : 100;
                       return (
-                        <div key={`budget-${m}`} className={`p-3 rounded-xl border bg-black/5 dark:bg-white/5 ${t.cardBorder}`}>
+                        <div
+                          key={`budget-${m}`}
+                          data-testid="member-budget-row"
+                          data-member={String(m)}
+                          className={`p-3 rounded-xl border bg-black/5 dark:bg-white/5 ${t.cardBorder}`}
+                        >
                            <div className="flex justify-between items-center mb-2">
                               <span className={`text-xs font-bold ${t.mainText}`}>{String(m)}</span>
                               <div className="flex items-center gap-2">
-                                 <span className={`text-[10px] font-bold ${pOver ? 'text-red-500' : 'text-emerald-500'}`}>已花 NT${Math.round(pSpent).toLocaleString()}</span>
+                                 <span
+                                   data-testid="member-spent"
+                                   data-member={String(m)}
+                                   className={`text-[10px] font-bold ${pOver ? 'text-red-500' : 'text-emerald-500'}`}
+                                 >
+                                   已花 NT${Math.round(pSpent).toLocaleString()}
+                                 </span>
                                  <span className={`text-[10px] opacity-40 ${t.mainText}`}>/</span>
                                  <input type="number" value={String(pBudget)} onChange={e => handleBudgetChange(m, e.target.value)} className={`bg-transparent outline-none w-14 text-right text-[10px] font-bold border-b border-dashed focus:border-blue-500 ${t.mainText}`} title="點擊修改預算" />
                               </div>
@@ -3110,9 +3088,30 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                   </div>
 
                   <div className={`flex p-1.5 rounded-xl border mt-6 shadow-inner ${t.cardBg} ${t.cardBorder}`}>
-                    <button onClick={() => setExpenseView('list')} className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'list' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}>📜 歷史明細</button>
-                    <button onClick={() => setExpenseView('settle')} className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'settle' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}>⚖️ 結算表</button>
-                    <button onClick={() => setExpenseView('chart')} className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'chart' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}>📊 圓餅圖</button>
+                    <button
+                      type="button"
+                      data-testid="expense-list-view-button"
+                      onClick={() => setExpenseView('list')}
+                      className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'list' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
+                    >
+                      📜 歷史明細
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="expense-settlement-view-button"
+                      onClick={() => setExpenseView('settle')}
+                      className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'settle' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
+                    >
+                      ⚖️ 結算表
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="expense-chart-view-button"
+                      onClick={() => setExpenseView('chart')}
+                      className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'chart' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
+                    >
+                      📊 圓餅圖
+                    </button>
                   </div>
                 </div>
 
@@ -3180,6 +3179,8 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                   <button
                                     type="button"
                                     key={String(e.id)}
+                                    data-testid="expense-record"
+                                    data-expense-id={String(e.id)}
                                     onClick={() => openExpenseEditor(e)}
                                     className={`w-full flex justify-between items-center gap-3 p-3 rounded-2xl border transition-all text-left ${t.itemBg} ${t.cardBorder} hover:border-emerald-500/50 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]`}
                                     aria-label={`編輯帳目 ${String(e.item)}`}
@@ -3188,7 +3189,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                       <span className={`w-10 h-10 ${cat.color} text-white rounded-full flex items-center justify-center text-sm shadow-inner shrink-0`}>{cat.icon}</span>
                                       <div className="min-w-0">
                                         <div className="flex items-center gap-2 min-w-0">
-                                          <p className={`text-sm font-bold truncate ${t.mainText}`}>{String(e.item)}</p>
+                                          <p
+                                            data-testid="expense-record-title"
+                                            className={`text-sm font-bold truncate ${t.mainText}`}
+                                          >
+                                            {String(e.item)}
+                                          </p>
                                           {Number(e.updatedAt) > Number(e.createdAt || e.updatedAt) ? (
                                             <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-500 font-bold">已編輯</span>
                                           ) : null}
@@ -3201,7 +3207,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                     </div>
                                     <div className="flex items-center gap-3 shrink-0">
                                       <div className="flex flex-col items-end">
-                                        <span className={`font-mono font-bold ${t.mainText}`}>NT${(Number(e.cost)||0).toLocaleString()}</span>
+                                        <span
+                                          data-testid="expense-record-cost"
+                                          className={`font-mono font-bold ${t.mainText}`}
+                                        >
+                                          NT${(Number(e.cost)||0).toLocaleString()}
+                                        </span>
                                         {e.currency && e.currency !== 'TWD' ? <span className={`text-[9px] font-mono opacity-60 ${t.subText}`}>{e.currency} {(Number(e.localCost) || 0).toLocaleString()}</span> : null}
                                       </div>
                                       <span className={`text-[11px] font-bold ${t.subText}`}>✏️ <span className="hidden sm:inline">編輯</span></span>
@@ -3285,14 +3296,14 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 </div>
               </div>
 
-              <div className={`flex-1 flex-col overflow-y-auto backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'ticket' ? 'flex' : 'hidden'}`}>
+              <div data-testid="ticket-panel" className={`scrollbar-hide flex-1 flex-col overflow-y-auto overscroll-y-contain backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'ticket' ? 'flex' : 'hidden'}`}>
                 <div className={`p-6 border-b sticky top-0 z-10 shadow-lg backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <p className={`text-xs font-bold uppercase tracking-widest ${t.subText}`}>隨身協作大廳</p>
                       <h2 className={`text-2xl font-black mt-1 ${t.mainText}`}>共同票券夾 🎟️</h2>
                     </div>
-                    <button onClick={() => setShowTicketModal(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded-2xl text-sm font-bold shadow-lg shadow-amber-500/30 active:scale-95 transition-all">
+                    <button type="button" data-testid="add-ticket-button" onClick={() => setShowTicketModal(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded-2xl text-sm font-bold shadow-lg shadow-amber-500/30 active:scale-95 transition-all">
                       ➕ 新增票券
                     </button>
                   </div>
@@ -3306,8 +3317,8 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {(/** @type {any[]} */ (tickets)).map(ticket => (
-                        <div key={String(ticket.id)} className={`relative flex flex-col p-4 rounded-3xl border shadow-sm transition-transform hover:-translate-y-1 ${t.itemBg} ${t.cardBorder}`}>
-                          <button onClick={() => { void handleDeleteTicket(ticket); }} className="absolute top-3 right-3 w-7 h-7 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center text-xs font-bold hover:bg-red-500 hover:text-white transition-colors">✕</button>
+                        <div key={String(ticket.id)} data-testid="ticket-card" data-ticket-id={String(ticket.id)} className={`relative flex flex-col p-4 rounded-3xl border shadow-sm transition-transform hover:-translate-y-1 ${t.itemBg} ${t.cardBorder}`}>
+                          <button type="button" data-testid="ticket-delete-button" onClick={() => { void handleDeleteTicket(ticket); }} className="absolute top-3 right-3 w-7 h-7 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center text-xs font-bold hover:bg-red-500 hover:text-white transition-colors">✕</button>
                           <div className="mb-2"><span className={`text-[10px] px-2 py-0.5 rounded-md border font-bold ${ticket.owner === '所有人' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'bg-purple-500/10 text-purple-600 border-purple-500/20'}`}>👤 {String(ticket.owner || '所有人')}</span></div>
                           <div className="flex items-center gap-3 mb-4 mt-2">
                              <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-600 border border-amber-500/30 flex items-center justify-center text-lg shrink-0">
@@ -3377,8 +3388,16 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
           <div style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0.5rem)' }} className={`grid grid-cols-4 border-t h-20 shrink-0 z-30 shadow-lg md:hidden ${t.headerBg} ${t.cardBorder}`}>
             <button onClick={() => setActiveTab("plan")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "plan" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>📋<span className="text-[10px] mt-1 font-bold">行程</span></button>
             <button onClick={() => setActiveTab("map")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "map" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>🗺️<span className="text-[10px] mt-1 font-bold">地圖</span></button>
-            <button onClick={() => setActiveTab("ticket")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "ticket" ? "text-amber-500 font-bold -translate-y-1" : t.subText}`}>🎟️<span className="text-[10px] mt-1 font-bold">票券</span></button>
-            <button onClick={() => setActiveTab("expense")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "expense" ? "text-emerald-500 font-bold -translate-y-1" : t.subText}`}>💰<span className="text-[10px] mt-1 font-bold">記帳</span></button>
+            <button type="button" data-testid="ticket-tab-button" data-layout="mobile" onClick={() => setActiveTab("ticket")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "ticket" ? "text-amber-500 font-bold -translate-y-1" : t.subText}`}>🎟️<span className="text-[10px] mt-1 font-bold">票券</span></button>
+            <button
+              type="button"
+              data-testid="expense-tab-button"
+              data-layout="mobile"
+              onClick={() => setActiveTab("expense")}
+              className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "expense" ? "text-emerald-500 font-bold -translate-y-1" : t.subText}`}
+            >
+              💰<span className="text-[10px] mt-1 font-bold">記帳</span>
+            </button>
           </div>
         </div>
       </DragDropContext>

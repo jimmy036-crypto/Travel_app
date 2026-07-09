@@ -1,0 +1,6 @@
+---
+description: Travel 專案所有 Agent 工作的固定規範
+alwaysApply: true
+---
+
+執行任何修改前，先閱讀根目錄 `AGENTS.md` 並完全遵守。不得直接修改保護分支、部署正式環境、存取 secrets 或降低測試標準。完成前執行 `npm run agent:verify`，準備 PR 前執行 `npm run agent:verify:all`。

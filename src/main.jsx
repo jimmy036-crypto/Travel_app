@@ -1,18 +1,13 @@
-import { createRoot } from 'react-dom/client'
-import React from "react";
-import ReactDOM from "react-dom/client";
-import App from "./App.jsx";
-import PWAUpdatePrompt from "./components/PWAUpdatePrompt.jsx";
-import "./index.css";
+import { createRoot } from 'react-dom/client';
+import App from './App.jsx';
+import './index.css';
 
-ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <App />
-    <PWAUpdatePrompt />
-  </React.StrictMode>
-);
+const rootElement = document.getElementById('root');
 
-// 移除 StrictMode，解決拖曳功能 ID 衝突的問題
-createRoot(document.getElementById('root')).render(
-  <App />
-)
+if (!rootElement) {
+  throw new Error('找不到 #root，無法啟動 App。');
+}
+
+// 全站只能建立一個 React root。
+// PWA 更新提示由 vite.config.js 在 production build 注入 pwa-update-entry.jsx。
+createRoot(rootElement).render(<App />);

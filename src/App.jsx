@@ -29,6 +29,27 @@ import {
   UpdateNoticeModal
 } from './components/UIComponents.jsx';
 
+const IS_FIREBASE_EMULATOR =
+  import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
+
+const FIREBASE_DATABASE_NAMESPACE = (() => {
+  try {
+    const databaseUrl = new URL(
+      String(import.meta.env.VITE_FIREBASE_DATABASE_URL || ""),
+    );
+    return databaseUrl.hostname.split(".")[0] || "";
+  } catch {
+    return "";
+  }
+})();
+
+const formatDateForInput = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 // ============================================================================
 // (2) 核心視圖：首頁大廳 (TravelApp)
 // ============================================================================
@@ -141,6 +162,19 @@ export default function TravelApp() {
     setTripModalMode('create');
   };
 
+  const fillEmulatorRequiredFields = () => {
+    const start = new Date();
+    start.setDate(start.getDate() + 1);
+
+    const end = new Date(start);
+    end.setDate(end.getDate() + 2);
+
+    setNewDest("台北市（Emulator 測試）");
+    setNewDestCoords({ lat: 25.033, lng: 121.5654 });
+    setNewStart(formatDateForInput(start));
+    setNewEnd(formatDateForInput(end));
+  };
+
   const openEditModal = (e, trip) => {
     e.stopPropagation();
     setNewTitle(trip.title || ""); setNewDest(trip.destination || "");
@@ -243,6 +277,14 @@ export default function TravelApp() {
   const t = useMemo(() => getThemeClasses(customBgColor), [customBgColor]);
   if (activeRoomId) return (
     <APIProvider apiKey={API_KEY}>
+      <span
+        data-testid="trip-route-context"
+        data-room-id={String(activeRoomId)}
+        data-database-namespace={FIREBASE_DATABASE_NAMESPACE}
+        className="sr-only"
+      >
+        旅程已開啟
+      </span>
       <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入旅程模組中...</div>}>
         <TripDetail roomId={activeRoomId} onBack={closeTrip} onUpdateTripMeta={handleUpdateTripMeta} />
       </Suspense>
@@ -250,7 +292,7 @@ export default function TravelApp() {
   );
 
   return (
-    <div style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-x-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
+    <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-x-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
       <div className="max-w-5xl w-full mx-auto p-6 md:p-12 overflow-y-auto">
         <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6">
           <div>
@@ -269,7 +311,7 @@ export default function TravelApp() {
               <span className={`text-xs font-bold ${t.subText}`}>自訂大廳色</span>
             </div>
             <button onClick={() => setShowImportModal(true)} className="bg-slate-500/20 border border-slate-500/30 text-sm font-bold px-4 py-3 rounded-2xl transition-transform active:scale-95">📥 匯入</button>
-            <button onClick={() => openCreateModal()} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"><span>➕</span> <span>新增</span></button>
+            <button type="button" data-testid="create-trip-button" onClick={openCreateModal} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"><span>➕</span> <span>新增</span></button>
           </div>
         </header>
 
@@ -280,7 +322,7 @@ export default function TravelApp() {
             {myTrips.map(trip => {
               const cardColor = String(trip.themeColor || '#1e293b'); const cTheme = getThemeClasses(cardColor);
               return (
-                <div key={String(trip.roomId)} onClick={() => { window.history.pushState(null, '', `?room=${encodeURIComponent(trip.roomId)}`); setActiveRoomId(trip.roomId); }} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 hover:shadow-2xl ${cTheme.cardBorder}`}>
+                <div key={String(trip.roomId)} data-testid="trip-card" data-room-id={String(trip.roomId)} onClick={() => { window.history.pushState(null, '', `?room=${encodeURIComponent(trip.roomId)}`); setActiveRoomId(trip.roomId); }} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 hover:shadow-2xl ${cTheme.cardBorder}`}>
                   <div className="flex justify-between items-start mb-4">
                     <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${cTheme.isLight ? 'bg-black/5 border-black/10 text-slate-700' : 'bg-white/20 border-white/30 text-white'}`}>{String(trip.transport)}</span>
                     <div className="flex gap-2">
@@ -288,7 +330,7 @@ export default function TravelApp() {
                       <button onClick={(e) => { e.stopPropagation(); if(window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) setMyTrips(prev => prev.filter(item => item.roomId !== trip.roomId)); }} className={`text-xs p-1 transition-colors hover:text-red-500 ${cTheme.subText}`}>移除</button>
                     </div>
                   </div>
-                  <h2 className={`text-2xl font-black mb-1.5 transition-colors line-clamp-2 ${cTheme.mainText}`}>{String(trip.title)}</h2>
+                  <h2 data-testid="trip-card-title" className={`text-2xl font-black mb-1.5 transition-colors line-clamp-2 ${cTheme.mainText}`}>{String(trip.title)}</h2>
                   <p className={`text-sm font-bold mb-5 truncate ${cTheme.subText}`}>📍 {String(trip.destination || '未定地點')}</p>
                   <div className={`p-3.5 rounded-xl border ${cTheme.cardMetaBg} ${cTheme.cardBorder}`}>
                     <p className={`text-xs mb-1.5 font-medium ${cTheme.subText}`}>📅 {String(trip.startDate || '').replace(/-/g, '/')} <span className="mx-1 opacity-50">→</span> {String(trip.endDate || '').replace(/-/g, '/')}</p>
@@ -313,9 +355,9 @@ export default function TravelApp() {
 
       {tripModalMode && (
         <APIProvider apiKey={API_KEY}>
-          <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setTripModalMode(null)}>
+          <div data-testid="trip-modal" style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setTripModalMode(null)}>
             <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto overflow-x-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
-              <h2 className={`text-2xl font-black mb-6 ${t.mainText}`}>{tripModalMode === 'create' ? '建立新旅程 🛫' : '編輯旅程設定 ⚙️'}</h2>
+              <h2 data-testid="trip-modal-title" className={`text-2xl font-black mb-6 ${t.mainText}`}>{tripModalMode === 'create' ? '建立新旅程 🛫' : '編輯旅程設定 ⚙️'}</h2>
               <div className="space-y-5">
                 <div>
                   <label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>旅程專屬顏色</label>
@@ -324,14 +366,25 @@ export default function TravelApp() {
                     <span className={`text-sm font-bold ${t.mainText}`}>{String(newThemeColor).toUpperCase()}</span>
                   </div>
                 </div>
-                <div><label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>旅程名稱 *</label><input value={String(newTitle)} onChange={e => setNewTitle(e.target.value)} placeholder="ex: 瘋狂沖繩遊" className={`w-full p-3.5 rounded-xl border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>
+                <div><label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>旅程名稱 *</label><input data-testid="trip-name-input" value={String(newTitle)} onChange={e => setNewTitle(e.target.value)} placeholder="ex: 瘋狂沖繩遊" className={`w-full p-3.5 rounded-xl border text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} /></div>
 
-                <div className="z-50 relative">
+                <div data-testid="trip-destination-field" className="z-50 relative">
                   <label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>主要地點 (自動獲取天氣) *</label>
                   <DestinationSearch value={newDest} onChange={(val, coords) => { setNewDest(val); setNewDestCoords(isValidCoordinates(coords) ? coords : null); }} t={t} />
                 </div>
 
-                <div><label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>旅行日期 *</label><div onClick={() => setShowDatePicker(true)} className={`w-full p-3.5 rounded-xl border flex justify-between items-center cursor-pointer ${t.inputBg} ${t.cardBorder} ${t.mainText}`}><span>{newStart && newEnd ? `${String(newStart)} 至 ${String(newEnd)}` : '點擊選擇出發與回程日期'}</span><span>📅</span></div></div>
+                <div><label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>旅行日期 *</label><button type="button" data-testid="trip-date-picker-button" onClick={() => setShowDatePicker(true)} className={`w-full p-3.5 rounded-xl border flex justify-between items-center cursor-pointer ${t.inputBg} ${t.cardBorder} ${t.mainText}`}><span data-testid="trip-date-range">{newStart && newEnd ? `${String(newStart)} 至 ${String(newEnd)}` : '點擊選擇出發與回程日期'}</span><span>📅</span></button></div>
+                {IS_FIREBASE_EMULATOR && tripModalMode === "create" ? (
+                  <button
+                    type="button"
+                    data-testid="fill-emulator-required-fields"
+                    onClick={fillEmulatorRequiredFields}
+                    className="w-full rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-left text-xs font-bold text-amber-500 transition-colors hover:bg-amber-400/20"
+                  >
+                    🧪 自動填入 Emulator 測試地點與日期
+                  </button>
+                ) : null}
+
                 <div>
                   <label className={`block text-xs font-bold mb-2 uppercase ${t.subText}`}>同行成員 (記帳用)</label>
                   <div className={`flex flex-wrap gap-2 items-center p-3 rounded-xl border min-h-14 ${t.inputBg} ${t.cardBorder}`}>
@@ -359,7 +412,7 @@ export default function TravelApp() {
                   </select>
                 </div>
               </div>
-              <div className={`flex justify-end gap-3 mt-8 pt-5 border-t ${t.cardBorder}`}><button onClick={() => setTripModalMode(null)} className={`px-5 py-2.5 text-sm font-bold ${t.mainText}`}>取消</button><button onClick={() => void handleSaveTripModal()} disabled={isSavingTrip} className="bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md">{isSavingTrip ? "儲存中..." : (tripModalMode === 'create' ? '確認建立' : '儲存變更')}</button></div>
+              <div className={`flex justify-end gap-3 mt-8 pt-5 border-t ${t.cardBorder}`}><button onClick={() => setTripModalMode(null)} className={`px-5 py-2.5 text-sm font-bold ${t.mainText}`}>取消</button><button type="button" data-testid="create-trip-submit" onClick={() => void handleSaveTripModal()} disabled={isSavingTrip} className="bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-md">{isSavingTrip ? "儲存中..." : (tripModalMode === 'create' ? '確認建立' : '儲存變更')}</button></div>
             </div>
           </div>
         </APIProvider>

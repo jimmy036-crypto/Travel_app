@@ -6,6 +6,14 @@ import { APP_VERSION, CATEGORIES, TAG_OPTIONS } from "../constants";
 import { safeUrlFormatter, getDayDisplay, generateId, formatStayTime, parseDateOnlyLocal, extractRoomId, isValidCoordinates, openExternalUrl } from "../helpers";
 import { storage } from "../firebase";
 import { ref as sRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
+import {
+  buildEqualSplit,
+  calculateCustomTotal,
+  calculateTwdCost,
+  inferExpenseSplitState,
+  rebalanceCustomAmounts,
+  validateCustomSplit,
+} from "../features/expenses/expenseCalculations";
 
 const AUTOCOMPLETE_DELAY_MS = 300;
 const REGION_AUTOCOMPLETE_TYPES = Object.freeze(['(regions)']);
@@ -13,6 +21,7 @@ const MAX_TICKET_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_PLACE_PHOTO_BYTES = 5 * 1024 * 1024;
 const MAX_PLACE_PDF_BYTES = 15 * 1024 * 1024;
 const MAX_PLACE_RESOURCES = 12;
+const IS_FIREBASE_EMULATOR = import.meta.env.VITE_USE_FIREBASE_EMULATOR === 'true';
 
 const getCurrentTimestamp = () => Date.now();
 
@@ -442,9 +451,32 @@ export const SearchBox = ({ dayId, onAddPlace, t }) => {
     });
   };
 
+  const addEmulatorTestPlace = () => {
+    if (!IS_FIREBASE_EMULATOR || isAdding) return;
+
+    const testPlace = {
+      name: 'E2E 測試餐廳',
+      place_id: 'e2e-test-place-id',
+      formatted_address: '台北市信義區信義路五段 7 號',
+      geometry: {
+        location: {
+          lat: () => 25.033,
+          lng: () => 121.5654,
+        },
+      },
+    };
+
+    setIsAdding(true);
+    onAddPlace(dayId, testPlace, testPlace.place_id);
+    setVal("");
+    clearSug();
+    setIsAdding(false);
+  };
+
   return (
-    <div className="relative mb-4">
+    <div className="relative mb-4" data-testid="place-search-box">
       <input
+        data-testid="place-search-input"
         className={`w-full py-2.5 px-4 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
         placeholder={isAdding ? '加入中...' : '新增行程地點...'}
         value={String(val)}
@@ -452,6 +484,19 @@ export const SearchBox = ({ dayId, onAddPlace, t }) => {
         disabled={isAdding}
         autoComplete="off"
       />
+
+      {IS_FIREBASE_EMULATOR ? (
+        <button
+          type="button"
+          data-testid="add-emulator-place-button"
+          onClick={addEmulatorTestPlace}
+          disabled={isAdding}
+          className="mt-2 min-h-11 w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 text-xs font-black text-amber-600 active:scale-[0.99] disabled:opacity-50"
+        >
+          🧪 加入 E2E 測試景點
+        </button>
+      ) : null}
+
       {Array.isArray(sug) && sug.length > 0 ? (
         <div className={`absolute z-50 w-full mt-1 rounded-xl shadow-2xl border overflow-hidden text-xs backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>
           {sug.map((suggestion) => (
@@ -524,32 +569,11 @@ export const ExpenseModal = ({
     ? String(expense.category)
     : "food";
 
-  const initialSplitState = useMemo(() => {
-    if (!isEditing || !expense?.split || typeof expense.split !== "object") {
-      return {
-        type: "EQUAL",
-        involved: validMembers,
-        customAmounts: Object.fromEntries(validMembers.map(member => [member, ""])),
-      };
-    }
-
-    const amounts = validMembers.map(member => Number(expense.split?.[member]) || 0);
-    const involvedMembers = validMembers.filter((member, index) => amounts[index] > 0.005);
-    const positiveAmounts = amounts.filter(amount => amount > 0.005);
-    const looksEqual = positiveAmounts.length > 0
-      && Math.max(...positiveAmounts) - Math.min(...positiveAmounts) <= 0.02;
-
-    return {
-      type: looksEqual ? "EQUAL" : "CUSTOM",
-      involved: involvedMembers.length > 0 ? involvedMembers : validMembers,
-      customAmounts: Object.fromEntries(
-        validMembers.map(member => [
-          member,
-          Number(expense.split?.[member]) > 0 ? String(Number(expense.split[member])) : "",
-        ])
-      ),
-    };
-  }, [expense, isEditing, validMembers]);
+  const initialSplitState = useMemo(() => inferExpenseSplitState({
+    expense,
+    isEditing,
+    members: validMembers,
+  }), [expense, isEditing, validMembers]);
 
   const [item, setItem] = useState(() => String(expense?.item || ""));
   const [localCost, setLocalCost] = useState(() => String(initialLocalCost));
@@ -563,11 +587,8 @@ export const ExpenseModal = ({
   const [customAmounts, setCustomAmounts] = useState(initialSplitState.customAmounts);
   const [note, setNote] = useState(() => String(expense?.note || ""));
 
-  const twdCost = Math.round((Number(localCost) || 0) * (Number(rate) || 0));
-  const customTotal = validMembers.reduce(
-    (sum, member) => sum + (Number(customAmounts[member]) || 0),
-    0
-  );
+  const twdCost = calculateTwdCost(localCost, rate);
+  const customTotal = calculateCustomTotal(validMembers, customAmounts);
 
   const [initialFingerprint] = useState(() => JSON.stringify({
     item: String(expense?.item || ""),
@@ -611,29 +632,12 @@ export const ExpenseModal = ({
   };
 
   const rebalanceCustomSplit = () => {
-    if (twdCost <= 0 || validMembers.length === 0) return;
-
-    const activeMembers = validMembers.filter(member => (Number(customAmounts[member]) || 0) > 0);
-    const targets = activeMembers.length > 0 ? activeMembers : validMembers;
-    const existingTotal = targets.reduce(
-      (sum, member) => sum + (Number(customAmounts[member]) || 0),
-      0
-    );
-    const next = Object.fromEntries(validMembers.map(member => [member, ""]));
-    let distributed = 0;
-
-    targets.forEach((member, index) => {
-      const rawShare = existingTotal > 0
-        ? twdCost * ((Number(customAmounts[member]) || 0) / existingTotal)
-        : twdCost / targets.length;
-      const amount = index === targets.length - 1
-        ? Math.round((twdCost - distributed) * 100) / 100
-        : Math.floor(rawShare * 100) / 100;
-      next[member] = String(amount);
-      distributed += amount;
+    const next = rebalanceCustomAmounts({
+      total: twdCost,
+      members: validMembers,
+      customAmounts,
     });
-
-    setCustomAmounts(next);
+    if (next) setCustomAmounts(next);
   };
 
   const buildExpense = ({ duplicate = false, timestamp = 0 } = {}) => {
@@ -658,34 +662,33 @@ export const ExpenseModal = ({
       return null;
     }
 
-    const finalSplit = {};
+    let finalSplit = {};
     if (splitType === "EQUAL") {
-      const activeMembers = involved.filter(member => validMembers.includes(member));
-      if (activeMembers.length === 0) {
+      const result = buildEqualSplit({
+        total: twdCost,
+        members: validMembers,
+        involved,
+      });
+      if (!result.ok) {
         alert("請至少選擇一位參與分帳的人員！");
         return null;
       }
-
-      const splitAmount = Math.floor((twdCost / activeMembers.length) * 100) / 100;
-      let sum = 0;
-      activeMembers.forEach((member, index) => {
-        const amount = index === activeMembers.length - 1
-          ? Math.round((twdCost - sum) * 100) / 100
-          : splitAmount;
-        finalSplit[member] = amount;
-        sum += amount;
-      });
-      validMembers.forEach(member => {
-        if (finalSplit[member] === undefined) finalSplit[member] = 0;
-      });
+      finalSplit = result.split;
     } else {
-      validMembers.forEach(member => {
-        finalSplit[member] = Number(customAmounts[member]) || 0;
+      const result = validateCustomSplit({
+        total: twdCost,
+        members: validMembers,
+        customAmounts,
       });
-      if (Math.abs(customTotal - twdCost) > 0.02) {
-        alert(`分帳總和（NT$${customTotal.toLocaleString()}）與折合台幣總計（NT$${twdCost.toLocaleString()}）不符！`);
+      if (!result.ok) {
+        if (result.error === "NEGATIVE_AMOUNT") {
+          alert("自訂分帳金額不可為負數！");
+        } else {
+          alert(`分帳總和（NT$${result.customTotal.toLocaleString()}）與折合台幣總計（NT$${twdCost.toLocaleString()}）不符！`);
+        }
         return null;
       }
+      finalSplit = result.split;
     }
 
     const now = Number(timestamp) || 0;
@@ -728,6 +731,8 @@ export const ExpenseModal = ({
 
   return (
     <div
+      data-testid="expense-modal"
+      data-mode={isEditing ? "edit" : "create"}
       style={{ zIndex: 9999, touchAction: "pan-y" }}
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden w-full max-w-[100vw]"
       onClick={requestClose}
@@ -739,7 +744,10 @@ export const ExpenseModal = ({
       >
         <div className={`flex items-start justify-between gap-4 p-5 sm:p-6 border-b shrink-0 ${t.cardBorder}`}>
           <div>
-            <h2 className={`text-xl font-black flex items-center gap-2 ${t.mainText}`}>
+            <h2
+              data-testid="expense-modal-title"
+              className={`text-xl font-black flex items-center gap-2 ${t.mainText}`}
+            >
               {isEditing ? "✏️ 編輯帳目" : "💰 新增記帳"}
             </h2>
             <p className={`text-[11px] mt-1 ${t.subText}`}>
@@ -760,6 +768,7 @@ export const ExpenseModal = ({
           <div>
             <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>項目名稱 *</label>
             <input
+              data-testid="expense-item-input"
               value={item}
               onChange={event => setItem(event.target.value)}
               placeholder="例如：晚餐燒肉、北部住宿"
@@ -772,6 +781,7 @@ export const ExpenseModal = ({
             <div>
               <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>幣別</label>
               <select
+                data-testid="expense-currency-select"
                 value={currency}
                 onChange={handleCurrencyChange}
                 className={`w-full py-3 px-2 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
@@ -782,6 +792,7 @@ export const ExpenseModal = ({
             <div>
               <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>當地金額 *</label>
               <input
+                data-testid="expense-local-cost-input"
                 type="number"
                 inputMode="decimal"
                 min="0"
@@ -798,6 +809,7 @@ export const ExpenseModal = ({
             <div className="min-w-0">
               <span className={`text-[10px] font-bold uppercase ${t.subText}`}>換算匯率</span>
               <input
+                data-testid="expense-rate-input"
                 type="number"
                 inputMode="decimal"
                 min="0"
@@ -809,7 +821,12 @@ export const ExpenseModal = ({
             </div>
             <div className="text-right shrink-0">
               <span className={`text-[10px] font-bold uppercase block ${t.subText}`}>折合台幣</span>
-              <span className="text-lg font-black font-mono text-emerald-500">NT$ {twdCost.toLocaleString()}</span>
+              <span
+                data-testid="expense-twd-total"
+                className="text-lg font-black font-mono text-emerald-500"
+              >
+                NT$ {twdCost.toLocaleString()}
+              </span>
             </div>
           </div>
 
@@ -817,6 +834,7 @@ export const ExpenseModal = ({
             <div>
               <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>日期</label>
               <select
+                data-testid="expense-day-select"
                 value={dayId}
                 onChange={event => setDayId(event.target.value)}
                 className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
@@ -831,6 +849,7 @@ export const ExpenseModal = ({
             <div>
               <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>代墊人</label>
               <select
+                data-testid="expense-payer-select"
                 value={payer}
                 onChange={event => setPayer(event.target.value)}
                 className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
@@ -847,6 +866,8 @@ export const ExpenseModal = ({
                 <button
                   type="button"
                   key={option.id}
+                  data-testid="expense-category-button"
+                  data-category={option.id}
                   onClick={() => setCategory(option.id)}
                   className={`min-h-11 px-4 py-2 rounded-xl border flex items-center gap-2 whitespace-nowrap transition-all ${category === option.id ? `${option.color} border-transparent text-white shadow-md` : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
                 >
@@ -862,6 +883,7 @@ export const ExpenseModal = ({
               <div className={`flex rounded-lg p-1 border ${t.cardBg} ${t.cardBorder}`}>
                 <button
                   type="button"
+                  data-testid="expense-split-equal-button"
                   onClick={() => setSplitType("EQUAL")}
                   className={`flex-1 px-3 py-2 text-[11px] font-bold rounded-md ${splitType === "EQUAL" ? "bg-blue-600 text-white" : t.subText}`}
                 >
@@ -869,6 +891,7 @@ export const ExpenseModal = ({
                 </button>
                 <button
                   type="button"
+                  data-testid="expense-split-custom-button"
                   onClick={() => setSplitType("CUSTOM")}
                   className={`flex-1 px-3 py-2 text-[11px] font-bold rounded-md ${splitType === "CUSTOM" ? "bg-purple-600 text-white" : t.subText}`}
                 >
@@ -887,6 +910,9 @@ export const ExpenseModal = ({
                       <button
                         type="button"
                         key={`inv-${member}`}
+                        data-testid="expense-involved-member"
+                        data-member={member}
+                        aria-pressed={selected}
                         onClick={() => setInvolved(selected ? involved.filter(value => value !== member) : [...involved, member])}
                         className={`min-h-11 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${selected ? "bg-blue-500/20 border-blue-500 text-blue-600" : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
                       >
@@ -917,6 +943,9 @@ export const ExpenseModal = ({
                   <div key={`cust-${member}`} className="flex justify-between items-center gap-3">
                     <span className={`text-sm font-bold ${t.mainText}`}>{member}</span>
                     <input
+                      data-testid="expense-custom-amount-input"
+                      data-member={member}
+                      aria-label={`${member} 自訂分帳金額`}
                       type="number"
                       inputMode="decimal"
                       min="0"
@@ -931,7 +960,10 @@ export const ExpenseModal = ({
                 {twdCost > 0 ? (
                   <div className={`border-t pt-3 mt-2 flex justify-between items-center ${t.cardBorder}`}>
                     <span className={`text-xs ${t.subText}`}>目前總和</span>
-                    <span className={`text-sm font-bold font-mono ${Math.abs(customTotal - twdCost) <= 0.02 ? "text-emerald-500" : "text-red-500"}`}>
+                    <span
+                      data-testid="expense-custom-total"
+                      className={`text-sm font-bold font-mono ${Math.abs(customTotal - twdCost) <= 0.02 ? "text-emerald-500" : "text-red-500"}`}
+                    >
                       NT$ {customTotal.toLocaleString()} / {twdCost.toLocaleString()}
                     </span>
                   </div>
@@ -943,6 +975,7 @@ export const ExpenseModal = ({
           <div>
             <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>備註（選填）</label>
             <textarea
+              data-testid="expense-note-input"
               value={note}
               onChange={event => setNote(event.target.value)}
               placeholder="例如：已含服務費、刷卡、需向店家退稅"
@@ -952,11 +985,15 @@ export const ExpenseModal = ({
           </div>
 
           {isEditing ? (
-            <details className={`rounded-xl border p-3 ${t.cardBg} ${t.cardBorder}`}>
+            <details
+              data-testid="expense-more-actions"
+              className={`rounded-xl border p-3 ${t.cardBg} ${t.cardBorder}`}
+            >
               <summary className={`cursor-pointer text-xs font-bold ${t.subText}`}>更多操作</summary>
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <button
                   type="button"
+                  data-testid="expense-duplicate-button"
                   onClick={handleDuplicate}
                   className={`min-h-11 rounded-xl border text-xs font-bold hover:border-blue-500 hover:text-blue-500 ${t.cardBorder} ${t.mainText}`}
                 >
@@ -964,6 +1001,7 @@ export const ExpenseModal = ({
                 </button>
                 <button
                   type="button"
+                  data-testid="expense-delete-button"
                   onClick={handleDelete}
                   className="min-h-11 rounded-xl border border-red-500/30 text-xs font-bold text-red-500 hover:bg-red-500 hover:text-white"
                 >
@@ -980,6 +1018,7 @@ export const ExpenseModal = ({
         >
           <button
             type="button"
+            data-testid="expense-cancel-button"
             onClick={requestClose}
             className={`min-h-12 px-5 text-sm font-bold rounded-xl border flex-1 ${t.cardBorder} ${t.mainText}`}
           >
@@ -987,6 +1026,7 @@ export const ExpenseModal = ({
           </button>
           <button
             type="button"
+            data-testid="expense-save-button"
             onClick={handleSave}
             className="min-h-12 bg-emerald-600 hover:bg-emerald-500 text-white px-6 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all flex-[1.4]"
           >
@@ -1105,17 +1145,17 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
   };
 
   return (
-    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={onClose}>
+    <div data-testid="ticket-modal" style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={onClose}>
       <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-md shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
         <h2 className={`text-xl font-black mb-5 flex items-center gap-2 ${t.mainText}`}>🎟️ 新增票券 / 附件</h2>
         <div className="overflow-y-auto pr-2 space-y-5 scrollbar-hide">
           <div>
             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>票券名稱 *</label>
-            <input value={String(title)} maxLength={80} onChange={e => setTitle(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <input data-testid="ticket-title-input" value={String(title)} maxLength={80} onChange={e => setTitle(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
           </div>
           <div>
             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>使用分配人員</label>
-            <select value={String(owner)} onChange={e => setOwner(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+            <select data-testid="ticket-owner-select" value={String(owner)} onChange={e => setOwner(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                {ownerOptions.map(opt => <option key={`opt-${opt}`} value={String(opt)}>{String(opt)}</option>)}
             </select>
           </div>
@@ -1125,7 +1165,7 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
           </div>
           {type === 'image' ? (
              <div className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 border-dashed ${t.cardBg} ${t.cardBorder}`}>
-                <input type="file" accept="image/*,application/pdf" onChange={handleFileChange} className={`text-xs ${t.mainText} w-full`} />
+                <input data-testid="ticket-file-input" type="file" accept="image/*,application/pdf" onChange={handleFileChange} className={`text-xs ${t.mainText} w-full`} />
                 <p className={`text-[10px] ${t.subText}`}>僅限圖片或 PDF，單檔上限 10 MB</p>
                 {file ? <p className="text-[10px] text-emerald-500 font-bold">已選擇：{String(file.name)}（{(file.size / 1024 / 1024).toFixed(2)} MB）</p> : null}
              </div>
@@ -1137,12 +1177,12 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
           )}
           <div>
             <label className={`block text-[10px] font-bold mb-1 uppercase ${t.subText}`}>座位 / 備註</label>
-            <input value={String(memo)} maxLength={200} onChange={e => setMemo(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <input data-testid="ticket-memo-input" value={String(memo)} maxLength={200} onChange={e => setMemo(e.target.value)} className={`w-full py-2.5 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
           </div>
         </div>
         <div className={`flex justify-end gap-3 mt-6 pt-5 border-t ${t.cardBorder}`}>
-          <button type="button" onClick={onClose} disabled={uploading} className={`px-5 py-2 text-sm font-bold opacity-70 hover:opacity-100 disabled:opacity-30 ${t.mainText}`}>取消</button>
-          <button type="button" onClick={() => void handleSave()} disabled={uploading} className={`bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 transition-all ${uploading ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}>
+          <button type="button" data-testid="ticket-cancel-button" onClick={onClose} disabled={uploading} className={`px-5 py-2 text-sm font-bold opacity-70 hover:opacity-100 disabled:opacity-30 ${t.mainText}`}>取消</button>
+          <button type="button" data-testid="ticket-save-button" onClick={() => void handleSave()} disabled={uploading} className={`bg-blue-600 hover:bg-blue-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 transition-all ${uploading ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}>
             {uploading ? '上傳儲存中...' : '確認新增'}
           </button>
         </div>
@@ -1714,6 +1754,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
 
   return (
     <div
+      data-testid="edit-place-modal"
       style={{ zIndex: 9999, touchAction: 'none', overscrollBehaviorX: 'none' }}
       className="fixed inset-0 w-full max-w-[100vw] overflow-hidden bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 transition-opacity"
       onClick={handleClose}
@@ -1727,6 +1768,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
           <div className="flex-1 min-w-0">
             <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>自訂地標名稱（選填）</label>
             <input
+              data-testid="place-name-input"
               value={String(customName)}
               onChange={e => setCustomName(e.target.value)}
               placeholder={String(item.name)}
@@ -1742,6 +1784,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
             <div className="min-w-0">
               <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>抵達時間</label>
               <input
+                data-testid="place-arrival-time-input"
                 type="time"
                 value={String(time)}
                 onClick={e => { if ('showPicker' in e.target && typeof e.target.showPicker === 'function') e.target.showPicker(); }}
@@ -1755,6 +1798,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                 <span className="text-blue-500 font-black">{formatStayTime(stayTime)}</span>
               </label>
               <input
+                data-testid="place-stay-duration-input"
                 type="number"
                 step="5"
                 min="0"
@@ -1798,7 +1842,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
           </div>
 
           <div className={`rounded-2xl border overflow-hidden ${t.cardBg} ${t.cardBorder}`}>
-            <button type="button" onClick={() => setShowResources((value) => !value)} className="flex min-h-14 w-full min-w-0 items-center justify-between gap-3 p-4 text-left">
+            <button type="button" data-testid="place-resources-toggle" onClick={() => setShowResources((value) => !value)} className="flex min-h-14 w-full min-w-0 items-center justify-between gap-3 p-4 text-left">
               <div className="min-w-0 flex-1">
                 <p className={`text-xs font-black ${t.mainText}`}>🗂️ 照片與快速資料</p>
                 <p className={`text-[10px] mt-1 ${t.subText}`}>{resourceSummary}</p>
@@ -1816,10 +1860,11 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                   {visiblePhotoUrl ? (
                     <div className="relative rounded-xl overflow-hidden border aspect-video bg-black/5">
                       <button type="button" onClick={() => openExternalUrl(visiblePhotoUrl)} className="block w-full h-full">
-                        <img src={visiblePhotoUrl} alt={`${customName || item.name} 參考照片`} className="w-full h-full object-cover" />
+                        <img data-testid="place-photo-preview" src={visiblePhotoUrl} alt={`${customName || item.name} 參考照片`} className="w-full h-full object-cover" />
                       </button>
                       <button
                         type="button"
+                        data-testid="place-photo-remove-button"
                         onClick={() => { setPhotoFile(null); setRemoveExistingPhoto(true); }}
                         className="absolute top-2 right-2 min-h-10 px-3 rounded-xl bg-black/70 text-white text-xs font-bold"
                       >
@@ -1830,13 +1875,13 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                     <label className={`min-h-24 rounded-xl border border-dashed flex flex-col items-center justify-center cursor-pointer ${t.cardBorder} ${t.inputBg}`}>
                       <span className="text-2xl">📷</span>
                       <span className={`text-xs font-bold mt-1 ${t.mainText}`}>上傳店面、餐點或集合地點照片</span>
-                      <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      <input data-testid="place-photo-input" type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
                     </label>
                   )}
                   {visiblePhotoUrl ? (
                     <label className={`mt-2 min-h-11 px-3 rounded-xl border flex items-center justify-center cursor-pointer text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                       更換照片
-                      <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      <input data-testid="place-photo-input" type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
                     </label>
                   ) : null}
                 </div>
@@ -1901,7 +1946,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                         }
 
                         return (
-                          <div key={resource.id} className={`flex min-w-0 items-center gap-2 rounded-xl border p-3 sm:gap-3 ${t.itemBg} ${t.cardBorder}`}>
+                          <div data-testid="place-resource-row" key={resource.id} className={`flex min-w-0 items-center gap-2 rounded-xl border p-3 sm:gap-3 ${t.itemBg} ${t.cardBorder}`}>
                             <button
                               type="button"
                               onClick={() => { if (resource.url) openExternalUrl(resource.url); }}
@@ -1920,7 +1965,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                               <p className={`text-[10px] truncate mt-0.5 ${pendingUpload ? 'text-amber-500' : t.subText}`}>{detailText}</p>
                             </button>
                             <button type="button" onClick={() => handleEditResource(resource)} className={`w-10 h-10 rounded-xl ${t.subText}`} title="編輯資料">✏️</button>
-                            <button type="button" onClick={() => handleRemoveResource(resource.id)} className="w-10 h-10 rounded-xl text-red-500" title="移除資料">✕</button>
+                            <button type="button" data-testid="place-resource-remove-button" onClick={() => handleRemoveResource(resource.id)} className="w-10 h-10 rounded-xl text-red-500" title="移除資料">✕</button>
                           </div>
                         );
                       })}
@@ -1932,6 +1977,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                   <div className={`rounded-xl border p-1 grid grid-cols-3 gap-1 mb-2 ${t.inputBg} ${t.cardBorder}`}>
                     <button
                       type="button"
+                      data-testid="place-resource-mode-image-button"
                       onClick={() => { resetResourceDrafts(); setResourceAddMode('image'); }}
                       className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'image' ? 'bg-violet-600 text-white shadow-sm' : t.subText}`}
                     >
@@ -1939,6 +1985,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                     </button>
                     <button
                       type="button"
+                      data-testid="place-resource-mode-pdf-button"
                       onClick={() => { resetResourceDrafts(); setResourceAddMode('pdf'); }}
                       className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'pdf' ? 'bg-red-500 text-white shadow-sm' : t.subText}`}
                     >
@@ -1959,7 +2006,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                         <select value={imageDraft.type} onChange={(event) => setImageDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                           {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
                         </select>
-                        <input value={imageDraft.title} onChange={(event) => setImageDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：菜單第 1 頁）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                        <input data-testid="place-resource-image-title-input" value={imageDraft.title} onChange={(event) => setImageDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：菜單第 1 頁）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                       </div>
 
                       <label className={`min-h-16 min-w-0 px-3 rounded-xl border border-dashed flex items-center gap-3 cursor-pointer overflow-hidden ${t.cardBorder}`}>
@@ -1972,14 +2019,14 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                             {imageDraft.file ? `${formatFileSize(imageDraft.file.size)}・儲存景點時上傳` : 'JPG／PNG／WebP，最多 5 MB'}
                           </span>
                         </span>
-                        <input type="file" accept="image/*" onChange={handleImageResourceChange} className="hidden" />
+                        <input data-testid="place-resource-image-input" type="file" accept="image/*" onChange={handleImageResourceChange} className="hidden" />
                       </label>
 
                       <p className={`text-[10px] leading-relaxed ${t.subText}`}>菜單照片會合併成 App 內相簿，可左右滑動，不會當成景點封面。</p>
 
                       <div className="flex gap-2">
                         {editingResourceId && editingResourceKind === 'image' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
-                        <button type="button" onClick={handleSaveImageResource} className="flex-1 min-h-11 rounded-xl bg-violet-600 text-white text-xs font-bold">
+                        <button type="button" data-testid="place-resource-image-add-button" onClick={handleSaveImageResource} className="flex-1 min-h-11 rounded-xl bg-violet-600 text-white text-xs font-bold">
                           {editingResourceId && editingResourceKind === 'image' ? '更新圖片資料' : '＋ 加入圖片'}
                         </button>
                       </div>
@@ -2006,7 +2053,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                         <select value={pdfDraft.type} onChange={(event) => setPdfDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                           {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
                         </select>
-                        <input value={pdfDraft.title} onChange={(event) => setPdfDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：午餐菜單）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                        <input data-testid="place-resource-pdf-title-input" value={pdfDraft.title} onChange={(event) => setPdfDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：午餐菜單）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                       </div>
 
                       <label className={`min-h-16 min-w-0 px-3 rounded-xl border border-dashed flex items-center gap-3 cursor-pointer overflow-hidden ${t.cardBorder}`}>
@@ -2019,14 +2066,14 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
                             {pdfDraft.file ? `${formatFileSize(pdfDraft.file.size)}・儲存景點時上傳` : '僅支援 PDF，最多 15 MB'}
                           </span>
                         </span>
-                        <input type="file" accept="application/pdf,.pdf" onChange={handlePdfChange} className="hidden" />
+                        <input data-testid="place-resource-pdf-input" type="file" accept="application/pdf,.pdf" onChange={handlePdfChange} className="hidden" />
                       </label>
 
                       <p className={`text-[10px] leading-relaxed ${t.subText}`}>PDF 會集中在「菜單」或「資料」面板中，不會塞滿行程卡片。</p>
 
                       <div className="flex gap-2">
                         {editingResourceId && editingResourceKind === 'file' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
-                        <button type="button" onClick={handleSavePdfResource} className="flex-1 min-h-11 rounded-xl bg-red-500 text-white text-xs font-bold">
+                        <button type="button" data-testid="place-resource-pdf-add-button" onClick={handleSavePdfResource} className="flex-1 min-h-11 rounded-xl bg-red-500 text-white text-xs font-bold">
                           {editingResourceId && editingResourceKind === 'file' ? '更新 PDF 資料' : '＋ 加入 PDF'}
                         </button>
                       </div>
@@ -2048,12 +2095,12 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
           </div>
           <div>
             <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>筆記／備註</label>
-            <textarea value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="輸入推薦餐點、集合方式或其他細節..." className={`w-full p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 min-h-24 resize-none transition-colors border text-sm bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <textarea data-testid="place-note-input" value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="輸入推薦餐點、集合方式或其他細節..." className={`w-full p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 min-h-24 resize-none transition-colors border text-sm bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
           </div>
         </div>
         <div className={`flex justify-end gap-3 mt-4 pt-4 border-t shrink-0 pb-[max(0px,env(safe-area-inset-bottom))] ${t.cardBorder}`}>
           <button type="button" onClick={handleClose} disabled={saving} className={`min-h-11 px-5 text-sm font-bold transition-opacity opacity-70 hover:opacity-100 ${t.mainText}`}>取消</button>
-          <button type="button" onClick={() => void handleSave()} disabled={saving} className="min-h-11 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-8 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">
+          <button type="button" data-testid="save-place-button" onClick={() => void handleSave()} disabled={saving} className="min-h-11 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-8 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/30 active:scale-95 transition-all">
             {saving ? (hasPendingUploads ? `上傳中 ${uploadProgress}%` : '儲存中…') : '儲存變更'}
           </button>
         </div>
