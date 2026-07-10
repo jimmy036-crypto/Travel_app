@@ -132,6 +132,16 @@ async function expectTripTitle(page: Page, title: string): Promise<void> {
   ).toBeVisible({ timeout: 20_000 });
 }
 
+async function expectSyncStatus(
+  page: Page,
+  expectedStatus: string | RegExp,
+): Promise<void> {
+  await expect(page.getByTestId('sync-status-indicator')).toContainText(
+    expectedStatus,
+    { timeout: 20_000 },
+  );
+}
+
 async function setLocalStorageMarker(
   page: Page,
   value: string,
@@ -755,6 +765,26 @@ test('keeps isolated contexts synced through Firebase realtime listener', async 
     if (!contextA.context.pages().every((page) => page.isClosed())) {
       await contextA.context.close();
     }
+    await contextB.context.close();
+  }
+});
+
+test('shows realtime sync status when another context updates the trip', async ({
+  browser,
+}, testInfo) => {
+  const contextA = await openRoom(browser, testInfo.project.name);
+  const contextB = await openRoom(browser, testInfo.project.name);
+
+  try {
+    await expectSyncStatus(contextB.page, '已同步');
+
+    await addPlaceThroughUi(contextA.page);
+
+    await expectSyncStatus(contextB.page, '遠端已更新');
+    await expectPlaceCount(contextB.page, 2);
+    await expectSyncStatus(contextB.page, '已同步');
+  } finally {
+    await contextA.context.close();
     await contextB.context.close();
   }
 });
