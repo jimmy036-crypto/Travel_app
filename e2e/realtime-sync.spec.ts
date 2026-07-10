@@ -27,6 +27,9 @@ const EDITED_PLACE_NAME = 'E2E realtime sync edited museum';
 const EDITED_PLACE_ARRIVAL_TIME = '15:45';
 const EDITED_PLACE_STAY_MINUTES = '90';
 const EDITED_PLACE_NOTE = 'E2E realtime place edit note';
+const DRAG_SYNC_PLACE_A = 'E2E drag sync breakfast';
+const DRAG_SYNC_PLACE_B = 'E2E drag sync gallery';
+const DRAG_SYNC_PLACE_C = 'E2E drag sync market';
 
 type PlaceDetails = {
   name: string;
@@ -117,6 +120,109 @@ function placeCardByName(page: Page, name: string) {
     .getByTestId('place-card')
     .filter({ hasText: name })
     .first();
+}
+
+function dayCard(page: Page, dayId: string) {
+  return page.locator(
+    `[data-testid="itinerary-day-card"][data-day-id="${dayId}"]`,
+  );
+}
+
+function placeCardInDay(page: Page, dayId: string, name: string) {
+  return dayCard(page, dayId)
+    .getByTestId('place-card')
+    .filter({ hasText: name })
+    .first();
+}
+
+async function visibleOrder(page: Page, dayId: string): Promise<string[]> {
+  const texts = await dayCard(page, dayId)
+    .getByTestId('place-card-title')
+    .allTextContents();
+
+  return texts.map((text) => text.trim());
+}
+
+async function dragOnePositionUpByKeyboard(
+  page: Page,
+  dayId: string,
+  placeName: string,
+): Promise<void> {
+  const handle = placeCardInDay(page, dayId, placeName)
+    .getByTestId('place-drag-handle');
+
+  await handle.scrollIntoViewIfNeeded();
+  await handle.focus();
+
+  await page.keyboard.press('Space');
+  await page.waitForTimeout(100);
+  await page.keyboard.press('ArrowUp');
+  await page.waitForTimeout(100);
+  await page.keyboard.press('Space');
+}
+
+async function seedDragSyncTrip(): Promise<void> {
+  await clearEmulatorDatabase();
+  await seedTestTrip(ROOM_ID, {
+    title: INITIAL_TITLE,
+    startDate: '2026-09-20',
+    endDate: '2026-09-20',
+    itinerary: {
+      'Day 1': [
+        {
+          id: 'drag-sync-place-a',
+          name: DRAG_SYNC_PLACE_A,
+          place_id: 'drag-sync-place-a-id',
+          customName: '',
+          lat: 25.033,
+          lng: 121.5654,
+          address: 'E2E drag sync address A',
+          time: '09:00',
+          stayTime: '30',
+          memo: '',
+          tags: [],
+          nextLeg: {
+            mode: 'WALK',
+            mins: 10,
+          },
+        },
+        {
+          id: 'drag-sync-place-b',
+          name: DRAG_SYNC_PLACE_B,
+          place_id: 'drag-sync-place-b-id',
+          customName: '',
+          lat: 25.034,
+          lng: 121.5664,
+          address: 'E2E drag sync address B',
+          time: '09:40',
+          stayTime: '20',
+          memo: '',
+          tags: [],
+          nextLeg: {
+            mode: 'TRAIN',
+            mins: 15,
+          },
+        },
+        {
+          id: 'drag-sync-place-c',
+          name: DRAG_SYNC_PLACE_C,
+          place_id: 'drag-sync-place-c-id',
+          customName: '',
+          lat: 25.035,
+          lng: 121.5674,
+          address: 'E2E drag sync address C',
+          time: '10:15',
+          stayTime: '45',
+          memo: '',
+          tags: [],
+          nextLeg: {
+            mode: 'WALK',
+            mins: 5,
+          },
+        },
+      ],
+    },
+  });
 }
 
 async function addPlaceThroughUi(page: Page): Promise<void> {
@@ -336,6 +442,81 @@ test('syncs place deletion between active browser contexts in realtime', async (
     await expect(placeCardByName(contextB.page, CREATED_PLACE.name))
       .toBeHidden({ timeout: 20_000 });
     await expectPlaceCount(contextB.page, 1);
+  } finally {
+    await contextA.context.close();
+    await contextB.context.close();
+  }
+});
+
+test('syncs itinerary drag changes between active browser contexts in realtime', async ({
+  browser,
+}, testInfo) => {
+  await seedDragSyncTrip();
+
+  const contextA = await openRoom(browser, testInfo.project.name);
+  const contextB = await openRoom(browser, testInfo.project.name);
+  const initialOrder = [
+    DRAG_SYNC_PLACE_A,
+    DRAG_SYNC_PLACE_B,
+    DRAG_SYNC_PLACE_C,
+  ];
+  const reordered = [
+    DRAG_SYNC_PLACE_A,
+    DRAG_SYNC_PLACE_C,
+    DRAG_SYNC_PLACE_B,
+  ];
+
+  try {
+    await expect(dayCard(contextB.page, 'Day 1')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect
+      .poll(() => visibleOrder(contextB.page, 'Day 1'), {
+        timeout: 20_000,
+        message: 'Context B shows initial same-day itinerary order',
+      })
+      .toEqual(initialOrder);
+
+    await dragOnePositionUpByKeyboard(
+      contextA.page,
+      'Day 1',
+      DRAG_SYNC_PLACE_C,
+    );
+
+    await expect
+      .poll(() => visibleOrder(contextB.page, 'Day 1'), {
+        timeout: 20_000,
+        message: 'Context B receives reordered itinerary without reload',
+      })
+      .toEqual(reordered);
+    await expect(
+      placeCardInDay(contextB.page, 'Day 1', DRAG_SYNC_PLACE_A)
+        .getByTestId('place-card-time'),
+    ).toHaveText('09:00');
+    await expect(
+      placeCardInDay(contextB.page, 'Day 1', DRAG_SYNC_PLACE_C)
+        .getByTestId('place-card-time'),
+    ).toHaveText('09:40');
+    await expect(
+      placeCardInDay(contextB.page, 'Day 1', DRAG_SYNC_PLACE_B)
+        .getByTestId('place-card-time'),
+    ).toHaveText('10:30');
+
+    await contextB.page.reload();
+    await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expectTripTitle(contextB.page, INITIAL_TITLE);
+    await expect
+      .poll(() => visibleOrder(contextB.page, 'Day 1'), {
+        timeout: 20_000,
+        message: 'Context B keeps reordered itinerary after reload',
+      })
+      .toEqual(reordered);
+    await expect(
+      placeCardInDay(contextB.page, 'Day 1', DRAG_SYNC_PLACE_B)
+        .getByTestId('place-card-time'),
+    ).toHaveText('10:30');
   } finally {
     await contextA.context.close();
     await contextB.context.close();
