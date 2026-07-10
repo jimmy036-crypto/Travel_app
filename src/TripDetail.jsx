@@ -1,5 +1,6 @@
 // TripDetail.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useMapsLibrary, useMap, AdvancedMarker, Pin, Map } from '@vis.gl/react-google-maps';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas-pro';
@@ -1232,6 +1233,10 @@ const useRoomBranchSync = ({
 };
 
 const PRE_TRIP_ID = "PRE_TRIP";
+const PLACE_ACTION_MENU_WIDTH = 176;
+const PLACE_ACTION_MENU_ESTIMATED_HEIGHT = 232;
+const PLACE_ACTION_MENU_MARGIN = 12;
+const PLACE_ACTION_MENU_GAP = 8;
 
 const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const [isLoading, setIsLoading] = useState(true);
@@ -1287,6 +1292,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const [editingItemData, setEditingItemData] = useState(/** @type {any} */ (null));
   const [viewingMemoItem, setViewingMemoItem] = useState(/** @type {any} */ (null));
   const [copyingItem, setCopyingItem] = useState(/** @type {any} */ (null));
+  const [activePlaceActionMenu, setActivePlaceActionMenu] = useState(
+    /** @type {{id: string, dayId: string, item: any, top: number, left: number, width: number, placement: 'top' | 'bottom'} | null} */ (null)
+  );
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showSettlementModal, setShowSettlementModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState(/** @type {any} */ (null));
@@ -1319,6 +1327,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   );
   const pendingTimeRecalculationRef = useRef({});
   const [timeRecalculationDays, setTimeRecalculationDays] = useState({});
+  const activePlaceActionMenuRef = useRef(null);
+  const ignorePlaceActionScrollRef = useRef(false);
+  const placeActionTriggerRefs = useRef({});
 
   const placesLib = useMapsLibrary('places');
   const [exploreQuery, setExploreQuery] = useState("");
@@ -1508,6 +1519,125 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     if (meta && roomId) onUpdateTripMeta?.(roomId, meta);
   }, [meta, onUpdateTripMeta, roomId]);
 
+  useEffect(() => {
+    activePlaceActionMenuRef.current = activePlaceActionMenu;
+  }, [activePlaceActionMenu]);
+
+  const getPlaceActionMenuPosition = useCallback((trigger) => {
+    const rect = trigger.getBoundingClientRect();
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 390;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 844;
+    const width = Math.min(
+      PLACE_ACTION_MENU_WIDTH,
+      Math.max(0, viewportWidth - (PLACE_ACTION_MENU_MARGIN * 2)),
+    );
+    const maxLeft = viewportWidth - width - PLACE_ACTION_MENU_MARGIN;
+    const left = Math.min(
+      Math.max(PLACE_ACTION_MENU_MARGIN, rect.right - width),
+      Math.max(PLACE_ACTION_MENU_MARGIN, maxLeft),
+    );
+    const bottomTop = rect.bottom + PLACE_ACTION_MENU_GAP;
+    const hasRoomBelow = bottomTop + PLACE_ACTION_MENU_ESTIMATED_HEIGHT <= viewportHeight - PLACE_ACTION_MENU_MARGIN;
+    const topPlacement = rect.top - PLACE_ACTION_MENU_ESTIMATED_HEIGHT - PLACE_ACTION_MENU_GAP;
+    const top = hasRoomBelow
+      ? bottomTop
+      : Math.max(
+        PLACE_ACTION_MENU_MARGIN,
+        Math.min(topPlacement, viewportHeight - PLACE_ACTION_MENU_ESTIMATED_HEIGHT - PLACE_ACTION_MENU_MARGIN),
+      );
+
+    return {
+      top,
+      left,
+      width,
+      placement: hasRoomBelow ? 'bottom' : 'top',
+    };
+  }, []);
+
+  const closePlaceActionMenu = useCallback(({ restoreFocus = false } = {}) => {
+    const currentMenu = activePlaceActionMenuRef.current;
+    ignorePlaceActionScrollRef.current = false;
+    setActivePlaceActionMenu(null);
+
+    if (restoreFocus && currentMenu?.id) {
+      window.requestAnimationFrame(() => {
+        placeActionTriggerRefs.current[currentMenu.id]?.focus?.();
+      });
+    }
+  }, []);
+
+  const openPlaceActionMenu = useCallback((event, dayId, item) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const menuId = `${String(dayId)}-${String(item?.id || item?.place_id || item?.name || '')}`;
+    if (activePlaceActionMenuRef.current?.id === menuId) {
+      closePlaceActionMenu();
+      return;
+    }
+
+    const trigger = event.currentTarget;
+    ignorePlaceActionScrollRef.current = true;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        ignorePlaceActionScrollRef.current = false;
+      });
+    });
+    setActivePlaceActionMenu({
+      id: menuId,
+      dayId: String(dayId),
+      item,
+      ...getPlaceActionMenuPosition(trigger),
+    });
+  }, [closePlaceActionMenu, getPlaceActionMenuPosition]);
+
+  useEffect(() => {
+    if (!activePlaceActionMenu) return undefined;
+
+    const handlePointerDown = (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        target.closest('[data-testid="place-action-menu"]')
+        || target.closest('[data-testid="place-action-menu-trigger"]')
+      ) {
+        return;
+      }
+
+      closePlaceActionMenu();
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        closePlaceActionMenu({ restoreFocus: true });
+      }
+    };
+
+    const handleLayoutChange = () => closePlaceActionMenu();
+    const handleScroll = () => {
+      if (ignorePlaceActionScrollRef.current) return;
+      closePlaceActionMenu();
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('resize', handleLayoutChange);
+    window.addEventListener('orientationchange', handleLayoutChange);
+    window.addEventListener('scroll', handleScroll, true);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('resize', handleLayoutChange);
+      window.removeEventListener('orientationchange', handleLayoutChange);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [activePlaceActionMenu, closePlaceActionMenu]);
+
+  useEffect(() => {
+    closePlaceActionMenu();
+  }, [activeTab, closePlaceActionMenu, copyingItem, currentDay, editingItemData, viewingPlaceDetail]);
+
   const existingDays = useMemo(() => sortDayIds(Object.keys(itinerary)), [itinerary]);
   const safeCurrentDay = existingDays.includes(currentDay) ? currentDay : (existingDays[0] || "Day 1");
   const handleDaySwitch = useCallback((dayId, event) => {
@@ -1515,13 +1645,14 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     event?.stopPropagation?.();
     const nextDayId = String(dayId);
 
+    closePlaceActionMenu();
     setCurrentDay(nextDayId);
     window.requestAnimationFrame(() => {
       document
         .getElementById(`day-card-${nextDayId}`)
-        ?.scrollIntoView?.({ block: 'nearest', inline: 'start', behavior: 'smooth' });
+        ?.scrollIntoView?.({ block: 'nearest', inline: 'start', behavior: 'auto' });
     });
-  }, []);
+  }, [closePlaceActionMenu]);
 
   useEffect(() => {
     if (!map || !itinerary[safeCurrentDay]) return;
@@ -2969,6 +3100,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                             {(/** @type {any[]} */ (Array.isArray(itinerary[dayId]) ? itinerary[dayId] : [])).map((item, index) => {
                               const displayName = item.customName || item.name;
                               const isCustomName = !!item.customName;
+                              const actionMenuId = `${String(dayId)}-${String(item?.id || item?.place_id || item?.name || '')}`;
                               return (
                               <Draggable key={String(item.id)} draggableId={String(item.id)} index={index}>
                                 {(prov, snap) => (
@@ -3031,25 +3163,23 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                               ) : null}
                                             </div>
 
-                                            <details
-                                              data-testid="place-card-actions-menu"
-                                              className="export-hide relative shrink-0 md:hidden"
-                                              onClick={(event) => event.stopPropagation()}
+                                            <button
+                                              type="button"
+                                              data-testid="place-action-menu-trigger"
+                                              data-place-id={String(item.id)}
+                                              aria-label="開啟景點操作"
+                                              aria-haspopup="menu"
+                                              aria-expanded={activePlaceActionMenu?.id === actionMenuId}
+                                              aria-controls={activePlaceActionMenu?.id === actionMenuId ? `place-action-menu-${actionMenuId}` : undefined}
+                                              ref={(node) => {
+                                                if (node) placeActionTriggerRefs.current[actionMenuId] = node;
+                                                else delete placeActionTriggerRefs.current[actionMenuId];
+                                              }}
+                                              onClick={(event) => openPlaceActionMenu(event, dayId, item)}
+                                              className={`export-hide flex min-h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-lg font-black shadow-sm active:scale-95 md:hidden ${snap.isDragging ? 'border-white/25 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
                                             >
-                                              <summary
-                                                data-testid="place-card-actions-toggle"
-                                                aria-label="開啟景點操作"
-                                                className={`flex min-h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border text-lg font-black shadow-sm active:scale-95 [&::-webkit-details-marker]:hidden ${snap.isDragging ? 'border-white/25 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
-                                              >
-                                                ⋯
-                                              </summary>
-                                              <div className={`absolute right-0 top-12 z-30 grid w-36 gap-1.5 rounded-xl border p-2 shadow-xl ${snap.isDragging ? 'border-white/20 bg-blue-700 text-white' : `${t.headerBg} ${t.cardBorder}`}`}>
-                                                <button type="button" data-testid="edit-place-button" onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`min-h-10 rounded-lg px-3 text-left text-[11px] font-bold ${snap.isDragging ? 'text-white' : t.mainText}`}>✏️ 編輯</button>
-                                                <button type="button" onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`min-h-10 rounded-lg px-3 text-left text-[11px] font-bold ${snap.isDragging ? 'text-white' : t.mainText}`}>🔍 周邊</button>
-                                                <button type="button" onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`min-h-10 rounded-lg px-3 text-left text-[11px] font-bold ${snap.isDragging ? 'text-white' : t.mainText}`}>📋 複製</button>
-                                                <button type="button" data-testid="delete-place-button" onClick={(event) => { event.stopPropagation(); handleDeleteItineraryItem(dayId, item); }} className="min-h-10 rounded-lg px-3 text-left text-[11px] font-bold text-red-500">刪除</button>
-                                              </div>
-                                            </details>
+                                              ⋯
+                                            </button>
 
                                             <button
                                               type="button"
@@ -3087,9 +3217,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                             return (
                                               <div className={`export-hide mt-3 flex min-h-10 items-center gap-2 rounded-xl border px-3 ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder}`}`}>
                                                 <span className="text-sm">ⓘ</span>
-                                                <span className={`shrink-0 text-[10px] font-black ${snap.isDragging ? 'text-white' : t.mainText}`}>查看詳情</span>
+                                                <span className={`shrink-0 text-[10px] font-black ${snap.isDragging ? 'text-white' : t.mainText}`}>景點資訊</span>
                                                 <span className={`min-w-0 flex-1 truncate text-[9px] ${snap.isDragging ? 'text-white/75' : t.subText}`}>
-                                                  {detailParts.length > 0 ? detailParts.join('・') : '地址、定位與景點資訊'}
+                                                  {detailParts.length > 0 ? detailParts.join('・') : '地址、定位與景點資料'}
                                                 </span>
                                                 <span className={snap.isDragging ? 'text-white/70' : t.subText}>›</span>
                                               </div>
@@ -3473,7 +3603,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
             </div>
 
             {/* 地圖區塊 */}
-            <div className={`relative flex-1 transition-opacity duration-300 ease-in-out ${activeTab === 'map' ? 'flex' : 'hidden md:flex'}`}>
+            <div data-testid="map-panel" className={`relative flex-1 transition-opacity duration-300 ease-in-out ${activeTab === 'map' ? 'flex' : 'hidden md:flex'}`}>
               <div className="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-125 z-20 flex flex-col gap-2">
                 <div className={`flex items-center gap-2 p-2 rounded-2xl shadow-lg backdrop-blur-xl border ${t.headerBg} ${t.cardBorder}`}>
                   <input value={String(exploreQuery)} onChange={e => setExploreQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleExploreSearch(exploreQuery, null); }} placeholder="探索周邊美食地標..." className={`flex-1 bg-transparent px-2 outline-none text-sm font-bold ${t.mainText} placeholder:opacity-50`} />
@@ -3530,6 +3660,82 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
       </DragDropContext>
 
       {/* 🌟 彈窗掛載區 */}
+      {activePlaceActionMenu ? createPortal(
+        <div
+          id={`place-action-menu-${activePlaceActionMenu.id}`}
+          data-testid="place-action-menu"
+          data-place-id={String(activePlaceActionMenu.item?.id || '')}
+          role="menu"
+          aria-label="景點操作"
+          className={`fixed grid gap-1.5 rounded-2xl border p-2 shadow-2xl backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}
+          style={{
+            top: `${activePlaceActionMenu.top}px`,
+            left: `${activePlaceActionMenu.left}px`,
+            width: `${activePlaceActionMenu.width}px`,
+            zIndex: 10050,
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="place-action-edit"
+            onClick={(event) => {
+              event.stopPropagation();
+              const { dayId, item } = activePlaceActionMenu;
+              closePlaceActionMenu();
+              setEditingItemData({ dayId, item });
+            }}
+            className={`min-h-11 rounded-xl px-3 text-left text-xs font-black transition-colors active:scale-95 ${t.mainText} hover:bg-blue-500/10`}
+          >
+            ✏️ 編輯
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="place-action-nearby"
+            onClick={(event) => {
+              event.stopPropagation();
+              const { item } = activePlaceActionMenu;
+              closePlaceActionMenu();
+              handleSearchNearby(item);
+            }}
+            className={`min-h-11 rounded-xl px-3 text-left text-xs font-black transition-colors active:scale-95 ${t.mainText} hover:bg-orange-500/10`}
+          >
+            🔍 查看周邊
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="place-action-copy"
+            onClick={(event) => {
+              event.stopPropagation();
+              const { item } = activePlaceActionMenu;
+              closePlaceActionMenu();
+              setCopyingItem(item);
+            }}
+            className={`min-h-11 rounded-xl px-3 text-left text-xs font-black transition-colors active:scale-95 ${t.mainText} hover:bg-purple-500/10`}
+          >
+            📋 複製
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="place-action-delete"
+            onClick={(event) => {
+              event.stopPropagation();
+              const { dayId, item } = activePlaceActionMenu;
+              closePlaceActionMenu();
+              handleDeleteItineraryItem(dayId, item);
+            }}
+            className="min-h-11 rounded-xl border border-red-500/25 bg-red-500/10 px-3 text-left text-xs font-black text-red-500 transition-colors active:scale-95 hover:bg-red-500/15"
+          >
+            刪除
+          </button>
+        </div>,
+        document.body,
+      ) : null}
+
       {optimizationPreview ? (
         <RouteOptimizationPreviewModal
           preview={optimizationPreview}

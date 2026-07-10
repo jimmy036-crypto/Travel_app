@@ -432,9 +432,9 @@ async function deletePlaceThroughUi(
   const placeCard = placeCardByName(page, place.name);
 
   await expect(placeCard).toBeVisible({ timeout: 20_000 });
-  const actionsMenu = placeCard.getByTestId('place-card-actions-menu');
-  if (await actionsMenu.isVisible().catch(() => false)) {
-    await actionsMenu.getByTestId('place-card-actions-toggle').click();
+  const mobileActionTrigger = placeCard.getByTestId('place-action-menu-trigger');
+  if (await mobileActionTrigger.isVisible().catch(() => false)) {
+    await mobileActionTrigger.click();
   } else {
     await placeCard.hover();
   }
@@ -445,7 +445,12 @@ async function deletePlaceThroughUi(
     await dialog.accept();
   });
 
-  await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
+  const mobileActionMenu = page.getByTestId('place-action-menu');
+  if (await mobileActionMenu.isVisible().catch(() => false)) {
+    await mobileActionMenu.getByTestId('place-action-delete').click();
+  } else {
+    await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
+  }
   await expect(placeCardByName(page, place.name)).toBeHidden({
     timeout: 20_000,
   });
