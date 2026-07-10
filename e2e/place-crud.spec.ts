@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Dialog, type Page } from '@playwright/test';
 
 import {
   clearEmulatorDatabase,
@@ -40,6 +40,25 @@ async function expectMenuWithinViewport(page: Page) {
   expect(box!.y).toBeGreaterThanOrEqual(12);
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width - 12 + 1);
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height - 12 + 1);
+}
+
+async function openDeleteConfirmationForPlace(
+  page: Page,
+  dayId: string,
+  name: string,
+) {
+  const placeCard = placeCardByName(page, dayId, name);
+  await expect(placeCard).toBeVisible({ timeout: 20_000 });
+
+  const mobileActionTrigger = placeCard.getByTestId('place-action-menu-trigger');
+  if (await mobileActionTrigger.isVisible().catch(() => false)) {
+    await mobileActionTrigger.click();
+    await page.getByTestId('place-action-delete').click();
+    return;
+  }
+
+  await placeCard.hover();
+  await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
 }
 
 test.beforeEach(async () => {
@@ -202,6 +221,93 @@ test('新增、編輯景點與詳細資訊會保存到 Firebase Emulator', async
   await expect(page.getByTestId('place-detail-note')).toHaveText(
     EDITED_NOTE,
   );
+});
+
+test('uses the shared confirmation dialog before deleting a place', async ({
+  page,
+}) => {
+  const placeName = 'E2E Shared Confirm Place';
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E shared delete confirmation trip',
+    itinerary: {
+      'Day 1': [
+        {
+          id: 'shared-confirm-delete-place',
+          name: placeName,
+          place_id: 'shared-confirm-delete-place-id',
+          customName: '',
+          lat: 25.033,
+          lng: 121.5654,
+          address: 'E2E Shared Confirm address',
+          time: '09:00',
+          stayTime: '60',
+          memo: '',
+          tags: [],
+        },
+      ],
+    },
+  });
+
+  let nativeDialogSeen = false;
+  const nativeDialogHandler = async (dialog: Dialog) => {
+    nativeDialogSeen = true;
+    await dialog.dismiss();
+  };
+  page.on('dialog', nativeDialogHandler);
+
+  await page.goto(`/?room=${ROOM_ID}`);
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(placeCardByName(page, 'Day 1', placeName)).toBeVisible();
+
+  await openDeleteConfirmationForPlace(page, 'Day 1', placeName);
+  await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+  await expect(page.getByTestId('confirm-dialog')).toContainText('刪除這個景點？');
+  await expect(page.getByTestId('confirm-dialog')).toContainText(
+    '刪除後，這個景點會從所有協作者的行程中移除。',
+  );
+  await expect(page.getByTestId('confirm-cancel')).toHaveText('保留景點');
+  await expect(page.getByTestId('confirm-accept')).toHaveText('刪除景點');
+
+  await page.getByTestId('confirm-cancel').click();
+  await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+  await expect(placeCardByName(page, 'Day 1', placeName)).toBeVisible();
+  expect(nativeDialogSeen).toBe(false);
+
+  await openDeleteConfirmationForPlace(page, 'Day 1', placeName);
+  await page.getByTestId('confirm-accept').click();
+
+  await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+  await expect(placeCardByName(page, 'Day 1', placeName)).toBeHidden({
+    timeout: 20_000,
+  });
+  const successToast = page
+    .getByTestId('toast')
+    .filter({ hasText: '景點已刪除' });
+  await expect(successToast).toBeVisible();
+  await expect(successToast).toHaveAttribute('data-toast-type', 'success');
+  await expect(successToast).toContainText('行程與協作者畫面已更新。');
+
+  await expect
+    .poll(
+      async () => {
+        const dayItems = await readEmulatorData<PlaceItem[]>(
+          `rooms/${ROOM_ID}/itinerary/Day 1`,
+        );
+
+        return Array.isArray(dayItems)
+          ? dayItems.some((item) => item.id === 'shared-confirm-delete-place')
+          : false;
+      },
+      {
+        timeout: 15_000,
+        message: 'deleted place should be removed from Database Emulator',
+      },
+    )
+    .toBe(false);
+
+  page.off('dialog', nativeDialogHandler);
 });
 
 test('mobile day switching does not accidentally trigger place editing', async ({

@@ -85,7 +85,15 @@ describe('TripDetail Emulator 景點流程', () => {
 
   it('可透過 Emulator hook 新增、查看並編輯景點', async () => {
     const { default: App } = await import('./App.jsx');
-    const view = render(<App />);
+    const { GlobalModalProvider } = await import('./components/ui/GlobalModalProvider.jsx');
+    const { ToastProvider } = await import('./components/ui/ToastProvider.jsx');
+    const view = render(
+      <GlobalModalProvider>
+        <ToastProvider>
+          <App />
+        </ToastProvider>
+      </GlobalModalProvider>,
+    );
 
     await waitFor(() => {
       expect(view.getByTestId('active-trip-view')).toBeInTheDocument();
