@@ -10,7 +10,10 @@ import {
 
 import {
   clearEmulatorDatabase,
+  clearEmulatorStorage,
+  readEmulatorData,
   seedTestTrip,
+  storageObjectExists,
   writeEmulatorData,
 } from './support/emulator';
 
@@ -38,12 +41,31 @@ const EXPENSE_SYNC_NOTE = 'E2E realtime expense creation note';
 const EDITED_EXPENSE_SYNC_ITEM = 'E2E realtime edited ramen';
 const EDITED_EXPENSE_SYNC_COST = '2000';
 const EDITED_EXPENSE_SYNC_NOTE = 'E2E realtime expense edit note';
+const STORAGE_SYNC_PREFIX = `rooms/${ROOM_ID}/tickets`;
+const STORAGE_SYNC_TICKET_TITLE = 'E2E realtime storage ticket image';
+const STORAGE_SYNC_TICKET_FILE_NAME = 'phase-5b-storage-ticket.png';
+const STORAGE_SYNC_TICKET_MEMO = 'E2E realtime storage attachment note';
+const PNG_1X1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC'
+  + 'AAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  'base64',
+);
 
 type PlaceDetails = {
   name: string;
   arrivalTime: string;
   stayMinutes: string;
   note: string;
+};
+
+type TicketItem = {
+  id?: string;
+  title?: string;
+  type?: string;
+  url?: string;
+  storagePath?: string;
+  memo?: string;
+  owner?: string;
 };
 
 const CREATED_PLACE: PlaceDetails = {
@@ -59,6 +81,12 @@ const EDITED_PLACE: PlaceDetails = {
   stayMinutes: EDITED_PLACE_STAY_MINUTES,
   note: EDITED_PLACE_NOTE,
 };
+
+function toList<T>(value: T[] | Record<string, T> | null): T[] {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (value && typeof value === 'object') return Object.values(value);
+  return [];
+}
 
 function contextOptionsForProject(projectName: string): BrowserContextOptions {
   const deviceOptions = projectName === 'Mobile Safari'
@@ -245,6 +273,23 @@ async function seedExpenseSyncTrip(): Promise<void> {
   });
 }
 
+async function seedStorageSyncTrip(): Promise<void> {
+  await clearEmulatorDatabase();
+  await clearEmulatorStorage(STORAGE_SYNC_PREFIX);
+  await seedTestTrip(ROOM_ID, {
+    title: INITIAL_TITLE,
+    members: [EXPENSE_SYNC_MEMBER_A, EXPENSE_SYNC_MEMBER_B],
+  });
+}
+
+async function readTickets(): Promise<TicketItem[]> {
+  const value = await readEmulatorData<
+    TicketItem[] | Record<string, TicketItem>
+  >(`rooms/${ROOM_ID}/tickets`);
+
+  return toList(value);
+}
+
 async function addPlaceThroughUi(page: Page): Promise<void> {
   const cards = page.getByTestId('place-card');
   const initialCount = await cards.count();
@@ -404,6 +449,106 @@ async function openExpenseTab(page: Page): Promise<void> {
   await expenseTab.click();
 
   await expect(page.getByTestId('expense-panel')).toBeVisible();
+}
+
+async function openTicketPanel(page: Page): Promise<void> {
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+
+  const ticketTab = page.locator(
+    '[data-testid="ticket-tab-button"]:visible',
+  );
+
+  await expect(ticketTab).toHaveCount(1);
+  await ticketTab.click();
+
+  await expect(page.getByTestId('ticket-panel')).toBeVisible();
+}
+
+function ticketCard(page: Page, title = STORAGE_SYNC_TICKET_TITLE) {
+  return page
+    .getByTestId('ticket-card')
+    .filter({ hasText: title })
+    .first();
+}
+
+async function addTicketImageThroughUi(page: Page): Promise<void> {
+  await page.getByTestId('add-ticket-button').click();
+  await expect(page.getByTestId('ticket-modal')).toBeVisible();
+
+  await page.getByTestId('ticket-title-input').fill(STORAGE_SYNC_TICKET_TITLE);
+  await page.getByTestId('ticket-memo-input').fill(STORAGE_SYNC_TICKET_MEMO);
+  await page.getByTestId('ticket-file-input').setInputFiles({
+    name: STORAGE_SYNC_TICKET_FILE_NAME,
+    mimeType: 'image/png',
+    buffer: PNG_1X1,
+  });
+
+  await page.getByTestId('ticket-save-button').click();
+  await expect(page.getByTestId('ticket-modal')).toBeHidden({
+    timeout: 35_000,
+  });
+}
+
+async function waitForStoredTicketAttachment(): Promise<TicketItem> {
+  let savedTicket: TicketItem | undefined;
+
+  await expect
+    .poll(
+      async () => {
+        savedTicket = (await readTickets()).find(
+          (ticket) => ticket.title === STORAGE_SYNC_TICKET_TITLE,
+        );
+
+        return savedTicket
+          ? {
+              type: savedTicket.type,
+              memo: savedTicket.memo,
+              hasDownloadUrl: Boolean(savedTicket.url),
+              correctPrefix: String(savedTicket.storagePath || '').startsWith(
+                `${STORAGE_SYNC_PREFIX}/`,
+              ),
+              correctFileName: String(savedTicket.storagePath || '').endsWith(
+                `/${STORAGE_SYNC_TICKET_FILE_NAME}`,
+              ),
+            }
+          : null;
+      },
+      {
+        timeout: 15_000,
+        message: 'ticket image attachment is persisted to the emulator',
+      },
+    )
+    .toEqual({
+      type: 'image',
+      memo: STORAGE_SYNC_TICKET_MEMO,
+      hasDownloadUrl: true,
+      correctPrefix: true,
+      correctFileName: true,
+    });
+
+  const storagePath = String(savedTicket?.storagePath || '');
+  expect(storagePath).not.toBe('');
+  await expect.poll(async () => await storageObjectExists(storagePath))
+    .toBe(true);
+
+  return savedTicket as TicketItem;
+}
+
+async function expectNoTicketAttachment(page: Page): Promise<void> {
+  await expect(ticketCard(page)).toHaveCount(0);
+}
+
+async function expectSyncedTicketAttachment(page: Page): Promise<void> {
+  const card = ticketCard(page);
+
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  await expect(card).toContainText(STORAGE_SYNC_TICKET_TITLE);
+  await expect(card).toContainText(STORAGE_SYNC_TICKET_MEMO);
+  await expect(
+    card.getByRole('button', { name: /全螢幕驗票模式/ }),
+  ).toBeVisible();
 }
 
 async function openNewExpenseModal(page: Page): Promise<void> {
@@ -610,6 +755,38 @@ test('keeps isolated contexts synced through Firebase realtime listener', async 
     if (!contextA.context.pages().every((page) => page.isClosed())) {
       await contextA.context.close();
     }
+    await contextB.context.close();
+  }
+});
+
+test('syncs storage attachment status between active browser contexts in realtime', async ({
+  browser,
+}, testInfo) => {
+  await seedStorageSyncTrip();
+
+  const contextA = await openRoom(browser, testInfo.project.name);
+  const contextB = await openRoom(browser, testInfo.project.name);
+
+  try {
+    await openTicketPanel(contextA.page);
+    await openTicketPanel(contextB.page);
+
+    await expectNoTicketAttachment(contextB.page);
+
+    await addTicketImageThroughUi(contextA.page);
+    await waitForStoredTicketAttachment();
+
+    await expectSyncedTicketAttachment(contextB.page);
+
+    await contextB.page.reload();
+    await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expectTripTitle(contextB.page, INITIAL_TITLE);
+    await openTicketPanel(contextB.page);
+    await expectSyncedTicketAttachment(contextB.page);
+  } finally {
+    await contextA.context.close();
     await contextB.context.close();
   }
 });
