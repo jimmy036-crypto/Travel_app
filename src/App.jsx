@@ -1,7 +1,7 @@
 ﻿// ============================================================================
 // (1) 模組引入與全局設定
 // ============================================================================
-import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { APIProvider } from '@vis.gl/react-google-maps';
 
 // 引入 Firebase 與 Helper
@@ -37,6 +37,7 @@ import {
 } from './components/UIComponents.jsx';
 import { FeatureTour } from './components/FeatureTour.jsx';
 import { WhatsNewDialog } from './components/WhatsNewDialog.jsx';
+import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -83,6 +84,7 @@ export default function TravelApp() {
   });
   const [isSavingTrip, setIsSavingTrip] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const lobbyAppearanceInputRef = useRef(null);
 
   const [tripModalMode, setTripModalMode] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -527,6 +529,7 @@ export default function TravelApp() {
           onBack={closeTrip}
           onUpdateTripMeta={handleUpdateTripMeta}
           onOpenReleaseNotes={openReleaseNotes}
+          onStartFeatureTour={startFeatureTour}
           onTourAvailabilityChange={setTripTourAvailability}
         />
       </Suspense>
@@ -538,32 +541,67 @@ export default function TravelApp() {
   return (
     <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-x-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
       <div className="max-w-5xl w-full mx-auto p-6 md:p-12 overflow-y-auto">
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6">
-          <div>
-            <div className="flex items-center gap-4 mb-2">
-              {/* 💡 已將 bg-gradient 修正為 Tailwind v4 的 bg-linear */}
-              <div className="bg-linear-to-br from-blue-500 to-emerald-500 text-white p-2.5 rounded-2xl shadow-lg transform -rotate-12 hover:rotate-0 transition-transform cursor-pointer">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" /></svg>
+        <header className="mb-10 flex flex-col gap-5 md:mb-12">
+          <input
+            ref={lobbyAppearanceInputRef}
+            type="color"
+            value={String(customBgColor)}
+            onChange={e => setCustomBgColor(e.target.value)}
+            className="sr-only"
+            tabIndex={-1}
+            aria-label="自訂外觀顏色"
+          />
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="mb-2 flex min-w-0 items-center gap-3 md:gap-4">
+                {/* 💡 已將 bg-gradient 修正為 Tailwind v4 的 bg-linear */}
+                <div className="shrink-0 bg-linear-to-br from-blue-500 to-emerald-500 text-white p-2.5 rounded-2xl shadow-lg transform -rotate-12 hover:rotate-0 transition-transform cursor-pointer">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" /></svg>
+                </div>
+                <h1 className="min-w-0 truncate text-4xl font-black text-transparent bg-clip-text bg-linear-to-r from-blue-500 to-emerald-400 tracking-tight md:text-5xl">智の旅行</h1>
               </div>
-              <h1 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-linear-to-r from-blue-500 to-emerald-400 tracking-tight">智の旅行</h1>
+              <p className={`font-bold tracking-wide ${t.subText}`}>你的專屬旅程管理中心</p>
             </div>
-            <p className={`font-bold tracking-wide ${t.subText}`}>你的專屬旅程管理中心</p>
+            <AppSettingsMenu
+              key={activeRoomId || 'lobby-settings'}
+              t={t}
+              version={CURRENT_RELEASE_NOTES.version}
+              onOpenAppearance={() => lobbyAppearanceInputRef.current?.click?.()}
+              onOpenReleaseNotes={openReleaseNotes}
+              onStartFeatureTour={startFeatureTour}
+            />
           </div>
-          <div className="w-full md:w-auto flex flex-row items-center justify-between md:justify-end gap-3">
-            <div className={`flex items-center gap-3 p-1.5 pr-4 rounded-full border shadow-sm backdrop-blur-md ${t.isLight ? 'bg-white/50 border-slate-200' : 'bg-black/20 border-white/10'}`}>
-              <div className="relative w-8 h-8 rounded-full overflow-hidden border-2 border-white shadow-sm cursor-pointer hover:scale-105 transition-transform"><input type="color" value={String(customBgColor)} onChange={e => setCustomBgColor(e.target.value)} className="absolute -top-2 -left-2 w-12 h-12 cursor-pointer border-0 p-0" title="選擇主頁背景色" /></div>
-              <span className={`text-xs font-bold ${t.subText}`}>自訂大廳色</span>
-            </div>
-            <button onClick={() => setShowImportModal(true)} className="bg-slate-500/20 border border-slate-500/30 text-sm font-bold px-4 py-3 rounded-2xl transition-transform active:scale-95">📥 匯入</button>
+
+          <div className="grid w-full gap-3 md:flex md:items-center md:justify-end">
             <button
               type="button"
-              data-testid="release-notes-trigger"
-              onClick={openReleaseNotes}
-              className={`min-h-11 rounded-2xl border px-4 text-sm font-bold shadow-sm transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+              data-testid="create-trip-button"
+              onClick={openCreateModal}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-500/30 transition-all active:scale-95 hover:bg-blue-500 md:w-auto md:min-w-40"
             >
-              更新內容
+              <span aria-hidden="true">＋</span>
+              <span className="whitespace-nowrap">建立新旅程</span>
             </button>
-            <button type="button" data-testid="create-trip-button" onClick={openCreateModal} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"><span>➕</span> <span>新增</span></button>
+            <div className="grid grid-cols-2 gap-3 md:flex md:w-auto">
+              <button
+                type="button"
+                data-testid="import-trip-button"
+                onClick={() => setShowImportModal(true)}
+                className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+              >
+                <span aria-hidden="true">⇩</span>
+                <span className="whitespace-nowrap">匯入旅程</span>
+              </button>
+              <button
+                type="button"
+                data-testid="lobby-appearance-button"
+                onClick={() => lobbyAppearanceInputRef.current?.click?.()}
+                className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+              >
+                <span className="h-4 w-4 shrink-0 rounded-full border border-white/70 shadow-sm" style={{ backgroundColor: customBgColor }} aria-hidden="true" />
+                <span className="whitespace-nowrap">自訂外觀</span>
+              </button>
+            </div>
           </div>
         </header>
 
