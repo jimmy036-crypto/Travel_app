@@ -30,6 +30,11 @@ const EDITED_PLACE_NOTE = 'E2E realtime place edit note';
 const DRAG_SYNC_PLACE_A = 'E2E drag sync breakfast';
 const DRAG_SYNC_PLACE_B = 'E2E drag sync gallery';
 const DRAG_SYNC_PLACE_C = 'E2E drag sync market';
+const EXPENSE_SYNC_MEMBER_A = 'E2E Alice';
+const EXPENSE_SYNC_MEMBER_B = 'E2E Bob';
+const EXPENSE_SYNC_ITEM = 'E2E realtime shared lunch';
+const EXPENSE_SYNC_COST = '1200';
+const EXPENSE_SYNC_NOTE = 'E2E realtime expense creation note';
 
 type PlaceDetails = {
   name: string;
@@ -225,6 +230,18 @@ async function seedDragSyncTrip(): Promise<void> {
   });
 }
 
+async function seedExpenseSyncTrip(): Promise<void> {
+  await clearEmulatorDatabase();
+  await seedTestTrip(ROOM_ID, {
+    title: INITIAL_TITLE,
+    members: [EXPENSE_SYNC_MEMBER_A, EXPENSE_SYNC_MEMBER_B],
+    memberBudgets: {
+      [EXPENSE_SYNC_MEMBER_A]: 10000,
+      [EXPENSE_SYNC_MEMBER_B]: 10000,
+    },
+  });
+}
+
 async function addPlaceThroughUi(page: Page): Promise<void> {
   const cards = page.getByTestId('place-card');
   const initialCount = await cards.count();
@@ -371,6 +388,92 @@ async function deletePlaceThroughUi(
   });
 }
 
+async function openExpenseTab(page: Page): Promise<void> {
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+
+  const expenseTab = page.locator(
+    '[data-testid="expense-tab-button"]:visible',
+  );
+
+  await expect(expenseTab).toHaveCount(1);
+  await expenseTab.click();
+
+  await expect(page.getByTestId('expense-panel')).toBeVisible();
+}
+
+async function openNewExpenseModal(page: Page): Promise<void> {
+  await page.getByTestId('add-expense-button').click();
+
+  await expect(page.getByTestId('expense-modal')).toBeVisible();
+  await expect(page.getByTestId('expense-modal')).toHaveAttribute(
+    'data-mode',
+    'create',
+  );
+}
+
+function expenseRecord(page: Page, itemName: string) {
+  return page
+    .getByTestId('expense-record')
+    .filter({ hasText: itemName })
+    .first();
+}
+
+async function addEqualSplitExpenseThroughUi(page: Page): Promise<void> {
+  await openNewExpenseModal(page);
+
+  await page.getByTestId('expense-item-input').fill(EXPENSE_SYNC_ITEM);
+  await page.getByTestId('expense-currency-select').selectOption('TWD');
+  await page.getByTestId('expense-local-cost-input').fill(EXPENSE_SYNC_COST);
+  await page
+    .getByTestId('expense-payer-select')
+    .selectOption(EXPENSE_SYNC_MEMBER_A);
+  await page.getByTestId('expense-note-input').fill(EXPENSE_SYNC_NOTE);
+
+  await expect(page.getByTestId('expense-twd-total')).toContainText('1,200');
+  await expect(
+    page.locator(
+      `[data-testid="expense-involved-member"][data-member="${EXPENSE_SYNC_MEMBER_A}"]`,
+    ),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page.locator(
+      `[data-testid="expense-involved-member"][data-member="${EXPENSE_SYNC_MEMBER_B}"]`,
+    ),
+  ).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByTestId('expense-save-button').click();
+  await expect(page.getByTestId('expense-modal')).toBeHidden({
+    timeout: 15_000,
+  });
+}
+
+async function expectSyncedExpense(page: Page): Promise<void> {
+  const record = expenseRecord(page, EXPENSE_SYNC_ITEM);
+
+  await expect(record).toBeVisible({ timeout: 20_000 });
+  await expect(record.getByTestId('expense-record-title')).toHaveText(
+    EXPENSE_SYNC_ITEM,
+  );
+  await expect(record.getByTestId('expense-record-cost')).toHaveText(
+    /^NT\$\s*1,200$/,
+  );
+  await expect(record).toContainText(EXPENSE_SYNC_MEMBER_A);
+  await expect(record).toContainText(EXPENSE_SYNC_NOTE);
+  await expect(page.getByTestId('expense-total')).toContainText('1,200');
+  await expect(
+    page.locator(
+      `[data-testid="member-spent"][data-member="${EXPENSE_SYNC_MEMBER_A}"]`,
+    ),
+  ).toContainText('600');
+  await expect(
+    page.locator(
+      `[data-testid="member-spent"][data-member="${EXPENSE_SYNC_MEMBER_B}"]`,
+    ),
+  ).toContainText('600');
+}
+
 test.beforeEach(async () => {
   await clearEmulatorDatabase();
   await seedTestTrip(ROOM_ID, { title: INITIAL_TITLE });
@@ -411,6 +514,35 @@ test('keeps isolated contexts synced through Firebase realtime listener', async 
     if (!contextA.context.pages().every((page) => page.isClosed())) {
       await contextA.context.close();
     }
+    await contextB.context.close();
+  }
+});
+
+test('syncs expense creation between active browser contexts in realtime', async ({
+  browser,
+}, testInfo) => {
+  await seedExpenseSyncTrip();
+
+  const contextA = await openRoom(browser, testInfo.project.name);
+  const contextB = await openRoom(browser, testInfo.project.name);
+
+  try {
+    await openExpenseTab(contextA.page);
+    await openExpenseTab(contextB.page);
+
+    await addEqualSplitExpenseThroughUi(contextA.page);
+
+    await expectSyncedExpense(contextB.page);
+
+    await contextB.page.reload();
+    await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expectTripTitle(contextB.page, INITIAL_TITLE);
+    await openExpenseTab(contextB.page);
+    await expectSyncedExpense(contextB.page);
+  } finally {
+    await contextA.context.close();
     await contextB.context.close();
   }
 });
