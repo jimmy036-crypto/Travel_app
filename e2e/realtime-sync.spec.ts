@@ -432,7 +432,12 @@ async function deletePlaceThroughUi(
   const placeCard = placeCardByName(page, place.name);
 
   await expect(placeCard).toBeVisible({ timeout: 20_000 });
-  await placeCard.hover();
+  const actionsMenu = placeCard.getByTestId('place-card-actions-menu');
+  if (await actionsMenu.isVisible().catch(() => false)) {
+    await actionsMenu.getByTestId('place-card-actions-toggle').click();
+  } else {
+    await placeCard.hover();
+  }
 
   page.once('dialog', async (dialog) => {
     expect(dialog.type()).toBe('confirm');

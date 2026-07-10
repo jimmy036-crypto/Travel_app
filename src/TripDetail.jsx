@@ -1510,6 +1510,18 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
   const existingDays = useMemo(() => sortDayIds(Object.keys(itinerary)), [itinerary]);
   const safeCurrentDay = existingDays.includes(currentDay) ? currentDay : (existingDays[0] || "Day 1");
+  const handleDaySwitch = useCallback((dayId, event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    const nextDayId = String(dayId);
+
+    setCurrentDay(nextDayId);
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById(`day-card-${nextDayId}`)
+        ?.scrollIntoView?.({ block: 'nearest', inline: 'start', behavior: 'smooth' });
+    });
+  }, []);
 
   useEffect(() => {
     if (!map || !itinerary[safeCurrentDay]) return;
@@ -2849,6 +2861,32 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                 </div>
               </div>
 
+              <div className={`md:hidden shrink-0 border-b px-4 py-3 ${t.headerBg} ${t.cardBorder} ${(activeTab === 'plan' || activeTab === 'map') ? 'block' : 'hidden'}`}>
+                <div
+                  data-testid="mobile-day-switcher"
+                  className="scrollbar-hide flex gap-2 overflow-x-auto overscroll-x-contain"
+                >
+                  {existingDays.map((dayId) => {
+                    const { title } = getDayDisplay(dayId, meta.startDate);
+                    const isCurrent = safeCurrentDay === dayId;
+
+                    return (
+                      <button
+                        key={`mobile-day-${dayId}`}
+                        type="button"
+                        data-testid="itinerary-day-switch-button"
+                        data-day-id={String(dayId)}
+                        aria-pressed={isCurrent}
+                        onClick={(event) => handleDaySwitch(dayId, event)}
+                        className={`min-h-11 shrink-0 rounded-xl border px-4 text-xs font-black shadow-sm transition-all active:scale-95 ${isCurrent ? 'border-blue-500 bg-blue-600 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
+                      >
+                        {String(title)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollBy(Number(e.deltaY), 0); }} className={`scrollbar-hide flex-1 overflow-x-auto overscroll-x-contain p-4 gap-4 items-start ${(activeTab === 'plan' || activeTab === 'map') ? 'flex' : 'hidden'}`}>
                 {existingDays.map(dayId => {
                   const { title, dateStr } = getDayDisplay(dayId, meta.startDate);
@@ -2861,7 +2899,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                       id={`day-card-${dayId}`}
                       data-testid="itinerary-day-card"
                       data-day-id={String(dayId)}
-                      onClick={() => setCurrentDay(dayId)}
+                      onClick={(event) => handleDaySwitch(dayId, event)}
                       className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-4 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}
                     >
                       <div className="flex flex-col gap-1 mb-3 group">
@@ -3040,7 +3078,26 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                         </div>
                                       </div>
 
-                                      <div className={`export-hide mt-3 pt-3 border-t flex items-center gap-4 transition-all duration-300 ${snap.isDragging ? 'border-white/20' : t.cardBorder} flex md:max-h-0 md:opacity-0 md:group-hover:max-h-14 md:group-hover:opacity-100 max-h-14 opacity-100`}>
+                                      <details
+                                        data-testid="place-card-actions-menu"
+                                        className={`export-hide mt-3 border-t pt-3 md:hidden ${snap.isDragging ? 'border-white/20' : t.cardBorder}`}
+                                        onClick={(event) => event.stopPropagation()}
+                                      >
+                                        <summary
+                                          data-testid="place-card-actions-toggle"
+                                          className={`flex min-h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border text-xs font-black shadow-sm active:scale-95 [&::-webkit-details-marker]:hidden ${snap.isDragging ? 'border-white/25 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
+                                        >
+                                          ⋯ 操作
+                                        </summary>
+                                        <div className="mt-2 grid grid-cols-2 gap-2">
+                                          <button type="button" data-testid="edit-place-button" onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`min-h-11 rounded-xl border text-[11px] font-bold ${snap.isDragging ? 'border-white/20 text-white' : `${t.cardBorder} ${t.mainText}`}`}>✏️ 編輯</button>
+                                          <button type="button" onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`min-h-11 rounded-xl border text-[11px] font-bold ${snap.isDragging ? 'border-white/20 text-white' : `${t.cardBorder} ${t.mainText}`}`}>🔍 周邊</button>
+                                          <button type="button" onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`min-h-11 rounded-xl border text-[11px] font-bold ${snap.isDragging ? 'border-white/20 text-white' : `${t.cardBorder} ${t.mainText}`}`}>📋 複製</button>
+                                          <button type="button" onClick={(event) => { event.stopPropagation(); handleDeleteItineraryItem(dayId, item); }} className="min-h-11 rounded-xl border border-red-500/30 text-[11px] font-bold text-red-500">刪除</button>
+                                        </div>
+                                      </details>
+
+                                      <div className={`export-hide mt-3 pt-3 border-t hidden items-center gap-4 transition-all duration-300 ${snap.isDragging ? 'border-white/20' : t.cardBorder} md:flex md:max-h-0 md:opacity-0 md:group-hover:max-h-14 md:group-hover:opacity-100`}>
                                         <button data-testid="edit-place-button" onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>✏️ 編輯</button>
                                         <button onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-orange-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🔍 周邊</button>
                                         <button onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-purple-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>📋 複製</button>

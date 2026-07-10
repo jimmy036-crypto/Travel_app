@@ -181,3 +181,104 @@ test('新增、編輯景點與詳細資訊會保存到 Firebase Emulator', async
     EDITED_NOTE,
   );
 });
+
+test('mobile day switching does not accidentally trigger place editing', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E mobile day switch trip',
+    startDate: '2026-09-20',
+    endDate: '2026-09-21',
+    itinerary: {
+      'Day 1': [
+        {
+          id: 'mobile-day1-place',
+          name: 'E2E Day1 museum',
+          place_id: 'mobile-day1-place-id',
+          customName: '',
+          lat: 25.033,
+          lng: 121.5654,
+          address: 'E2E Day1 address',
+          time: '09:00',
+          stayTime: '60',
+          memo: '',
+          tags: [],
+          nextLeg: {
+            mode: 'WALK',
+            mins: 10,
+          },
+        },
+      ],
+      'Day 2': [
+        {
+          id: 'mobile-day2-place',
+          name: 'E2E Day2 coffee',
+          place_id: 'mobile-day2-place-id',
+          customName: '',
+          lat: 25.034,
+          lng: 121.5664,
+          address: 'E2E Day2 address',
+          time: '10:00',
+          stayTime: '45',
+          memo: '',
+          tags: [],
+          nextLeg: {
+            mode: 'WALK',
+            mins: 5,
+          },
+        },
+      ],
+    },
+  });
+
+  await page.goto(`/?room=${ROOM_ID}`);
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+
+  const day1Switch = page.locator(
+    '[data-testid="itinerary-day-switch-button"][data-day-id="Day 1"]',
+  );
+  const day2Switch = page.locator(
+    '[data-testid="itinerary-day-switch-button"][data-day-id="Day 2"]',
+  );
+
+  await expect(day1Switch).toBeVisible();
+  await expect(day2Switch).toBeVisible();
+  await expect(day1Switch).toHaveAttribute('aria-pressed', 'true');
+
+  const day1Place = page
+    .locator('[data-testid="itinerary-day-card"][data-day-id="Day 1"]')
+    .getByTestId('place-card')
+    .filter({ hasText: 'E2E Day1 museum' })
+    .first();
+
+  await expect(day1Place).toBeVisible();
+  await expect(day1Place.getByTestId('place-card-actions-menu')).toBeVisible();
+  await expect(
+    day1Place
+      .getByTestId('place-card-actions-menu')
+      .getByTestId('edit-place-button'),
+  ).toBeHidden();
+
+  await day2Switch.click();
+
+  await expect(day2Switch).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('edit-place-modal')).toHaveCount(0);
+  await expect(page.getByTestId('place-detail-sheet')).toHaveCount(0);
+
+  const day2Place = page
+    .locator('[data-testid="itinerary-day-card"][data-day-id="Day 2"]')
+    .getByTestId('place-card')
+    .filter({ hasText: 'E2E Day2 coffee' })
+    .first();
+  const day2Actions = day2Place.getByTestId('place-card-actions-menu');
+
+  await expect(day2Place).toBeVisible();
+  await day2Actions.getByTestId('place-card-actions-toggle').click();
+  await day2Actions.getByTestId('edit-place-button').click();
+
+  await expect(page.getByTestId('edit-place-modal')).toBeVisible();
+});
