@@ -35,6 +35,9 @@ const EXPENSE_SYNC_MEMBER_B = 'E2E Bob';
 const EXPENSE_SYNC_ITEM = 'E2E realtime shared lunch';
 const EXPENSE_SYNC_COST = '1200';
 const EXPENSE_SYNC_NOTE = 'E2E realtime expense creation note';
+const EDITED_EXPENSE_SYNC_ITEM = 'E2E realtime edited ramen';
+const EDITED_EXPENSE_SYNC_COST = '2000';
+const EDITED_EXPENSE_SYNC_NOTE = 'E2E realtime expense edit note';
 
 type PlaceDetails = {
   name: string;
@@ -474,6 +477,99 @@ async function expectSyncedExpense(page: Page): Promise<void> {
   ).toContainText('600');
 }
 
+async function editExpenseThroughUi(page: Page): Promise<void> {
+  await expenseRecord(page, EXPENSE_SYNC_ITEM).click();
+
+  await expect(page.getByTestId('expense-modal')).toHaveAttribute(
+    'data-mode',
+    'edit',
+  );
+
+  await page.getByTestId('expense-item-input').fill(EDITED_EXPENSE_SYNC_ITEM);
+  await page.getByTestId('expense-currency-select').selectOption('JPY');
+  await page
+    .getByTestId('expense-local-cost-input')
+    .fill(EDITED_EXPENSE_SYNC_COST);
+  await page
+    .getByTestId('expense-payer-select')
+    .selectOption(EXPENSE_SYNC_MEMBER_B);
+  await page.getByTestId('expense-note-input').fill(EDITED_EXPENSE_SYNC_NOTE);
+
+  await expect(page.getByTestId('expense-rate-input')).toHaveValue('0.21');
+  await expect(page.getByTestId('expense-twd-total')).toContainText('420');
+
+  await page.getByTestId('expense-save-button').click();
+  await expect(page.getByTestId('expense-modal')).toBeHidden({
+    timeout: 15_000,
+  });
+}
+
+async function expectEditedExpense(page: Page): Promise<void> {
+  const record = expenseRecord(page, EDITED_EXPENSE_SYNC_ITEM);
+
+  await expect(expenseRecord(page, EXPENSE_SYNC_ITEM)).toHaveCount(0);
+  await expect(record).toBeVisible({ timeout: 20_000 });
+  await expect(record.getByTestId('expense-record-title')).toHaveText(
+    EDITED_EXPENSE_SYNC_ITEM,
+  );
+  await expect(record.getByTestId('expense-record-cost')).toHaveText(
+    /^NT\$\s*420$/,
+  );
+  await expect(record).toContainText(EXPENSE_SYNC_MEMBER_B);
+  await expect(record).toContainText(EDITED_EXPENSE_SYNC_NOTE);
+  await expect(page.getByTestId('expense-total')).toContainText('420');
+  await expect(
+    page.locator(
+      `[data-testid="member-spent"][data-member="${EXPENSE_SYNC_MEMBER_A}"]`,
+    ),
+  ).toContainText('210');
+  await expect(
+    page.locator(
+      `[data-testid="member-spent"][data-member="${EXPENSE_SYNC_MEMBER_B}"]`,
+    ),
+  ).toContainText('210');
+}
+
+async function deleteExpenseThroughUi(page: Page): Promise<void> {
+  const record = expenseRecord(page, EXPENSE_SYNC_ITEM);
+
+  await expect(record).toBeVisible({ timeout: 20_000 });
+  await record.click();
+
+  await expect(page.getByTestId('expense-modal')).toHaveAttribute(
+    'data-mode',
+    'edit',
+  );
+
+  await page.getByTestId('expense-more-actions').locator('summary').click();
+
+  page.once('dialog', (dialog) => {
+    expect(dialog.type()).toBe('confirm');
+    void dialog.accept();
+  });
+
+  await page.getByTestId('expense-delete-button').click();
+  await expect(page.getByTestId('expense-modal')).toBeHidden({
+    timeout: 15_000,
+  });
+  await expect(expenseRecord(page, EXPENSE_SYNC_ITEM)).toHaveCount(0);
+}
+
+async function expectDeletedExpense(page: Page): Promise<void> {
+  await expect(expenseRecord(page, EXPENSE_SYNC_ITEM)).toHaveCount(0);
+  await expect(page.getByTestId('expense-total')).toContainText('NT$ 0');
+  await expect(
+    page.locator(
+      `[data-testid="member-spent"][data-member="${EXPENSE_SYNC_MEMBER_A}"]`,
+    ),
+  ).toContainText('0');
+  await expect(
+    page.locator(
+      `[data-testid="member-spent"][data-member="${EXPENSE_SYNC_MEMBER_B}"]`,
+    ),
+  ).toContainText('0');
+}
+
 test.beforeEach(async () => {
   await clearEmulatorDatabase();
   await seedTestTrip(ROOM_ID, { title: INITIAL_TITLE });
@@ -541,6 +637,68 @@ test('syncs expense creation between active browser contexts in realtime', async
     await expectTripTitle(contextB.page, INITIAL_TITLE);
     await openExpenseTab(contextB.page);
     await expectSyncedExpense(contextB.page);
+  } finally {
+    await contextA.context.close();
+    await contextB.context.close();
+  }
+});
+
+test('syncs expense edits between active browser contexts in realtime', async ({
+  browser,
+}, testInfo) => {
+  await seedExpenseSyncTrip();
+
+  const contextA = await openRoom(browser, testInfo.project.name);
+  const contextB = await openRoom(browser, testInfo.project.name);
+
+  try {
+    await openExpenseTab(contextA.page);
+    await openExpenseTab(contextB.page);
+
+    await addEqualSplitExpenseThroughUi(contextA.page);
+    await expectSyncedExpense(contextB.page);
+
+    await editExpenseThroughUi(contextA.page);
+    await expectEditedExpense(contextB.page);
+
+    await contextB.page.reload();
+    await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expectTripTitle(contextB.page, INITIAL_TITLE);
+    await openExpenseTab(contextB.page);
+    await expectEditedExpense(contextB.page);
+  } finally {
+    await contextA.context.close();
+    await contextB.context.close();
+  }
+});
+
+test('syncs expense deletion between active browser contexts in realtime', async ({
+  browser,
+}, testInfo) => {
+  await seedExpenseSyncTrip();
+
+  const contextA = await openRoom(browser, testInfo.project.name);
+  const contextB = await openRoom(browser, testInfo.project.name);
+
+  try {
+    await openExpenseTab(contextA.page);
+    await openExpenseTab(contextB.page);
+
+    await addEqualSplitExpenseThroughUi(contextA.page);
+    await expectSyncedExpense(contextB.page);
+
+    await deleteExpenseThroughUi(contextA.page);
+    await expectDeletedExpense(contextB.page);
+
+    await contextB.page.reload();
+    await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expectTripTitle(contextB.page, INITIAL_TITLE);
+    await openExpenseTab(contextB.page);
+    await expectDeletedExpense(contextB.page);
   } finally {
     await contextA.context.close();
     await contextB.context.close();
