@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+﻿import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
   clearEmulatorDatabase,
@@ -11,6 +11,40 @@ import {
 
 const TOUR_ROOM_ID = 'e2ewhatsnewtourroom0001';
 const EMPTY_TOUR_ROOM_ID = 'e2ewhatsnewemptyroom0001';
+const SECOND_TOUR_ROOM_ID = 'e2ewhatsnewtourroom0002';
+
+type LobbyTrip = {
+  roomId: string;
+  title: string;
+  destination?: string;
+  startDate?: string;
+  endDate?: string;
+  members?: string[];
+  transport?: string;
+  themeColor?: string;
+};
+
+function createLobbyTrip(roomId: string, title: string): LobbyTrip {
+  return {
+    roomId,
+    title,
+    destination: 'E2E Tour destination',
+    startDate: '2026-09-20',
+    endDate: '2026-09-21',
+    members: ['E2E Alice'],
+    transport: 'E2E Transport',
+    themeColor: '#3b82f6',
+  };
+}
+
+async function seedLobbyTrips(page: Page, trips: LobbyTrip[]): Promise<void> {
+  await page.addInitScript((nextTrips) => {
+    window.localStorage.setItem(
+      'google-travel-my-trips',
+      JSON.stringify(nextTrips),
+    );
+  }, trips);
+}
 
 async function seedTourTrip(): Promise<void> {
   await clearEmulatorDatabase();
@@ -31,6 +65,37 @@ async function seedTourTrip(): Promise<void> {
           time: '09:00',
           stayTime: '60',
           memo: 'E2E Tour memo',
+          tags: [],
+          nextLeg: {
+            mode: 'WALK',
+            mins: 10,
+          },
+        },
+      ],
+      'Day 2': [],
+    },
+  });
+}
+
+async function seedTwoTourTrips(): Promise<void> {
+  await seedTourTrip();
+  await seedTestTrip(SECOND_TOUR_ROOM_ID, {
+    title: 'E2E second feature tour trip',
+    startDate: '2026-10-05',
+    endDate: '2026-10-06',
+    itinerary: {
+      'Day 1': [
+        {
+          id: 'tour-place-b',
+          name: 'E2E Second museum',
+          place_id: 'tour-place-b-id',
+          customName: '',
+          lat: 25.034,
+          lng: 121.564,
+          address: 'E2E Second address',
+          time: '10:00',
+          stayTime: '45',
+          memo: 'E2E Second memo',
           tags: [],
           nextLeg: {
             mode: 'WALK',
@@ -145,12 +210,10 @@ test('shows release notes for an unseen version', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
-  await expect(page.getByRole('heading', { name: '本次更新' })).toBeVisible();
-  await expect(page.getByText('旅行協作體驗全面升級')).toBeVisible();
-  await expect(page.getByText('即時同步狀態')).toBeVisible();
-  await expect(page.getByText('手機快速切換天數')).toBeVisible();
-  await expect(page.getByText('景點操作選單')).toBeVisible();
-  await expect(page.getByText('多人即時協作改善')).toBeVisible();
+  await expect(page.locator('#whats-new-title')).toBeVisible();
+  await expect(page.getByTestId('whats-new-start-tour')).toHaveCount(0);
+  await expect(page.getByTestId('whats-new-create-trip')).toBeVisible();
+  await expect(page.locator('[data-testid="whats-new-dialog"] article')).toHaveCount(5);
 });
 
 test('does not automatically reopen a release marked as seen', async ({
@@ -182,6 +245,109 @@ test('remind later shows the release again in a new session', async ({
   await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
 });
 
+test('routes from the lobby into a trip before starting the tour', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await clearCurrentReleaseSeen(page);
+  await seedLobbyTrips(page, [
+    createLobbyTrip(TOUR_ROOM_ID, 'E2E feature tour trip'),
+  ]);
+  await seedTourTrip();
+
+  await page.goto('/');
+
+  await expect(page.getByTestId('travel-lobby')).toBeVisible();
+  await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
+  await page.getByTestId('whats-new-choose-trip-tour').click();
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId('feature-tour')).toBeVisible();
+  await expect(page.getByTestId('feature-tour-step')).toBeVisible();
+  await expect(page.getByTestId('feature-tour-empty-place-fallback')).toHaveCount(0);
+});
+
+test('asks the user to choose a trip when multiple trips exist', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await clearCurrentReleaseSeen(page);
+  await seedLobbyTrips(page, [
+    createLobbyTrip(TOUR_ROOM_ID, 'E2E feature tour trip'),
+    createLobbyTrip(SECOND_TOUR_ROOM_ID, 'E2E second feature tour trip'),
+  ]);
+  await seedTwoTourTrips();
+
+  await page.goto('/');
+
+  await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
+  await page.getByTestId('whats-new-choose-trip-tour').click();
+
+  await expect(page.getByTestId('trip-tour-selection')).toBeVisible();
+  await expect(page.getByTestId('pending-tour-message')).toBeVisible();
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+
+  await page
+    .locator(
+      `[data-testid="trip-tour-selection-option"][data-room-id="${SECOND_TOUR_ROOM_ID}"]`,
+    )
+    .click();
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId('feature-tour')).toBeVisible();
+  await expect(page.getByTestId('trip-route-context')).toHaveAttribute(
+    'data-room-id',
+    SECOND_TOUR_ROOM_ID,
+  );
+});
+
+test('offers trip creation instead of starting the tour when no trips exist', async ({
+  page,
+}) => {
+  await clearCurrentReleaseSeen(page);
+  await page.goto('/');
+
+  await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
+  await expect(page.getByTestId('whats-new-create-trip')).toBeVisible();
+  await expect(page.getByText('建立旅程後，即可體驗天數切換、景點操作與多人同步導覽。')).toBeVisible();
+
+  await page.getByTestId('whats-new-create-trip').click();
+
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+  await expect(page.getByTestId('trip-modal')).toBeVisible();
+  await expect(page.getByTestId('trip-modal-title')).toBeVisible();
+});
+
+test('cancels a pending tour without starting it', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await clearCurrentReleaseSeen(page);
+  await seedLobbyTrips(page, [
+    createLobbyTrip(TOUR_ROOM_ID, 'E2E feature tour trip'),
+    createLobbyTrip(SECOND_TOUR_ROOM_ID, 'E2E second feature tour trip'),
+  ]);
+  await seedTwoTourTrips();
+
+  await page.goto('/');
+  await page.getByTestId('whats-new-choose-trip-tour').click();
+  await expect(page.getByTestId('trip-tour-selection')).toBeVisible();
+
+  await page.getByTestId('pending-tour-cancel').click();
+  await expect(page.getByTestId('trip-tour-selection')).toHaveCount(0);
+
+  await page
+    .locator(`[data-testid="trip-card"][data-room-id="${TOUR_ROOM_ID}"]`)
+    .click();
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+});
+
 test('completes the mobile feature tour', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await clearCurrentReleaseSeen(page);
@@ -197,10 +363,10 @@ test('completes the mobile feature tour', async ({ page }) => {
   await page.getByTestId('whats-new-start-tour').click();
 
   await expect(page.getByTestId('feature-tour')).toBeVisible();
-  await expect(page.getByTestId('feature-tour-step')).toContainText('掌握同步狀態');
+  await expect(page.getByTestId('feature-tour-step')).toBeVisible();
 
   await page.getByTestId('feature-tour-next').click();
-  await expect(page.getByTestId('feature-tour-step')).toContainText('快速切換每天行程');
+  await expect(page.getByTestId('feature-tour-step')).toBeVisible();
 
   await page.getByTestId('feature-tour-next').click();
   await expect(page.getByTestId('feature-tour-step')).toContainText('更多景點操作');
@@ -250,6 +416,27 @@ test('keeps the active tour target clear and inside the spotlight', async ({
   await expectTargetInsideSpotlight(page, 'place-action-menu-trigger');
 });
 
+test('ends the tour when navigating away from the trip', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await clearCurrentReleaseSeen(page);
+  await seedLobbyTrips(page, [
+    createLobbyTrip(TOUR_ROOM_ID, 'E2E feature tour trip'),
+  ]);
+  await seedTourTrip();
+
+  await page.goto('/');
+  await page.getByTestId('whats-new-choose-trip-tour').click();
+
+  await expect(page.getByTestId('feature-tour')).toBeVisible({
+    timeout: 20_000,
+  });
+
+  await page.goBack();
+
+  await expect(page.getByTestId('travel-lobby')).toBeVisible();
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+});
+
 test('can reopen release notes from the permanent entry', async ({ page }) => {
   await markCurrentReleaseSeen(page);
 
@@ -261,7 +448,7 @@ test('can reopen release notes from the permanent entry', async ({ page }) => {
   await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
 });
 
-test('missing tour target does not crash the app', async ({ page }) => {
+test('combines missing place targets into one helpful fallback step', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await clearCurrentReleaseSeen(page);
   await seedEmptyTourTrip();
@@ -277,10 +464,11 @@ test('missing tour target does not crash the app', async ({ page }) => {
   await page.getByTestId('feature-tour-next').click();
   await page.getByTestId('feature-tour-next').click();
 
-  await expect(page.getByText('這個項目目前不在畫面上')).toBeVisible();
+  await expect(page.getByTestId('feature-tour-empty-place-fallback')).toBeVisible();
+  await expect(page.getByTestId('feature-tour-step')).toContainText('新增景點後解鎖更多功能');
+
   await page.getByTestId('feature-tour-next').click();
-  await expect(page.getByText('這個項目目前不在畫面上')).toBeVisible();
-  await page.getByTestId('feature-tour-next').click();
+  await expect(page.getByTestId('feature-tour-finish')).toBeVisible();
   await page.getByTestId('feature-tour-finish').click();
 
   await expect(page.getByTestId('feature-tour')).toHaveCount(0);

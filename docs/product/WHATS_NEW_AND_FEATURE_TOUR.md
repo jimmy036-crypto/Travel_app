@@ -4,6 +4,7 @@
 
 - Version: `2026.07-mobile-collaboration`
 - Local storage key: `travel-app-seen-release-2026.07-mobile-collaboration`
+- Pending tour session key: `travel-app-pending-feature-tour-2026.07-mobile-collaboration`
 - Source of truth: `src/config/releaseNotes.js`
 
 ## Update Items
@@ -25,6 +26,19 @@
 
 The seen state is intentionally stored only in localStorage. It is a per-device product hint, not shared trip data, so it should not be written to Firebase or added to the trip schema.
 
+## Context-Aware Tour Start
+
+- TripDetail CTA: the primary button is `開始導覽`; it starts only after the current trip has loaded and no potentially unsaved editor is open.
+- Lobby with saved trips: the primary button is `選擇旅程並開始導覽`; it marks the release as seen and stores a session-only pending tour intent.
+- Lobby with one saved trip: the app may route directly into that trip, then waits for TripDetail readiness before showing the tour.
+- Lobby with multiple saved trips: the app shows `選擇要用來導覽的旅程` and uses the existing saved trip list as the source of truth.
+- Lobby with no trips: the primary button is `建立第一個旅程`; it opens the existing create-trip flow and does not create fake trip data.
+- Pending intent is stored in sessionStorage using `travel-app-pending-feature-tour-2026.07-mobile-collaboration`, with App state as the runtime fallback.
+- Pending intent is cleared after the tour starts, when trip selection is canceled, when the selected trip fails to load, or when the user navigates back to the Lobby.
+- If TripDetail reports a load failure, the app clears pending state and can show `無法開啟此旅程，請選擇其他旅程。`.
+- If an editing form may contain unsaved changes, the app shows `先完成目前編輯` and does not close the form or discard input.
+- If the user leaves TripDetail while the tour is active, the tour closes and runtime state is cleared.
+
 ## Adding The Next Release
 
 1. Update `CURRENT_RELEASE_VERSION` in `src/config/releaseNotes.js`.
@@ -43,6 +57,8 @@ The seen state is intentionally stored only in localStorage. It is a per-device 
 5. Completion: centered final card.
 
 If a target is not present, the tour shows a centered explanation card and lets the user continue. It does not create data, switch to dangerous actions, or depend on a positioning library.
+
+For trips with no places, the place action and place information steps are combined into one fallback step: `新增景點後解鎖更多功能`. Future tour steps should define their prerequisites in `FeatureTour.jsx`; when prerequisites are missing, prefer skipping or combining related steps instead of repeating generic missing-target messages.
 
 ## E2E Helper
 

@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // (1) 模組引入與全局設定
 // ============================================================================
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo } from 'react';
@@ -10,7 +10,10 @@ import { get, ref as dbRef, set, update } from "firebase/database";
 import { API_KEY } from "./constants";
 import {
   CURRENT_RELEASE_NOTES,
+  clearCurrentReleaseTourPending,
+  hasPendingCurrentReleaseTour,
   hasSeenCurrentRelease,
+  markCurrentReleaseTourPending,
   markCurrentReleaseSeen,
 } from "./config/releaseNotes";
 import {
@@ -68,6 +71,16 @@ export default function TravelApp() {
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showFeatureTour, setShowFeatureTour] = useState(false);
   const [releasePromptDeferred, setReleasePromptDeferred] = useState(false);
+  const [pendingFeatureTourRequested, setPendingFeatureTourRequested] = useState(() => hasPendingCurrentReleaseTour());
+  const [showTripTourSelection, setShowTripTourSelection] = useState(false);
+  const [tourStartBlocked, setTourStartBlocked] = useState(false);
+  const [tourOpenError, setTourOpenError] = useState("");
+  const [tripTourAvailability, setTripTourAvailability] = useState({
+    roomId: null,
+    ready: false,
+    blockingEditor: false,
+    failed: false,
+  });
   const [isSavingTrip, setIsSavingTrip] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -95,6 +108,23 @@ export default function TravelApp() {
     return extractRoomId(new URLSearchParams(window.location.search).get('room')) || null;
   });
 
+  const setPendingFeatureTour = useCallback((isPending) => {
+    setPendingFeatureTourRequested(Boolean(isPending));
+    if (isPending) {
+      markCurrentReleaseTourPending();
+    } else {
+      clearCurrentReleaseTourPending();
+    }
+  }, []);
+
+  const openTripRoom = useCallback((roomId) => {
+    const safeRoomId = extractRoomId(roomId);
+    if (!safeRoomId) return false;
+    window.history.pushState(null, '', `?room=${encodeURIComponent(safeRoomId)}`);
+    setActiveRoomId(safeRoomId);
+    return true;
+  }, []);
+
   useEffect(() => {
     writeStorage('google-travel-my-trips', JSON.stringify(myTrips));
   }, [myTrips]);
@@ -111,11 +141,22 @@ export default function TravelApp() {
   useEffect(() => {
     const handlePopState = () => {
       const roomId = extractRoomId(new URLSearchParams(window.location.search).get('room'));
+      if (!roomId) {
+        setShowFeatureTour(false);
+        setShowTripTourSelection(false);
+        setTripTourAvailability({
+          roomId: null,
+          ready: false,
+          blockingEditor: false,
+          failed: false,
+        });
+        setPendingFeatureTour(false);
+      }
       setActiveRoomId(roomId || null);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [setPendingFeatureTour]);
 
   const handleUpdateTripMeta = useCallback((roomId, meta) => {
     if (!roomId || !meta) return;
@@ -168,12 +209,12 @@ export default function TravelApp() {
     }
   };
 
-  const openCreateModal = () => {
+  const openCreateModal = useCallback(() => {
     setNewTitle(""); setNewDest(""); setNewDestCoords(null); setNewStart(""); setNewEnd("");
     setNewMembers(["自己"]); setTempMemberBudgets({"自己": 10000});
     setNewTransport("汽車 🚗"); setNewThemeColor("#3b82f6");
     setTripModalMode('create');
-  };
+  }, []);
 
   const fillEmulatorRequiredFields = () => {
     const start = new Date();
@@ -279,6 +320,15 @@ export default function TravelApp() {
 
   const closeTrip = () => {
     window.history.pushState(null, '', window.location.pathname);
+    setShowFeatureTour(false);
+    setShowTripTourSelection(false);
+    setTripTourAvailability({
+      roomId: null,
+      ready: false,
+      blockingEditor: false,
+      failed: false,
+    });
+    setPendingFeatureTour(false);
     setActiveRoomId(null);
   };
 
@@ -290,11 +340,73 @@ export default function TravelApp() {
     setShowWhatsNew(false);
   }, []);
 
+  const chooseTripForPendingTour = useCallback((trip) => {
+    const roomId = extractRoomId(trip?.roomId);
+    if (!roomId) {
+      setTourOpenError("無法開啟此旅程，請選擇其他旅程。");
+      setPendingFeatureTour(false);
+      setShowTripTourSelection(false);
+      return;
+    }
+
+    setTourOpenError("");
+    setShowTripTourSelection(false);
+    setPendingFeatureTour(true);
+    openTripRoom(roomId);
+  }, [openTripRoom, setPendingFeatureTour]);
+
   const startFeatureTour = useCallback(() => {
     markCurrentReleaseSeen();
     setShowWhatsNew(false);
-    setShowFeatureTour(true);
-  }, []);
+    setTourOpenError("");
+
+    if (!activeRoomId) {
+      if (!Array.isArray(myTrips) || myTrips.length === 0) {
+        setPendingFeatureTour(false);
+        setShowTripTourSelection(false);
+        openCreateModal();
+        return;
+      }
+
+      setPendingFeatureTour(true);
+      if (myTrips.length === 1) {
+        setShowTripTourSelection(false);
+        chooseTripForPendingTour(myTrips[0]);
+      } else {
+        setShowTripTourSelection(true);
+      }
+      return;
+    }
+
+    if (tripTourAvailability.blockingEditor) {
+      setPendingFeatureTour(false);
+      setTourStartBlocked(true);
+      return;
+    }
+
+    if (
+      tripTourAvailability.ready
+      && tripTourAvailability.roomId === activeRoomId
+    ) {
+      setPendingFeatureTour(false);
+      setShowFeatureTour(true);
+      return;
+    }
+
+    setPendingFeatureTour(true);
+  }, [
+    activeRoomId,
+    chooseTripForPendingTour,
+    myTrips,
+    openCreateModal,
+    setPendingFeatureTour,
+    tripTourAvailability,
+  ]);
+
+  const cancelPendingFeatureTour = useCallback(() => {
+    setPendingFeatureTour(false);
+    setShowTripTourSelection(false);
+  }, [setPendingFeatureTour]);
 
   const remindLaterRelease = useCallback(() => {
     setReleasePromptDeferred(true);
@@ -308,21 +420,92 @@ export default function TravelApp() {
 
   const closeFeatureTour = useCallback(() => {
     markCurrentReleaseSeen();
+    setPendingFeatureTour(false);
     setShowFeatureTour(false);
-  }, []);
+  }, [setPendingFeatureTour]);
+
+  useEffect(() => {
+    if (!pendingFeatureTourRequested || !activeRoomId || showFeatureTour) return;
+    if (tripTourAvailability.roomId !== activeRoomId) return;
+
+    if (tripTourAvailability.failed) {
+      setTourOpenError("無法開啟此旅程，請選擇其他旅程。");
+      setPendingFeatureTour(false);
+      return;
+    }
+
+    if (!tripTourAvailability.ready) return;
+
+    if (tripTourAvailability.blockingEditor) {
+      setPendingFeatureTour(false);
+      setTourStartBlocked(true);
+      return;
+    }
+
+    setPendingFeatureTour(false);
+    setShowFeatureTour(true);
+  }, [
+    activeRoomId,
+    pendingFeatureTourRequested,
+    setPendingFeatureTour,
+    showFeatureTour,
+    tripTourAvailability,
+  ]);
 
   const t = useMemo(() => getThemeClasses(customBgColor), [customBgColor]);
+  const tourCtaMode = activeRoomId
+    ? 'trip'
+    : (Array.isArray(myTrips) && myTrips.length > 0 ? 'lobby-trips' : 'lobby-empty');
   const releaseExperience = (
     <>
       {showWhatsNew ? (
         <WhatsNewDialog
           notes={CURRENT_RELEASE_NOTES}
           t={t}
+          tourCtaMode={tourCtaMode}
           onStartTour={startFeatureTour}
           onRemindLater={remindLaterRelease}
           onDismissVersion={dismissCurrentRelease}
           onClose={closeReleaseNotes}
         />
+      ) : null}
+      {tourStartBlocked ? (
+        <div
+          data-testid="feature-tour-editing-blocked"
+          className="fixed inset-0 z-10045 flex items-center justify-center bg-slate-950/65 p-4"
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="feature-tour-editing-blocked-title"
+            className={`w-full max-w-md rounded-3xl border p-6 shadow-2xl ${t.modalBg} ${t.cardBorder}`}
+          >
+            <h2 id="feature-tour-editing-blocked-title" className={`text-xl font-black ${t.mainText}`}>
+              先完成目前編輯
+            </h2>
+            <p className={`mt-2 text-sm font-bold leading-6 ${t.subText}`}>
+              請先儲存或關閉目前的編輯內容，再開始功能導覽。
+            </p>
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                data-testid="feature-tour-continue-editing"
+                onClick={() => setTourStartBlocked(false)}
+                className={`min-h-11 rounded-xl border px-4 text-sm font-black ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+              >
+                繼續編輯
+              </button>
+              <button
+                type="button"
+                data-testid="feature-tour-dismiss-blocked"
+                onClick={() => setTourStartBlocked(false)}
+                className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-black text-white shadow-lg shadow-blue-500/25"
+              >
+                關閉導覽提示
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
       {showFeatureTour ? <FeatureTour t={t} onClose={closeFeatureTour} /> : null}
     </>
@@ -339,7 +522,13 @@ export default function TravelApp() {
         旅程已開啟
       </span>
       <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入旅程模組中...</div>}>
-        <TripDetail roomId={activeRoomId} onBack={closeTrip} onUpdateTripMeta={handleUpdateTripMeta} onOpenReleaseNotes={openReleaseNotes} />
+        <TripDetail
+          roomId={activeRoomId}
+          onBack={closeTrip}
+          onUpdateTripMeta={handleUpdateTripMeta}
+          onOpenReleaseNotes={openReleaseNotes}
+          onTourAvailabilityChange={setTripTourAvailability}
+        />
       </Suspense>
     </APIProvider>
     {releaseExperience}
@@ -378,6 +567,53 @@ export default function TravelApp() {
           </div>
         </header>
 
+        {showTripTourSelection && Array.isArray(myTrips) && myTrips.length > 0 ? (
+          <section
+            data-testid="trip-tour-selection"
+            className={`mb-6 rounded-3xl border p-4 shadow-xl ${t.cardBg} ${t.cardBorder}`}
+          >
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className={`text-lg font-black ${t.mainText}`}>選擇要用來導覽的旅程</h2>
+                <p data-testid="pending-tour-message" className={`mt-1 text-sm font-bold ${t.subText}`}>
+                  請選擇一個旅程開始導覽；進入旅程並載入完成後會自動開始。
+                </p>
+              </div>
+              <button
+                type="button"
+                data-testid="pending-tour-cancel"
+                onClick={cancelPendingFeatureTour}
+                className={`min-h-11 rounded-xl border px-4 text-sm font-black ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+              >
+                取消導覽
+              </button>
+            </div>
+            <div className="mt-4 grid gap-2 md:grid-cols-2">
+              {myTrips.map((trip) => (
+                <button
+                  key={`tour-select-${String(trip.roomId)}`}
+                  type="button"
+                  data-testid="trip-tour-selection-option"
+                  data-room-id={String(trip.roomId)}
+                  onClick={() => chooseTripForPendingTour(trip)}
+                  className={`min-h-14 rounded-2xl border px-4 py-3 text-left transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder}`}
+                >
+                  <span className={`block text-sm font-black ${t.mainText}`}>{String(trip.title || '未命名旅程')}</span>
+                  <span className={`mt-1 block text-xs font-bold ${t.subText}`}>
+                    {String(trip.startDate || '').replace(/-/g, '/')} - {String(trip.endDate || '').replace(/-/g, '/')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {tourOpenError ? (
+          <p className="mb-6 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-500">
+            {tourOpenError}
+          </p>
+        ) : null}
+
         {(!Array.isArray(myTrips) || myTrips.length === 0) ? (
           <div className="flex flex-col items-center justify-center mt-24 opacity-80"><span className="text-7xl mb-6">🌍</span><p className={`text-xl font-bold mb-2 ${t.mainText}`}>目前還沒有任何旅程</p></div>
         ) : (
@@ -385,7 +621,7 @@ export default function TravelApp() {
             {myTrips.map(trip => {
               const cardColor = String(trip.themeColor || '#1e293b'); const cTheme = getThemeClasses(cardColor);
               return (
-                <div key={String(trip.roomId)} data-testid="trip-card" data-room-id={String(trip.roomId)} onClick={() => { window.history.pushState(null, '', `?room=${encodeURIComponent(trip.roomId)}`); setActiveRoomId(trip.roomId); }} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 hover:shadow-2xl ${cTheme.cardBorder}`}>
+                <div key={String(trip.roomId)} data-testid="trip-card" data-room-id={String(trip.roomId)} onClick={() => { openTripRoom(trip.roomId); }} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 hover:shadow-2xl ${cTheme.cardBorder}`}>
                   <div className="flex justify-between items-start mb-4">
                     <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${cTheme.isLight ? 'bg-black/5 border-black/10 text-slate-700' : 'bg-white/20 border-white/30 text-white'}`}>{String(trip.transport)}</span>
                     <div className="flex gap-2">

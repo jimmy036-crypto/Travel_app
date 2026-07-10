@@ -3,6 +3,9 @@ export const CURRENT_RELEASE_VERSION = '2026.07-mobile-collaboration';
 export const CURRENT_RELEASE_SEEN_KEY =
   `travel-app-seen-release-${CURRENT_RELEASE_VERSION}`;
 
+export const CURRENT_RELEASE_PENDING_TOUR_KEY =
+  `travel-app-pending-feature-tour-${CURRENT_RELEASE_VERSION}`;
+
 export const CURRENT_RELEASE_NOTES = {
   version: CURRENT_RELEASE_VERSION,
   title: '旅行協作體驗全面升級',
@@ -61,6 +64,32 @@ export function markCurrentReleaseSeen() {
 export function clearCurrentReleaseSeen() {
   try {
     localStorage.removeItem(CURRENT_RELEASE_SEEN_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function hasPendingCurrentReleaseTour() {
+  try {
+    return sessionStorage.getItem(CURRENT_RELEASE_PENDING_TOUR_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function markCurrentReleaseTourPending() {
+  try {
+    sessionStorage.setItem(CURRENT_RELEASE_PENDING_TOUR_KEY, 'true');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function clearCurrentReleaseTourPending() {
+  try {
+    sessionStorage.removeItem(CURRENT_RELEASE_PENDING_TOUR_KEY);
     return true;
   } catch {
     return false;

@@ -12,6 +12,7 @@ const FOCUSABLE_SELECTOR = [
 export const WhatsNewDialog = ({
   notes,
   t,
+  tourCtaMode = 'trip',
   onStartTour,
   onRemindLater,
   onDismissVersion,
@@ -68,6 +69,24 @@ export const WhatsNewDialog = ({
   }, [onClose]);
 
   const highlights = Array.isArray(notes?.highlights) ? notes.highlights : [];
+  const primaryAction = (() => {
+    if (tourCtaMode === 'lobby-empty') {
+      return {
+        testId: 'whats-new-create-trip',
+        label: '建立第一個旅程',
+      };
+    }
+    if (tourCtaMode === 'lobby-trips') {
+      return {
+        testId: 'whats-new-choose-trip-tour',
+        label: '選擇旅程並開始導覽',
+      };
+    }
+    return {
+      testId: 'whats-new-start-tour',
+      label: '開始導覽',
+    };
+  })();
 
   return (
     <div
@@ -107,6 +126,11 @@ export const WhatsNewDialog = ({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 md:px-6">
+          {tourCtaMode === 'lobby-empty' ? (
+            <p className={`mb-4 rounded-2xl border px-4 py-3 text-sm font-bold leading-6 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>
+              建立旅程後，即可體驗天數切換、景點操作與多人同步導覽。
+            </p>
+          ) : null}
           <div className="grid gap-3">
             {highlights.map((item) => (
               <article
@@ -128,10 +152,12 @@ export const WhatsNewDialog = ({
         <footer className={`grid gap-2 border-t px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] md:grid-cols-[1fr_auto_auto] md:px-6 md:pb-4 ${t.headerBg} ${t.cardBorder}`}>
           <button
             type="button"
-            data-testid="whats-new-start-tour"
+            data-testid={primaryAction.testId}
+            aria-label={primaryAction.label}
             onClick={onStartTour}
-            className="min-h-11 rounded-xl bg-blue-600 px-5 text-sm font-black text-white shadow-lg shadow-blue-500/25 active:scale-95"
+            className="min-h-11 rounded-xl bg-blue-600 px-5 text-[0px] font-black text-white shadow-lg shadow-blue-500/25 active:scale-95"
           >
+            <span className="text-sm">{primaryAction.label}</span>
             開始導覽
           </button>
           <button

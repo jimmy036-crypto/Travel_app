@@ -1238,7 +1238,13 @@ const PLACE_ACTION_MENU_ESTIMATED_HEIGHT = 232;
 const PLACE_ACTION_MENU_MARGIN = 12;
 const PLACE_ACTION_MENU_GAP = 8;
 
-const TripDetail = ({ roomId, onBack, onUpdateTripMeta, onOpenReleaseNotes }) => {
+const TripDetail = ({
+  roomId,
+  onBack,
+  onUpdateTripMeta,
+  onOpenReleaseNotes,
+  onTourAvailabilityChange,
+}) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const [meta, setMetaState] = useState(/** @type {any} */ (null));
@@ -1639,6 +1645,40 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta, onOpenReleaseNotes }) =>
   }, [activeTab, closePlaceActionMenu, copyingItem, currentDay, editingItemData, viewingPlaceDetail]);
 
   const existingDays = useMemo(() => sortDayIds(Object.keys(itinerary)), [itinerary]);
+  useEffect(() => {
+    if (typeof onTourAvailabilityChange !== 'function') return undefined;
+
+    const availability = {
+      roomId,
+      ready: !isLoading && Boolean(meta) && !loadError,
+      blockingEditor: Boolean(
+        editingItemData
+        || copyingItem
+        || showExpenseModal
+        || showTicketModal
+        || showChecklistModal
+      ),
+      failed: Boolean(loadError),
+    };
+
+    const frameId = window.requestAnimationFrame(() => {
+      onTourAvailabilityChange(availability);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [
+    copyingItem,
+    editingItemData,
+    isLoading,
+    loadError,
+    meta,
+    onTourAvailabilityChange,
+    roomId,
+    showChecklistModal,
+    showExpenseModal,
+    showTicketModal,
+  ]);
+
   const safeCurrentDay = existingDays.includes(currentDay) ? currentDay : (existingDays[0] || "Day 1");
   const handleDaySwitch = useCallback((dayId, event) => {
     event?.preventDefault?.();

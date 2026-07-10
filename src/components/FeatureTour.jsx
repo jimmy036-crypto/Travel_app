@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-const TOUR_STEPS = [
+const BASE_TOUR_STEPS = [
   {
     id: 'sync-status',
     selector: '[data-testid="sync-status-indicator"]',
@@ -32,6 +32,13 @@ const TOUR_STEPS = [
     description: '新的多人協作與手機操作體驗已準備完成。',
   },
 ];
+
+const EMPTY_PLACE_FALLBACK_STEP = {
+  id: 'empty-place-fallback',
+  selector: null,
+  title: '新增景點後解鎖更多功能',
+  description: '新增景點後，你可以透過「⋯」編輯、查看周邊、複製或刪除景點，也可以從「景點資訊」查看地址、定位、附件與備註。',
+};
 
 const VIEWPORT_MARGIN = 12;
 const CARD_WIDTH = 320;
@@ -65,6 +72,46 @@ function getTargetRect(selector) {
     width: rect.width,
     height: rect.height,
   };
+}
+
+function hasVisibleTarget(selector) {
+  if (!selector) return true;
+  const target = document.querySelector(selector);
+  if (!(target instanceof HTMLElement)) return false;
+  const rect = target.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function buildTourSteps() {
+  const steps = [];
+  let missingPlaceTargets = false;
+
+  BASE_TOUR_STEPS.forEach((step) => {
+    if (step.id === 'done') return;
+    if (!step.selector) {
+      steps.push(step);
+      return;
+    }
+
+    if (hasVisibleTarget(step.selector)) {
+      steps.push(step);
+      return;
+    }
+
+    if (step.id === 'place-actions' || step.id === 'place-info') {
+      missingPlaceTargets = true;
+      return;
+    }
+
+    steps.push(step);
+  });
+
+  if (missingPlaceTargets) {
+    steps.push(EMPTY_PLACE_FALLBACK_STEP);
+  }
+
+  steps.push(BASE_TOUR_STEPS.find((step) => step.id === 'done') || BASE_TOUR_STEPS.at(-1));
+  return steps;
 }
 
 function getSpotlightRect(targetRect) {
@@ -174,11 +221,12 @@ function getCardPosition(targetRect) {
 }
 
 export const FeatureTour = ({ t, onClose }) => {
+  const [tourSteps, setTourSteps] = useState(BASE_TOUR_STEPS);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState(null);
   const previousActiveElementRef = useRef(null);
   const dialogRef = useRef(null);
-  const step = TOUR_STEPS[stepIndex] || TOUR_STEPS.at(-1);
+  const step = tourSteps[stepIndex] || tourSteps.at(-1);
   const spotlightRect = useMemo(() => getSpotlightRect(targetRect), [targetRect]);
   const overlayRects = useMemo(() => getOverlayRects(spotlightRect), [spotlightRect]);
   const cardPosition = useMemo(
@@ -197,6 +245,21 @@ export const FeatureTour = ({ t, onClose }) => {
       if (previousActiveElement instanceof HTMLElement) {
         previousActiveElement.focus?.();
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const frameId = window.requestAnimationFrame(() => {
+      if (!cancelled) {
+        setTourSteps(buildTourSteps());
+        setStepIndex(0);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
     };
   }, []);
 
@@ -240,7 +303,7 @@ export const FeatureTour = ({ t, onClose }) => {
   }, [stepIndex]);
 
   const isFirstStep = stepIndex === 0;
-  const isLastStep = stepIndex === TOUR_STEPS.length - 1;
+  const isLastStep = stepIndex === tourSteps.length - 1;
   const highlightStyle = spotlightRect
     ? {
         top: `${spotlightRect.top}px`,
@@ -306,7 +369,7 @@ export const FeatureTour = ({ t, onClose }) => {
       >
         <div data-testid="feature-tour-step" className="contents">
         <p className={`text-[10px] font-black uppercase tracking-[0.18em] ${t.subText}`}>
-          {stepIndex + 1} / {TOUR_STEPS.length}
+          {stepIndex + 1} / {tourSteps.length}
         </p>
         <h2 id="feature-tour-title" className={`mt-2 text-xl font-black ${t.mainText}`}>
           {String(step?.title || '')}
@@ -314,6 +377,11 @@ export const FeatureTour = ({ t, onClose }) => {
         <p className={`mt-2 text-sm leading-6 ${t.subText}`}>
           {String(step?.description || '')}
         </p>
+        {step?.id === 'empty-place-fallback' ? (
+          <span data-testid="feature-tour-empty-place-fallback" className="sr-only">
+            empty place fallback
+          </span>
+        ) : null}
         {!targetRect && step?.selector ? (
           <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-600">
             這個項目目前不在畫面上，你仍可繼續下一步。
@@ -342,7 +410,7 @@ export const FeatureTour = ({ t, onClose }) => {
             <button
               type="button"
               data-testid="feature-tour-next"
-              onClick={() => setStepIndex((current) => Math.min(TOUR_STEPS.length - 1, current + 1))}
+              onClick={() => setStepIndex((current) => Math.min(tourSteps.length - 1, current + 1))}
               className="min-h-11 rounded-xl bg-blue-600 px-3 text-sm font-black text-white shadow-lg shadow-blue-500/25"
             >
               下一步
