@@ -445,7 +445,7 @@ async function deletePlaceThroughUi(
     await dialog.accept();
   });
 
-  await placeCard.getByRole('button', { name: '刪除' }).click();
+  await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
   await expect(placeCardByName(page, place.name)).toBeHidden({
     timeout: 20_000,
   });

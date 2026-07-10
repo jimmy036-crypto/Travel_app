@@ -3031,6 +3031,26 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                               ) : null}
                                             </div>
 
+                                            <details
+                                              data-testid="place-card-actions-menu"
+                                              className="export-hide relative shrink-0 md:hidden"
+                                              onClick={(event) => event.stopPropagation()}
+                                            >
+                                              <summary
+                                                data-testid="place-card-actions-toggle"
+                                                aria-label="開啟景點操作"
+                                                className={`flex min-h-11 w-11 cursor-pointer list-none items-center justify-center rounded-xl border text-lg font-black shadow-sm active:scale-95 [&::-webkit-details-marker]:hidden ${snap.isDragging ? 'border-white/25 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
+                                              >
+                                                ⋯
+                                              </summary>
+                                              <div className={`absolute right-0 top-12 z-30 grid w-36 gap-1.5 rounded-xl border p-2 shadow-xl ${snap.isDragging ? 'border-white/20 bg-blue-700 text-white' : `${t.headerBg} ${t.cardBorder}`}`}>
+                                                <button type="button" data-testid="edit-place-button" onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`min-h-10 rounded-lg px-3 text-left text-[11px] font-bold ${snap.isDragging ? 'text-white' : t.mainText}`}>✏️ 編輯</button>
+                                                <button type="button" onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`min-h-10 rounded-lg px-3 text-left text-[11px] font-bold ${snap.isDragging ? 'text-white' : t.mainText}`}>🔍 周邊</button>
+                                                <button type="button" onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`min-h-10 rounded-lg px-3 text-left text-[11px] font-bold ${snap.isDragging ? 'text-white' : t.mainText}`}>📋 複製</button>
+                                                <button type="button" data-testid="delete-place-button" onClick={(event) => { event.stopPropagation(); handleDeleteItineraryItem(dayId, item); }} className="min-h-10 rounded-lg px-3 text-left text-[11px] font-bold text-red-500">刪除</button>
+                                              </div>
+                                            </details>
+
                                             <button
                                               type="button"
                                               onClick={(event) => {
@@ -3078,31 +3098,12 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                         </div>
                                       </div>
 
-                                      <details
-                                        data-testid="place-card-actions-menu"
-                                        className={`export-hide mt-3 border-t pt-3 md:hidden ${snap.isDragging ? 'border-white/20' : t.cardBorder}`}
-                                        onClick={(event) => event.stopPropagation()}
-                                      >
-                                        <summary
-                                          data-testid="place-card-actions-toggle"
-                                          className={`flex min-h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border text-xs font-black shadow-sm active:scale-95 [&::-webkit-details-marker]:hidden ${snap.isDragging ? 'border-white/25 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
-                                        >
-                                          ⋯ 操作
-                                        </summary>
-                                        <div className="mt-2 grid grid-cols-2 gap-2">
-                                          <button type="button" data-testid="edit-place-button" onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`min-h-11 rounded-xl border text-[11px] font-bold ${snap.isDragging ? 'border-white/20 text-white' : `${t.cardBorder} ${t.mainText}`}`}>✏️ 編輯</button>
-                                          <button type="button" onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`min-h-11 rounded-xl border text-[11px] font-bold ${snap.isDragging ? 'border-white/20 text-white' : `${t.cardBorder} ${t.mainText}`}`}>🔍 周邊</button>
-                                          <button type="button" onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`min-h-11 rounded-xl border text-[11px] font-bold ${snap.isDragging ? 'border-white/20 text-white' : `${t.cardBorder} ${t.mainText}`}`}>📋 複製</button>
-                                          <button type="button" onClick={(event) => { event.stopPropagation(); handleDeleteItineraryItem(dayId, item); }} className="min-h-11 rounded-xl border border-red-500/30 text-[11px] font-bold text-red-500">刪除</button>
-                                        </div>
-                                      </details>
-
-                                      <div className={`export-hide mt-3 pt-3 border-t hidden items-center gap-4 transition-all duration-300 ${snap.isDragging ? 'border-white/20' : t.cardBorder} md:flex md:max-h-0 md:opacity-0 md:group-hover:max-h-14 md:group-hover:opacity-100`}>
+                                      <div data-testid="desktop-place-actions" className={`export-hide mt-3 pt-3 border-t hidden items-center gap-4 transition-all duration-300 ${snap.isDragging ? 'border-white/20' : t.cardBorder} md:flex md:max-h-0 md:opacity-0 md:group-hover:max-h-14 md:group-hover:opacity-100`}>
                                         <button data-testid="edit-place-button" onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>✏️ 編輯</button>
                                         <button onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-orange-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🔍 周邊</button>
                                         <button onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-purple-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>📋 複製</button>
                                         <div className="flex-1"></div>
-                                        <button onClick={(event) => { event.stopPropagation(); handleDeleteItineraryItem(dayId, item); }} className={`text-[11px] hover:text-red-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>刪除</button>
+                                        <button data-testid="delete-place-button" onClick={(event) => { event.stopPropagation(); handleDeleteItineraryItem(dayId, item); }} className={`text-[11px] hover:text-red-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>刪除</button>
                                       </div>
                                     </div>
 

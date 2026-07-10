@@ -185,11 +185,11 @@ test('新增、編輯景點與詳細資訊會保存到 Firebase Emulator', async
 test('mobile day switching does not accidentally trigger place editing', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+  await page.setViewportSize({ width: 414, height: 896 });
   await seedTestTrip(ROOM_ID, {
     title: 'E2E mobile day switch trip',
     startDate: '2026-09-20',
-    endDate: '2026-09-21',
+    endDate: '2026-09-22',
     itinerary: {
       'Day 1': [
         {
@@ -229,6 +229,25 @@ test('mobile day switching does not accidentally trigger place editing', async (
           },
         },
       ],
+      'Day 3': [
+        {
+          id: 'mobile-day3-place',
+          name: 'E2E Day3 bakery',
+          place_id: 'mobile-day3-place-id',
+          customName: '',
+          lat: 25.035,
+          lng: 121.5674,
+          address: 'E2E Day3 address',
+          time: '11:00',
+          stayTime: '30',
+          memo: '',
+          tags: [],
+          nextLeg: {
+            mode: 'WALK',
+            mins: 6,
+          },
+        },
+      ],
     },
   });
 
@@ -244,9 +263,13 @@ test('mobile day switching does not accidentally trigger place editing', async (
   const day2Switch = page.locator(
     '[data-testid="itinerary-day-switch-button"][data-day-id="Day 2"]',
   );
+  const day3Switch = page.locator(
+    '[data-testid="itinerary-day-switch-button"][data-day-id="Day 3"]',
+  );
 
   await expect(day1Switch).toBeVisible();
   await expect(day2Switch).toBeVisible();
+  await expect(day3Switch).toBeVisible();
   await expect(day1Switch).toHaveAttribute('aria-pressed', 'true');
 
   const day1Place = page
@@ -257,10 +280,17 @@ test('mobile day switching does not accidentally trigger place editing', async (
 
   await expect(day1Place).toBeVisible();
   await expect(day1Place.getByTestId('place-card-actions-menu')).toBeVisible();
+  await expect(day1Place.getByTestId('place-card-actions-toggle')).toBeVisible();
+  await expect(day1Place.getByTestId('desktop-place-actions')).toBeHidden();
   await expect(
     day1Place
       .getByTestId('place-card-actions-menu')
       .getByTestId('edit-place-button'),
+  ).toBeHidden();
+  await expect(
+    day1Place
+      .getByTestId('place-card-actions-menu')
+      .getByTestId('delete-place-button'),
   ).toBeHidden();
 
   await day2Switch.click();
@@ -269,16 +299,28 @@ test('mobile day switching does not accidentally trigger place editing', async (
   await expect(page.getByTestId('edit-place-modal')).toHaveCount(0);
   await expect(page.getByTestId('place-detail-sheet')).toHaveCount(0);
 
-  const day2Place = page
-    .locator('[data-testid="itinerary-day-card"][data-day-id="Day 2"]')
-    .getByTestId('place-card')
-    .filter({ hasText: 'E2E Day2 coffee' })
-    .first();
-  const day2Actions = day2Place.getByTestId('place-card-actions-menu');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await day3Switch.click();
 
-  await expect(day2Place).toBeVisible();
-  await day2Actions.getByTestId('place-card-actions-toggle').click();
-  await day2Actions.getByTestId('edit-place-button').click();
+  await expect(day3Switch).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('edit-place-modal')).toHaveCount(0);
+  await expect(page.getByTestId('place-detail-sheet')).toHaveCount(0);
+
+  const day3Place = page
+    .locator('[data-testid="itinerary-day-card"][data-day-id="Day 3"]')
+    .getByTestId('place-card')
+    .filter({ hasText: 'E2E Day3 bakery' })
+    .first();
+  const day3Actions = day3Place.getByTestId('place-card-actions-menu');
+
+  await expect(day3Place).toBeVisible();
+  await expect(day3Place.getByTestId('desktop-place-actions')).toBeHidden();
+  await expect(day3Actions.getByTestId('edit-place-button')).toBeHidden();
+  await expect(day3Actions.getByTestId('delete-place-button')).toBeHidden();
+  await day3Actions.getByTestId('place-card-actions-toggle').click();
+  await expect(day3Actions.getByTestId('edit-place-button')).toBeVisible();
+  await expect(day3Actions.getByTestId('delete-place-button')).toBeVisible();
+  await day3Actions.getByTestId('edit-place-button').click();
 
   await expect(page.getByTestId('edit-place-modal')).toBeVisible();
 });
