@@ -7,7 +7,12 @@ import { APIProvider } from '@vis.gl/react-google-maps';
 // 引入 Firebase 與 Helper
 import { db } from "./firebase";
 import { get, ref as dbRef, set, update } from "firebase/database";
-import { API_KEY, APP_VERSION, RELEASE_NOTES } from "./constants";
+import { API_KEY } from "./constants";
+import {
+  CURRENT_RELEASE_NOTES,
+  hasSeenCurrentRelease,
+  markCurrentReleaseSeen,
+} from "./config/releaseNotes";
 import {
   extractRoomId,
   generateId,
@@ -26,8 +31,9 @@ const TripDetail = lazy(() => import('./TripDetail.jsx'));
 import {
   DateRangePickerModal,
   DestinationSearch,
-  UpdateNoticeModal
 } from './components/UIComponents.jsx';
+import { FeatureTour } from './components/FeatureTour.jsx';
+import { WhatsNewDialog } from './components/WhatsNewDialog.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -59,7 +65,9 @@ export default function TravelApp() {
     return Array.isArray(stored) ? stored : [];
   });
   const [customBgColor, setCustomBgColor] = useState(() => readStorage('google-travel-custom-bg', '#d8b4e2'));
-  const [showUpdateNote, setShowUpdateNote] = useState(() => readStorage('google-travel-version', '') !== APP_VERSION);
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
+  const [showFeatureTour, setShowFeatureTour] = useState(false);
+  const [releasePromptDeferred, setReleasePromptDeferred] = useState(false);
   const [isSavingTrip, setIsSavingTrip] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -94,6 +102,11 @@ export default function TravelApp() {
   useEffect(() => {
     writeStorage('google-travel-custom-bg', customBgColor);
   }, [customBgColor]);
+
+  useEffect(() => {
+    if (releasePromptDeferred || hasSeenCurrentRelease()) return;
+    setShowWhatsNew(true);
+  }, [releasePromptDeferred]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -269,13 +282,53 @@ export default function TravelApp() {
     setActiveRoomId(null);
   };
 
-  const closeUpdateNotice = () => {
-    writeStorage('google-travel-version', APP_VERSION);
-    setShowUpdateNote(false);
-  };
+  const openReleaseNotes = useCallback(() => {
+    setShowWhatsNew(true);
+  }, []);
+
+  const closeReleaseNotes = useCallback(() => {
+    setShowWhatsNew(false);
+  }, []);
+
+  const startFeatureTour = useCallback(() => {
+    markCurrentReleaseSeen();
+    setShowWhatsNew(false);
+    setShowFeatureTour(true);
+  }, []);
+
+  const remindLaterRelease = useCallback(() => {
+    setReleasePromptDeferred(true);
+    setShowWhatsNew(false);
+  }, []);
+
+  const dismissCurrentRelease = useCallback(() => {
+    markCurrentReleaseSeen();
+    setShowWhatsNew(false);
+  }, []);
+
+  const closeFeatureTour = useCallback(() => {
+    markCurrentReleaseSeen();
+    setShowFeatureTour(false);
+  }, []);
 
   const t = useMemo(() => getThemeClasses(customBgColor), [customBgColor]);
+  const releaseExperience = (
+    <>
+      {showWhatsNew ? (
+        <WhatsNewDialog
+          notes={CURRENT_RELEASE_NOTES}
+          t={t}
+          onStartTour={startFeatureTour}
+          onRemindLater={remindLaterRelease}
+          onDismissVersion={dismissCurrentRelease}
+          onClose={closeReleaseNotes}
+        />
+      ) : null}
+      {showFeatureTour ? <FeatureTour t={t} onClose={closeFeatureTour} /> : null}
+    </>
+  );
   if (activeRoomId) return (
+    <>
     <APIProvider apiKey={API_KEY}>
       <span
         data-testid="trip-route-context"
@@ -286,9 +339,11 @@ export default function TravelApp() {
         旅程已開啟
       </span>
       <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入旅程模組中...</div>}>
-        <TripDetail roomId={activeRoomId} onBack={closeTrip} onUpdateTripMeta={handleUpdateTripMeta} />
+        <TripDetail roomId={activeRoomId} onBack={closeTrip} onUpdateTripMeta={handleUpdateTripMeta} onOpenReleaseNotes={openReleaseNotes} />
       </Suspense>
     </APIProvider>
+    {releaseExperience}
+    </>
   );
 
   return (
@@ -311,6 +366,14 @@ export default function TravelApp() {
               <span className={`text-xs font-bold ${t.subText}`}>自訂大廳色</span>
             </div>
             <button onClick={() => setShowImportModal(true)} className="bg-slate-500/20 border border-slate-500/30 text-sm font-bold px-4 py-3 rounded-2xl transition-transform active:scale-95">📥 匯入</button>
+            <button
+              type="button"
+              data-testid="release-notes-trigger"
+              onClick={openReleaseNotes}
+              className={`min-h-11 rounded-2xl border px-4 text-sm font-bold shadow-sm transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+            >
+              更新內容
+            </button>
             <button type="button" data-testid="create-trip-button" onClick={openCreateModal} className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 rounded-2xl font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2"><span>➕</span> <span>新增</span></button>
           </div>
         </header>
@@ -419,7 +482,7 @@ export default function TravelApp() {
       )}
 
       {showDatePicker && ( <DateRangePickerModal initialStart={newStart} initialEnd={newEnd} onClose={() => setShowDatePicker(false)} onConfirm={(start, end) => { setNewStart(start); setNewEnd(end); setShowDatePicker(false); }} t={t} /> )}
-      {showUpdateNote && <UpdateNoticeModal notes={RELEASE_NOTES} onClose={closeUpdateNotice} t={t} />}
+      {releaseExperience}
     </div>
   );
 }

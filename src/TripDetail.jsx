@@ -1238,7 +1238,7 @@ const PLACE_ACTION_MENU_ESTIMATED_HEIGHT = 232;
 const PLACE_ACTION_MENU_MARGIN = 12;
 const PLACE_ACTION_MENU_GAP = 8;
 
-const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
+const TripDetail = ({ roomId, onBack, onUpdateTripMeta, onOpenReleaseNotes }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const [meta, setMetaState] = useState(/** @type {any} */ (null));
@@ -2974,6 +2974,14 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                     🖨️ <span className="ml-1">匯出</span>
                   </button>
                   <button
+                    type="button"
+                    data-testid="release-notes-trigger"
+                    onClick={onOpenReleaseNotes}
+                    className={`px-3 py-2 rounded-lg text-[10px] font-bold border shadow-sm transition-all active:scale-95 hover:border-blue-500 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                  >
+                    更新內容
+                  </button>
+                  <button
                     onClick={() => setShowChecklistModal(true)}
                     className={`relative px-3 py-2 rounded-lg text-[10px] font-bold border shadow-sm transition-all active:scale-95 hover:border-blue-500 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                     title={`共享清單：${sharedChecklistStats.completed}/${sharedChecklistStats.total} 已完成`}
@@ -3215,7 +3223,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                                               otherCount > 0 ? `資料 ${otherCount}` : '',
                                             ].filter(Boolean);
                                             return (
-                                              <div className={`export-hide mt-3 flex min-h-10 items-center gap-2 rounded-xl border px-3 ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder}`}`}>
+                                              <div data-testid="place-info-trigger" className={`export-hide mt-3 flex min-h-10 items-center gap-2 rounded-xl border px-3 ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder}`}`}>
                                                 <span className="text-sm">ⓘ</span>
                                                 <span className={`shrink-0 text-[10px] font-black ${snap.isDragging ? 'text-white' : t.mainText}`}>景點資訊</span>
                                                 <span className={`min-w-0 flex-1 truncate text-[9px] ${snap.isDragging ? 'text-white/75' : t.subText}`}>
