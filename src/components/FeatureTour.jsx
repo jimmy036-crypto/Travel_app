@@ -36,6 +36,15 @@ const TOUR_STEPS = [
 const VIEWPORT_MARGIN = 12;
 const CARD_WIDTH = 320;
 const CARD_GAP = 12;
+const CARD_ESTIMATED_HEIGHT = 260;
+const SPOTLIGHT_PADDING = 8;
+
+function getViewportSize() {
+  return {
+    width: window.innerWidth || 390,
+    height: window.innerHeight || 844,
+  };
+}
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
@@ -58,25 +67,103 @@ function getTargetRect(selector) {
   };
 }
 
+function getSpotlightRect(targetRect) {
+  if (!targetRect) return null;
+
+  const { width: viewportWidth, height: viewportHeight } = getViewportSize();
+  const left = Math.max(VIEWPORT_MARGIN, targetRect.left - SPOTLIGHT_PADDING);
+  const top = Math.max(VIEWPORT_MARGIN, targetRect.top - SPOTLIGHT_PADDING);
+  const right = Math.min(
+    viewportWidth - VIEWPORT_MARGIN,
+    targetRect.left + targetRect.width + SPOTLIGHT_PADDING,
+  );
+  const bottom = Math.min(
+    viewportHeight - VIEWPORT_MARGIN,
+    targetRect.top + targetRect.height + SPOTLIGHT_PADDING,
+  );
+
+  return {
+    top: Math.min(top, bottom - 1),
+    left: Math.min(left, right - 1),
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+}
+
+function getOverlayRects(spotlightRect) {
+  const { width: viewportWidth, height: viewportHeight } = getViewportSize();
+  if (!spotlightRect) {
+    return [
+      {
+        key: 'full',
+        top: 0,
+        left: 0,
+        width: viewportWidth,
+        height: viewportHeight,
+      },
+    ];
+  }
+
+  const spotlightBottom = spotlightRect.top + spotlightRect.height;
+  const spotlightRight = spotlightRect.left + spotlightRect.width;
+
+  return [
+    {
+      key: 'top',
+      top: 0,
+      left: 0,
+      width: viewportWidth,
+      height: spotlightRect.top,
+    },
+    {
+      key: 'bottom',
+      top: spotlightBottom,
+      left: 0,
+      width: viewportWidth,
+      height: Math.max(0, viewportHeight - spotlightBottom),
+    },
+    {
+      key: 'left',
+      top: spotlightRect.top,
+      left: 0,
+      width: spotlightRect.left,
+      height: spotlightRect.height,
+    },
+    {
+      key: 'right',
+      top: spotlightRect.top,
+      left: spotlightRight,
+      width: Math.max(0, viewportWidth - spotlightRight),
+      height: spotlightRect.height,
+    },
+  ];
+}
+
 function getCardPosition(targetRect) {
-  const viewportWidth = window.innerWidth || 390;
-  const viewportHeight = window.innerHeight || 844;
+  const { width: viewportWidth, height: viewportHeight } = getViewportSize();
   const width = Math.min(CARD_WIDTH, viewportWidth - (VIEWPORT_MARGIN * 2));
 
   if (!targetRect) {
     return {
-      top: Math.max(VIEWPORT_MARGIN, (viewportHeight - 260) / 2),
+      top: Math.max(VIEWPORT_MARGIN, (viewportHeight - CARD_ESTIMATED_HEIGHT) / 2),
       left: Math.max(VIEWPORT_MARGIN, (viewportWidth - width) / 2),
       width,
     };
   }
 
   const belowTop = targetRect.top + targetRect.height + CARD_GAP;
-  const aboveTop = targetRect.top - 260 - CARD_GAP;
-  const canFitBelow = belowTop + 260 <= viewportHeight - VIEWPORT_MARGIN;
+  const aboveTop = targetRect.top - CARD_ESTIMATED_HEIGHT - CARD_GAP;
+  const canFitBelow = belowTop + CARD_ESTIMATED_HEIGHT <= viewportHeight - VIEWPORT_MARGIN;
+  const canFitAbove = aboveTop >= VIEWPORT_MARGIN;
   const top = canFitBelow
     ? belowTop
-    : clamp(aboveTop, VIEWPORT_MARGIN, viewportHeight - 260 - VIEWPORT_MARGIN);
+    : canFitAbove
+      ? aboveTop
+      : clamp(
+          (viewportHeight - CARD_ESTIMATED_HEIGHT) / 2,
+          VIEWPORT_MARGIN,
+          viewportHeight - CARD_ESTIMATED_HEIGHT - VIEWPORT_MARGIN,
+        );
   const left = clamp(
     targetRect.left + (targetRect.width / 2) - (width / 2),
     VIEWPORT_MARGIN,
@@ -92,7 +179,12 @@ export const FeatureTour = ({ t, onClose }) => {
   const previousActiveElementRef = useRef(null);
   const dialogRef = useRef(null);
   const step = TOUR_STEPS[stepIndex] || TOUR_STEPS.at(-1);
-  const cardPosition = useMemo(() => getCardPosition(targetRect), [targetRect]);
+  const spotlightRect = useMemo(() => getSpotlightRect(targetRect), [targetRect]);
+  const overlayRects = useMemo(() => getOverlayRects(spotlightRect), [spotlightRect]);
+  const cardPosition = useMemo(
+    () => getCardPosition(spotlightRect || targetRect),
+    [spotlightRect, targetRect],
+  );
 
   useEffect(() => {
     previousActiveElementRef.current = document.activeElement;
@@ -149,26 +241,53 @@ export const FeatureTour = ({ t, onClose }) => {
 
   const isFirstStep = stepIndex === 0;
   const isLastStep = stepIndex === TOUR_STEPS.length - 1;
-  const highlightStyle = targetRect
+  const highlightStyle = spotlightRect
     ? {
-        top: `${Math.max(8, targetRect.top - 8)}px`,
-        left: `${Math.max(8, targetRect.left - 8)}px`,
-        width: `${targetRect.width + 16}px`,
-        height: `${targetRect.height + 16}px`,
+        top: `${spotlightRect.top}px`,
+        left: `${spotlightRect.left}px`,
+        width: `${spotlightRect.width}px`,
+        height: `${spotlightRect.height}px`,
       }
     : null;
 
   return (
     <div
       data-testid="feature-tour"
-      className="fixed inset-0 z-10050 bg-slate-950/70 backdrop-blur-[2px]"
+      className="pointer-events-none fixed inset-0 z-10050"
       aria-label="功能導覽"
     >
+      <div
+        data-testid="feature-tour-overlay"
+        className="fixed inset-0 pointer-events-none"
+        aria-hidden="true"
+      >
+        {overlayRects.map((rect) => (
+          <div
+            key={rect.key}
+            className="pointer-events-auto fixed bg-slate-950/70"
+            style={{
+              top: `${rect.top}px`,
+              left: `${rect.left}px`,
+              width: `${rect.width}px`,
+              height: `${rect.height}px`,
+            }}
+          />
+        ))}
+      </div>
+
       {highlightStyle ? (
         <div
-          className="pointer-events-none fixed rounded-2xl border-2 border-blue-400 shadow-[0_0_0_9999px_rgba(15,23,42,0.58),0_0_28px_rgba(59,130,246,0.55)]"
+          data-testid="feature-tour-spotlight"
+          className="pointer-events-auto fixed rounded-2xl border-[3px] border-blue-400 shadow-[0_0_28px_rgba(59,130,246,0.6),0_0_0_1px_rgba(255,255,255,0.32)]"
           style={highlightStyle}
-        />
+          onClick={(event) => event.stopPropagation()}
+          aria-hidden="true"
+        >
+          <div
+            data-testid="feature-tour-target-highlight"
+            className="pointer-events-none absolute inset-0 rounded-2xl ring-2 ring-white/35"
+          />
+        </div>
       ) : null}
 
       <section
@@ -176,14 +295,16 @@ export const FeatureTour = ({ t, onClose }) => {
         role="dialog"
         aria-modal="true"
         aria-labelledby="feature-tour-title"
-        data-testid="feature-tour-step"
-        className={`fixed rounded-3xl border p-5 shadow-2xl ${t.modalBg} ${t.cardBorder}`}
+        data-testid="feature-tour-card"
+        className={`pointer-events-auto fixed overflow-y-auto rounded-3xl border p-5 shadow-2xl ${t.modalBg} ${t.cardBorder}`}
         style={{
           top: `${cardPosition.top}px`,
           left: `${cardPosition.left}px`,
           width: `${cardPosition.width}px`,
+          maxHeight: 'calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))',
         }}
       >
+        <div data-testid="feature-tour-step" className="contents">
         <p className={`text-[10px] font-black uppercase tracking-[0.18em] ${t.subText}`}>
           {stepIndex + 1} / {TOUR_STEPS.length}
         </p>
@@ -236,6 +357,7 @@ export const FeatureTour = ({ t, onClose }) => {
           >
             上一步
           </button>
+        </div>
         </div>
       </section>
     </div>
