@@ -19,6 +19,7 @@ import {
   SearchBox,
   Directions
 } from './components/UIComponents.jsx';
+import { SyncStatusIndicator } from './components/SyncStatusIndicator.jsx';
 
 import { db, storage } from "./firebase";
 import { ref as dbRef, onValue, update } from "firebase/database";
@@ -1109,6 +1110,13 @@ const toSafeList = (value) => (
   Array.isArray(value) ? value : Object.values(value || {})
 );
 
+const REMOTE_UPDATE_VISIBLE_MS = 2500;
+const LOCAL_WRITE_SUPPRESSION_MS = 1500;
+
+const hasDirtyBranches = (dirtyBranchesRef) => (
+  Object.values(dirtyBranchesRef.current || {}).some(Boolean)
+);
+
 const normalizeChecklist = (value) => {
   const entries = Array.isArray(value)
     ? value.map((item, index) => [String(item?.id || `legacy_${index}`), item])
@@ -1188,6 +1196,7 @@ const useRoomBranchSync = ({
   value,
   dirtyBranchesRef,
   writeVersionRef,
+  lastLocalWriteAtRef,
   setSyncStatus,
 }) => {
   useEffect(() => {
@@ -1195,6 +1204,7 @@ const useRoomBranchSync = ({
 
     const version = (writeVersionRef.current[branch] || 0) + 1;
     writeVersionRef.current[branch] = version;
+    lastLocalWriteAtRef.current = Date.now();
     setSyncStatus("saving");
 
     const timer = window.setTimeout(() => {
@@ -1203,6 +1213,7 @@ const useRoomBranchSync = ({
           await update(dbRef(db, `rooms/${roomId}`), { [branch]: value });
           if (writeVersionRef.current[branch] === version) {
             dirtyBranchesRef.current[branch] = false;
+            lastLocalWriteAtRef.current = Date.now();
             setSyncStatus("saved");
           }
         } catch (error) {
@@ -1217,7 +1228,7 @@ const useRoomBranchSync = ({
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [branch, dirtyBranchesRef, roomId, setSyncStatus, value, writeVersionRef]);
+  }, [branch, dirtyBranchesRef, lastLocalWriteAtRef, roomId, setSyncStatus, value, writeVersionRef]);
 };
 
 const PRE_TRIP_ID = "PRE_TRIP";
@@ -1240,6 +1251,9 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
   const [loadError, setLoadError] = useState("");
   const dirtyBranchesRef = useRef({ meta: false, itinerary: false, expenses: false, settlements: false, tickets: false });
   const writeVersionRef = useRef({ meta: 0, itinerary: 0, expenses: 0, settlements: 0, tickets: 0 });
+  const hasLoadedRoomRef = useRef(false);
+  const lastLocalWriteAtRef = useRef(0);
+  const remoteUpdateTimerRef = useRef(null);
   const checklistWriteVersionRef = useRef(0);
 
   const setMeta = useCallback((updater) => {
@@ -1336,12 +1350,19 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
     dirtyBranchesRef.current = { meta: false, itinerary: false, expenses: false, settlements: false, tickets: false };
     writeVersionRef.current = { meta: 0, itinerary: 0, expenses: 0, settlements: 0, tickets: 0 };
+    hasLoadedRoomRef.current = false;
+    lastLocalWriteAtRef.current = 0;
     checklistWriteVersionRef.current = 0;
+    if (remoteUpdateTimerRef.current) {
+      window.clearTimeout(remoteUpdateTimerRef.current);
+      remoteUpdateTimerRef.current = null;
+    }
 
     queueMicrotask(() => {
       if (cancelled) return;
       setLoadError("");
       setIsLoading(true);
+      setSyncStatus("idle");
     });
 
     if (!db || !roomId) {
@@ -1360,6 +1381,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
         setTicketsState([]);
         setChecklistItemsState([]);
         setIsLoading(false);
+        setSyncStatus("saved");
       });
       return () => {
         cancelled = true;
@@ -1392,10 +1414,35 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
         if (!dirtyBranchesRef.current.tickets) setTicketsState(loadedTickets);
         setChecklistItemsState(loadedChecklist);
 
+        if (!hasLoadedRoomRef.current) {
+          hasLoadedRoomRef.current = true;
+          setSyncStatus("saved");
+        } else if (!hasDirtyBranches(dirtyBranchesRef)) {
+          const isRecentLocalWrite = Date.now() - lastLocalWriteAtRef.current < LOCAL_WRITE_SUPPRESSION_MS;
+
+          if (isRecentLocalWrite) {
+            setSyncStatus((currentStatus) => (
+              currentStatus === "saving" ? currentStatus : "saved"
+            ));
+          } else {
+            setSyncStatus("remote-updated");
+            if (remoteUpdateTimerRef.current) {
+              window.clearTimeout(remoteUpdateTimerRef.current);
+            }
+            remoteUpdateTimerRef.current = window.setTimeout(() => {
+              setSyncStatus((currentStatus) => (
+                currentStatus === "remote-updated" ? "saved" : currentStatus
+              ));
+              remoteUpdateTimerRef.current = null;
+            }, REMOTE_UPDATE_VISIBLE_MS);
+          }
+        }
+
         setIsLoading(false);
       },
       (error) => {
         console.error("Load room failed:", error);
+        setSyncStatus("error");
         setLoadError("旅程載入失敗，請檢查網路連線或 Firebase 權限。");
         setIsLoading(false);
       }
@@ -1403,6 +1450,10 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
     return () => {
       cancelled = true;
+      if (remoteUpdateTimerRef.current) {
+        window.clearTimeout(remoteUpdateTimerRef.current);
+        remoteUpdateTimerRef.current = null;
+      }
       unsubscribe();
     };
   }, [roomId]);
@@ -1413,6 +1464,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     value: meta,
     dirtyBranchesRef,
     writeVersionRef,
+    lastLocalWriteAtRef,
     setSyncStatus,
   });
   useRoomBranchSync({
@@ -1421,6 +1473,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     value: itinerary,
     dirtyBranchesRef,
     writeVersionRef,
+    lastLocalWriteAtRef,
     setSyncStatus,
   });
   useRoomBranchSync({
@@ -1429,6 +1482,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     value: expenses,
     dirtyBranchesRef,
     writeVersionRef,
+    lastLocalWriteAtRef,
     setSyncStatus,
   });
   useRoomBranchSync({
@@ -1437,6 +1491,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     value: settlements,
     dirtyBranchesRef,
     writeVersionRef,
+    lastLocalWriteAtRef,
     setSyncStatus,
   });
   useRoomBranchSync({
@@ -1445,6 +1500,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
     value: tickets,
     dirtyBranchesRef,
     writeVersionRef,
+    lastLocalWriteAtRef,
     setSyncStatus,
   });
 
@@ -1885,11 +1941,15 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
 
     const version = checklistWriteVersionRef.current + 1;
     checklistWriteVersionRef.current = version;
+    lastLocalWriteAtRef.current = Date.now();
     setSyncStatus('saving');
 
     void update(dbRef(db, `rooms/${roomId}/checklist`), patch)
       .then(() => {
-        if (checklistWriteVersionRef.current === version) setSyncStatus('saved');
+        if (checklistWriteVersionRef.current === version) {
+          lastLocalWriteAtRef.current = Date.now();
+          setSyncStatus('saved');
+        }
       })
       .catch((error) => {
         console.error('Sync checklist failed:', error);
@@ -2745,18 +2805,7 @@ const TripDetail = ({ roomId, onBack, onUpdateTripMeta }) => {
                        <input type="color" value={tripThemeColor} onChange={e => handleColorChange(e.target.value)} className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer border-0 p-0" title="更改顏色" />
                     </div>
                     <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
-                    {db ? (
-                      <span
-                        title={syncStatus === "saving" ? "同步中" : syncStatus === "error" ? "同步失敗" : "已同步"}
-                        className={`inline-flex h-2.5 w-2.5 rounded-full ${
-                          syncStatus === "saving"
-                            ? "bg-amber-400 animate-pulse"
-                            : syncStatus === "error"
-                              ? "bg-red-500"
-                              : "bg-emerald-500"
-                        }`}
-                      />
-                    ) : null}
+                    {db ? <SyncStatusIndicator status={syncStatus} /> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
                 </div>
