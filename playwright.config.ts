@@ -38,6 +38,8 @@ const inheritedEnv = Object.fromEntries(
 );
 
 const firebaseEmulatorCommand = 'npm run emulators:e2e';
+const currentReleaseSeenKey =
+  'travel-app-seen-release-2026.07-mobile-collaboration';
 
 // Firebase CLI 可以使用獨立 HOME，避免 update check 或 config
 // 寫入 runner 的真實使用者目錄。
@@ -79,6 +81,20 @@ export default defineConfig({
 
     // Keep PWA caching out of browser tests.
     serviceWorkers: 'block',
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: 'http://127.0.0.1:4174',
+          localStorage: [
+            {
+              name: currentReleaseSeenKey,
+              value: 'true',
+            },
+          ],
+        },
+      ],
+    },
   },
 
   projects: [
