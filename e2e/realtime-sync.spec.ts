@@ -432,7 +432,12 @@ async function deletePlaceThroughUi(
   const placeCard = placeCardByName(page, place.name);
 
   await expect(placeCard).toBeVisible({ timeout: 20_000 });
-  await placeCard.hover();
+  const mobileActionTrigger = placeCard.getByTestId('place-action-menu-trigger');
+  if (await mobileActionTrigger.isVisible().catch(() => false)) {
+    await mobileActionTrigger.click();
+  } else {
+    await placeCard.hover();
+  }
 
   page.once('dialog', async (dialog) => {
     expect(dialog.type()).toBe('confirm');
@@ -440,7 +445,12 @@ async function deletePlaceThroughUi(
     await dialog.accept();
   });
 
-  await placeCard.getByRole('button', { name: '刪除' }).click();
+  const mobileActionMenu = page.getByTestId('place-action-menu');
+  if (await mobileActionMenu.isVisible().catch(() => false)) {
+    await mobileActionMenu.getByTestId('place-action-delete').click();
+  } else {
+    await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
+  }
   await expect(placeCardByName(page, place.name)).toBeHidden({
     timeout: 20_000,
   });
