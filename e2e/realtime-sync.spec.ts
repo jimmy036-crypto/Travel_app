@@ -142,6 +142,21 @@ async function expectPlaceCount(page: Page, count: number): Promise<void> {
     .toBe(count);
 }
 
+async function expectPlaceCardVisible(
+  page: Page,
+  place: PlaceDetails,
+): Promise<void> {
+  const placeCard = placeCardByName(page, place.name);
+
+  await expect(placeCard).toBeVisible({ timeout: 20_000 });
+  await expect(placeCard.getByTestId('place-card-title')).toContainText(
+    place.name,
+  );
+  await expect(placeCard.getByTestId('place-card-time')).toHaveText(
+    place.arrivalTime,
+  );
+}
+
 async function fillOpenPlaceEditor(
   page: Page,
   place: PlaceDetails,
@@ -198,17 +213,9 @@ async function expectSyncedPlaceDetails(
   page: Page,
   place: PlaceDetails,
 ): Promise<void> {
-  const placeCard = placeCardByName(page, place.name);
+  await expectPlaceCardVisible(page, place);
 
-  await expect(placeCard).toBeVisible({ timeout: 20_000 });
-  await expect(placeCard.getByTestId('place-card-title')).toContainText(
-    place.name,
-  );
-  await expect(placeCard.getByTestId('place-card-time')).toHaveText(
-    place.arrivalTime,
-  );
-
-  await placeCard.click();
+  await placeCardByName(page, place.name).click();
 
   await expect(page.getByTestId('place-detail-sheet')).toBeVisible({
     timeout: 15_000,
@@ -235,6 +242,27 @@ async function expectSyncedPlaceDetails(
   await expect(page.getByTestId('place-note-input')).toHaveValue(
     place.note,
   );
+}
+
+async function deletePlaceThroughUi(
+  page: Page,
+  place: PlaceDetails,
+): Promise<void> {
+  const placeCard = placeCardByName(page, place.name);
+
+  await expect(placeCard).toBeVisible({ timeout: 20_000 });
+  await placeCard.hover();
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.type()).toBe('confirm');
+    expect(dialog.message()).toContain('確定刪除此景點');
+    await dialog.accept();
+  });
+
+  await placeCard.getByRole('button', { name: '刪除' }).click();
+  await expect(placeCardByName(page, place.name)).toBeHidden({
+    timeout: 20_000,
+  });
 }
 
 test.beforeEach(async () => {
@@ -277,6 +305,39 @@ test('keeps isolated contexts synced through Firebase realtime listener', async 
     if (!contextA.context.pages().every((page) => page.isClosed())) {
       await contextA.context.close();
     }
+    await contextB.context.close();
+  }
+});
+
+test('syncs place deletion between active browser contexts in realtime', async ({
+  browser,
+}, testInfo) => {
+  const contextA = await openRoom(browser, testInfo.project.name);
+  const contextB = await openRoom(browser, testInfo.project.name);
+
+  try {
+    await addPlaceThroughUi(contextA.page);
+    await editNewestPlaceThroughUi(contextA.page, CREATED_PLACE);
+
+    await expectPlaceCount(contextB.page, 2);
+    await expectPlaceCardVisible(contextB.page, CREATED_PLACE);
+
+    await deletePlaceThroughUi(contextA.page, CREATED_PLACE);
+
+    await expect(placeCardByName(contextB.page, CREATED_PLACE.name))
+      .toBeHidden({ timeout: 20_000 });
+    await expectPlaceCount(contextB.page, 1);
+
+    await contextB.page.reload();
+    await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
+      timeout: 20_000,
+    });
+    await expectTripTitle(contextB.page, INITIAL_TITLE);
+    await expect(placeCardByName(contextB.page, CREATED_PLACE.name))
+      .toBeHidden({ timeout: 20_000 });
+    await expectPlaceCount(contextB.page, 1);
+  } finally {
+    await contextA.context.close();
     await contextB.context.close();
   }
 });
