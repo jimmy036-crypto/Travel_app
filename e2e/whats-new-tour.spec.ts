@@ -443,7 +443,8 @@ test('can reopen release notes from the permanent entry', async ({ page }) => {
   await page.goto('/');
 
   await expect(page.getByTestId('whats-new-dialog')).toHaveCount(0);
-  await page.getByTestId('release-notes-trigger').click();
+  await page.getByTestId('app-settings-trigger').click();
+  await page.getByTestId('app-settings-release-notes').click();
 
   await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
 });

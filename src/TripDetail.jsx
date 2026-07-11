@@ -21,6 +21,8 @@ import {
   Directions
 } from './components/UIComponents.jsx';
 import { SyncStatusIndicator } from './components/SyncStatusIndicator.jsx';
+import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
+import { CURRENT_RELEASE_NOTES } from './config/releaseNotes.js';
 
 import { db, storage } from "./firebase";
 import { ref as dbRef, onValue, update } from "firebase/database";
@@ -1245,6 +1247,7 @@ const TripDetail = ({
   onBack,
   onUpdateTripMeta,
   onOpenReleaseNotes,
+  onStartFeatureTour,
   onTourAvailabilityChange,
 }) => {
   const confirm = useConfirm();
@@ -1341,6 +1344,7 @@ const TripDetail = ({
   const activePlaceActionMenuRef = useRef(null);
   const ignorePlaceActionScrollRef = useRef(false);
   const placeActionTriggerRefs = useRef({});
+  const tripAppearanceInputRef = useRef(null);
 
   const placesLib = useMapsLibrary('places');
   const [exploreQuery, setExploreQuery] = useState("");
@@ -1601,6 +1605,24 @@ const TripDetail = ({
       ...getPlaceActionMenuPosition(trigger),
     });
   }, [closePlaceActionMenu, getPlaceActionMenuPosition]);
+
+  const handleItineraryWheel = useCallback((event) => {
+    const deltaX = Number(event.deltaX || 0);
+    const deltaY = Number(event.deltaY || 0);
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+
+    if (event.shiftKey && absY > 0) {
+      event.preventDefault();
+      event.currentTarget.scrollBy({ left: deltaY, behavior: 'auto' });
+      return;
+    }
+
+    if (absX > absY && absX > 0) {
+      event.preventDefault();
+      event.currentTarget.scrollBy({ left: deltaX, behavior: 'auto' });
+    }
+  }, []);
 
   useEffect(() => {
     if (!activePlaceActionMenu) return undefined;
@@ -3031,19 +3053,25 @@ const TripDetail = ({
           <div className="flex-1 flex overflow-hidden">
 
             <div className={`flex-col border-r transition-opacity duration-300 backdrop-blur-xl ${t.sidebarBg} ${t.cardBorder} ${activeTab === 'map' ? 'hidden md:flex md:w-2/3 lg:w-1/2' : 'flex w-full md:w-2/3 lg:w-1/2'}`}>
-              <div className={`p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-md z-20 shrink-0 border-b backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
+              <div className={`relative z-40 p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-md shrink-0 border-b backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <button onClick={onBack} className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
-                    <div className="relative w-5 h-5 rounded-full overflow-hidden border border-white/50 shadow-sm cursor-pointer shrink-0 hover:scale-110 transition-transform">
-                       <input type="color" value={tripThemeColor} onChange={e => handleColorChange(e.target.value)} className="absolute -top-2 -left-2 w-10 h-10 cursor-pointer border-0 p-0" title="更改顏色" />
-                    </div>
+                    <input
+                      ref={tripAppearanceInputRef}
+                      type="color"
+                      value={tripThemeColor}
+                      onChange={e => handleColorChange(e.target.value)}
+                      className="sr-only"
+                      tabIndex={-1}
+                      aria-label="自訂旅程外觀"
+                    />
                     <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
                     {db ? <SyncStatusIndicator status={syncStatus} /> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
                   <div className={`hidden md:flex p-1 rounded-lg border shadow-inner ${t.cardBg} ${t.cardBorder}`}>
                     <button onClick={() => setActiveTab('plan')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${(activeTab === 'plan' || activeTab === 'map') ? 'bg-blue-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>📋 行程</button>
                     <button
@@ -3065,14 +3093,6 @@ const TripDetail = ({
                     🖨️ <span className="ml-1">匯出</span>
                   </button>
                   <button
-                    type="button"
-                    data-testid="release-notes-trigger"
-                    onClick={onOpenReleaseNotes}
-                    className={`px-3 py-2 rounded-lg text-[10px] font-bold border shadow-sm transition-all active:scale-95 hover:border-blue-500 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
-                  >
-                    更新內容
-                  </button>
-                  <button
                     onClick={() => setShowChecklistModal(true)}
                     className={`relative px-3 py-2 rounded-lg text-[10px] font-bold border shadow-sm transition-all active:scale-95 hover:border-blue-500 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                     title={`共享清單：${sharedChecklistStats.completed}/${sharedChecklistStats.total} 已完成`}
@@ -3088,6 +3108,14 @@ const TripDetail = ({
                   <button onClick={handleShareLink} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-[10px] font-bold transition-transform active:scale-95 shadow-md">
                     🔗 共編
                   </button>
+                  <AppSettingsMenu
+                    key={`trip-settings-${roomId}`}
+                    t={t}
+                    version={CURRENT_RELEASE_NOTES.version}
+                    onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+                    onOpenReleaseNotes={onOpenReleaseNotes}
+                    onStartFeatureTour={onStartFeatureTour}
+                  />
                 </div>
               </div>
 
@@ -3117,7 +3145,7 @@ const TripDetail = ({
                 </div>
               </div>
 
-              <div onWheel={(e) => { if (e.deltaY !== 0) e.currentTarget.scrollBy(Number(e.deltaY), 0); }} className={`scrollbar-hide flex-1 overflow-x-auto overscroll-x-contain p-4 gap-4 items-start ${(activeTab === 'plan' || activeTab === 'map') ? 'flex' : 'hidden'}`}>
+              <div data-testid="itinerary-horizontal-scroll" onWheel={handleItineraryWheel} className={`scrollbar-hide flex-1 overflow-x-auto overscroll-x-contain p-4 gap-4 items-start ${(activeTab === 'plan' || activeTab === 'map') ? 'flex' : 'hidden'}`}>
                 {existingDays.map(dayId => {
                   const { title, dateStr } = getDayDisplay(dayId, meta.startDate);
                   const isCurrent = safeCurrentDay === dayId;
