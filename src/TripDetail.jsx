@@ -23,6 +23,7 @@ import {
 import { SyncStatusIndicator } from './components/SyncStatusIndicator.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 import { CURRENT_RELEASE_NOTES } from './config/releaseNotes.js';
+import { EmptyState } from './components/ui/EmptyState.jsx';
 
 import { db, storage } from "./firebase";
 import { ref as dbRef, onValue, update } from "firebase/database";
@@ -1623,6 +1624,16 @@ const TripDetail = ({
       event.preventDefault();
       event.currentTarget.scrollBy({ left: deltaX, behavior: 'auto' });
     }
+  }, []);
+
+  const focusPlaceSearchInput = useCallback((dayId) => {
+    if (typeof document === 'undefined') return;
+    const targetDayId = String(dayId);
+    const input = Array.from(document.querySelectorAll('[data-testid="place-search-input"]'))
+      .find((node) => node instanceof HTMLElement && node.dataset.dayId === targetDayId);
+
+    input?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+    input?.focus?.();
   }, []);
 
   useEffect(() => {
@@ -3267,6 +3278,27 @@ const TripDetail = ({
                             data-day-id={String(dayId)}
                             className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide"
                           >
+                            {(!Array.isArray(itinerary[dayId]) || itinerary[dayId].length === 0) ? (
+                              <EmptyState
+                                testId="itinerary-empty-state"
+                                className={`${t.cardBg} ${t.cardBorder} mt-2 max-w-none px-5 py-6`}
+                                icon={(
+                                  <svg viewBox="0 0 48 48" className="h-12 w-12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                    <path d="M12 36h24" />
+                                    <path d="M16 32V14l8 4 8-4v18" />
+                                    <path d="M24 18v14" />
+                                    <circle cx="24" cy="10" r="3" />
+                                  </svg>
+                                )}
+                                title="這一天還沒有行程"
+                                description="新增第一個景點，開始安排交通、時間與每日路線。"
+                                primaryAction={{
+                                  label: '新增景點',
+                                  testId: 'itinerary-empty-add-place',
+                                  onClick: () => focusPlaceSearchInput(dayId),
+                                }}
+                              />
+                            ) : null}
                             {(/** @type {any[]} */ (Array.isArray(itinerary[dayId]) ? itinerary[dayId] : [])).map((item, index) => {
                               const displayName = item.customName || item.name;
                               const isCustomName = !!item.customName;

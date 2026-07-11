@@ -96,6 +96,7 @@ test('mobile lobby actions use a consistent responsive layout', async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await markCurrentReleaseSeen(page);
+  await seedLobbyTrips(page, [createLobbyTrip()]);
 
   await page.goto('/');
 
