@@ -55,6 +55,8 @@ import {
   recalculateArrivalTimes,
   recalculateArrivalTimesFromIndex,
 } from "./features/itinerary/itineraryCalculations";
+import { useConfirm } from './components/ui/useConfirm.js';
+import { useToast } from './components/ui/useToast.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -1248,6 +1250,8 @@ const TripDetail = ({
   onStartFeatureTour,
   onTourAvailabilityChange,
 }) => {
+  const confirm = useConfirm();
+  const toast = useToast();
   const [isLoading, setIsLoading] = useState(true);
 
   const [meta, setMetaState] = useState(/** @type {any} */ (null));
@@ -1269,6 +1273,7 @@ const TripDetail = ({
   const lastLocalWriteAtRef = useRef(0);
   const remoteUpdateTimerRef = useRef(null);
   const checklistWriteVersionRef = useRef(0);
+  const placeDeleteConfirmRef = useRef(false);
 
   const setMeta = useCallback((updater) => {
     dirtyBranchesRef.current.meta = true;
@@ -2096,31 +2101,77 @@ const TripDetail = ({
     alert(`✅ 已將「${item.customName || item.name}」複製到 ${targetDay}！`);
   };
 
-  const handleDeleteItineraryItem = useCallback((dayId, item) => {
-    if (!window.confirm('確定刪除此景點？')) return;
+  const handleDeleteItineraryItem = useCallback(async (dayId, item) => {
+    if (placeDeleteConfirmRef.current) return;
+    placeDeleteConfirmRef.current = true;
 
-    setBackupItin(null);
-    clearOptimizationSummary(dayId);
-    setItinerary((previous) => ({
-      ...previous,
-      [dayId]: (previous[dayId] || []).filter((place) => place.id !== item.id),
-    }));
-
-    const storagePaths = [
-      String(item?.placePhoto?.storagePath || ''),
-      ...(Array.isArray(item?.resources)
-        ? item.resources.map((resource) => String(resource?.storagePath || ''))
-        : []),
-    ].filter(Boolean);
-
-    if (storage) {
-      storagePaths.forEach((storagePath) => {
-        void deleteObject(storageRef(storage, storagePath)).catch((error) => {
-          console.warn('景點附件刪除失敗：', error);
-        });
+    try {
+      const shouldDelete = await confirm({
+        title: '刪除這個景點？',
+        description: '刪除後，這個景點會從所有協作者的行程中移除。',
+        cancelLabel: '保留景點',
+        confirmLabel: '刪除景點',
+        danger: true,
       });
+
+      if (!shouldDelete) return;
+
+      const safeDayId = String(dayId);
+      const targetId = String(item?.id || '');
+      const currentDayItems = Array.isArray(itinerary[safeDayId]) ? itinerary[safeDayId] : [];
+      const nextDayItems = currentDayItems.filter((place) => String(place?.id || '') !== targetId);
+
+      if (!targetId || nextDayItems.length === currentDayItems.length) return;
+
+      if (!db || !roomId) {
+        throw new Error('Realtime Database is not available for place deletion.');
+      }
+
+      const nextItinerary = {
+        ...itinerary,
+        [safeDayId]: nextDayItems,
+      };
+
+      setSyncStatus('saving');
+      lastLocalWriteAtRef.current = Date.now();
+      await update(dbRef(db, `rooms/${roomId}`), { itinerary: nextItinerary });
+
+      dirtyBranchesRef.current.itinerary = false;
+      lastLocalWriteAtRef.current = Date.now();
+      setBackupItin(null);
+      clearOptimizationSummary(safeDayId);
+      setItineraryState(nextItinerary);
+      setSyncStatus('saved');
+      toast.success({
+        title: '景點已刪除',
+        description: '行程與協作者畫面已更新。',
+      });
+
+      const storagePaths = [
+        String(item?.placePhoto?.storagePath || ''),
+        ...(Array.isArray(item?.resources)
+          ? item.resources.map((resource) => String(resource?.storagePath || ''))
+          : []),
+      ].filter(Boolean);
+
+      if (storage) {
+        storagePaths.forEach((storagePath) => {
+          void deleteObject(storageRef(storage, storagePath)).catch((error) => {
+            console.warn('景點附件刪除失敗：', error);
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Delete place failed:', error);
+      setSyncStatus('error');
+      toast.error({
+        title: '無法刪除景點',
+        description: '請檢查網路連線後再試一次。',
+      });
+    } finally {
+      placeDeleteConfirmRef.current = false;
     }
-  }, [clearOptimizationSummary, setItinerary]);
+  }, [clearOptimizationSummary, confirm, itinerary, roomId, toast]);
 
   const handleDeleteTicket = useCallback(async (ticket) => {
     if (!window.confirm(`確定刪除「${String(ticket?.title || '此票券')}」？`)) return;
@@ -3309,7 +3360,7 @@ const TripDetail = ({
                                         <button onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-orange-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🔍 周邊</button>
                                         <button onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-purple-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>📋 複製</button>
                                         <div className="flex-1"></div>
-                                        <button data-testid="delete-place-button" onClick={(event) => { event.stopPropagation(); handleDeleteItineraryItem(dayId, item); }} className={`text-[11px] hover:text-red-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>刪除</button>
+                                        <button data-testid="delete-place-button" onClick={(event) => { event.stopPropagation(); void handleDeleteItineraryItem(dayId, item); }} className={`text-[11px] hover:text-red-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>刪除</button>
                                       </div>
                                     </div>
 
@@ -3801,8 +3852,10 @@ const TripDetail = ({
             onClick={(event) => {
               event.stopPropagation();
               const { dayId, item } = activePlaceActionMenu;
-              closePlaceActionMenu();
-              handleDeleteItineraryItem(dayId, item);
+              closePlaceActionMenu({ restoreFocus: true });
+              window.requestAnimationFrame(() => {
+                void handleDeleteItineraryItem(dayId, item);
+              });
             }}
             className="min-h-11 rounded-xl border border-red-500/25 bg-red-500/10 px-3 text-left text-xs font-black text-red-500 transition-colors active:scale-95 hover:bg-red-500/15"
           >

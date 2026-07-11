@@ -439,18 +439,18 @@ async function deletePlaceThroughUi(
     await placeCard.hover();
   }
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.type()).toBe('confirm');
-    expect(dialog.message()).toContain('確定刪除此景點');
-    await dialog.accept();
-  });
-
   const mobileActionMenu = page.getByTestId('place-action-menu');
   if (await mobileActionMenu.isVisible().catch(() => false)) {
     await mobileActionMenu.getByTestId('place-action-delete').click();
   } else {
     await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
   }
+  await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+  await expect(page.getByTestId('confirm-dialog')).toContainText('刪除這個景點？');
+  await page.getByTestId('confirm-accept').click();
+  await expect(
+    page.getByTestId('toast').filter({ hasText: '景點已刪除' }),
+  ).toBeVisible();
   await expect(placeCardByName(page, place.name)).toBeHidden({
     timeout: 20_000,
   });
