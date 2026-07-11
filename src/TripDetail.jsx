@@ -1274,6 +1274,7 @@ const TripDetail = ({
   const remoteUpdateTimerRef = useRef(null);
   const checklistWriteVersionRef = useRef(0);
   const placeDeleteConfirmRef = useRef(false);
+  const expenseDeleteConfirmRef = useRef(false);
 
   const setMeta = useCallback((updater) => {
     dirtyBranchesRef.current.meta = true;
@@ -1888,13 +1889,55 @@ const TripDetail = ({
     closeExpenseEditor();
   }, [closeExpenseEditor, setExpenses]);
 
-  const handleDeleteExpense = useCallback((expenseId) => {
-    setExpenses((previousExpenses) => (
-      (Array.isArray(previousExpenses) ? previousExpenses : [])
-        .filter(expense => String(expense.id) !== String(expenseId))
-    ));
-    closeExpenseEditor();
-  }, [closeExpenseEditor, setExpenses]);
+  const handleDeleteExpense = useCallback(async (expenseId) => {
+    if (expenseDeleteConfirmRef.current) return;
+    expenseDeleteConfirmRef.current = true;
+
+    try {
+      const shouldDelete = await confirm({
+        title: '刪除這筆費用？',
+        description: '刪除後，這筆費用與相關分帳統計會從所有協作者的畫面中移除。',
+        cancelLabel: '保留費用',
+        confirmLabel: '刪除費用',
+        danger: true,
+      });
+
+      if (!shouldDelete) return;
+
+      const targetId = String(expenseId || '');
+      const safeExpenses = Array.isArray(expenses) ? expenses : [];
+      const nextExpenses = safeExpenses.filter(expense => String(expense.id) !== targetId);
+
+      if (!targetId || nextExpenses.length === safeExpenses.length) return;
+
+      if (!db || !roomId) {
+        throw new Error('Realtime Database is not available for expense deletion.');
+      }
+
+      setSyncStatus('saving');
+      lastLocalWriteAtRef.current = Date.now();
+      await update(dbRef(db, `rooms/${roomId}`), { expenses: nextExpenses });
+
+      dirtyBranchesRef.current.expenses = false;
+      lastLocalWriteAtRef.current = Date.now();
+      setExpensesState(nextExpenses);
+      closeExpenseEditor();
+      setSyncStatus('saved');
+      toast.success({
+        title: '費用已刪除',
+        description: '分帳與結算統計已更新。',
+      });
+    } catch (error) {
+      console.error('Delete expense failed:', error);
+      setSyncStatus('error');
+      toast.error({
+        title: '無法刪除費用',
+        description: '請檢查網路連線後再試一次。',
+      });
+    } finally {
+      expenseDeleteConfirmRef.current = false;
+    }
+  }, [closeExpenseEditor, confirm, expenses, roomId, toast]);
 
   const handleDuplicateExpense = useCallback((duplicatedExpense) => {
     setExpenses((previousExpenses) => [

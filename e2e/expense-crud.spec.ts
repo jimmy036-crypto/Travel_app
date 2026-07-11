@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Dialog, type Page } from '@playwright/test';
 
 import {
   clearEmulatorDatabase,
@@ -401,7 +401,7 @@ test('自訂分帳會維持金額守恆並在重新整理後保留', async ({ pa
   ).toHaveValue('300');
 });
 
-test('刪除帳目後畫面與 Firebase Emulator 都會清空', async ({ page }) => {
+test('uses the shared confirmation dialog before deleting an expense', async ({ page }) => {
   const now = Date.now();
 
   await seedTestTrip(ROOM_ID, {
@@ -438,6 +438,13 @@ test('刪除帳目後畫面與 Firebase Emulator 都會清空', async ({ page })
 
   const record = expenseRecord(page, 'E2E 待刪除餐費');
   await expect(record).toBeVisible();
+  await expect(page.getByTestId('expense-total')).toContainText('600');
+  await expect(
+    page.locator(`[data-testid="member-spent"][data-member="${MEMBERS[0]}"]`),
+  ).toContainText('300');
+  await expect(
+    page.locator(`[data-testid="member-spent"][data-member="${MEMBERS[1]}"]`),
+  ).toContainText('300');
   await record.click();
 
   await expect(page.getByTestId('expense-modal')).toHaveAttribute(
@@ -448,14 +455,49 @@ test('刪除帳目後畫面與 Firebase Emulator 都會清空', async ({ page })
   const moreActions = page.getByTestId('expense-more-actions');
   await moreActions.locator('summary').click();
 
-  page.once('dialog', (dialog) => {
-    void dialog.accept();
-  });
+  let nativeDialogSeen = false;
+  const nativeDialogHandler = async (dialog: Dialog) => {
+    nativeDialogSeen = true;
+    await dialog.dismiss();
+  };
+  page.on('dialog', nativeDialogHandler);
 
   await page.getByTestId('expense-delete-button').click();
+  await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+  await expect(page.getByTestId('confirm-dialog')).toContainText('刪除這筆費用？');
+  await expect(page.getByTestId('confirm-dialog')).toContainText(
+    '刪除後，這筆費用與相關分帳統計會從所有協作者的畫面中移除。',
+  );
+  await expect(page.getByTestId('confirm-cancel')).toHaveText('保留費用');
+  await expect(page.getByTestId('confirm-accept')).toHaveText('刪除費用');
+
+  await page.getByTestId('confirm-cancel').click();
+  await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+  await expect(page.getByTestId('expense-modal')).toBeVisible();
+  await expect(expenseRecord(page, 'E2E 待刪除餐費')).toBeVisible();
+  await expect(page.getByTestId('expense-total')).toContainText('600');
+  expect(nativeDialogSeen).toBe(false);
+
+  await page.getByTestId('expense-delete-button').click();
+  await page.getByTestId('confirm-accept').click();
+  await expect(page.getByTestId('expense-modal')).toBeHidden({
+    timeout: 15_000,
+  });
+  const successToast = page
+    .getByTestId('toast')
+    .filter({ hasText: '費用已刪除' });
+  await expect(successToast).toBeVisible();
+  await expect(successToast).toHaveAttribute('data-toast-type', 'success');
+  await expect(successToast).toContainText('分帳與結算統計已更新。');
 
   await expect(expenseRecord(page, 'E2E 待刪除餐費')).toHaveCount(0);
   await expect(page.getByTestId('expense-total')).toContainText('NT$ 0');
+  await expect(
+    page.locator(`[data-testid="member-spent"][data-member="${MEMBERS[0]}"]`),
+  ).toContainText('0');
+  await expect(
+    page.locator(`[data-testid="member-spent"][data-member="${MEMBERS[1]}"]`),
+  ).toContainText('0');
 
   await expect
     .poll(
@@ -472,4 +514,5 @@ test('刪除帳目後畫面與 Firebase Emulator 都會清空', async ({ page })
 
   await expect(expenseRecord(page, 'E2E 待刪除餐費')).toHaveCount(0);
   await expect(page.getByTestId('expense-total')).toContainText('NT$ 0');
+  page.off('dialog', nativeDialogHandler);
 });

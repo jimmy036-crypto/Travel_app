@@ -165,7 +165,7 @@ describe('ExpenseModal Phase 2B 表單流程', () => {
 
     fireEvent.click(view.getByTestId('expense-delete-button'));
 
-    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(window.confirm).not.toHaveBeenCalled();
     expect(onDelete).toHaveBeenCalledWith('expense-delete-test');
   });
 });

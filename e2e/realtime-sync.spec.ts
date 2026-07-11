@@ -708,16 +708,17 @@ async function deleteExpenseThroughUi(page: Page): Promise<void> {
 
   await page.getByTestId('expense-more-actions').locator('summary').click();
 
-  page.once('dialog', (dialog) => {
-    expect(dialog.type()).toBe('confirm');
-    void dialog.accept();
-  });
-
   await page.getByTestId('expense-delete-button').click();
+  await expect(page.getByTestId('confirm-dialog')).toBeVisible();
+  await expect(page.getByTestId('confirm-dialog')).toContainText('刪除這筆費用？');
+  await page.getByTestId('confirm-accept').click();
+  await expect(
+    page.getByTestId('toast').filter({ hasText: '費用已刪除' }),
+  ).toBeVisible();
   await expect(page.getByTestId('expense-modal')).toBeHidden({
     timeout: 15_000,
   });
-  await expect(expenseRecord(page, EXPENSE_SYNC_ITEM)).toHaveCount(0);
+  await expectDeletedExpense(page);
 }
 
 async function expectDeletedExpense(page: Page): Promise<void> {
