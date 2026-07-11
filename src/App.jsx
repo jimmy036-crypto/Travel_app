@@ -30,6 +30,9 @@ import {
 
 // 引入拆分出去的核心元件與 UI
 const TripDetail = lazy(() => import('./TripDetail.jsx'));
+const UXFoundationDemo = import.meta.env.DEV
+  ? lazy(() => import('./components/ui/UXFoundationDemo.jsx'))
+  : null;
 // 💡 加上 .jsx 副檔名，幫助編輯器精準定位
 import {
   DateRangePickerModal,
@@ -455,6 +458,9 @@ export default function TravelApp() {
   ]);
 
   const t = useMemo(() => getThemeClasses(customBgColor), [customBgColor]);
+  const showUxFoundationDemo = import.meta.env.DEV
+    && typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
   const tourCtaMode = activeRoomId
     ? 'trip'
     : (Array.isArray(myTrips) && myTrips.length > 0 ? 'lobby-trips' : 'lobby-empty');
@@ -512,6 +518,15 @@ export default function TravelApp() {
       {showFeatureTour ? <FeatureTour t={t} onClose={closeFeatureTour} /> : null}
     </>
   );
+
+  if (showUxFoundationDemo && UXFoundationDemo) {
+    return (
+      <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入 UX Foundation Demo...</div>}>
+        <UXFoundationDemo />
+      </Suspense>
+    );
+  }
+
   if (activeRoomId) return (
     <>
     <APIProvider apiKey={API_KEY}>
