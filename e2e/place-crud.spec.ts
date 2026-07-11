@@ -61,9 +61,116 @@ async function openDeleteConfirmationForPlace(
   await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
 }
 
+async function addPlaceWithEmulatorHook(page: Page) {
+  await expect
+    .poll(
+      async () =>
+        await page.evaluate(
+          () =>
+            typeof (
+              window as Window & {
+                __TRAVEL_E2E__?: {
+                  addTestPlace?: () => void;
+                };
+              }
+            ).__TRAVEL_E2E__?.addTestPlace === 'function',
+        ),
+      {
+        timeout: 10_000,
+        message: 'TripDetail should expose the Emulator add-place hook',
+      },
+    )
+    .toBe(true);
+
+  await page.evaluate(() => {
+    const e2eWindow = window as Window & {
+      __TRAVEL_E2E__?: {
+        addTestPlace?: () => void;
+      };
+    };
+
+    e2eWindow.__TRAVEL_E2E__?.addTestPlace?.();
+  });
+}
+
 test.beforeEach(async () => {
   await clearEmulatorDatabase();
   await seedTestTrip(ROOM_ID);
+});
+
+test('shows a success toast after creating a place', async ({ page }) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+
+  await addPlaceWithEmulatorHook(page);
+
+  await expect(placeCardByName(page, 'Day 1', ORIGINAL_NAME)).toBeVisible({
+    timeout: 15_000,
+  });
+
+  const successToast = page
+    .getByTestId('toast')
+    .filter({ hasText: '景點已加入行程' });
+  await expect(successToast).toHaveCount(1);
+  await expect(successToast).toHaveAttribute('data-toast-type', 'success');
+  await expect(successToast).toContainText('行程與協作者畫面已更新。');
+});
+
+test('shows a success toast after editing a place', async ({ page }) => {
+  const seededPlaceName = 'E2E Toast Edit Place';
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E place edit toast trip',
+    itinerary: {
+      'Day 1': [
+        {
+          id: 'edit-toast-place',
+          name: seededPlaceName,
+          place_id: 'edit-toast-place-id',
+          customName: '',
+          lat: 25.033,
+          lng: 121.5654,
+          address: 'E2E Toast Edit address',
+          time: '09:00',
+          stayTime: '60',
+          memo: '',
+          tags: [],
+        },
+      ],
+    },
+  });
+
+  await page.goto(`/?room=${ROOM_ID}`);
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+
+  const placeCard = placeCardByName(page, 'Day 1', seededPlaceName);
+  await expect(placeCard).toBeVisible();
+  await placeCard.click();
+  await page.getByTestId('place-detail-edit-button').click();
+  await expect(page.getByTestId('edit-place-modal')).toBeVisible();
+
+  await page.getByTestId('place-name-input').fill(EDITED_NAME);
+  await page.getByTestId('place-arrival-time-input').fill('12:30');
+  await page.getByTestId('place-stay-duration-input').fill('75');
+  await page.getByTestId('place-note-input').fill(EDITED_NOTE);
+  await page.getByTestId('save-place-button').click();
+
+  await expect(page.getByTestId('edit-place-modal')).toHaveCount(0);
+  await expect(placeCardByName(page, 'Day 1', EDITED_NAME)).toBeVisible({
+    timeout: 15_000,
+  });
+
+  const successToast = page
+    .getByTestId('toast')
+    .filter({ hasText: '景點已更新' });
+  await expect(successToast).toBeVisible();
+  await expect(successToast).toHaveAttribute('data-toast-type', 'success');
+  await expect(successToast).toContainText('最新內容已同步給協作者。');
 });
 
 test('新增、編輯景點與詳細資訊會保存到 Firebase Emulator', async ({

@@ -439,20 +439,26 @@ export const SearchBox = ({ dayId, onAddPlace, t }) => {
     service.getDetails({
       placeId: prediction.place_id,
       fields: ['name', 'geometry', 'formatted_address', 'place_id'],
-    }, (result, status) => {
+    }, async (result, status) => {
       const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK;
       if (ok && result?.geometry?.location) {
-        onAddPlace(dayId, result, String(prediction.place_id));
-        setVal("");
-        clearSug();
+        try {
+          const added = await Promise.resolve(onAddPlace(dayId, result, String(prediction.place_id)));
+          if (added !== false) {
+            setVal("");
+            clearSug();
+          }
+        } finally {
+          setIsAdding(false);
+        }
       } else {
+        setIsAdding(false);
         alert('無法取得此地點資訊，請重新搜尋。');
       }
-      setIsAdding(false);
     });
   };
 
-  const addEmulatorTestPlace = () => {
+  const addEmulatorTestPlace = async () => {
     if (!IS_FIREBASE_EMULATOR || isAdding) return;
 
     const testPlace = {
@@ -468,10 +474,15 @@ export const SearchBox = ({ dayId, onAddPlace, t }) => {
     };
 
     setIsAdding(true);
-    onAddPlace(dayId, testPlace, testPlace.place_id);
-    setVal("");
-    clearSug();
-    setIsAdding(false);
+    try {
+      const added = await Promise.resolve(onAddPlace(dayId, testPlace, testPlace.place_id));
+      if (added !== false) {
+        setVal("");
+        clearSug();
+      }
+    } finally {
+      setIsAdding(false);
+    }
   };
 
   return (
@@ -1233,7 +1244,7 @@ export const CopyItemModal = ({ item, existingDays, onClose, onCopy, t }) => {
   );
 };
 
-export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
+export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t }) => {
   useBodyScrollLock();
   const safeRoomId = extractRoomId(roomId);
   const [customName, setCustomName] = useState(item.customName || "");
@@ -1655,6 +1666,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
     setSaving(true);
     setUploadProgress(0);
 
+    let didCallOnSave = false;
     let uploadedPhoto = null;
     const uploadedResourcePaths = [];
     const previousPhoto = item.placePhoto?.storagePath ? item.placePhoto : null;
@@ -1701,6 +1713,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
         resources: serializableResources,
       };
 
+      didCallOnSave = true;
       await Promise.resolve(onSave(updatedItem, autoCascade));
 
       const shouldDeletePrevious = previousPhoto?.storagePath && (
@@ -1737,7 +1750,9 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
         });
       }
       console.error('儲存景點資料失敗：', error);
-      alert(error?.message || '儲存景點資料失敗，請稍後再試。');
+      if (!didCallOnSave) {
+        onSaveError?.(error);
+      }
       setSaving(false);
     }
   };
