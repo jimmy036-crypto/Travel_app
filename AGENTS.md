@@ -29,11 +29,15 @@ Agent 不得：
 
 ## 開始任務前
 
-1. 執行 `git status --short`，不得覆蓋不屬於本任務的變更。
-2. 確認目前不是保護分支。
-3. 將需求轉成可驗證的 acceptance criteria。
-4. 找出最接近的既有單元測試或 E2E 測試。
-5. 先說明預計修改範圍；避免一次跨越多個里程碑。
+1. 執行 `npm run task:preflight`。若在 feature branch 做後續修正，可使用 `--allow-feature`。
+2. 確認工作樹乾淨，且不會覆蓋不屬於本任務的變更。
+3. 從最新 `main` 建立或使用明確指定的獨立工作分支。
+4. 前一個會修改相同核心檔案的 PR 未 merge 前，不開始下一個功能；除非使用者明確要求 stacked PR。
+5. 將需求轉成可驗證的 acceptance criteria。
+6. 找出最接近的既有單元測試或 E2E 測試。
+7. 先說明預計修改範圍；避免一次跨越多個里程碑。
+
+詳細工作流程見 `docs/development/WORKFLOW.md`。精簡任務格式見 `docs/development/CODEX_TASK_TEMPLATE.md`。
 
 建議分支格式：
 
@@ -55,21 +59,22 @@ test/<phase-or-feature>
 
 ## 驗證規則
 
-每次任務至少執行：
+開發中只跑與修改直接相關的測試。Commit 前至少執行：
 
 ```bash
-npm run agent:verify
+npm run verify:fast
+git diff --check
 ```
 
 若修改 Firebase、Realtime listener、Storage、Drag and Drop、支出或跨頁流程，還必須執行相關 Playwright suite。
 
-準備 PR 前執行：
+完整 E2E 預設交由 PR CI 執行。只有修改 Playwright config、Firebase Emulator 啟動流程、共用 E2E helper/fixture、GitHub Actions、重大 release，或需要重現 CI 問題時，才在本機執行：
 
 ```bash
-npm run agent:verify:all
+npm run verify:full
 ```
 
-若完整 E2E 成本過高，可先執行定向 suite；但 PR 必須交由 CI 跑完整品質閘門。
+不得使用 `test.only`，不得刪除測試、降低斷言、增加任意長 timeout 或跳過測試。詳細測試政策見 `docs/development/TEST_POLICY.md`。
 
 ## 自動修補上限
 
@@ -89,6 +94,8 @@ npm run agent:verify:all
 - `playwright.config.ts`、`vite.config.js`
 - `e2e/**` 與既有測試斷言
 - 資料模型、刪除流程、同步衝突、付款或金額計算
+
+注意：修改 `e2e/**` 本身不會自動提高產品風險；它提高的是測試信心與審查風險。產品風險仍依實際行為變更判斷。
 
 ### 中風險
 
