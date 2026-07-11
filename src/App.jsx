@@ -42,6 +42,7 @@ import { FeatureTour } from './components/FeatureTour.jsx';
 import { WhatsNewDialog } from './components/WhatsNewDialog.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 import { EmptyState } from './components/ui/EmptyState.jsx';
+import { SkeletonText } from './components/ui/Skeleton.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -64,14 +65,48 @@ const formatDateForInput = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const LobbySkeleton = ({ t }) => (
+  <section data-testid="lobby-skeleton" className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+    {Array.from({ length: 3 }).map((_, index) => (
+      <article
+        key={`lobby-skeleton-${index}`}
+        data-testid="lobby-skeleton-card"
+        className={`min-h-56 rounded-3xl border p-6 shadow-xl ${t.cardBg} ${t.cardBorder}`}
+        aria-hidden="true"
+      >
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div className="h-7 w-20 rounded-lg bg-slate-300/70 dark:bg-slate-700/70 motion-safe:animate-pulse" />
+          <div className="flex gap-2">
+            <div className="h-6 w-10 rounded-md bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+            <div className="h-6 w-10 rounded-md bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+          </div>
+        </div>
+        <SkeletonText lines={2} className="mb-5" />
+        <div className={`rounded-xl border p-3.5 ${t.cardBorder}`}>
+          <div className="mb-3 h-3 w-4/5 rounded bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+          <div className="h-3 w-2/3 rounded bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+        </div>
+      </article>
+    ))}
+  </section>
+);
+
+const LobbyLoadError = ({ t }) => (
+  <section className={`mx-auto mt-16 max-w-md rounded-3xl border p-8 text-center shadow-xl ${t.cardBg} ${t.cardBorder}`}>
+    <h2 className={`text-xl font-black ${t.mainText}`}>無法載入旅程</h2>
+    <p className={`mt-2 text-sm font-semibold leading-6 ${t.subText}`}>
+      請檢查網路連線後再試一次。
+    </p>
+  </section>
+);
+
 // ============================================================================
 // (2) 核心視圖：首頁大廳 (TravelApp)
 // ============================================================================
 export default function TravelApp() {
-  const [myTrips, setMyTrips] = useState(() => {
-    const stored = readJsonStorage('google-travel-my-trips', []);
-    return Array.isArray(stored) ? stored : [];
-  });
+  const [myTrips, setMyTrips] = useState([]);
+  const [hasLoadedTrips, setHasLoadedTrips] = useState(false);
+  const [tripsLoadError, setTripsLoadError] = useState("");
   const [customBgColor, setCustomBgColor] = useState(() => readStorage('google-travel-custom-bg', '#d8b4e2'));
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showFeatureTour, setShowFeatureTour] = useState(false);
@@ -132,17 +167,45 @@ export default function TravelApp() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const frameId = window.requestAnimationFrame(() => {
+      if (cancelled) return;
+      try {
+        const stored = readJsonStorage('google-travel-my-trips', []);
+        if (!Array.isArray(stored)) {
+          setMyTrips([]);
+        } else {
+          setMyTrips(stored);
+        }
+        setTripsLoadError("");
+      } catch (error) {
+        console.error("Load lobby trips failed:", error);
+        setMyTrips([]);
+        setTripsLoadError("無法載入旅程");
+      } finally {
+        setHasLoadedTrips(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frameId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedTrips) return;
     writeStorage('google-travel-my-trips', JSON.stringify(myTrips));
-  }, [myTrips]);
+  }, [hasLoadedTrips, myTrips]);
 
   useEffect(() => {
     writeStorage('google-travel-custom-bg', customBgColor);
   }, [customBgColor]);
 
   useEffect(() => {
-    if (releasePromptDeferred || hasSeenCurrentRelease()) return;
+    if (!hasLoadedTrips || releasePromptDeferred || hasSeenCurrentRelease()) return;
     setShowWhatsNew(true);
-  }, [releasePromptDeferred]);
+  }, [hasLoadedTrips, releasePromptDeferred]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -462,7 +525,8 @@ export default function TravelApp() {
   const showUxFoundationDemo = import.meta.env.DEV
     && typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
-  const hasTrips = Array.isArray(myTrips) && myTrips.length > 0;
+  const isTripsLoading = !hasLoadedTrips && !tripsLoadError;
+  const hasTrips = hasLoadedTrips && Array.isArray(myTrips) && myTrips.length > 0;
   const tourCtaMode = activeRoomId
     ? 'trip'
     : (hasTrips ? 'lobby-trips' : 'lobby-empty');
@@ -671,7 +735,11 @@ export default function TravelApp() {
           </p>
         ) : null}
 
-        {!hasTrips ? (
+        {isTripsLoading ? (
+          <LobbySkeleton t={t} />
+        ) : tripsLoadError ? (
+          <LobbyLoadError t={t} />
+        ) : !hasTrips ? (
           <EmptyState
             testId="lobby-empty-state"
             className={`${t.cardBg} ${t.cardBorder} mt-16 md:mt-24`}

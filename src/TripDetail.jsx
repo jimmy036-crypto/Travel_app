@@ -6,7 +6,6 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas-pro';
 
 import {
-  LoadingSpinner,
   MemoViewModal,
   PlaceDetailsModal,
   EditItemModal,
@@ -24,6 +23,7 @@ import { SyncStatusIndicator } from './components/SyncStatusIndicator.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 import { CURRENT_RELEASE_NOTES } from './config/releaseNotes.js';
 import { EmptyState } from './components/ui/EmptyState.jsx';
+import { SkeletonButton, SkeletonText } from './components/ui/Skeleton.jsx';
 
 import { db, storage } from "./firebase";
 import { ref as dbRef, onValue, update } from "firebase/database";
@@ -1242,6 +1242,95 @@ const PLACE_ACTION_MENU_WIDTH = 176;
 const PLACE_ACTION_MENU_ESTIMATED_HEIGHT = 232;
 const PLACE_ACTION_MENU_MARGIN = 12;
 const PLACE_ACTION_MENU_GAP = 8;
+
+const TripDetailSkeleton = ({
+  t,
+  tripThemeColor,
+  onBack,
+  onOpenReleaseNotes,
+  onStartFeatureTour,
+  onOpenAppearance,
+}) => (
+  <div
+    data-testid="trip-detail-skeleton"
+    style={{ backgroundColor: tripThemeColor }}
+    className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}
+  >
+    <div className="flex-1 flex overflow-hidden">
+      <div className={`flex w-full flex-col border-r md:w-2/3 lg:w-1/2 ${t.sidebarBg} ${t.cardBorder}`}>
+        <div className={`relative z-40 shrink-0 border-b p-4 shadow-md backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}
+                >
+                  ◀ 返回
+                </button>
+                <SkeletonText lines={1} className="w-40 md:w-56" />
+              </div>
+              <SkeletonText lines={1} className="mt-2 w-56 md:w-72" />
+            </div>
+            <AppSettingsMenu
+              key="trip-skeleton-settings"
+              t={t}
+              version={CURRENT_RELEASE_NOTES.version}
+              onOpenAppearance={onOpenAppearance}
+              onOpenReleaseNotes={onOpenReleaseNotes}
+              onStartFeatureTour={onStartFeatureTour}
+            />
+          </div>
+        </div>
+
+        <div className={`md:hidden shrink-0 border-b px-4 py-3 ${t.headerBg} ${t.cardBorder}`}>
+          <div className="flex gap-2 overflow-hidden">
+            <SkeletonButton className="h-11 w-20 shrink-0" />
+            <SkeletonButton className="h-11 w-20 shrink-0" />
+            <SkeletonButton className="h-11 w-20 shrink-0" />
+          </div>
+        </div>
+
+        <div className="scrollbar-hide flex-1 overflow-hidden p-4">
+          <div
+            data-testid="itinerary-skeleton-day"
+            className={`min-w-85 max-w-85 rounded-3xl border-2 p-4 backdrop-blur-md ${t.cardBg} ${t.cardBorder}`}
+            aria-hidden="true"
+          >
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <SkeletonText lines={2} className="w-52" />
+              </div>
+              <SkeletonButton className="h-8 w-24 shrink-0" />
+            </div>
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div
+                  key={`itinerary-skeleton-place-${index}`}
+                  data-testid="itinerary-skeleton-place"
+                  className={`rounded-2xl border p-4 shadow-sm ${t.itemBg} ${t.cardBorder}`}
+                >
+                  <div className="flex gap-4">
+                    <div className="h-10 w-10 shrink-0 rounded-xl bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                    <div className="min-w-0 flex-1">
+                      <SkeletonText lines={2} />
+                      <div className="mt-3 flex gap-2">
+                        <div className="h-5 w-16 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                        <div className="h-5 w-20 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className={`hidden flex-1 md:block ${t.mapBg}`} aria-hidden="true" />
+    </div>
+  </div>
+);
 
 const TripDetail = ({
   roomId,
@@ -3075,7 +3164,7 @@ const TripDetail = ({
       <div style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex items-center justify-center p-6 ${t.mainText}`}>
         <div className={`w-full max-w-md rounded-3xl border p-8 text-center shadow-2xl ${t.modalBg} ${t.cardBorder}`}>
           <div className="text-5xl mb-4">⚠️</div>
-          <h2 className="text-xl font-black mb-3">無法開啟旅程</h2>
+          <h2 className="text-xl font-black mb-3">無法載入旅程資料</h2>
           <p className={`text-sm leading-6 mb-6 ${t.subText}`}>{loadError}</p>
           <button onClick={onBack} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl text-sm font-bold">
             返回旅程大廳
@@ -3085,7 +3174,18 @@ const TripDetail = ({
     );
   }
 
-  if (isLoading || !meta) return <LoadingSpinner t={t} />;
+  if (isLoading || !meta) {
+    return (
+      <TripDetailSkeleton
+        t={t}
+        tripThemeColor={tripThemeColor}
+        onBack={onBack}
+        onOpenReleaseNotes={onOpenReleaseNotes}
+        onStartFeatureTour={onStartFeatureTour}
+        onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+      />
+    );
+  }
 
   return (
     <>
