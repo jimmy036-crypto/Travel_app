@@ -83,6 +83,99 @@ test.beforeEach(async () => {
   });
 });
 
+test('shows a success toast after creating an expense', async ({ page }) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page);
+  await openNewExpenseModal(page);
+
+  await page.getByTestId('expense-item-input').fill('E2E Toast dinner');
+  await page.getByTestId('expense-local-cost-input').fill('1000');
+  await page.getByTestId('expense-note-input').fill('E2E create toast note');
+  await page.getByTestId('expense-save-button').click();
+
+  await expect(page.getByTestId('expense-modal')).toBeHidden();
+  await expect(expenseRecord(page, 'E2E Toast dinner')).toBeVisible();
+  await expect(page.getByTestId('expense-total')).toContainText('1,000');
+  await expect(
+    page.locator(`[data-testid="member-spent"][data-member="${MEMBERS[0]}"]`),
+  ).toContainText('500');
+  await expect(
+    page.locator(`[data-testid="member-spent"][data-member="${MEMBERS[1]}"]`),
+  ).toContainText('500');
+
+  const successToast = page
+    .getByTestId('toast')
+    .filter({ hasText: '費用已新增' });
+  await expect(successToast).toHaveCount(1);
+  await expect(successToast).toHaveAttribute('data-toast-type', 'success');
+  await expect(successToast).toContainText('分帳與結算統計已更新。');
+});
+
+test('shows a success toast after editing an expense', async ({ page }) => {
+  const now = Date.now();
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E expense edit toast trip',
+    members: MEMBERS,
+    memberBudgets: {
+      [MEMBERS[0]]: 10000,
+      [MEMBERS[1]]: 10000,
+    },
+    expenses: [
+      {
+        id: 'expense-edit-toast',
+        dayId: 'Day 1',
+        item: 'E2E Toast original expense',
+        cost: 1000,
+        localCost: 1000,
+        currency: 'TWD',
+        exchangeRate: 1,
+        category: 'food',
+        payer: MEMBERS[0],
+        split: {
+          [MEMBERS[0]]: 500,
+          [MEMBERS[1]]: 500,
+        },
+        note: 'E2E original toast note',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+  });
+
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page);
+  await expenseRecord(page, 'E2E Toast original expense').click();
+
+  await expect(page.getByTestId('expense-modal')).toHaveAttribute(
+    'data-mode',
+    'edit',
+  );
+
+  await page.getByTestId('expense-item-input').fill('E2E Toast edited expense');
+  await page.getByTestId('expense-currency-select').selectOption('JPY');
+  await page.getByTestId('expense-local-cost-input').fill('2000');
+  await page.getByTestId('expense-payer-select').selectOption(MEMBERS[1]);
+  await page.getByTestId('expense-note-input').fill('E2E edit toast note');
+  await page.getByTestId('expense-save-button').click();
+
+  await expect(page.getByTestId('expense-modal')).toBeHidden();
+  await expect(expenseRecord(page, 'E2E Toast edited expense')).toBeVisible();
+  await expect(page.getByTestId('expense-total')).toContainText('420');
+  await expect(
+    page.locator(`[data-testid="member-spent"][data-member="${MEMBERS[0]}"]`),
+  ).toContainText('210');
+  await expect(
+    page.locator(`[data-testid="member-spent"][data-member="${MEMBERS[1]}"]`),
+  ).toContainText('210');
+
+  const successToast = page
+    .getByTestId('toast')
+    .filter({ hasText: '費用已更新' });
+  await expect(successToast).toBeVisible();
+  await expect(successToast).toHaveAttribute('data-toast-type', 'success');
+  await expect(successToast).toContainText('最新分帳結果已同步給協作者。');
+});
+
 test('expense editor uses an accessible responsive sheet and supports every close action', async ({
   page,
 }) => {

@@ -1978,16 +1978,42 @@ const TripDetail = ({
     setEditingExpense(null);
   }, []);
 
-  const handleSaveExpense = useCallback((nextExpense) => {
-    setExpenses((previousExpenses) => {
-      const safeExpenses = Array.isArray(previousExpenses) ? previousExpenses : [];
-      const exists = safeExpenses.some(expense => String(expense.id) === String(nextExpense.id));
-      return exists
-        ? safeExpenses.map(expense => String(expense.id) === String(nextExpense.id) ? nextExpense : expense)
-        : [...safeExpenses, nextExpense];
-    });
-    closeExpenseEditor();
-  }, [closeExpenseEditor, setExpenses]);
+  const handleSaveExpense = useCallback(async (nextExpense) => {
+    const safeExpenses = Array.isArray(expenses) ? expenses : [];
+    const exists = safeExpenses.some(expense => String(expense.id) === String(nextExpense.id));
+    const nextExpenses = exists
+      ? safeExpenses.map(expense => String(expense.id) === String(nextExpense.id) ? nextExpense : expense)
+      : [...safeExpenses, nextExpense];
+
+    try {
+      if (!db || !roomId) {
+        setExpensesState(nextExpenses);
+      } else {
+        setSyncStatus('saving');
+        lastLocalWriteAtRef.current = Date.now();
+        await update(dbRef(db, `rooms/${roomId}`), { expenses: nextExpenses });
+
+        dirtyBranchesRef.current.expenses = false;
+        lastLocalWriteAtRef.current = Date.now();
+        setExpensesState(nextExpenses);
+        setSyncStatus('saved');
+      }
+
+      closeExpenseEditor();
+      toast.success({
+        title: exists ? '費用已更新' : '費用已新增',
+        description: exists ? '最新分帳結果已同步給協作者。' : '分帳與結算統計已更新。',
+      });
+    } catch (error) {
+      console.error('Save expense failed:', error);
+      setSyncStatus('error');
+      toast.error({
+        title: exists ? '無法更新費用' : '無法新增費用',
+        description: '請檢查網路連線後再試一次。',
+      });
+      throw error;
+    }
+  }, [closeExpenseEditor, expenses, roomId, toast]);
 
   const handleDeleteExpense = useCallback(async (expenseId) => {
     if (expenseDeleteConfirmRef.current) return;

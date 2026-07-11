@@ -597,6 +597,15 @@ export const ExpenseModal = ({
   const [involved, setInvolved] = useState(initialSplitState.involved);
   const [customAmounts, setCustomAmounts] = useState(initialSplitState.customAmounts);
   const [note, setNote] = useState(() => String(expense?.note || ""));
+  const [saving, setSaving] = useState(false);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const twdCost = calculateTwdCost(localCost, rate);
   const customTotal = calculateCustomTotal(validMembers, customAmounts);
@@ -631,6 +640,7 @@ export const ExpenseModal = ({
   const hasUnsavedChanges = currentFingerprint !== initialFingerprint;
 
   const requestClose = () => {
+    if (saving) return;
     if (hasUnsavedChanges && !window.confirm("尚有未儲存的記帳變更，確定要離開嗎？")) return;
     onClose();
   };
@@ -723,9 +733,18 @@ export const ExpenseModal = ({
     };
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saving) return;
     const nextExpense = buildExpense({ timestamp: getCurrentTimestamp() });
-    if (nextExpense) onSave(nextExpense);
+    if (!nextExpense) return;
+
+    setSaving(true);
+    try {
+      await Promise.resolve(onSave(nextExpense));
+    } catch (error) {
+      console.error('Save expense failed:', error);
+      if (mountedRef.current) setSaving(false);
+    }
   };
 
   const handleDuplicate = () => {
@@ -764,6 +783,7 @@ export const ExpenseModal = ({
             type="button"
             data-testid="expense-close-button"
             onClick={requestClose}
+            disabled={saving}
             className={`w-11 h-11 rounded-full flex items-center justify-center bg-slate-500/10 text-lg shrink-0 hover:text-red-500 ${t.subText}`}
             aria-label="關閉記帳視窗"
           >
@@ -1026,17 +1046,19 @@ export const ExpenseModal = ({
             type="button"
             data-testid="expense-cancel-button"
             onClick={requestClose}
-            className={`min-h-12 px-5 text-sm font-bold rounded-xl border flex-1 ${t.cardBorder} ${t.mainText}`}
+            disabled={saving}
+            className={`min-h-12 px-5 text-sm font-bold rounded-xl border flex-1 disabled:opacity-50 ${t.cardBorder} ${t.mainText}`}
           >
             取消
           </button>
           <button
             type="button"
             data-testid="expense-save-button"
-            onClick={handleSave}
-            className="min-h-12 bg-emerald-600 hover:bg-emerald-500 text-white px-6 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all flex-[1.4]"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            className="min-h-12 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-6 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all flex-[1.4]"
           >
-            {isEditing ? "儲存變更" : "確認新增"}
+            {saving ? "儲存中…" : (isEditing ? "儲存變更" : "確認新增")}
           </button>
         </div>
     </ResponsiveBottomSheet>

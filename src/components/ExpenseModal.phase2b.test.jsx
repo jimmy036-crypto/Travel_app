@@ -168,4 +168,64 @@ describe('ExpenseModal Phase 2B 表單流程', () => {
     expect(window.confirm).not.toHaveBeenCalled();
     expect(onDelete).toHaveBeenCalledWith('expense-delete-test');
   });
+
+  it('preserves the expense form when saving fails', async () => {
+    const onSave = vi.fn(async () => {
+      throw new Error('save failed');
+    });
+    const view = render(
+      <ExpenseModal
+        {...commonProps}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.change(view.getByTestId('expense-item-input'), {
+      target: { value: '失敗保留晚餐' },
+    });
+    fireEvent.change(view.getByTestId('expense-local-cost-input'), {
+      target: { value: '880' },
+    });
+    fireEvent.change(view.getByTestId('expense-note-input'), {
+      target: { value: '表單內容不可遺失' },
+    });
+    fireEvent.click(view.getByTestId('expense-save-button'));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(view.getByTestId('expense-save-button')).not.toBeDisabled();
+    });
+    expect(view.getByTestId('expense-modal')).toBeInTheDocument();
+    expect(view.getByTestId('expense-item-input')).toHaveValue('失敗保留晚餐');
+    expect(view.getByTestId('expense-local-cost-input')).toHaveValue(880);
+    expect(view.getByTestId('expense-note-input')).toHaveValue('表單內容不可遺失');
+  });
+
+  it('prevents duplicate expense submissions while saving', async () => {
+    const onSave = vi.fn(() => new Promise(() => {}));
+    const view = render(
+      <ExpenseModal
+        {...commonProps}
+        onSave={onSave}
+      />,
+    );
+
+    fireEvent.change(view.getByTestId('expense-item-input'), {
+      target: { value: '防止重複送出' },
+    });
+    fireEvent.change(view.getByTestId('expense-local-cost-input'), {
+      target: { value: '1200' },
+    });
+
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    fireEvent.click(view.getByTestId('expense-save-button'));
+
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledTimes(1);
+    });
+    expect(view.getByTestId('expense-save-button')).toBeDisabled();
+  });
 });
