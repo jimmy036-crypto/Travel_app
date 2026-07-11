@@ -159,7 +159,7 @@ describe('core skeleton loading states', () => {
     );
 
     const { default: App } = await import('./App.jsx');
-    const view = render(<App />);
+    const view = renderWithProviders(<App />);
 
     expect(view.queryByTestId('lobby-skeleton')).not.toBeInTheDocument();
     expect(view.queryByTestId('lobby-empty-state')).not.toBeInTheDocument();
@@ -170,7 +170,7 @@ describe('core skeleton loading states', () => {
     localStorage.setItem('google-travel-my-trips', '[]');
 
     const { default: App } = await import('./App.jsx');
-    const view = render(<App />);
+    const view = renderWithProviders(<App />);
 
     expect(view.queryByTestId('lobby-skeleton')).not.toBeInTheDocument();
     expect(view.getByTestId('lobby-empty-state')).toBeInTheDocument();
