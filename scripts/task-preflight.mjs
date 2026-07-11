@@ -209,6 +209,7 @@ function commandVersion(command, args) {
     cwd: process.cwd(),
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    shell: process.platform === 'win32',
   });
   if (result.error || result.status !== 0) return '';
   return String(result.stdout || result.stderr || '').trim().split(/\r?\n/)[0] || '';
