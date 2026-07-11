@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Dialog, type Page, type Route } from '@playwright/test';
 
 import {
   clearEmulatorDatabase,
@@ -298,16 +298,27 @@ test.describe('Storage 上傳失敗與垃圾檔案清理', () => {
     await expect(pendingResourceRow).toBeVisible();
     await expect(pendingResourceRow).toContainText('待儲存上傳');
 
-    const dialogPromise = page.waitForEvent('dialog');
-    await page.getByTestId('save-place-button').click();
-    const dialog = await dialogPromise;
+    let nativeDialogSeen = false;
+    const nativeDialogHandler = async (dialog: Dialog) => {
+      nativeDialogSeen = true;
+      await dialog.dismiss();
+    };
+    page.on('dialog', nativeDialogHandler);
 
-    expect(dialog.type()).toBe('alert');
-    expect(dialog.message()).not.toBe('');
-    await dialog.accept();
+    await page.getByTestId('save-place-button').click();
+
+    const errorToast = page
+      .getByTestId('toast')
+      .filter({ hasText: '無法更新景點' });
+    await expect(errorToast).toHaveCount(1);
+    await expect(errorToast).toHaveAttribute('data-toast-type', 'error');
+    await expect(errorToast).toContainText('請檢查網路連線後再試一次。');
+    expect(nativeDialogSeen).toBe(false);
 
     await expect(page.getByTestId('edit-place-modal')).toBeVisible();
     await expect(page.getByTestId('save-place-button')).toBeEnabled();
+    await expect(pendingResourceRow).toBeVisible();
+    await expect(page.getByTestId('place-photo-preview')).toBeVisible();
 
     const savedPlace = toList(
       await readEmulatorData<PlaceItem[] | Record<string, PlaceItem>>(
@@ -333,5 +344,7 @@ test.describe('Storage 上傳失敗與垃圾檔案清理', () => {
         },
       )
       .toEqual([]);
+
+    page.off('dialog', nativeDialogHandler);
   });
 });

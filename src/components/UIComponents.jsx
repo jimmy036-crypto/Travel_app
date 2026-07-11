@@ -1244,7 +1244,7 @@ export const CopyItemModal = ({ item, existingDays, onClose, onCopy, t }) => {
   );
 };
 
-export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
+export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t }) => {
   useBodyScrollLock();
   const safeRoomId = extractRoomId(roomId);
   const [customName, setCustomName] = useState(item.customName || "");
@@ -1666,6 +1666,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
     setSaving(true);
     setUploadProgress(0);
 
+    let didCallOnSave = false;
     let uploadedPhoto = null;
     const uploadedResourcePaths = [];
     const previousPhoto = item.placePhoto?.storagePath ? item.placePhoto : null;
@@ -1712,6 +1713,7 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
         resources: serializableResources,
       };
 
+      didCallOnSave = true;
       await Promise.resolve(onSave(updatedItem, autoCascade));
 
       const shouldDeletePrevious = previousPhoto?.storagePath && (
@@ -1748,6 +1750,9 @@ export const EditItemModal = ({ item, roomId, onSave, onClose, t }) => {
         });
       }
       console.error('儲存景點資料失敗：', error);
+      if (!didCallOnSave) {
+        onSaveError?.(error);
+      }
       setSaving(false);
     }
   };
