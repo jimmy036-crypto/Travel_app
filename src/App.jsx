@@ -41,6 +41,7 @@ import {
 import { FeatureTour } from './components/FeatureTour.jsx';
 import { WhatsNewDialog } from './components/WhatsNewDialog.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
+import { EmptyState } from './components/ui/EmptyState.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -461,9 +462,10 @@ export default function TravelApp() {
   const showUxFoundationDemo = import.meta.env.DEV
     && typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
+  const hasTrips = Array.isArray(myTrips) && myTrips.length > 0;
   const tourCtaMode = activeRoomId
     ? 'trip'
-    : (Array.isArray(myTrips) && myTrips.length > 0 ? 'lobby-trips' : 'lobby-empty');
+    : (hasTrips ? 'lobby-trips' : 'lobby-empty');
   const releaseExperience = (
     <>
       {showWhatsNew ? (
@@ -587,6 +589,7 @@ export default function TravelApp() {
             />
           </div>
 
+          {hasTrips ? (
           <div className="grid w-full gap-3 md:flex md:items-center md:justify-end">
             <button
               type="button"
@@ -618,6 +621,7 @@ export default function TravelApp() {
               </button>
             </div>
           </div>
+          ) : null}
         </header>
 
         {showTripTourSelection && Array.isArray(myTrips) && myTrips.length > 0 ? (
@@ -667,8 +671,31 @@ export default function TravelApp() {
           </p>
         ) : null}
 
-        {(!Array.isArray(myTrips) || myTrips.length === 0) ? (
-          <div className="flex flex-col items-center justify-center mt-24 opacity-80"><span className="text-7xl mb-6">🌍</span><p className={`text-xl font-bold mb-2 ${t.mainText}`}>目前還沒有任何旅程</p></div>
+        {!hasTrips ? (
+          <EmptyState
+            testId="lobby-empty-state"
+            className={`${t.cardBg} ${t.cardBorder} mt-16 md:mt-24`}
+            icon={(
+              <svg viewBox="0 0 48 48" className="h-14 w-14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M8 34c7-4 13-4 20 0s13 4 20 0" />
+                <path d="M12 30V12l10 5 10-5 10 5v18" />
+                <path d="M22 17v18" />
+                <path d="M32 12v23" />
+              </svg>
+            )}
+            title="建立你的第一個旅程"
+            description="集中管理每日行程、景點、費用與旅伴協作，從第一個旅程開始規劃。"
+            primaryAction={{
+              label: '建立新旅程',
+              testId: 'lobby-empty-create-trip',
+              onClick: openCreateModal,
+            }}
+            secondaryAction={{
+              label: '匯入旅程',
+              testId: 'lobby-empty-import-trip',
+              onClick: () => setShowImportModal(true),
+            }}
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {myTrips.map(trip => {

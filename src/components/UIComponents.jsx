@@ -475,9 +475,10 @@ export const SearchBox = ({ dayId, onAddPlace, t }) => {
   };
 
   return (
-    <div className="relative mb-4" data-testid="place-search-box">
+    <div className="relative mb-4" data-testid="place-search-box" data-day-id={String(dayId)}>
       <input
         data-testid="place-search-input"
+        data-day-id={String(dayId)}
         className={`w-full py-2.5 px-4 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
         placeholder={isAdding ? '加入中...' : '新增行程地點...'}
         value={String(val)}

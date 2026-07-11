@@ -45,7 +45,7 @@ test("建立旅程後，重新整理仍保留 Firebase Emulator 資料", async (
 
   await expect(page.getByTestId("travel-lobby")).toBeVisible();
 
-  await page.getByTestId("create-trip-button").click();
+  await page.getByTestId("lobby-empty-create-trip").click();
   await expect(page.getByTestId("trip-modal")).toBeVisible();
   await expect(page.getByTestId("trip-modal-title")).toContainText(
     "建立新旅程",
