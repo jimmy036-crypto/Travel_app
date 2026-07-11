@@ -136,12 +136,6 @@ describe('core skeleton loading states', () => {
         },
       }),
     });
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => (
-      window.setTimeout(() => callback(performance.now()), 0)
-    ));
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
-      window.clearTimeout(id);
-    });
   });
 
   afterEach(() => {
@@ -149,7 +143,7 @@ describe('core skeleton loading states', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders lobby skeletons before local trips hydrate, then renders trip cards', async () => {
+  it('hydrates lobby trips synchronously without a skeleton flash', async () => {
     localStorage.setItem(
       'google-travel-my-trips',
       JSON.stringify([{
@@ -167,28 +161,19 @@ describe('core skeleton loading states', () => {
     const { default: App } = await import('./App.jsx');
     const view = render(<App />);
 
-    expect(view.getByTestId('lobby-skeleton')).toBeInTheDocument();
-    expect(view.queryByTestId('lobby-empty-state')).not.toBeInTheDocument();
-
-    await waitFor(() => {
-      expect(view.getByTestId('trip-card-title')).toHaveTextContent('Lobby loaded trip');
-    });
     expect(view.queryByTestId('lobby-skeleton')).not.toBeInTheDocument();
+    expect(view.queryByTestId('lobby-empty-state')).not.toBeInTheDocument();
+    expect(view.getByTestId('trip-card-title')).toHaveTextContent('Lobby loaded trip');
   });
 
-  it('renders lobby empty state only after an empty trip list hydrates', async () => {
+  it('renders lobby empty state synchronously when stored trips are empty', async () => {
     localStorage.setItem('google-travel-my-trips', '[]');
 
     const { default: App } = await import('./App.jsx');
     const view = render(<App />);
 
-    expect(view.getByTestId('lobby-skeleton')).toBeInTheDocument();
-    expect(view.queryByTestId('lobby-empty-state')).not.toBeInTheDocument();
-
-    await waitFor(() => {
-      expect(view.getByTestId('lobby-empty-state')).toBeInTheDocument();
-    });
     expect(view.queryByTestId('lobby-skeleton')).not.toBeInTheDocument();
+    expect(view.getByTestId('lobby-empty-state')).toBeInTheDocument();
   });
 
   it('renders trip detail skeleton until the first room snapshot resolves', async () => {
@@ -262,5 +247,69 @@ describe('core skeleton loading states', () => {
     });
     expect(view.queryByTestId('trip-detail-skeleton')).not.toBeInTheDocument();
     expect(view.queryByTestId('itinerary-empty-state')).not.toBeInTheDocument();
+  });
+
+  it('shows the error state instead of skeleton when a room snapshot is missing', async () => {
+    const { default: TripDetail } = await import('./TripDetail.jsx');
+    const view = renderWithProviders(
+      <TripDetail roomId="skeleton-missing-room" onBack={() => {}} />,
+    );
+
+    expect(view.getByTestId('trip-detail-skeleton')).toBeInTheDocument();
+
+    await waitForRoomListener();
+    await act(async () => {
+      firebaseMocks.latestValueCallback({ val: () => null });
+    });
+
+    await waitFor(() => {
+      expect(view.getByText('無法載入旅程資料')).toBeInTheDocument();
+    });
+    expect(view.queryByTestId('trip-detail-skeleton')).not.toBeInTheDocument();
+    expect(view.queryByTestId('itinerary-empty-state')).not.toBeInTheDocument();
+  });
+
+  it('resets to skeleton when switching to another trip route', async () => {
+    const { default: TripDetail } = await import('./TripDetail.jsx');
+    const firstPlace = createPlace('first-route-place', 'First route place');
+    const secondPlace = createPlace('second-route-place', 'Second route place');
+    const renderTrip = (roomId) => (
+      <GlobalModalProvider>
+        <ToastProvider>
+          <TripDetail roomId={roomId} onBack={() => {}} />
+        </ToastProvider>
+      </GlobalModalProvider>
+    );
+    const view = render(renderTrip('skeleton-route-room-a'));
+
+    await waitForRoomListener();
+    await act(async () => {
+      firebaseMocks.latestValueCallback({
+        val: () => createRoomData({ 'Day 1': [firstPlace] }),
+      });
+    });
+    await waitFor(() => {
+      expect(view.getByText('First route place')).toBeInTheDocument();
+    });
+
+    firebaseMocks.latestValueCallback = null;
+    await act(async () => {
+      view.rerender(renderTrip('skeleton-route-room-b'));
+    });
+
+    await waitFor(() => {
+      expect(view.getByTestId('trip-detail-skeleton')).toBeInTheDocument();
+    });
+    await waitForRoomListener();
+    await act(async () => {
+      firebaseMocks.latestValueCallback({
+        val: () => createRoomData({ 'Day 1': [secondPlace] }),
+      });
+    });
+
+    await waitFor(() => {
+      expect(view.getByText('Second route place')).toBeInTheDocument();
+    });
+    expect(view.queryByTestId('trip-detail-skeleton')).not.toBeInTheDocument();
   });
 });

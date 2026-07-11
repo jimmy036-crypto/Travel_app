@@ -36,41 +36,10 @@ function createPlace(id: string, name: string) {
   };
 }
 
-async function holdAnimationFrames(page: Page) {
-  await page.addInitScript(() => {
-    const globalWindow = window as typeof window & {
-      __TRAVEL_E2E_RAF_QUEUE__?: Array<FrameRequestCallback | null>;
-    };
-    const queue: Array<FrameRequestCallback | null> = [];
-    globalWindow.__TRAVEL_E2E_RAF_QUEUE__ = queue;
-    window.requestAnimationFrame = (callback: FrameRequestCallback) => {
-      queue.push(callback);
-      return queue.length;
-    };
-    window.cancelAnimationFrame = (id: number) => {
-      queue[id - 1] = null;
-    };
-  });
-}
-
-async function releaseAnimationFrames(page: Page) {
-  await page.evaluate(() => {
-    const globalWindow = window as typeof window & {
-      __TRAVEL_E2E_RAF_QUEUE__?: Array<FrameRequestCallback | null>;
-    };
-    const queue = globalWindow.__TRAVEL_E2E_RAF_QUEUE__ || [];
-    while (queue.length > 0) {
-      const callback = queue.shift();
-      if (callback) callback(performance.now());
-    }
-  });
-}
-
-test('shows lobby skeletons before the first trip list hydration resolves', async ({
+test('renders stored lobby trips without a skeleton flash', async ({
   page,
 }) => {
   await markCurrentReleaseSeen(page);
-  await holdAnimationFrames(page);
   await page.addInitScript((trip) => {
     window.localStorage.setItem('google-travel-my-trips', JSON.stringify([trip]));
   }, LOBBY_TRIP);
@@ -79,34 +48,22 @@ test('shows lobby skeletons before the first trip list hydration resolves', asyn
 
   await expect(page.getByTestId('travel-lobby')).toBeVisible();
   await expect(page.getByTestId('app-settings-trigger')).toBeVisible();
-  await expect(page.getByTestId('lobby-skeleton')).toBeVisible();
-  await expect(page.getByTestId('lobby-skeleton-card')).toHaveCount(3);
-  await expect(page.getByTestId('lobby-empty-state')).toHaveCount(0);
-  await expect(page.getByTestId('trip-card')).toHaveCount(0);
-
-  await releaseAnimationFrames(page);
-
   await expect(page.getByTestId('lobby-skeleton')).toHaveCount(0);
+  await expect(page.getByTestId('lobby-empty-state')).toHaveCount(0);
   await expect(page.getByTestId('trip-card-title').filter({
     hasText: LOBBY_TRIP.title,
   })).toBeVisible();
 });
 
-test('replaces lobby skeletons with the empty state after an empty hydration', async ({
+test('renders the lobby empty state without a skeleton flash when stored trips are empty', async ({
   page,
 }) => {
   await markCurrentReleaseSeen(page);
-  await holdAnimationFrames(page);
   await page.addInitScript(() => {
     window.localStorage.setItem('google-travel-my-trips', '[]');
   });
 
   await page.goto('/');
-
-  await expect(page.getByTestId('lobby-skeleton')).toBeVisible();
-  await expect(page.getByTestId('lobby-empty-state')).toHaveCount(0);
-
-  await releaseAnimationFrames(page);
 
   await expect(page.getByTestId('lobby-skeleton')).toHaveCount(0);
   await expect(page.getByTestId('lobby-empty-state')).toBeVisible();
