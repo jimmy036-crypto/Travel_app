@@ -21,7 +21,10 @@
     "agent:guardrails": "node scripts/agent-guardrails.mjs",
     "agent:verify": "node scripts/agent-verify.mjs fast",
     "agent:verify:e2e": "node scripts/agent-verify.mjs e2e",
-    "agent:verify:all": "node scripts/agent-verify.mjs all"
+    "agent:verify:all": "node scripts/agent-verify.mjs all",
+    "verify:fast": "npm run agent:guardrails && npm run agent:verify",
+    "verify:full": "npm run agent:guardrails && npm run agent:verify:all",
+    "task:preflight": "node scripts/task-preflight.mjs"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",
