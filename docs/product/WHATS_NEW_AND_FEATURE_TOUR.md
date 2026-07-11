@@ -18,6 +18,8 @@
 ## Display Rules
 
 - If the local storage key is missing, the app shows the What's New dialog after opening the app or a trip.
+- Users can reopen What's New from the global settings menu in the Lobby or TripDetail.
+- Feature Tour also starts from the same settings menu; the first-run automatic release dialog behavior is unchanged.
 - `開始導覽` marks the release as seen, closes the dialog, and starts the feature tour.
 - `不再顯示此版本` marks the release as seen.
 - `稍後再看` closes the dialog for the current runtime only; a reload or new session can show it again.
