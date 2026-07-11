@@ -845,8 +845,14 @@ test('syncs expense creation between active browser contexts in realtime', async
     await openExpenseTab(contextB.page);
 
     await addEqualSplitExpenseThroughUi(contextA.page);
+    await expect(
+      contextA.page.getByTestId('toast').filter({ hasText: '費用已新增' }),
+    ).toBeVisible();
 
     await expectSyncedExpense(contextB.page);
+    await expect(
+      contextB.page.getByTestId('toast').filter({ hasText: '費用已新增' }),
+    ).toHaveCount(0);
 
     await contextB.page.reload();
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
@@ -877,7 +883,13 @@ test('syncs expense edits between active browser contexts in realtime', async ({
     await expectSyncedExpense(contextB.page);
 
     await editExpenseThroughUi(contextA.page);
+    await expect(
+      contextA.page.getByTestId('toast').filter({ hasText: '費用已更新' }),
+    ).toBeVisible();
     await expectEditedExpense(contextB.page);
+    await expect(
+      contextB.page.getByTestId('toast').filter({ hasText: '費用已更新' }),
+    ).toHaveCount(0);
 
     await contextB.page.reload();
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
