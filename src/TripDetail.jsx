@@ -2196,31 +2196,74 @@ const TripDetail = ({
     });
   }, [setItinerary]);
 
-  const saveEditedItem = useCallback((updatedItem, shouldCascade) => {
+  const persistPlaceItinerary = useCallback(async (nextItinerary) => {
+    if (!db || !roomId) {
+      setItinerary(nextItinerary);
+      return;
+    }
+
+    setSyncStatus('saving');
+    lastLocalWriteAtRef.current = Date.now();
+    await update(dbRef(db, `rooms/${roomId}`), { itinerary: nextItinerary });
+
+    dirtyBranchesRef.current.itinerary = false;
+    lastLocalWriteAtRef.current = Date.now();
+    setItineraryState(nextItinerary);
+    setSyncStatus('saved');
+  }, [roomId, setItinerary]);
+
+  const saveEditedItem = useCallback(async (updatedItem, shouldCascade) => {
     const editedDayId = String(editingItemData.dayId);
-    setBackupItin(null);
-    clearOptimizationSummary(editedDayId);
-    setItinerary(prev => {
-      const n = { ...prev };
-      const dayId = editedDayId;
-      const dayList = [...(n[dayId] || [])];
-      const idx = dayList.findIndex(p => p.id === updatedItem.id);
+    const dayList = [...(Array.isArray(itinerary[editedDayId]) ? itinerary[editedDayId] : [])];
+    const idx = dayList.findIndex(p => p.id === updatedItem.id);
 
-      if (idx !== -1) {
-        dayList[idx] = updatedItem;
-      }
+    if (idx === -1) {
+      toast.error({
+        title: '無法更新景點',
+        description: '請檢查網路連線後再試一次。',
+      });
+      throw new Error('Place to edit was not found.');
+    }
 
-      n[dayId] = shouldCascade && idx !== -1 && updatedItem.time
+    dayList[idx] = updatedItem;
+
+    const nextItinerary = {
+      ...itinerary,
+      [editedDayId]: shouldCascade && updatedItem.time
         ? recalculateArrivalTimesFromIndex(
             dayList,
             idx,
-            routeDurations[dayId],
+            routeDurations[editedDayId],
           )
-        : dayList;
-      return n;
-    });
-    setEditingItemData(null);
-  }, [clearOptimizationSummary, editingItemData, routeDurations, setItinerary]);
+        : dayList,
+    };
+
+    try {
+      await persistPlaceItinerary(nextItinerary);
+      setBackupItin(null);
+      clearOptimizationSummary(editedDayId);
+      setEditingItemData(null);
+      toast.success({
+        title: '景點已更新',
+        description: '最新內容已同步給協作者。',
+      });
+    } catch (error) {
+      console.error('Save place edit failed:', error);
+      setSyncStatus('error');
+      toast.error({
+        title: '無法更新景點',
+        description: '請檢查網路連線後再試一次。',
+      });
+      throw error;
+    }
+  }, [
+    clearOptimizationSummary,
+    editingItemData,
+    itinerary,
+    persistPlaceItinerary,
+    routeDurations,
+    toast,
+  ]);
 
   const handleCopyItem = (targetDay, item) => {
     clearOptimizationSummary(targetDay);
@@ -3020,11 +3063,8 @@ const TripDetail = ({
     });
   };
 
-  const handleAddExploreToItinerary = (place, position = 'end') => {
-    setBackupItin(null);
-    clearOptimizationSummary(safeCurrentDay);
-    setItinerary(prev => {
-      const dayList = [...(Array.isArray(prev[safeCurrentDay]) ? prev[safeCurrentDay] : [])];
+  const handleAddExploreToItinerary = async (place, position = 'end') => {
+    const dayList = [...(Array.isArray(itinerary[safeCurrentDay]) ? itinerary[safeCurrentDay] : [])];
       const newItem = {
         id: generateId(), name: String(place.name || "未命名地點"), place_id: String(place.place_id || ""), customName: "", lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng()),
         address: String(place.formatted_address || place.vicinity || ""), time: getNextDefaultTimeFromList(dayList), stayTime: "0", memo: `⭐ Google 評價: ${place.rating || '無'}`, tags: ["地圖探索"], nextLeg: { mode: 'AUTO', mins: 30 }
@@ -3046,37 +3086,77 @@ const TripDetail = ({
           }
         } else { dayList.push(newItem); }
       } else { dayList.push(newItem); }
-      return { ...prev, [safeCurrentDay]: dayList };
-    });
+    const nextItinerary = { ...itinerary, [safeCurrentDay]: dayList };
 
-    setSelectedExploreItem(null); setDetailedPlace(null); setExploreResults([]); setExploreQuery(""); setExploreOriginItem(null);
-    setActiveTab("plan");
-    alert(`✅ 已成功將「${place.name}」加入行程！`);
+    try {
+      await persistPlaceItinerary(nextItinerary);
+      setBackupItin(null);
+      clearOptimizationSummary(safeCurrentDay);
+      setSelectedExploreItem(null); setDetailedPlace(null); setExploreResults([]); setExploreQuery(""); setExploreOriginItem(null);
+      setActiveTab("plan");
+      toast.success({
+        title: '景點已加入行程',
+        description: '行程與協作者畫面已更新。',
+      });
+    } catch (error) {
+      console.error('Create explored place failed:', error);
+      setSyncStatus('error');
+      toast.error({
+        title: '無法新增景點',
+        description: '請檢查網路連線後再試一次。',
+      });
+    }
   };
 
-  const handleAddPlaceFromSearch = useCallback((dayId, result, placeId) => {
-    if (!result?.geometry?.location) return;
-    setBackupItin(null);
-    clearOptimizationSummary(dayId);
-    setItinerary((previousItinerary) => {
-      const dayItems = [...(Array.isArray(previousItinerary[dayId]) ? previousItinerary[dayId] : [])];
-      dayItems.push({
-        id: generateId(),
-        name: String(result.name || "未命名地點"),
-        place_id: String(placeId || ""),
-        customName: "",
-        lat: Number(result.geometry.location.lat()),
-        lng: Number(result.geometry.location.lng()),
-        address: String(result.formatted_address || ""),
-        time: getNextDefaultTimeFromList(dayItems),
-        stayTime: "0",
-        memo: "",
-        tags: [],
-        nextLeg: { mode: "AUTO", mins: 30 },
-      });
-      return { ...previousItinerary, [dayId]: dayItems };
+  const handleAddPlaceFromSearch = useCallback(async (dayId, result, placeId) => {
+    if (!result?.geometry?.location) return false;
+
+    const targetDayId = String(dayId);
+    const dayItems = [...(Array.isArray(itinerary[targetDayId]) ? itinerary[targetDayId] : [])];
+    dayItems.push({
+      id: generateId(),
+      name: String(result.name || "未命名地點"),
+      place_id: String(placeId || ""),
+      customName: "",
+      lat: Number(result.geometry.location.lat()),
+      lng: Number(result.geometry.location.lng()),
+      address: String(result.formatted_address || ""),
+      time: getNextDefaultTimeFromList(dayItems),
+      stayTime: "0",
+      memo: "",
+      tags: [],
+      nextLeg: { mode: "AUTO", mins: 30 },
     });
-  }, [clearOptimizationSummary, setItinerary]);
+
+    const nextItinerary = {
+      ...itinerary,
+      [targetDayId]: dayItems,
+    };
+
+    try {
+      await persistPlaceItinerary(nextItinerary);
+      setBackupItin(null);
+      clearOptimizationSummary(targetDayId);
+      toast.success({
+        title: '景點已加入行程',
+        description: '行程與協作者畫面已更新。',
+      });
+      return true;
+    } catch (error) {
+      console.error('Create place failed:', error);
+      setSyncStatus('error');
+      toast.error({
+        title: '無法新增景點',
+        description: '請檢查網路連線後再試一次。',
+      });
+      return false;
+    }
+  }, [
+    clearOptimizationSummary,
+    itinerary,
+    persistPlaceItinerary,
+    toast,
+  ]);
 
   useEffect(() => {
     if (!IS_FIREBASE_EMULATOR || typeof window === "undefined") {
@@ -3086,7 +3166,7 @@ const TripDetail = ({
     const e2eWindow = /** @type {any} */ (window);
 
     const addTestPlace = () => {
-      handleAddPlaceFromSearch(
+      void handleAddPlaceFromSearch(
         safeCurrentDay || "Day 1",
         {
           name: "E2E 測試餐廳",
@@ -4063,16 +4143,16 @@ const TripDetail = ({
           <button onClick={() => handleShowDetails(selectedExploreItem.place_id)} className="w-full py-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200 shadow-sm transition-colors">📖 查看詳情與實景照</button>
           {exploreOriginItem ? (
             <div className="flex gap-2 mt-2">
-              <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'before')} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在前面</button>
-              <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在後面</button>
+              <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'before')} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在前面</button>
+              <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在後面</button>
             </div>
           ) : (
-            <button onClick={() => handleAddExploreToItinerary(selectedExploreItem, 'end')} className="w-full mt-2 bg-blue-600 text-white py-2.5 rounded-xl text-xs font-bold shadow-md active:scale-95">加入行程最後</button>
+            <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'end')} className="w-full mt-2 bg-blue-600 text-white py-2.5 rounded-xl text-xs font-bold shadow-md active:scale-95">加入行程最後</button>
           )}
         </div>
       ) : null}
 
-      {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
+      {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
 
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
       {editingItemData ? <EditItemModal item={editingItemData.item} roomId={roomId} onSave={saveEditedItem} onClose={() => setEditingItemData(null)} t={t} /> : null}

@@ -109,6 +109,7 @@ describe('TripDetail Emulator 景點流程', () => {
 
     const placeCard = await view.findByTestId('place-card');
     expect(placeCard).toHaveTextContent('E2E 測試餐廳');
+    expect(await view.findByText('景點已加入行程')).toBeInTheDocument();
 
     fireEvent.click(placeCard);
     expect(await view.findByTestId('place-detail-sheet')).toBeInTheDocument();
@@ -135,6 +136,10 @@ describe('TripDetail Emulator 景點流程', () => {
 
     await waitFor(() => {
       expect(view.getByText('E2E 已編輯餐廳')).toBeInTheDocument();
+    });
+    expect(await view.findByText('景點已更新')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(view.queryByTestId('edit-place-modal')).not.toBeInTheDocument();
     });
   });
 });
