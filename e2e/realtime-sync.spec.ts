@@ -1074,6 +1074,12 @@ test('syncs place edits between active browser contexts in realtime', async ({
       CREATED_PLACE.name,
       EDITED_PLACE,
     );
+    await expect(
+      contextA.page.getByTestId('toast').filter({ hasText: '景點已更新' }).first(),
+    ).toBeVisible();
+    await expect(
+      contextB.page.getByTestId('toast').filter({ hasText: '景點已更新' }),
+    ).toHaveCount(0);
 
     await expect(placeCardByName(contextB.page, CREATED_PLACE.name))
       .toBeHidden({ timeout: 20_000 });
