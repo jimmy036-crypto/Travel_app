@@ -723,9 +723,7 @@ export const ExpenseModal = ({
 
   const handleDelete = () => {
     if (!isEditing || !onDelete) return;
-    if (window.confirm(`確定刪除「${String(expense.item || "這筆帳目")}」嗎？此動作無法復原。`)) {
-      onDelete(String(expense.id));
-    }
+    void onDelete(String(expense.id));
   };
 
   return (
