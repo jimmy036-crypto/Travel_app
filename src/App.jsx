@@ -42,6 +42,8 @@ import { FeatureTour } from './components/FeatureTour.jsx';
 import { WhatsNewDialog } from './components/WhatsNewDialog.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 import { EmptyState } from './components/ui/EmptyState.jsx';
+import { useToast } from './components/ui/useToast.js';
+import { checkForPwaUpdate } from './pwaUpdateController.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -68,6 +70,7 @@ const formatDateForInput = (date) => {
 // (2) 核心視圖：首頁大廳 (TravelApp)
 // ============================================================================
 export default function TravelApp() {
+  const toast = useToast();
   const [myTrips, setMyTrips] = useState(() => {
     const stored = readJsonStorage('google-travel-my-trips', []);
     return Array.isArray(stored) ? stored : [];
@@ -86,6 +89,8 @@ export default function TravelApp() {
     blockingEditor: false,
     failed: false,
   });
+  const [isCheckingAppUpdate, setIsCheckingAppUpdate] = useState(false);
+  const isCheckingAppUpdateRef = useRef(false);
   const [isSavingTrip, setIsSavingTrip] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const lobbyAppearanceInputRef = useRef(null);
@@ -342,6 +347,44 @@ export default function TravelApp() {
     setShowWhatsNew(true);
   }, []);
 
+  const handleCheckAppUpdate = useCallback(async () => {
+    if (isCheckingAppUpdateRef.current) return;
+
+    isCheckingAppUpdateRef.current = true;
+    setIsCheckingAppUpdate(true);
+
+    try {
+      const result = await checkForPwaUpdate({ forceReveal: true });
+
+      if (result.status === 'update-available') {
+        return;
+      }
+
+      if (result.status === 'up-to-date') {
+        toast.info({
+          title: '已是最新版本',
+        });
+        return;
+      }
+
+      if (result.status === 'checking') {
+        return;
+      }
+
+      toast.error({
+        title: '無法檢查更新',
+      });
+    } catch (error) {
+      console.error('Manual app update check failed:', error);
+      toast.error({
+        title: '無法檢查更新',
+      });
+    } finally {
+      isCheckingAppUpdateRef.current = false;
+      setIsCheckingAppUpdate(false);
+    }
+  }, [toast]);
+
   const closeReleaseNotes = useCallback(() => {
     setShowWhatsNew(false);
   }, []);
@@ -547,6 +590,8 @@ export default function TravelApp() {
           onUpdateTripMeta={handleUpdateTripMeta}
           onOpenReleaseNotes={openReleaseNotes}
           onStartFeatureTour={startFeatureTour}
+          onCheckUpdates={handleCheckAppUpdate}
+          isCheckingUpdates={isCheckingAppUpdate}
           onTourAvailabilityChange={setTripTourAvailability}
         />
       </Suspense>
@@ -586,6 +631,8 @@ export default function TravelApp() {
               onOpenAppearance={() => lobbyAppearanceInputRef.current?.click?.()}
               onOpenReleaseNotes={openReleaseNotes}
               onStartFeatureTour={startFeatureTour}
+              onCheckUpdates={handleCheckAppUpdate}
+              isCheckingUpdates={isCheckingAppUpdate}
             />
           </div>
 

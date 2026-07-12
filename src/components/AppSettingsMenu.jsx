@@ -16,7 +16,7 @@ function getMenuPosition(trigger) {
   const rect = trigger.getBoundingClientRect();
   const viewportWidth = window.innerWidth || 390;
   const viewportHeight = window.innerHeight || 844;
-  const estimatedHeight = 260;
+  const estimatedHeight = 316;
   const hasRoomBelow = rect.bottom + MENU_MARGIN + estimatedHeight <= viewportHeight;
   const top = hasRoomBelow
     ? rect.bottom + 8
@@ -36,6 +36,8 @@ export const AppSettingsMenu = ({
   onOpenAppearance,
   onOpenReleaseNotes,
   onStartFeatureTour,
+  onCheckUpdates,
+  isCheckingUpdates = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: MENU_MARGIN, left: MENU_MARGIN });
@@ -180,6 +182,16 @@ export const AppSettingsMenu = ({
             className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
           >
             功能導覽
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="app-settings-check-updates"
+            onClick={() => runAction(onCheckUpdates)}
+            disabled={isCheckingUpdates}
+            className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 ${t.mainText}`}
+          >
+            {isCheckingUpdates ? '檢查中...' : '檢查更新'}
           </button>
           <div
             role="none"

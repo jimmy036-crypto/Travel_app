@@ -1249,6 +1249,8 @@ const TripDetailSkeleton = ({
   onBack,
   onOpenReleaseNotes,
   onStartFeatureTour,
+  onCheckUpdates,
+  isCheckingUpdates,
   onOpenAppearance,
 }) => (
   <div
@@ -1280,6 +1282,8 @@ const TripDetailSkeleton = ({
               onOpenAppearance={onOpenAppearance}
               onOpenReleaseNotes={onOpenReleaseNotes}
               onStartFeatureTour={onStartFeatureTour}
+              onCheckUpdates={onCheckUpdates}
+              isCheckingUpdates={isCheckingUpdates}
             />
           </div>
         </div>
@@ -1338,6 +1342,8 @@ const TripDetail = ({
   onUpdateTripMeta,
   onOpenReleaseNotes,
   onStartFeatureTour,
+  onCheckUpdates,
+  isCheckingUpdates,
   onTourAvailabilityChange,
 }) => {
   const confirm = useConfirm();
@@ -3288,6 +3294,8 @@ const TripDetail = ({
         onBack={onBack}
         onOpenReleaseNotes={onOpenReleaseNotes}
         onStartFeatureTour={onStartFeatureTour}
+        onCheckUpdates={onCheckUpdates}
+        isCheckingUpdates={isCheckingUpdates}
         onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
       />
     );
@@ -3375,6 +3383,8 @@ const TripDetail = ({
                     onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
                     onOpenReleaseNotes={onOpenReleaseNotes}
                     onStartFeatureTour={onStartFeatureTour}
+                    onCheckUpdates={onCheckUpdates}
+                    isCheckingUpdates={isCheckingUpdates}
                   />
                 </div>
               </div>
