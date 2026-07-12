@@ -1,0 +1,17 @@
+# AI exclude rules
+node_modules/
+dist/
+build/
+coverage/
+.tmp/
+.firebase/
+playwright-report/
+test-results/
+blob-report/
+expense-engine-backup-*/
+*.zip
+*.log
+
+.env
+.env.*
+!.env.example
