@@ -11,9 +11,12 @@ Read these files before starting any task:
 - `AGENTS.md`
 - `docs/development/AI_WORKFLOW.md`
 - `docs/development/TEST_POLICY.md`
-- `tasks/active/TASK.md`
 
-If any required context file cannot be read, report the full path and stop.
+Then check for `tasks/active/TASK.md`.
+
+If a required project context file cannot be read, report the full path and stop.
+
+If `tasks/active/TASK.md` does not exist, stop and report the missing path. Do not guess the task, create a branch, run validation, or modify files.
 
 ## Branch handling
 
@@ -41,8 +44,10 @@ If any required context file cannot be read, report the full path and stop.
 ## Handoff policy
 
 - After completing the task, fill `tasks/active/HANDOFF.md`.
+- If `tasks/active/HANDOFF.md` does not exist, create it from `tasks/templates/HANDOFF_TEMPLATE.md` at completion time.
 - The handoff must reflect what actually happened, including commands that failed or were not run.
 - Do not claim unexecuted tests passed.
+- `tasks/active/HANDOFF.md` is local handoff state ignored by Git. Its ignored status must not be treated as a dirty working tree.
 - Do not include `tasks/active/HANDOFF.md` in the product commit unless `TASK.md` explicitly requires it.
 - After writing the handoff, stop. Do not merge or deploy.
 

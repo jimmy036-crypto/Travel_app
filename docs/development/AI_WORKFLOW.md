@@ -58,6 +58,27 @@ GPT creates `TASK.md`
 -> Human performs manual QA
 -> Human merges
 
+## Active task bootstrap
+
+A clean clone contains `tasks/active/.gitkeep` but may not contain an active task.
+
+- GPT or a human creates `tasks/active/TASK.md` from `tasks/templates/TASK_TEMPLATE.md` before assigning implementation.
+- If `tasks/active/TASK.md` is missing, the implementer stops and reports the missing path.
+- If `tasks/active/TASK.md` does not specify a branch, the implementer stops and does not invent one.
+- The implementer must not create task content from assumptions.
+- `tasks/active/HANDOFF.md` is not required before implementation starts.
+- When the task is complete, create `tasks/active/HANDOFF.md` from `tasks/templates/HANDOFF_TEMPLATE.md` if it does not already exist.
+
+## Active task version control
+
+- `tasks/active/TASK.md` is commit-eligible by default so agents and reviewers can share the same task specification.
+- `tasks/active/HANDOFF.md` is ignored local state and should not be committed unless the task explicitly requires it.
+- `tasks/templates/` must be committed.
+- `tasks/active/.gitkeep` must be committed so the active task directory exists in a clean clone.
+- If a completed task needs a durable historical record, move the final task or handoff content into `tasks/archive/` manually in a separate documentation change.
+- Do not automatically archive every task.
+- Do not mix routine handoff updates into product commits.
+
 ## Branch lifecycle
 
 - Do not start a new task that modifies the same files as an unmerged PR unless the user explicitly asks for a stacked PR.
@@ -107,23 +128,23 @@ Prefer Gemini for:
 Copy this prompt into Gemini to verify context loading:
 
 ```text
-請讀取專案根目錄 GEMINI.md，以及其中指定的所有上下文文件。
+Read the project root GEMINI.md and all context files it requires.
 
-本次只做工作流程驗證：
-- 不要修改檔案
-- 不要建立分支
-- 不要執行測試
+This is only a workflow smoke test:
+- Do not modify files.
+- Do not create a branch.
+- Do not run tests.
 
-請回報：
+Report:
 
-1. 專案名稱與技術棧
-2. 任務前 preflight
-3. 禁止的 Git 操作
-4. 禁止的 Firebase 操作
-5. 本機測試與 GitHub Actions 分工
-6. TASK.md 未指定 branch 時的處理
-7. 工作樹不乾淨時的處理
-8. HANDOFF.md 必須包含的內容
+1. Project name and technical stack.
+2. Required preflight before a task.
+3. Forbidden Git operations.
+4. Forbidden Firebase operations.
+5. Local testing versus GitHub Actions responsibilities.
+6. What to do when TASK.md does not specify a branch.
+7. What to do when the working tree is not clean.
+8. What HANDOFF.md must include.
 
-如果無法讀取任何上下文文件，列出完整路徑並停止。
+If any context file cannot be read, list the full path and stop.
 ```

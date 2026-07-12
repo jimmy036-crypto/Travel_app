@@ -39,6 +39,12 @@ type: concise imperative summary
 - Do not merge.
 - Do not deploy.
 
+## Version control
+
+- `tasks/active/TASK.md` is commit-eligible by default so reviewers and agents share the same task specification.
+- `tasks/active/HANDOFF.md` is local ignored state unless this task explicitly requires committing it.
+- Archive completed task records manually in `tasks/archive/` only when durable history is needed.
+
 ## Restrictions
 
 - Do not modify files outside the stated scope.

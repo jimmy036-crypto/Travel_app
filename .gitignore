@@ -56,3 +56,7 @@ coverage/
 
 # Active agent handoff is local task state; commit reusable templates instead.
 tasks/active/HANDOFF.md
+
+# Keep active task specs visible unless intentionally archived.
+!tasks/active/TASK.md
+!tasks/active/.gitkeep

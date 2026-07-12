@@ -1,5 +1,7 @@
 # Task Handoff Report
 
+This file is local task state when used as `tasks/active/HANDOFF.md`. It is ignored by Git and should not be committed unless the active task explicitly requires it.
+
 ## Status
 
 Completed / Blocked
