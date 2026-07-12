@@ -154,6 +154,44 @@ describe('pwaUpdateController', () => {
     expect(worker.removeCount).toBe(1);
   });
 
+  it('handles the specification order where update resolves before updatefound is dispatched', async () => {
+    let worker;
+    let settled = false;
+    const registration = new FakeRegistration({
+      update: async () => {
+        worker = new FakeWorker('installing');
+        registration.installing = worker;
+      },
+    });
+    setPwaUpdateRegistration({
+      registration,
+      swUrl: '/sw.js',
+    });
+
+    const resultPromise = checkForPwaUpdate({ forceReveal: true }).then((result) => {
+      settled = true;
+      return result;
+    });
+
+    await vi.waitFor(() => {
+      expect(worker?.addCount).toBe(1);
+    });
+
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(registration.update).toHaveBeenCalledTimes(1);
+
+    registration.dispatch('updatefound');
+    registration.waiting = worker;
+    registration.installing = null;
+    worker.setState('installed');
+
+    await expect(resultPromise).resolves.toEqual({ status: 'update-available' });
+    expect(worker.removeCount).toBe(1);
+    expect(registration.removeCount).toBe(1);
+    expect(registration.update).toHaveBeenCalledTimes(1);
+  });
+
   it('reports up-to-date only after an update check settles without a new worker', async () => {
     const registration = new FakeRegistration();
     setPwaUpdateRegistration({
