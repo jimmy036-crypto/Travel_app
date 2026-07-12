@@ -1,4 +1,7 @@
 const listeners = new Set();
+const WORKER_SETTLED_STATES = new Set(['installed', 'activated', 'redundant']);
+const UPDATE_CHECK_TIMEOUT_MS = 10_000;
+let currentCheckPromise = null;
 
 const state = {
   dismissedUntil: 0,
@@ -11,6 +14,116 @@ const state = {
 function getNavigatorServiceWorker() {
   if (typeof navigator === 'undefined') return null;
   return navigator.serviceWorker || null;
+}
+
+function getTimerHost() {
+  return typeof window !== 'undefined' ? window : globalThis;
+}
+
+function addEventListener(target, type, handler) {
+  if (!target || typeof target.addEventListener !== 'function') {
+    return () => {};
+  }
+
+  target.addEventListener(type, handler);
+  return () => target.removeEventListener?.(type, handler);
+}
+
+function createTimeoutError(message) {
+  const error = new Error(message);
+  error.code = 'PWA_UPDATE_TIMEOUT';
+  return error;
+}
+
+function withTimeout(promise, message, timeoutMs = UPDATE_CHECK_TIMEOUT_MS) {
+  const timerHost = getTimerHost();
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = timerHost.setTimeout(() => {
+      reject(createTimeoutError(message));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    timerHost.clearTimeout(timeoutId);
+  });
+}
+
+export function waitForWorkerState(worker, timeoutMs = UPDATE_CHECK_TIMEOUT_MS) {
+  if (!worker) return Promise.resolve('missing');
+
+  const currentState = String(worker.state || '');
+  if (WORKER_SETTLED_STATES.has(currentState)) {
+    return Promise.resolve(currentState);
+  }
+
+  const timerHost = getTimerHost();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeoutId;
+    let removeStateChangeListener = () => {};
+
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      timerHost.clearTimeout(timeoutId);
+      removeStateChangeListener();
+    };
+
+    const handleStateChange = () => {
+      const nextState = String(worker.state || '');
+      if (!WORKER_SETTLED_STATES.has(nextState)) return;
+
+      cleanup();
+      resolve(nextState);
+    };
+
+    removeStateChangeListener = addEventListener(worker, 'statechange', handleStateChange);
+    timeoutId = timerHost.setTimeout(() => {
+      cleanup();
+      reject(createTimeoutError('Timed out waiting for service worker statechange.'));
+    }, timeoutMs);
+
+    handleStateChange();
+  });
+}
+
+async function waitForExistingInstallingWorker(registration) {
+  const installingWorker = registration?.installing;
+  if (!installingWorker) return null;
+
+  await waitForWorkerState(installingWorker);
+  return String(installingWorker.state || '');
+}
+
+async function waitForRegistrationUpdate(registration) {
+  if (typeof registration?.update !== 'function') {
+    return { status: 'unsupported' };
+  }
+
+  let updateFoundWorker = null;
+  const removeUpdateFoundListener = addEventListener(registration, 'updatefound', () => {
+    updateFoundWorker = registration.installing || null;
+  });
+
+  try {
+    await withTimeout(
+      Promise.resolve().then(() => registration.update()),
+      'Timed out waiting for service worker update check.',
+    );
+  } finally {
+    removeUpdateFoundListener();
+  }
+
+  const installingWorker = updateFoundWorker || registration.installing;
+  if (!installingWorker) {
+    return { status: 'settled' };
+  }
+
+  await waitForWorkerState(installingWorker);
+  return { status: 'settled' };
 }
 
 function notify() {
@@ -55,7 +168,7 @@ export function dismissPwaUpdateFor(ms) {
   notify();
 }
 
-export async function checkForPwaUpdate({ forceReveal = false } = {}) {
+async function runPwaUpdateCheck({ forceReveal = false } = {}) {
   const serviceWorker = getNavigatorServiceWorker();
   if (!state.registration && !serviceWorker) {
     return { status: 'unsupported' };
@@ -75,7 +188,17 @@ export async function checkForPwaUpdate({ forceReveal = false } = {}) {
   }
 
   if (registration.installing) {
-    return { status: 'checking' };
+    await waitForExistingInstallingWorker(registration);
+
+    if (revealWaitingPwaUpdate({ ignoreDismissal: forceReveal })) {
+      return { status: 'update-available' };
+    }
+
+    if (registration.installing) {
+      return { status: 'failed' };
+    }
+
+    return { status: 'up-to-date' };
   }
 
   if (state.swUrl) {
@@ -91,17 +214,39 @@ export async function checkForPwaUpdate({ forceReveal = false } = {}) {
     }
   }
 
-  if (typeof registration.update !== 'function') {
-    return { status: 'unsupported' };
+  const updateResult = await waitForRegistrationUpdate(registration);
+  if (updateResult.status === 'unsupported') {
+    return updateResult;
   }
-
-  await registration.update();
 
   if (revealWaitingPwaUpdate({ ignoreDismissal: forceReveal })) {
     return { status: 'update-available' };
   }
 
+  if (registration.installing) {
+    return { status: 'failed' };
+  }
+
   return { status: 'up-to-date' };
+}
+
+export async function checkForPwaUpdate(options = {}) {
+  if (currentCheckPromise) {
+    return { status: 'checking' };
+  }
+
+  currentCheckPromise = runPwaUpdateCheck(options)
+    .catch((error) => {
+      if (error?.code === 'PWA_UPDATE_TIMEOUT') {
+        return { status: 'failed', error };
+      }
+      throw error;
+    })
+    .finally(() => {
+      currentCheckPromise = null;
+    });
+
+  return currentCheckPromise;
 }
 
 export async function applyWaitingPwaUpdate() {
@@ -118,5 +263,6 @@ export function resetPwaUpdateControllerForTest() {
   state.registration = null;
   state.swUrl = '';
   state.updateSW = null;
+  currentCheckPromise = null;
   listeners.clear();
 }

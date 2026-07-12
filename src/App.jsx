@@ -90,6 +90,7 @@ export default function TravelApp() {
     failed: false,
   });
   const [isCheckingAppUpdate, setIsCheckingAppUpdate] = useState(false);
+  const isCheckingAppUpdateRef = useRef(false);
   const [isSavingTrip, setIsSavingTrip] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const lobbyAppearanceInputRef = useRef(null);
@@ -347,8 +348,9 @@ export default function TravelApp() {
   }, []);
 
   const handleCheckAppUpdate = useCallback(async () => {
-    if (isCheckingAppUpdate) return;
+    if (isCheckingAppUpdateRef.current) return;
 
+    isCheckingAppUpdateRef.current = true;
     setIsCheckingAppUpdate(true);
 
     try {
@@ -365,6 +367,10 @@ export default function TravelApp() {
         return;
       }
 
+      if (result.status === 'checking') {
+        return;
+      }
+
       toast.error({
         title: '無法檢查更新',
       });
@@ -374,9 +380,10 @@ export default function TravelApp() {
         title: '無法檢查更新',
       });
     } finally {
+      isCheckingAppUpdateRef.current = false;
       setIsCheckingAppUpdate(false);
     }
-  }, [isCheckingAppUpdate, toast]);
+  }, [toast]);
 
   const closeReleaseNotes = useCallback(() => {
     setShowWhatsNew(false);

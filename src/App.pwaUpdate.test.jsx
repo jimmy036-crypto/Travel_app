@@ -34,6 +34,16 @@ function renderApp(children) {
   );
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
+}
+
 async function openSettingsAndCheckUpdates(user) {
   await user.click(screen.getByTestId('app-settings-trigger'));
   await user.click(screen.getByTestId('app-settings-check-updates'));
@@ -93,5 +103,65 @@ describe('TravelApp manual PWA update checks', () => {
     await waitFor(() => {
       expect(screen.getByText('無法檢查更新')).toBeInTheDocument();
     });
+  });
+
+  it('does not show an error toast while the check is still in progress', async () => {
+    const user = userEvent.setup();
+    const update = deferred();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+    });
+    setPwaUpdateRegistration({
+      registration: {
+        waiting: null,
+        update: vi.fn(() => update.promise),
+      },
+      swUrl: '/sw.js',
+      updateSW: vi.fn(),
+    });
+    const { default: App } = await import('./App.jsx');
+
+    renderApp(<App />);
+    await openSettingsAndCheckUpdates(user);
+    await user.click(screen.getByTestId('app-settings-trigger'));
+
+    expect(screen.getByTestId('app-settings-check-updates')).toBeDisabled();
+    expect(screen.queryByText('無法檢查更新')).not.toBeInTheDocument();
+
+    update.resolve();
+
+    await expect(screen.findByText('已是最新版本')).resolves.toBeInTheDocument();
+  });
+
+  it('prevents duplicate manual update checks', async () => {
+    const user = userEvent.setup();
+    const update = deferred();
+    const updateSpy = vi.fn(() => update.promise);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+    });
+    setPwaUpdateRegistration({
+      registration: {
+        waiting: null,
+        update: updateSpy,
+      },
+      swUrl: '/sw.js',
+      updateSW: vi.fn(),
+    });
+    const { default: App } = await import('./App.jsx');
+
+    renderApp(<App />);
+    await openSettingsAndCheckUpdates(user);
+    await user.click(screen.getByTestId('app-settings-trigger'));
+
+    const checkUpdatesButton = screen.getByTestId('app-settings-check-updates');
+    expect(checkUpdatesButton).toBeDisabled();
+    await user.click(checkUpdatesButton);
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+
+    update.resolve();
+    await expect(screen.findByText('已是最新版本')).resolves.toBeInTheDocument();
   });
 });
