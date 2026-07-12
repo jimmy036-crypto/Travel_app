@@ -58,6 +58,7 @@ import {
 } from "./features/itinerary/itineraryCalculations";
 import { useConfirm } from './components/ui/useConfirm.js';
 import { useToast } from './components/ui/useToast.js';
+import { persistItinerary } from './services/placesService.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -1216,7 +1217,11 @@ const useRoomBranchSync = ({
     const timer = window.setTimeout(() => {
       const writeBranch = async () => {
         try {
-          await update(dbRef(db, `rooms/${roomId}`), { [branch]: value });
+          if (branch === 'itinerary') {
+            await persistItinerary({ db, roomId, itinerary: value });
+          } else {
+            await update(dbRef(db, `rooms/${roomId}`), { [branch]: value });
+          }
           if (writeVersionRef.current[branch] === version) {
             dirtyBranchesRef.current[branch] = false;
             lastLocalWriteAtRef.current = Date.now();
@@ -2236,7 +2241,7 @@ const TripDetail = ({
 
     setSyncStatus('saving');
     lastLocalWriteAtRef.current = Date.now();
-    await update(dbRef(db, `rooms/${roomId}`), { itinerary: nextItinerary });
+    await persistItinerary({ db, roomId, itinerary: nextItinerary });
 
     dirtyBranchesRef.current.itinerary = false;
     lastLocalWriteAtRef.current = Date.now();
@@ -2352,7 +2357,7 @@ const TripDetail = ({
 
       setSyncStatus('saving');
       lastLocalWriteAtRef.current = Date.now();
-      await update(dbRef(db, `rooms/${roomId}`), { itinerary: nextItinerary });
+      await persistItinerary({ db, roomId, itinerary: nextItinerary });
 
       dirtyBranchesRef.current.itinerary = false;
       lastLocalWriteAtRef.current = Date.now();
