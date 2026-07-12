@@ -34,7 +34,6 @@ import {
   getDayDisplay,
   getExploreIcon,
   getInclusiveDayCount,
-  getNextDefaultTimeFromList,
   getThemeClasses,
   isValidCoordinates,
   minsToTime,
@@ -54,10 +53,10 @@ import {
   cloneRouteItems,
   moveItineraryItem,
   recalculateArrivalTimes,
-  recalculateArrivalTimesFromIndex,
 } from "./features/itinerary/itineraryCalculations";
 import { useConfirm } from './components/ui/useConfirm.js';
 import { useToast } from './components/ui/useToast.js';
+import { usePlaceActions } from './features/places/usePlaceActions.js';
 import { persistItinerary } from './services/placesService.js';
 
 const IS_FIREBASE_EMULATOR =
@@ -226,7 +225,6 @@ const PlacePhotoLightbox = ({ photo, onClose }) => {
   const photoUrl = String(photo?.url || '');
   const [failedImageUrl, setFailedImageUrl] = useState('');
   const imageError = Boolean(photoUrl) && failedImageUrl === photoUrl;
-
   useEffect(() => {
     if (!photo) return undefined;
 
@@ -2233,74 +2231,54 @@ const TripDetail = ({
     });
   }, [setItinerary]);
 
-  const persistPlaceItinerary = useCallback(async (nextItinerary) => {
-    if (!db || !roomId) {
-      setItinerary(nextItinerary);
-      return;
-    }
+  const resetExploreState = useCallback(() => {
+    setSelectedExploreItem(null);
+    setDetailedPlace(null);
+    setExploreResults([]);
+    setExploreQuery("");
+    setExploreOriginItem(null);
+  }, []);
 
-    setSyncStatus('saving');
-    lastLocalWriteAtRef.current = Date.now();
-    await persistItinerary({ db, roomId, itinerary: nextItinerary });
-
-    dirtyBranchesRef.current.itinerary = false;
-    lastLocalWriteAtRef.current = Date.now();
-    setItineraryState(nextItinerary);
-    setSyncStatus('saved');
-  }, [roomId, setItinerary]);
-
-  const saveEditedItem = useCallback(async (updatedItem, shouldCascade) => {
-    const editedDayId = String(editingItemData.dayId);
-    const dayList = [...(Array.isArray(itinerary[editedDayId]) ? itinerary[editedDayId] : [])];
-    const idx = dayList.findIndex(p => p.id === updatedItem.id);
-
-    if (idx === -1) {
-      toast.error({
-        title: '無法更新景點',
-        description: '請檢查網路連線後再試一次。',
-      });
-      throw new Error('Place to edit was not found.');
-    }
-
-    dayList[idx] = updatedItem;
-
-    const nextItinerary = {
-      ...itinerary,
-      [editedDayId]: shouldCascade && updatedItem.time
-        ? recalculateArrivalTimesFromIndex(
-            dayList,
-            idx,
-            routeDurations[editedDayId],
-          )
-        : dayList,
-    };
-
-    try {
-      await persistPlaceItinerary(nextItinerary);
-      setBackupItin(null);
-      clearOptimizationSummary(editedDayId);
-      setEditingItemData(null);
-      toast.success({
-        title: '景點已更新',
-        description: '最新內容已同步給協作者。',
-      });
-    } catch (error) {
-      console.error('Save place edit failed:', error);
-      setSyncStatus('error');
-      toast.error({
-        title: '無法更新景點',
-        description: '請檢查網路連線後再試一次。',
-      });
-      throw error;
-    }
-  }, [
-    clearOptimizationSummary,
-    editingItemData,
-    itinerary,
-    persistPlaceItinerary,
-    routeDurations,
-    toast,
-  ]);
+  const {
+    addPlaceFromSearch: handleAddPlaceFromSearch,
+    addExplorePlace: handleAddExploreToItinerary,
+    saveEditedItem,
+    deleteItineraryItem: handleDeleteItineraryItem,
+  } = usePlaceActions({
+    room: {
+      db,
+      roomId,
+      storage,
+    },
+    data: {
+      itinerary,
+      currentDay: safeCurrentDay,
+      editingItemData,
+      exploreOriginItem,
+      routeDurations,
+    },
+    state: {
+      setItinerary,
+      setItineraryState,
+      setEditingItemData,
+      setBackupItin,
+      setSyncStatus,
+    },
+    refs: {
+      dirtyBranchesRef,
+      lastLocalWriteAtRef,
+      placeDeleteConfirmRef,
+    },
+    feedback: {
+      confirm,
+      toast,
+    },
+    callbacks: {
+      clearOptimizationSummary,
+      resetExploreState,
+      setActiveTab,
+    },
+  });
 
   const handleCopyItem = (targetDay, item) => {
     clearOptimizationSummary(targetDay);
@@ -2323,78 +2301,6 @@ const TripDetail = ({
     setCopyingItem(null);
     alert(`✅ 已將「${item.customName || item.name}」複製到 ${targetDay}！`);
   };
-
-  const handleDeleteItineraryItem = useCallback(async (dayId, item) => {
-    if (placeDeleteConfirmRef.current) return;
-    placeDeleteConfirmRef.current = true;
-
-    try {
-      const shouldDelete = await confirm({
-        title: '刪除這個景點？',
-        description: '刪除後，這個景點會從所有協作者的行程中移除。',
-        cancelLabel: '保留景點',
-        confirmLabel: '刪除景點',
-        danger: true,
-      });
-
-      if (!shouldDelete) return;
-
-      const safeDayId = String(dayId);
-      const targetId = String(item?.id || '');
-      const currentDayItems = Array.isArray(itinerary[safeDayId]) ? itinerary[safeDayId] : [];
-      const nextDayItems = currentDayItems.filter((place) => String(place?.id || '') !== targetId);
-
-      if (!targetId || nextDayItems.length === currentDayItems.length) return;
-
-      if (!db || !roomId) {
-        throw new Error('Realtime Database is not available for place deletion.');
-      }
-
-      const nextItinerary = {
-        ...itinerary,
-        [safeDayId]: nextDayItems,
-      };
-
-      setSyncStatus('saving');
-      lastLocalWriteAtRef.current = Date.now();
-      await persistItinerary({ db, roomId, itinerary: nextItinerary });
-
-      dirtyBranchesRef.current.itinerary = false;
-      lastLocalWriteAtRef.current = Date.now();
-      setBackupItin(null);
-      clearOptimizationSummary(safeDayId);
-      setItineraryState(nextItinerary);
-      setSyncStatus('saved');
-      toast.success({
-        title: '景點已刪除',
-        description: '行程與協作者畫面已更新。',
-      });
-
-      const storagePaths = [
-        String(item?.placePhoto?.storagePath || ''),
-        ...(Array.isArray(item?.resources)
-          ? item.resources.map((resource) => String(resource?.storagePath || ''))
-          : []),
-      ].filter(Boolean);
-
-      if (storage) {
-        storagePaths.forEach((storagePath) => {
-          void deleteObject(storageRef(storage, storagePath)).catch((error) => {
-            console.warn('景點附件刪除失敗：', error);
-          });
-        });
-      }
-    } catch (error) {
-      console.error('Delete place failed:', error);
-      setSyncStatus('error');
-      toast.error({
-        title: '無法刪除景點',
-        description: '請檢查網路連線後再試一次。',
-      });
-    } finally {
-      placeDeleteConfirmRef.current = false;
-    }
-  }, [clearOptimizationSummary, confirm, itinerary, roomId, toast]);
 
   const handleDeleteTicket = useCallback(async (ticket) => {
     if (!window.confirm(`確定刪除「${String(ticket?.title || '此票券')}」？`)) return;
@@ -3100,100 +3006,6 @@ const TripDetail = ({
     });
   };
 
-  const handleAddExploreToItinerary = async (place, position = 'end') => {
-    const dayList = [...(Array.isArray(itinerary[safeCurrentDay]) ? itinerary[safeCurrentDay] : [])];
-      const newItem = {
-        id: generateId(), name: String(place.name || "未命名地點"), place_id: String(place.place_id || ""), customName: "", lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng()),
-        address: String(place.formatted_address || place.vicinity || ""), time: getNextDefaultTimeFromList(dayList), stayTime: "0", memo: `⭐ Google 評價: ${place.rating || '無'}`, tags: ["地圖探索"], nextLeg: { mode: 'AUTO', mins: 30 }
-      };
-
-      if (exploreOriginItem && position !== 'end') {
-        const idx = dayList.findIndex(p => p.id === exploreOriginItem.id);
-        if (idx !== -1) {
-          if (position === 'before') {
-            newItem.time = dayList[idx].time;
-            dayList.splice(idx, 0, newItem);
-          } else if (position === 'after') {
-            if(dayList[idx].time) {
-               let tTime = 15;
-               if (dayList[idx].nextLeg && dayList[idx].nextLeg.mode !== 'AUTO') tTime = Number(dayList[idx].nextLeg.mins);
-               newItem.time = minsToTime(timeToMins(String(dayList[idx].time)) + Number(dayList[idx].stayTime || 0) + tTime);
-            }
-            dayList.splice(idx + 1, 0, newItem);
-          }
-        } else { dayList.push(newItem); }
-      } else { dayList.push(newItem); }
-    const nextItinerary = { ...itinerary, [safeCurrentDay]: dayList };
-
-    try {
-      await persistPlaceItinerary(nextItinerary);
-      setBackupItin(null);
-      clearOptimizationSummary(safeCurrentDay);
-      setSelectedExploreItem(null); setDetailedPlace(null); setExploreResults([]); setExploreQuery(""); setExploreOriginItem(null);
-      setActiveTab("plan");
-      toast.success({
-        title: '景點已加入行程',
-        description: '行程與協作者畫面已更新。',
-      });
-    } catch (error) {
-      console.error('Create explored place failed:', error);
-      setSyncStatus('error');
-      toast.error({
-        title: '無法新增景點',
-        description: '請檢查網路連線後再試一次。',
-      });
-    }
-  };
-
-  const handleAddPlaceFromSearch = useCallback(async (dayId, result, placeId) => {
-    if (!result?.geometry?.location) return false;
-
-    const targetDayId = String(dayId);
-    const dayItems = [...(Array.isArray(itinerary[targetDayId]) ? itinerary[targetDayId] : [])];
-    dayItems.push({
-      id: generateId(),
-      name: String(result.name || "未命名地點"),
-      place_id: String(placeId || ""),
-      customName: "",
-      lat: Number(result.geometry.location.lat()),
-      lng: Number(result.geometry.location.lng()),
-      address: String(result.formatted_address || ""),
-      time: getNextDefaultTimeFromList(dayItems),
-      stayTime: "0",
-      memo: "",
-      tags: [],
-      nextLeg: { mode: "AUTO", mins: 30 },
-    });
-
-    const nextItinerary = {
-      ...itinerary,
-      [targetDayId]: dayItems,
-    };
-
-    try {
-      await persistPlaceItinerary(nextItinerary);
-      setBackupItin(null);
-      clearOptimizationSummary(targetDayId);
-      toast.success({
-        title: '景點已加入行程',
-        description: '行程與協作者畫面已更新。',
-      });
-      return true;
-    } catch (error) {
-      console.error('Create place failed:', error);
-      setSyncStatus('error');
-      toast.error({
-        title: '無法新增景點',
-        description: '請檢查網路連線後再試一次。',
-      });
-      return false;
-    }
-  }, [
-    clearOptimizationSummary,
-    itinerary,
-    persistPlaceItinerary,
-    toast,
-  ]);
 
   useEffect(() => {
     if (!IS_FIREBASE_EMULATOR || typeof window === "undefined") {
