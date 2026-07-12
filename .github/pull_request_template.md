@@ -10,6 +10,10 @@
 
 -
 
+## Tests not executed
+
+-
+
 ## Risk
 
 -
@@ -20,8 +24,12 @@
 
 ## Firebase / Schema Changes
 
-- [ ] No Firebase config, rules, schema, or data format changes
-- [ ] Firebase-related changes are described here:
+- [ ] Firebase config unchanged
+- [ ] Firebase rules unchanged
+- [ ] Schema unchanged
+- [ ] No secrets included
+- [ ] No test.only
+- [ ] No unjustified skipped tests
 
 ## Rollback
 
