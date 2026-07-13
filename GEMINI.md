@@ -18,6 +18,21 @@ If a required project context file cannot be read, report the full path and stop
 
 If `tasks/active/TASK.md` does not exist, stop and report the missing path. Do not guess the task, create a branch, run validation, or modify files.
 
+### Evidence-based project understanding
+
+- Do not infer technologies, services, features, or architecture from common project patterns.
+- Only report a technology as present after confirming it from repository files such as `package.json`, imports, configuration files, or implementation code.
+- Distinguish clearly between:
+  - confirmed: directly verified in repository files
+  - possible but unverified: suggested by a dependency or configuration but not confirmed in product code
+  - not found: no supporting repository evidence was found
+- Do not claim the project uses Firestore, Firebase Auth, PWA, service workers, or another service unless repository evidence confirms it.
+- Every project-stack report must list the repository files used as evidence.
+- When evidence is incomplete, report the item as unknown rather than guessing.
+- An installed dependency alone is not proof that the product actively uses the technology.
+- Do not modify the project to match an assumed architecture.
+- Do not claim a script supports an argument without inspecting its argument parsing implementation.
+
 ## Branch handling
 
 - Use the branch explicitly specified in `TASK.md`.
