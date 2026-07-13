@@ -58,6 +58,7 @@ import { usePlaceActions } from './features/places/usePlaceActions.js';
 import { useExpenseActions } from './features/expenses/useExpenseActions.js';
 import { ExpenseSection } from './features/expenses/ExpenseSection.jsx';
 import { persistItinerary } from './services/placesService.js';
+import { useOnlineStatus } from './hooks/useOnlineStatus.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -1258,6 +1259,7 @@ const TripDetail = ({
   isCheckingUpdates,
   onTourAvailabilityChange,
 }) => {
+  const { isOnline } = useOnlineStatus();
   const confirm = useConfirm();
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(true);
@@ -2953,7 +2955,7 @@ const TripDetail = ({
                       aria-label="自訂旅程外觀"
                     />
                     <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
-                    {db ? <SyncStatusIndicator status={syncStatus} /> : null}
+                    {db ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
                 </div>

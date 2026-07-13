@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // (1) 模組引入與全局設定
 // ============================================================================
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -44,6 +44,8 @@ import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 import { EmptyState } from './components/ui/EmptyState.jsx';
 import { useToast } from './components/ui/useToast.js';
 import { checkForPwaUpdate } from './pwaUpdateController.js';
+import { useOnlineStatus } from './hooks/useOnlineStatus.js';
+import { OfflineBanner } from './components/OfflineBanner.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -70,7 +72,20 @@ const formatDateForInput = (date) => {
 // (2) 核心視圖：首頁大廳 (TravelApp)
 // ============================================================================
 export default function TravelApp() {
+  const { isOnline, hasBeenOffline } = useOnlineStatus();
   const toast = useToast();
+  
+  const lastOnlineState = useRef(isOnline);
+  useEffect(() => {
+    if (isOnline && !lastOnlineState.current && hasBeenOffline) {
+      toast.info({
+        title: '已恢復連線',
+        description: '請稍候確認最新資料已同步。',
+      });
+    }
+    lastOnlineState.current = isOnline;
+  }, [isOnline, hasBeenOffline, toast]);
+
   const [myTrips, setMyTrips] = useState(() => {
     const stored = readJsonStorage('google-travel-my-trips', []);
     return Array.isArray(stored) ? stored : [];
@@ -186,6 +201,14 @@ export default function TravelApp() {
   }, []);
 
   const handleImportTrip = async () => {
+    if (!isOnline) {
+      toast.error({
+        title: '目前離線',
+        description: '請恢復網路連線後再試。',
+      });
+      return;
+    }
+
     const targetRoomId = extractRoomId(importInput);
     if (!targetRoomId) {
       alert("❌ 房間網址或 ID 格式不正確！");
@@ -254,6 +277,14 @@ export default function TravelApp() {
   };
 
   const handleSaveTripModal = async () => {
+    if (!isOnline) {
+      toast.error({
+        title: '目前離線',
+        description: '請恢復網路連線後再試。',
+      });
+      return;
+    }
+
     const title = String(newTitle).trim();
     const destination = String(newDest).trim();
     const members = normalizeMembers(newMembers);
@@ -348,6 +379,14 @@ export default function TravelApp() {
   }, []);
 
   const handleCheckAppUpdate = useCallback(async () => {
+    if (!isOnline) {
+      toast.error({
+        title: '目前離線',
+        description: '請恢復網路連線後再試。',
+      });
+      return;
+    }
+
     if (isCheckingAppUpdateRef.current) return;
 
     isCheckingAppUpdateRef.current = true;
@@ -383,7 +422,7 @@ export default function TravelApp() {
       isCheckingAppUpdateRef.current = false;
       setIsCheckingAppUpdate(false);
     }
-  }, [toast]);
+  }, [toast, isOnline]);
 
   const closeReleaseNotes = useCallback(() => {
     setShowWhatsNew(false);
@@ -596,11 +635,13 @@ export default function TravelApp() {
         />
       </Suspense>
     </APIProvider>
+    <OfflineBanner isOnline={isOnline} />
     {releaseExperience}
     </>
   );
 
   return (
+    <>
     <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-x-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
       <div className="max-w-5xl w-full mx-auto p-6 md:p-12 overflow-y-auto">
         <header className="mb-10 flex flex-col gap-5 md:mb-12">
@@ -845,7 +886,9 @@ export default function TravelApp() {
       )}
 
       {showDatePicker && ( <DateRangePickerModal initialStart={newStart} initialEnd={newEnd} onClose={() => setShowDatePicker(false)} onConfirm={(start, end) => { setNewStart(start); setNewEnd(end); setShowDatePicker(false); }} t={t} /> )}
-      {releaseExperience}
     </div>
+    <OfflineBanner isOnline={isOnline} />
+    {releaseExperience}
+    </>
   );
 }

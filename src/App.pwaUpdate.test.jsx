@@ -164,4 +164,23 @@ describe('TravelApp manual PWA update checks', () => {
     update.resolve();
     await expect(screen.findByText('已是最新版本')).resolves.toBeInTheDocument();
   });
+
+  it('UT-13: does not check for update when offline', async () => {
+    const user = userEvent.setup();
+    const onLineSpy = vi.spyOn(navigator, 'onLine', 'get');
+    onLineSpy.mockReturnValue(false);
+
+    const { default: App } = await import('./App.jsx');
+    renderApp(<App />);
+    
+    // Simulate offline
+    window.dispatchEvent(new Event('offline'));
+
+    await openSettingsAndCheckUpdates(user);
+    await waitFor(() => {
+      expect(screen.getByText('目前離線')).toBeInTheDocument();
+    });
+
+    onLineSpy.mockRestore();
+  });
 });
