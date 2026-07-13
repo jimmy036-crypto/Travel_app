@@ -632,6 +632,7 @@ export default function TravelApp() {
           onCheckUpdates={handleCheckAppUpdate}
           isCheckingUpdates={isCheckingAppUpdate}
           onTourAvailabilityChange={setTripTourAvailability}
+          isOnline={isOnline}
         />
       </Suspense>
     </APIProvider>

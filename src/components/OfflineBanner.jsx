@@ -10,7 +10,7 @@ export function OfflineBanner({ isOnline, className = '' }) {
       data-testid="offline-banner"
       role="status"
       aria-live="polite"
-      className={`fixed bottom-0 left-0 right-0 z-[100] bg-slate-900 text-white px-4 py-3 text-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] md:bottom-auto md:top-0 md:shadow-md ${className}`}
+      className={`fixed bottom-0 left-0 right-0 z-[100] bg-slate-900 text-white px-4 py-3 text-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] ${className}`}
     >
       <div className="flex items-center justify-center gap-2 max-w-5xl mx-auto text-sm font-bold">
         <svg 

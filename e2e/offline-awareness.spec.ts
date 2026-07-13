@@ -20,6 +20,10 @@ test.describe('Offline Awareness', () => {
     await expect(page.getByTestId('offline-banner')).toContainText('目前離線');
 
     // E2E-06: 離線送出建立旅程不產生 Firebase room (blocked)
+    const initialRoomsResponse = await page.request.get('http://127.0.0.1:9000/rooms.json?ns=demo-travel-e2e-default-rtdb');
+    const initialRooms = await initialRoomsResponse.json() || {};
+    const initialRoomCount = Object.keys(initialRooms).length;
+
     const createBtn = page.getByTestId('create-trip-button').or(page.getByTestId('lobby-empty-create-trip'));
     await createBtn.click();
     
@@ -32,13 +36,31 @@ test.describe('Offline Awareness', () => {
     await expect(page.getByRole('heading', { name: '目前離線' }).first()).toBeVisible();
     await expect(page.getByText('請恢復網路連線後再試').first()).toBeVisible();
 
+    const finalRoomsResponse = await page.request.get('http://127.0.0.1:9000/rooms.json?ns=demo-travel-e2e-default-rtdb');
+    const finalRooms = await finalRoomsResponse.json() || {};
+    expect(Object.keys(finalRooms).length).toBe(initialRoomCount);
+    
+    // Modal is still there and values are preserved
+    await expect(page.getByTestId('trip-name-input')).toHaveValue('Offline Trip Test');
+
     // E2E-07: 離線匯入不進入永久 loading
     await page.getByRole('button', { name: '取消' }).click();
     
     const importBtn = page.getByTestId('import-trip-button').or(page.getByTestId('lobby-empty-import-trip'));
     await importBtn.click();
-    await page.getByRole('button', { name: '確認匯入' }).click();
+    
+    const importInput = page.getByPlaceholder('貼上網址或房間 ID...');
+    await importInput.fill('some-room-id');
+    const confirmImportBtn = page.getByRole('button', { name: '確認匯入' });
+    await confirmImportBtn.click();
+    
     await expect(page.getByText('請恢復網路連線後再試').first()).toBeVisible();
+    
+    // Check modal and input preserved, button not disabled
+    await expect(importInput).toHaveValue('some-room-id');
+    await expect(confirmImportBtn).toBeEnabled();
+    // Loading is not continuing (the button text is '確認匯入' not loading state, if any)
+    await expect(confirmImportBtn).toHaveText('確認匯入');
 
     // Go online
     await context.setOffline(false);
@@ -47,7 +69,13 @@ test.describe('Offline Awareness', () => {
     await expect(page.getByTestId('offline-banner')).toBeHidden();
 
     // E2E-03: Recovery toast should appear
-    await expect(page.getByText('已恢復連線')).toBeVisible();
+    const recoveryToast = page.getByRole('heading', {
+      name: '已恢復連線',
+      exact: true,
+    });
+    
+    await expect(recoveryToast).toHaveCount(1);
+    await expect(recoveryToast).toBeVisible();
   });
 
   test('E2E-04, E2E-05, E2E-08: TripDetail offline behavior', async ({ page, context, isMobile }) => {
@@ -99,17 +127,27 @@ test.describe('Offline Awareness', () => {
 
     if (isMobile) {
       // E2E-08: Check that the offline banner does not cover back button or settings
-      const backButton = page.getByTestId('trip-detail-back-button').or(page.getByRole('button', { name: '返回大廳' }));
+      const backButton = page.getByTestId('trip-detail-back-button').or(page.getByRole('button', { name: '◀ 返回' }));
       const settingsButton = page.getByTestId('app-settings-trigger');
+      const offlineBanner = page.getByTestId('offline-banner');
       
       // Ensure they are clickable (not covered by fixed element)
+      await expect(backButton).toBeVisible();
       await expect(settingsButton).toBeVisible();
+      
+      const backBox = await backButton.boundingBox();
       const settingsBox = await settingsButton.boundingBox();
-      const bannerBox = await page.getByTestId('offline-banner').boundingBox();
+      const bannerBox = await offlineBanner.boundingBox();
       
       // Just check if banner bottom logic doesn't intersect top header
-      if (settingsBox && bannerBox) {
-        expect(bannerBox.y > settingsBox.y + settingsBox.height || bannerBox.y + bannerBox.height < settingsBox.y).toBeTruthy();
+      if (backBox && settingsBox && bannerBox) {
+        // Banner shouldn't overlap back button
+        const backNotOverlapped = bannerBox.y > backBox.y + backBox.height || bannerBox.y + bannerBox.height < backBox.y;
+        expect(backNotOverlapped).toBeTruthy();
+        
+        // Banner shouldn't overlap settings button
+        const settingsNotOverlapped = bannerBox.y > settingsBox.y + settingsBox.height || bannerBox.y + bannerBox.height < settingsBox.y;
+        expect(settingsNotOverlapped).toBeTruthy();
       }
     }
 
@@ -123,6 +161,11 @@ test.describe('Offline Awareness', () => {
     await expect(page.getByTestId('offline-banner')).toBeHidden();
     
     // Recovery toast
-    await expect(page.getByText('已恢復連線')).toBeVisible();
+    const detailRecoveryToast = page.getByRole('heading', {
+      name: '已恢復連線',
+      exact: true,
+    });
+    await expect(detailRecoveryToast).toHaveCount(1);
+    await expect(detailRecoveryToast).toBeVisible();
   });
 });

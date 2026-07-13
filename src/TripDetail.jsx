@@ -58,7 +58,6 @@ import { usePlaceActions } from './features/places/usePlaceActions.js';
 import { useExpenseActions } from './features/expenses/useExpenseActions.js';
 import { ExpenseSection } from './features/expenses/ExpenseSection.jsx';
 import { persistItinerary } from './services/placesService.js';
-import { useOnlineStatus } from './hooks/useOnlineStatus.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -1258,8 +1257,8 @@ const TripDetail = ({
   onCheckUpdates,
   isCheckingUpdates,
   onTourAvailabilityChange,
+  isOnline = true,
 }) => {
-  const { isOnline } = useOnlineStatus();
   const confirm = useConfirm();
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(true);
