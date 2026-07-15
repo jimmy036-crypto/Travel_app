@@ -146,6 +146,7 @@ test.describe('Offline Trip Preview', () => {
 
     // E2E-CACHE-07: Uncached room toast and stay in Lobby
     await page.click('[data-testid="offline-preview-back"]');
+    await context.setOffline(false); // go online to allow page.goto to load the app
     await page.evaluate(() => {
       const trips = JSON.parse(localStorage.getItem('google-travel-my-trips') || '[]');
       trips.push({ roomId: 'uncached-room', title: 'Uncached Trip', destination: 'Nowhere' });
@@ -155,6 +156,7 @@ test.describe('Offline Trip Preview', () => {
     await page.goto('/');
     await markCurrentReleaseSeen(page);
 
+    await context.setOffline(true); // go offline again for the uncached test
     await page.locator('[data-testid="trip-card"][data-room-id="uncached-room"]').click();
     await expect(page.locator('text=請先連線並開啟此旅程一次')).toBeVisible();
     await expect(page.locator('[data-testid="offline-trip-preview"]')).toHaveCount(0);
