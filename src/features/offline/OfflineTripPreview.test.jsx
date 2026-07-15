@@ -2,6 +2,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { OfflineTripPreview } from './OfflineTripPreview.jsx';
 
+// PREVIEW-14: Mock Firebase modules to throw if accessed
+vi.mock('../../firebase', () => {
+  return {
+    get db() { throw new Error('Firebase should not be called'); },
+    get storage() { throw new Error('Firebase should not be called'); }
+  };
+});
+
 describe('OfflineTripPreview', () => {
   const mockSummary = {
     cachedAt: 1672531200000,
@@ -94,5 +102,59 @@ describe('OfflineTripPreview', () => {
     expect(screen.queryByText(/新增/)).toBeNull();
     expect(screen.queryByText(/編輯/)).toBeNull();
     expect(screen.queryByText(/刪除/)).toBeNull();
+  });
+
+  it('renders safely when meta, members, days, summary, cachedAt are missing/invalid', () => {
+    const incompleteSummary = {
+      version: 1,
+      roomId: 'room-incomplete',
+      cachedAt: 'invalid-date',
+      meta: {
+        title: '',
+        destination: ''
+      },
+      // missing days, members, summary
+    };
+
+    render(<OfflineTripPreview summary={incompleteSummary} isOnline={false} />);
+    
+    // Title defaults
+    expect(screen.getByText('未命名旅程')).toBeInTheDocument();
+    expect(screen.getByText('未定目的地')).toBeInTheDocument();
+    
+    // cachedAt invalid falls back
+    expect(screen.getByText(/快取時間未知/)).toBeInTheDocument();
+
+    // members missing defaults to "自己"
+    expect(screen.getByText(/自己/)).toBeInTheDocument();
+
+    // days missing defaults to "尚無行程資料"
+    expect(screen.getByText('尚無行程資料')).toBeInTheDocument();
+
+    // summary missing defaults to 0
+    expect(screen.getByText(/0 筆/)).toBeInTheDocument();
+    expect(screen.getByText(/0 \/ 0/)).toBeInTheDocument();
+    expect(screen.getByText(/0 張/)).toBeInTheDocument();
+  });
+
+  it('renders safely when expenseTotal is non-numeric string', () => {
+    const nonNumericSummary = {
+      meta: { title: 'Trip B' },
+      summary: {
+        expenseTotal: 'invalid-number',
+        expenseCount: 2,
+        checklistCompleted: 1,
+        checklistTotal: 3,
+        ticketCount: 4
+      }
+    };
+    render(<OfflineTripPreview summary={nonNumericSummary} isOnline={false} />);
+    expect(screen.getByText(/NT\$ 0/)).toBeInTheDocument();
+  });
+
+  it('PREVIEW-14: mock Firebase modules throw, render does not call Firebase', () => {
+    // This rendering is safe and does not trigger mock getters
+    const { container } = render(<OfflineTripPreview summary={mockSummary} isOnline={false} />);
+    expect(container).toBeInTheDocument();
   });
 });

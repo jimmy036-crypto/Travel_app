@@ -946,10 +946,17 @@ export default function TravelApp() {
                cancelText: "取消"
              });
              if (ok) {
-               removeOfflineTripSnapshot(offlinePreviewData.roomId);
-               refreshOfflineCacheSummaries();
-               setOfflinePreviewData(null);
-               toast.info({ title: "已清除離線資料" });
+               const res = removeOfflineTripSnapshot(offlinePreviewData.roomId);
+               if (res && res.ok) {
+                 refreshOfflineCacheSummaries();
+                 setOfflinePreviewData(null);
+                 toast.info({ title: "已清除離線資料" });
+               } else {
+                 toast.info({
+                   title: "清除離線快取失敗",
+                   description: "儲存空間發生錯誤或已滿。"
+                 });
+               }
              }
            }}
            onOpenOnline={() => {

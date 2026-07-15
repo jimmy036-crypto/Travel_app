@@ -23,6 +23,10 @@ vi.mock('./pwaUpdateController.js', () => ({
   checkForPwaUpdate: vi.fn(),
 }));
 
+vi.mock('./components/ui/useConfirm.js', () => ({
+  useConfirm: () => vi.fn().mockResolvedValue(true)
+}));
+
 // Provide test implementations for other imports
 vi.mock('./components/UIComponents.jsx', () => ({
   DestinationSearch: ({ onChange, value }) => (

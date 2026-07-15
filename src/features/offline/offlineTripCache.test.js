@@ -24,7 +24,7 @@ describe('offlineTripCache', () => {
       itinerary: [],
       expenseStats: { totalExpense: 1000 },
       expenses: [{ id: 'e1' }],
-      checklistItems: [{ id: 'c1', checked: true }, { id: 'c2', checked: false }],
+      checklistItems: [{ id: 'c1', completed: true }, { id: 'c2', completed: false }],
       tickets: [{ id: 't1' }]
     };
     const snap = buildOfflineTripSnapshot(input);
@@ -37,6 +37,76 @@ describe('offlineTripCache', () => {
     expect(snap.summary.checklistTotal).toBe(2);
     expect(snap.summary.ticketCount).toBe(1);
     expect(snap.cachedAt).toBeGreaterThan(0);
+  });
+
+  it('CACHE-OBJECT-01 builds snapshot from Record<string, item[]>', () => {
+    const input = {
+      roomId: 'room1',
+      meta: { title: 'Trip 1', destination: 'Tokyo', startDate: '2026-07-15' },
+      itinerary: {
+        'Day 2': [],
+        'Day 1': [
+          { id: 'item1', name: 'P1', time: '10:00', address: 'Addr 1', memo: 'Memo 1', category: '景點' }
+        ]
+      },
+      expenseStats: { totalExpense: 100 },
+      expenses: [],
+      checklistItems: [],
+      tickets: []
+    };
+    const snap = buildOfflineTripSnapshot(input);
+    expect(snap.days.length).toBe(2);
+    expect(snap.days[0].id).toBe('Day 1');
+    expect(snap.days[0].label).toContain('第一天');
+    expect(snap.days[0].items.length).toBe(1);
+    expect(snap.days[0].items[0].name).toBe('P1');
+    expect(snap.days[0].items[0].note).toBe('Memo 1');
+    expect(snap.days[1].id).toBe('Day 2');
+    expect(snap.days[1].items.length).toBe(0);
+  });
+
+  it('CACHE-OBJECT-02 checks customName priority over name', () => {
+    const input = {
+      roomId: 'room1',
+      meta: { title: 'Trip 1' },
+      itinerary: {
+        'Day 1': [
+          { id: 'item1', customName: 'My Custom Name', name: 'Original Name' }
+        ]
+      }
+    };
+    const snap = buildOfflineTripSnapshot(input);
+    expect(snap.days[0].items[0].name).toBe('My Custom Name');
+  });
+
+  it('CACHE-OBJECT-03 checks memo to note mapping', () => {
+    const input = {
+      roomId: 'room1',
+      meta: { title: 'Trip 1' },
+      itinerary: {
+        'Day 1': [
+          { id: 'item1', memo: 'This is memo', note: 'This is note' }
+        ]
+      }
+    };
+    const snap = buildOfflineTripSnapshot(input);
+    expect(snap.days[0].items[0].note).toBe('This is memo');
+  });
+
+  it('checks checklist summary calculations for completed and checked values', () => {
+    const input = {
+      roomId: 'room1',
+      meta: { title: 'Trip 1' },
+      checklistItems: [
+        { id: 'c1', completed: true },
+        { id: 'c2', completed: false },
+        { id: 'c3', checked: true }, // fallback compatibility
+        { id: 'c4' } // missing fields
+      ]
+    };
+    const snap = buildOfflineTripSnapshot(input);
+    expect(snap.summary.checklistCompleted).toBe(2); // c1 (completed:true) and c3 (checked:true)
+    expect(snap.summary.checklistTotal).toBe(4);
   });
 
   it('CACHE-02 keeps only allowed fields in itinerary', () => {
@@ -137,32 +207,50 @@ describe('offlineTripCache', () => {
     writeOfflineTripSnapshot(snap1);
 
     const largeSnap = buildOfflineTripSnapshot({ roomId: 'r2', ...base });
-    // Make it ~1.5MB
     largeSnap.meta.title = 'A'.repeat(1.5 * 1024 * 1024);
     
     const writeRes = writeOfflineTripSnapshot(largeSnap);
     expect(writeRes.ok).toBe(false);
     expect(writeRes.reason).toBe('too-large');
 
-    // r1 is still there
     expect(readOfflineTripSnapshot('r1')).not.toBeNull();
   });
 
-  it('CACHE-11 quota error does not throw', () => {
-    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } });
+  it('CACHE-11 quota error does not throw and does not destroy existing cache', () => {
+    const snap1 = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T1' } });
+    writeOfflineTripSnapshot(snap1);
+
+    const snap2 = buildOfflineTripSnapshot({ roomId: 'r2', meta: { title: 'T2' } });
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError');
     });
-    const writeRes = writeOfflineTripSnapshot(snap);
+    const writeRes = writeOfflineTripSnapshot(snap2);
     expect(writeRes.ok).toBe(false);
     expect(writeRes.reason).toBe('quota-error');
+
+    // restore
+    vi.restoreAllMocks();
+    expect(readOfflineTripSnapshot('r1')).not.toBeNull();
   });
 
-  it('CACHE-12 remove only specified room', () => {
+  it('CACHE-12 remove only specified room and checks quota error rollback', () => {
     writeOfflineTripSnapshot(buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T1' } }));
     writeOfflineTripSnapshot(buildOfflineTripSnapshot({ roomId: 'r2', meta: { title: 'T2' } }));
-    removeOfflineTripSnapshot('r1');
+    
+    const removeRes = removeOfflineTripSnapshot('r1');
+    expect(removeRes.ok).toBe(true);
     expect(readOfflineTripSnapshot('r1')).toBeNull();
+    expect(readOfflineTripSnapshot('r2')).not.toBeNull();
+
+    // Check remove failure due to quota error
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    const removeFailedRes = removeOfflineTripSnapshot('r2');
+    expect(removeFailedRes.ok).toBe(false);
+    expect(removeFailedRes.reason).toBe('quota-error');
+    
+    vi.restoreAllMocks();
     expect(readOfflineTripSnapshot('r2')).not.toBeNull();
   });
 
@@ -184,5 +272,85 @@ describe('offlineTripCache', () => {
     expect(snap).toBeNull();
     const writeRes = writeOfflineTripSnapshot({ version: 1, roomId: '' });
     expect(writeRes.ok).toBe(false);
+    
+    // blanks, object, array, path separators, excessive length
+    expect(writeOfflineTripSnapshot({ version: 1, roomId: '   ' }).ok).toBe(false);
+    expect(writeOfflineTripSnapshot({ version: 1, roomId: {} }).ok).toBe(false);
+    expect(writeOfflineTripSnapshot({ version: 1, roomId: [] }).ok).toBe(false);
+    expect(writeOfflineTripSnapshot({ version: 1, roomId: 'room/id' }).ok).toBe(false);
+    expect(writeOfflineTripSnapshot({ version: 1, roomId: 'room\\id' }).ok).toBe(false);
+    expect(writeOfflineTripSnapshot({ version: 1, roomId: 'a'.repeat(200) }).ok).toBe(false);
+  });
+
+  it('checks readOfflineTripSnapshot verification parameters', () => {
+    // roomId mismatch
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T1' } });
+    writeOfflineTripSnapshot(snap);
+    localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+      'r1': { ...snap, roomId: 'r2' }
+    }));
+    expect(readOfflineTripSnapshot('r1')).toBeNull();
+
+    // cachedAt invalid
+    const snap2 = { ...snap, cachedAt: -10 };
+    localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+      'r1': snap2
+    }));
+    expect(readOfflineTripSnapshot('r1')).toBeNull();
+
+    // schema corrupted
+    const snap3 = { ...snap, meta: 'corrupted' };
+    localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+      'r1': snap3
+    }));
+    expect(readOfflineTripSnapshot('r1')).toBeNull();
+  });
+
+  it('checks listOfflineTripSummaries filtering invalid snapshots', () => {
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T1' } });
+    localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+      'r1': { ...snap, roomId: 'r2' }, // mismatched roomId
+      'r3': { ...snap, roomId: 'r3', cachedAt: 'invalid' } // invalid cachedAt
+    }));
+    const list = listOfflineTripSummaries();
+    expect(list.length).toBe(0);
+  });
+
+  it('checks new snapshots are not immediately evicted when written with older cachedAt', () => {
+    // Write 3 snapshots first
+    for (let i = 1; i <= 3; i++) {
+      const snap = buildOfflineTripSnapshot({ roomId: `r${i}`, meta: { title: `T${i}` } });
+      snap.cachedAt = 1000 + i;
+      writeOfflineTripSnapshot(snap);
+    }
+    
+    // Now write a 4th one with an older cachedAt (e.g. 500)
+    const snap4 = buildOfflineTripSnapshot({ roomId: 'r4', meta: { title: 'T4' } });
+    snap4.cachedAt = 500;
+    const writeRes = writeOfflineTripSnapshot(snap4);
+    expect(writeRes.ok).toBe(true);
+    
+    // Verify that r4 (the new snapshot) was NOT evicted immediately.
+    // Out of [r1, r2, r3, r4] with cachedAt [1001, 1002, 1003, 500]
+    // The eviction logic keeps r4 and the 2 newest from [r1, r2, r3] (which are r2 and r3).
+    // So r1 (the oldest from others) should be evicted.
+    expect(readOfflineTripSnapshot('r4')).not.toBeNull();
+    expect(readOfflineTripSnapshot('r1')).toBeNull();
+    expect(readOfflineTripSnapshot('r3')).not.toBeNull();
+    expect(readOfflineTripSnapshot('r2')).not.toBeNull();
+  });
+
+  it('checks updating existing room does not increase total count', () => {
+    for (let i = 1; i <= 3; i++) {
+      const snap = buildOfflineTripSnapshot({ roomId: `r${i}`, meta: { title: `T${i}` } });
+      writeOfflineTripSnapshot(snap);
+    }
+    expect(listOfflineTripSummaries().length).toBe(3);
+    
+    const snapUpdate = buildOfflineTripSnapshot({ roomId: 'r2', meta: { title: 'T2 Updated' } });
+    writeOfflineTripSnapshot(snapUpdate);
+    
+    expect(listOfflineTripSummaries().length).toBe(3);
+    expect(readOfflineTripSnapshot('r2').meta.title).toBe('T2 Updated');
   });
 });

@@ -2966,7 +2966,7 @@ const TripDetail = ({
               <div className={`relative z-40 p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-md shrink-0 border-b backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
-                    <button onClick={onBack} className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
+                    <button onClick={onBack} data-testid="back-to-lobby" className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
                     <input
                       ref={tripAppearanceInputRef}
                       type="color"
@@ -2976,7 +2976,7 @@ const TripDetail = ({
                       tabIndex={-1}
                       aria-label="自訂旅程外觀"
                     />
-                    <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
+                    <h1 data-testid="trip-detail-title" className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
                     {db ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>

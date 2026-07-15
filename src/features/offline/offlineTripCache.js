@@ -1,6 +1,24 @@
+import { extractRoomId, sortDayIds, getDayDisplay } from '../../helpers.js';
+
 const CACHE_KEY = 'google-travel-offline-trip-cache-v1';
 const MAX_TRIPS = 3;
 const MAX_SIZE_BYTES = 1000 * 1024; // roughly 1MB
+
+function validateRoomId(roomId) {
+  if (typeof roomId !== 'string') return '';
+  const trimmed = roomId.trim();
+  if (!trimmed) return '';
+  if (trimmed.includes('/') || trimmed.includes('\\')) return '';
+  if (trimmed.length > 160) return '';
+  
+  try {
+    const extracted = extractRoomId(trimmed);
+    if (!extracted) return '';
+    return extracted;
+  } catch {
+    return '';
+  }
+}
 
 export function buildOfflineTripSnapshot({
   roomId,
@@ -11,31 +29,63 @@ export function buildOfflineTripSnapshot({
   checklistItems,
   tickets
 }) {
-  if (!roomId || !meta) return null;
+  const normId = validateRoomId(roomId);
+  if (!normId || !meta) return null;
 
-  const days = Array.isArray(itinerary) ? itinerary.map(day => ({
-    id: day.id,
-    label: day.label,
-    items: Array.isArray(day.items) ? day.items.map(item => ({
-      id: item.id,
-      name: item.name || '',
+  let days = [];
+
+  const mapItem = (item) => {
+    if (!item) return null;
+    return {
+      id: item.id || '',
+      name: item.customName || item.name || '',
       time: item.time || '',
       address: item.address || '',
-      note: typeof item.note === 'string' ? item.note : '',
-      category: item.category || '景點'
-    })) : []
-  })) : [];
+      note: item.memo || item.note || '',
+      category: item.category || item.type || '景點'
+    };
+  };
 
-  let expenseCount = 0;
-  if (Array.isArray(expenses)) {
-    expenseCount = expenses.length;
+  if (itinerary && typeof itinerary === 'object' && !Array.isArray(itinerary)) {
+    const dayIds = Object.keys(itinerary);
+    const sortedDayIds = sortDayIds(dayIds);
+    days = sortedDayIds.map(dayId => {
+      const items = Array.isArray(itinerary[dayId]) 
+        ? itinerary[dayId].map(mapItem).filter(Boolean) 
+        : [];
+      const { title, dateStr } = getDayDisplay(dayId, meta.startDate);
+      const label = dateStr ? `${title} ${dateStr}` : title;
+      return {
+        id: dayId,
+        label,
+        items
+      };
+    });
+  } else if (Array.isArray(itinerary)) {
+    days = itinerary.map(day => {
+      const { title, dateStr } = getDayDisplay(day.id, meta.startDate);
+      const label = day.label || (dateStr ? `${title} ${dateStr}` : title);
+      return {
+        id: day.id,
+        label,
+        items: Array.isArray(day.items) ? day.items.map(mapItem).filter(Boolean) : []
+      };
+    });
   }
 
   let checklistCompleted = 0;
   let checklistTotal = 0;
   if (Array.isArray(checklistItems)) {
     checklistTotal = checklistItems.length;
-    checklistCompleted = checklistItems.filter(i => i.checked).length;
+    checklistCompleted = checklistItems.filter(i => {
+      const isCompleted = i.completed !== undefined ? i.completed : i.checked;
+      return Boolean(isCompleted);
+    }).length;
+  }
+
+  let expenseCount = 0;
+  if (Array.isArray(expenses)) {
+    expenseCount = expenses.length;
   }
 
   let ticketCount = 0;
@@ -45,7 +95,7 @@ export function buildOfflineTripSnapshot({
 
   const snapshot = {
     version: 1,
-    roomId: String(roomId),
+    roomId: normId,
     cachedAt: Date.now(),
     meta: {
       title: meta.title || '',
@@ -76,7 +126,7 @@ function readAllCache() {
     const parsed = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null) return {};
     return parsed;
-  } catch (e) {
+  } catch {
     return {};
   }
 }
@@ -86,53 +136,88 @@ function writeAllCache(cacheObj) {
     const str = JSON.stringify(cacheObj);
     localStorage.setItem(CACHE_KEY, str);
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
 
 export function writeOfflineTripSnapshot(snapshot) {
-  if (!snapshot || !snapshot.roomId || snapshot.version !== 1) {
+  if (!snapshot || typeof snapshot !== 'object') {
     return { ok: false, reason: 'invalid-snapshot' };
   }
 
-  const snapshotStr = JSON.stringify(snapshot);
-  // Estimate size: JavaScript strings are UTF-16, length * 2 is roughly bytes.
-  // Actually, JSON.stringify length in bytes (UTF-8) is usually similar to string length.
-  // We'll use length * 2 to be conservative, or encodeURI length.
+  const normRoomId = validateRoomId(snapshot.roomId);
+  if (!normRoomId) {
+    return { ok: false, reason: 'invalid-room-id' };
+  }
+
+  if (snapshot.version !== 1) {
+    return { ok: false, reason: 'invalid-version' };
+  }
+
+  let snapshotCopy;
+  try {
+    snapshotCopy = JSON.parse(JSON.stringify(snapshot));
+  } catch {
+    return { ok: false, reason: 'invalid-snapshot' };
+  }
+
+  if (typeof snapshotCopy.cachedAt !== 'number' || !Number.isFinite(snapshotCopy.cachedAt) || snapshotCopy.cachedAt <= 0) {
+    snapshotCopy.cachedAt = Date.now();
+  }
+
+  snapshotCopy.roomId = normRoomId;
+
+  if (typeof snapshotCopy.meta !== 'object' || snapshotCopy.meta === null || Array.isArray(snapshotCopy.meta)) {
+    return { ok: false, reason: 'invalid-meta' };
+  }
+  if (!Array.isArray(snapshotCopy.days)) {
+    return { ok: false, reason: 'invalid-days' };
+  }
+  if (typeof snapshotCopy.summary !== 'object' || snapshotCopy.summary === null || Array.isArray(snapshotCopy.summary)) {
+    return { ok: false, reason: 'invalid-summary' };
+  }
+
+  const snapshotStr = JSON.stringify(snapshotCopy);
   const byteSize = new Blob([snapshotStr]).size;
   if (byteSize > MAX_SIZE_BYTES) {
-    console.warn(`[offlineTripCache] Snapshot for ${snapshot.roomId} is too large (${byteSize} bytes)`);
+    console.warn(`[offlineTripCache] Snapshot for ${snapshotCopy.roomId} is too large (${byteSize} bytes)`);
     return { ok: false, reason: 'too-large' };
   }
 
   const cache = readAllCache();
-  
-  // If we are adding a new cache and it exceeds MAX_TRIPS, we need to evict.
-  // We don't want to evict if we're just updating an existing trip that is already in cache.
-  // Or rather, we keep max MAX_TRIPS total.
-  cache[snapshot.roomId] = snapshot;
-  
+  const originalCacheStr = localStorage.getItem(CACHE_KEY) || '{}';
+
+  cache[snapshotCopy.roomId] = snapshotCopy;
+
   const entries = Object.values(cache);
   if (entries.length > MAX_TRIPS) {
-    // Sort by cachedAt descending
-    entries.sort((a, b) => (b.cachedAt || 0) - (a.cachedAt || 0));
-    // Keep top MAX_TRIPS
-    const toKeep = entries.slice(0, MAX_TRIPS);
-    // Rebuild cache
+    const others = entries.filter(e => e.roomId !== snapshotCopy.roomId);
+    others.sort((a, b) => (b.cachedAt || 0) - (a.cachedAt || 0));
+    
+    const toKeep = [snapshotCopy, ...others.slice(0, MAX_TRIPS - 1)];
     const newCache = {};
     for (const item of toKeep) {
       newCache[item.roomId] = item;
     }
-    // ensure we didn't accidentally delete the one we just tried to insert
-    // (it should be newest, so it shouldn't be deleted)
+    
     if (!writeAllCache(newCache)) {
+      try {
+        localStorage.setItem(CACHE_KEY, originalCacheStr);
+      } catch {
+        // ignore rollback error
+      }
       return { ok: false, reason: 'quota-error' };
     }
     return { ok: true };
   }
 
   if (!writeAllCache(cache)) {
+    try {
+      localStorage.setItem(CACHE_KEY, originalCacheStr);
+    } catch {
+      // ignore rollback error
+    }
     return { ok: false, reason: 'quota-error' };
   }
 
@@ -140,11 +225,20 @@ export function writeOfflineTripSnapshot(snapshot) {
 }
 
 export function readOfflineTripSnapshot(roomId) {
-  if (!roomId) return null;
+  const normId = validateRoomId(roomId);
+  if (!normId) return null;
+  
   const cache = readAllCache();
-  const snapshot = cache[String(roomId)];
-  if (!snapshot || snapshot.version !== 1) return null;
-  // Deep clone to avoid external mutation
+  const snapshot = cache[normId];
+  if (!snapshot) return null;
+  
+  if (snapshot.roomId !== normId) return null;
+  if (snapshot.version !== 1) return null;
+  if (typeof snapshot.cachedAt !== 'number' || !Number.isFinite(snapshot.cachedAt) || snapshot.cachedAt <= 0) return null;
+  if (typeof snapshot.meta !== 'object' || snapshot.meta === null || Array.isArray(snapshot.meta)) return null;
+  if (!Array.isArray(snapshot.days)) return null;
+  if (typeof snapshot.summary !== 'object' || snapshot.summary === null || Array.isArray(snapshot.summary)) return null;
+  
   return JSON.parse(JSON.stringify(snapshot));
 }
 
@@ -153,7 +247,16 @@ export function listOfflineTripSummaries() {
   const summaries = [];
   for (const key in cache) {
     const item = cache[key];
-    if (item && item.version === 1) {
+    if (item) {
+      if (key !== item.roomId) continue;
+      const normId = validateRoomId(item.roomId);
+      if (!normId || item.roomId !== normId) continue;
+      if (item.version !== 1) continue;
+      if (typeof item.cachedAt !== 'number' || !Number.isFinite(item.cachedAt) || item.cachedAt <= 0) continue;
+      if (typeof item.meta !== 'object' || item.meta === null || Array.isArray(item.meta)) continue;
+      if (!Array.isArray(item.days)) continue;
+      if (typeof item.summary !== 'object' || item.summary === null || Array.isArray(item.summary)) continue;
+
       summaries.push({
         roomId: item.roomId,
         cachedAt: item.cachedAt,
@@ -162,16 +265,27 @@ export function listOfflineTripSummaries() {
       });
     }
   }
-  // Sort descending by cachedAt
   summaries.sort((a, b) => (b.cachedAt || 0) - (a.cachedAt || 0));
   return summaries;
 }
 
 export function removeOfflineTripSnapshot(roomId) {
-  if (!roomId) return { ok: false };
+  const normId = validateRoomId(roomId);
+  if (!normId) return { ok: false, reason: 'invalid-room-id' };
+  
   const cache = readAllCache();
-  if (!cache[String(roomId)]) return { ok: true }; // already removed
-  delete cache[String(roomId)];
-  writeAllCache(cache);
+  if (!cache[normId]) return { ok: true };
+  
+  const originalCacheStr = localStorage.getItem(CACHE_KEY) || '{}';
+  delete cache[normId];
+  
+  if (!writeAllCache(cache)) {
+    try {
+      localStorage.setItem(CACHE_KEY, originalCacheStr);
+    } catch {
+      // ignore rollback error
+    }
+    return { ok: false, reason: 'quota-error' };
+  }
   return { ok: true };
 }
