@@ -58,6 +58,7 @@ import { usePlaceActions } from './features/places/usePlaceActions.js';
 import { useExpenseActions } from './features/expenses/useExpenseActions.js';
 import { ExpenseSection } from './features/expenses/ExpenseSection.jsx';
 import { persistItinerary } from './services/placesService.js';
+import { buildOfflineTripSnapshot, writeOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -2889,6 +2890,28 @@ const TripDetail = ({
       }
     };
   }, [handleAddPlaceFromSearch, handleDragEnd, safeCurrentDay]);
+  useEffect(() => {
+    if (!isOnline || isLoading || loadError || !meta || !roomId) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const snap = buildOfflineTripSnapshot({
+        roomId,
+        meta,
+        itinerary,
+        expenseStats,
+        expenses,
+        checklistItems,
+        tickets
+      });
+      if (snap) {
+        writeOfflineTripSnapshot(snap);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [isOnline, isLoading, loadError, meta, roomId, itinerary, expenseStats, expenses, checklistItems, tickets]);
 
   if (loadError) {
     return (
