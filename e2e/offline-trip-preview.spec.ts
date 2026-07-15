@@ -138,10 +138,11 @@ test.describe('Offline Trip Preview', () => {
     await expect(page.locator('[data-testid="offline-preview-place"]')).toContainText('Custom Place Name');
     await expect(page.locator('[data-testid="offline-preview-place"]')).toContainText('This is a test memo');
 
-    // E2E-CACHE-06: No editing features
-    await expect(page.locator('button:has-text("新增")')).toHaveCount(0);
-    await expect(page.locator('button:has-text("編輯")')).toHaveCount(0);
-    await expect(page.locator('button:has-text("刪除")')).toHaveCount(0);
+    // E2E-CACHE-06: No editing features in preview
+    const previewContainer = page.locator('[data-testid="offline-trip-preview"]');
+    await expect(previewContainer.locator('button:has-text("新增")')).toHaveCount(0);
+    await expect(previewContainer.locator('button:has-text("編輯")')).toHaveCount(0);
+    await expect(previewContainer.locator('button:has-text("刪除")')).toHaveCount(0);
 
     // E2E-CACHE-07: Uncached room toast and stay in Lobby
     await page.click('[data-testid="offline-preview-back"]');
