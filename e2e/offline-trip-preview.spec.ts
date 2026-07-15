@@ -64,20 +64,23 @@ test.describe('Offline Trip Preview', () => {
   });
 
   test('E2E-CACHE-01 ~ E2E-CACHE-11 Offline Trip Preview Flow', async ({ page, context }) => {
-    // 1. Setup local storage shortcut before page loads
+    // 1. Setup local storage shortcut before page loads, using sessionStorage to prevent overwrites on reload
     await page.addInitScript((roomId) => {
-      window.localStorage.removeItem('google-travel-my-trips');
-      window.localStorage.removeItem('google-travel-offline-trip-cache-v1');
-      window.localStorage.setItem('google-travel-my-trips', JSON.stringify([{
-        roomId,
-        title: 'Test Offline Trip',
-        destination: 'Taipei',
-        startDate: '2026-07-15',
-        endDate: '2026-07-17',
-        members: ['Alice', 'Bob'],
-        transport: '汽車 🚗',
-        themeColor: '#3b82f6'
-      }]));
+      if (!window.sessionStorage.getItem('init-done')) {
+        window.sessionStorage.setItem('init-done', 'true');
+        window.localStorage.removeItem('google-travel-my-trips');
+        window.localStorage.removeItem('google-travel-offline-trip-cache-v1');
+        window.localStorage.setItem('google-travel-my-trips', JSON.stringify([{
+          roomId,
+          title: 'Test Offline Trip',
+          destination: 'Taipei',
+          startDate: '2026-07-15',
+          endDate: '2026-07-17',
+          members: ['Alice', 'Bob'],
+          transport: '汽車 🚗',
+          themeColor: '#3b82f6'
+        }]));
+      }
     }, ROOM_ID);
 
     await page.goto('/');
@@ -196,18 +199,21 @@ test.describe('Offline Trip Preview', () => {
     await page.setViewportSize({ width: 375, height: 667 });
 
     await page.addInitScript((roomId) => {
-      window.localStorage.removeItem('google-travel-my-trips');
-      window.localStorage.removeItem('google-travel-offline-trip-cache-v1');
-      window.localStorage.setItem('google-travel-my-trips', JSON.stringify([{
-        roomId,
-        title: 'Test Offline Trip',
-        destination: 'Taipei',
-        startDate: '2026-07-15',
-        endDate: '2026-07-17',
-        members: ['Alice', 'Bob'],
-        transport: '汽車 🚗',
-        themeColor: '#3b82f6'
-      }]));
+      if (!window.sessionStorage.getItem('init-done')) {
+        window.sessionStorage.setItem('init-done', 'true');
+        window.localStorage.removeItem('google-travel-my-trips');
+        window.localStorage.removeItem('google-travel-offline-trip-cache-v1');
+        window.localStorage.setItem('google-travel-my-trips', JSON.stringify([{
+          roomId,
+          title: 'Test Offline Trip',
+          destination: 'Taipei',
+          startDate: '2026-07-15',
+          endDate: '2026-07-17',
+          members: ['Alice', 'Bob'],
+          transport: '汽車 🚗',
+          themeColor: '#3b82f6'
+        }]));
+      }
     }, ROOM_ID);
 
     await page.goto('/');
