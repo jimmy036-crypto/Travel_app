@@ -66,7 +66,8 @@ test.describe('Offline Trip Preview', () => {
   test('E2E-CACHE-01 ~ E2E-CACHE-11 Offline Trip Preview Flow', async ({ page, context }) => {
     // 1. Setup local storage shortcut before page loads
     await page.addInitScript((roomId) => {
-      window.localStorage.clear();
+      window.localStorage.removeItem('google-travel-my-trips');
+      window.localStorage.removeItem('google-travel-offline-trip-cache-v1');
       window.localStorage.setItem('google-travel-my-trips', JSON.stringify([{
         roomId,
         title: 'Test Offline Trip',
@@ -192,7 +193,8 @@ test.describe('Offline Trip Preview', () => {
     await page.setViewportSize({ width: 375, height: 667 });
 
     await page.addInitScript((roomId) => {
-      window.localStorage.clear();
+      window.localStorage.removeItem('google-travel-my-trips');
+      window.localStorage.removeItem('google-travel-offline-trip-cache-v1');
       window.localStorage.setItem('google-travel-my-trips', JSON.stringify([{
         roomId,
         title: 'Test Offline Trip',
