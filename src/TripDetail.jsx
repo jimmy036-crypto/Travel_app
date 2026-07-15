@@ -2891,7 +2891,17 @@ const TripDetail = ({
     };
   }, [handleAddPlaceFromSearch, handleDragEnd, safeCurrentDay]);
   useEffect(() => {
-    if (!isOnline || isLoading || loadError || !meta || !roomId) {
+    if (
+      !db ||
+      !roomId ||
+      !isOnline ||
+      isLoading ||
+      loadError ||
+      !meta ||
+      !hasLoadedRoomRef.current ||
+      syncStatus !== "saved" ||
+      hasDirtyBranches(dirtyBranchesRef)
+    ) {
       return;
     }
 
@@ -2906,12 +2916,16 @@ const TripDetail = ({
         tickets
       });
       if (snap) {
-        writeOfflineTripSnapshot(snap);
+        try {
+          writeOfflineTripSnapshot(snap);
+        } catch (error) {
+          console.warn("Offline trip cache write failed:", error);
+        }
       }
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [isOnline, isLoading, loadError, meta, roomId, itinerary, expenseStats, expenses, checklistItems, tickets]);
+  }, [isOnline, isLoading, loadError, meta, roomId, itinerary, expenseStats, expenses, checklistItems, tickets, syncStatus]);
 
   if (loadError) {
     return (

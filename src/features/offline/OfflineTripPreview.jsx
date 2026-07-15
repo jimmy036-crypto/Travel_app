@@ -1,164 +1,174 @@
 import React from 'react';
 
-export function OfflineTripPreview({ summary, onBack, onClearCache, onOpenOnline, isOnline }) {
-  // Safe defaults
-  const safeSummary = summary || {};
-  const safeMeta = safeSummary.meta || {};
-  const safeDays = safeSummary.days || [];
-  const safeSummaryStats = safeSummary.summary || {};
-  const cachedAt = safeSummary.cachedAt;
+const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const textValue = (value, fallback = '') => (typeof value === 'string' ? value : fallback);
+const finiteNumber = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0);
+const countValue = (value) => Math.floor(finiteNumber(value));
 
-  const isValidCachedAt = typeof cachedAt === 'number' && Number.isFinite(cachedAt) && cachedAt > 0;
-  const formattedTime = isValidCachedAt 
+function normalizeItem(item, index) {
+  const safeItem = isObject(item) ? item : {};
+  return {
+    id: textValue(safeItem.id, `item-${index}`),
+    name: textValue(safeItem.name),
+    time: textValue(safeItem.time),
+    address: textValue(safeItem.address),
+    note: textValue(safeItem.note),
+    category: textValue(safeItem.category, '景點'),
+  };
+}
+
+function normalizeDay(day, index) {
+  const safeDay = isObject(day) ? day : {};
+  const items = Array.isArray(safeDay.items)
+    ? safeDay.items.map(normalizeItem)
+    : [];
+
+  return {
+    id: textValue(safeDay.id, `day-${index}`),
+    label: textValue(safeDay.label, `Day ${index + 1}`),
+    items,
+  };
+}
+
+export function OfflineTripPreview({ summary, onBack, onClearCache, onOpenOnline, isOnline }) {
+  const safeSummary = isObject(summary) ? summary : {};
+  const safeMeta = isObject(safeSummary.meta) ? safeSummary.meta : {};
+  const safeSummaryStats = isObject(safeSummary.summary) ? safeSummary.summary : {};
+  const safeDays = Array.isArray(safeSummary.days)
+    ? safeSummary.days.map(normalizeDay)
+    : [];
+  const safeMembers = Array.isArray(safeMeta.members)
+    ? safeMeta.members.filter(member => typeof member === 'string' && member.trim())
+    : [];
+
+  const cachedAt = safeSummary.cachedAt;
+  const formattedTime = typeof cachedAt === 'number' && Number.isFinite(cachedAt) && cachedAt > 0
     ? new Date(cachedAt).toLocaleString(undefined, {
         month: 'numeric',
         day: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
       })
     : '快取時間未知';
 
-  const safeMembers = Array.isArray(safeMeta.members) ? safeMeta.members : [];
-
-  // Parse expenses safely
-  const rawExpenseTotal = safeSummaryStats.expenseTotal;
-  const parsedExpenseTotal = typeof rawExpenseTotal === 'number' && Number.isFinite(rawExpenseTotal)
-    ? rawExpenseTotal
-    : parseFloat(rawExpenseTotal);
-  const formattedExpenseTotal = Number.isFinite(parsedExpenseTotal) ? parsedExpenseTotal.toLocaleString() : '0';
-
-  const expenseCount = typeof safeSummaryStats.expenseCount === 'number' && Number.isFinite(safeSummaryStats.expenseCount)
-    ? safeSummaryStats.expenseCount
-    : 0;
-
-  const checklistCompleted = typeof safeSummaryStats.checklistCompleted === 'number' && Number.isFinite(safeSummaryStats.checklistCompleted)
-    ? safeSummaryStats.checklistCompleted
-    : 0;
-
-  const checklistTotal = typeof safeSummaryStats.checklistTotal === 'number' && Number.isFinite(safeSummaryStats.checklistTotal)
-    ? safeSummaryStats.checklistTotal
-    : 0;
-
-  const ticketCount = typeof safeSummaryStats.ticketCount === 'number' && Number.isFinite(safeSummaryStats.ticketCount)
-    ? safeSummaryStats.ticketCount
-    : 0;
+  const expenseTotal = finiteNumber(safeSummaryStats.expenseTotal);
+  const expenseCount = countValue(safeSummaryStats.expenseCount);
+  const checklistCompleted = countValue(safeSummaryStats.checklistCompleted);
+  const checklistTotal = countValue(safeSummaryStats.checklistTotal);
+  const ticketCount = countValue(safeSummaryStats.ticketCount);
 
   return (
-    <div className="fixed inset-0 bg-gray-50 overflow-auto z-50" data-testid="offline-trip-preview">
-      <div className="max-w-md mx-auto bg-white min-h-screen shadow-lg pb-32">
-        {/* Header */}
-        <div className="bg-yellow-100 p-4 sticky top-0 z-10 border-b border-yellow-200">
-          <div className="flex justify-between items-start">
-            <div>
-              <h2 className="text-yellow-800 font-bold text-lg flex items-center gap-2" data-testid="offline-preview-readonly-status">
-                <span>⚠️</span> 離線唯讀模式
-              </h2>
-              <p className="text-sm text-yellow-700 mt-1" data-testid="offline-preview-cache-time">
+    <main
+      className="fixed inset-0 z-50 overflow-y-auto bg-gray-50 pb-[calc(7rem+env(safe-area-inset-bottom))]"
+      data-testid="offline-trip-preview"
+      aria-labelledby="offline-preview-title"
+    >
+      <div className="mx-auto min-h-screen max-w-md bg-white shadow-lg">
+        <header className="sticky top-0 z-10 border-b border-yellow-200 bg-yellow-100 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-yellow-800 font-bold text-lg" data-testid="offline-preview-readonly-status">
+                離線唯讀預覽
+              </p>
+              <p className="mt-1 text-sm text-yellow-700" data-testid="offline-preview-cache-time">
                 快取時間：{formattedTime}
               </p>
-              <p className="text-xs text-yellow-600 mt-1">資料可能不是最新版本，且無法修改。</p>
+              <p className="mt-1 text-xs text-yellow-700" data-testid="offline-preview-stale-note">
+                這是此裝置保存的離線資料，可能不是雲端最新內容。
+              </p>
             </div>
             <button
               type="button"
               onClick={onBack}
-              className="px-3 py-1 bg-white rounded-lg text-sm font-medium border border-yellow-300 hover:bg-yellow-50"
+              className="shrink-0 rounded-lg border border-yellow-300 bg-white px-3 py-1 text-sm font-medium hover:bg-yellow-50"
               data-testid="offline-preview-back"
             >
               返回
             </button>
           </div>
-        </div>
+        </header>
 
-        {/* Action Bar (when online) */}
-        {isOnline && (
-          <div className="p-4 bg-blue-50 border-b border-blue-100 flex justify-between items-center">
-            <span className="text-sm text-blue-800 font-medium">目前已恢復連線</span>
+        {isOnline ? (
+          <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-blue-50 p-4">
+            <span className="text-sm font-medium text-blue-800">已恢復連線</span>
             <button
               type="button"
               onClick={onOpenOnline}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-blue-700"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow hover:bg-blue-700"
               data-testid="offline-preview-open-online"
             >
               開啟最新旅程
             </button>
           </div>
-        )}
+        ) : null}
 
-        {/* Trip Meta */}
-        <div className="p-6 border-b" style={{ borderTop: `4px solid ${safeMeta.themeColor || '#ccc'}` }}>
-          <h1 data-testid="offline-preview-title" className="text-3xl font-black mb-2">{safeMeta.title || '未命名旅程'}</h1>
-          <p className="text-lg text-gray-600 mb-4">{safeMeta.destination || '未定目的地'}</p>
-          <div className="text-sm text-gray-500 space-y-1">
-            <p>📅 {safeMeta.startDate || ''} ~ {safeMeta.endDate || ''}</p>
-            <p>👥 {safeMembers.length > 0 ? safeMembers.join(', ') : '自己'}</p>
+        <section className="border-b p-6" style={{ borderTop: `4px solid ${textValue(safeMeta.themeColor, '#ccc')}` }}>
+          <h1 id="offline-preview-title" data-testid="offline-preview-title" className="mb-2 text-3xl font-black">
+            {textValue(safeMeta.title, '未命名旅程')}
+          </h1>
+          <p className="mb-4 text-lg text-gray-600">{textValue(safeMeta.destination, '未設定目的地')}</p>
+          <div className="space-y-1 text-sm text-gray-500">
+            <p>{textValue(safeMeta.startDate)} ~ {textValue(safeMeta.endDate)}</p>
+            <p>{safeMembers.length > 0 ? safeMembers.join(', ') : '自己'}</p>
           </div>
-        </div>
+        </section>
 
-        {/* Summary Stats */}
-        <div className="p-6 border-b bg-gray-50 grid grid-cols-2 gap-4">
-          <div className="bg-white p-4 rounded-xl shadow-sm border">
-            <p className="text-xs text-gray-500 mb-1">總花費 ({expenseCount} 筆)</p>
-            <p className="text-xl font-bold text-red-600">NT$ {formattedExpenseTotal}</p>
+        <section className="grid grid-cols-2 gap-4 border-b bg-gray-50 p-6" aria-label="旅程摘要">
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <p className="mb-1 text-xs text-gray-500">支出總額（{expenseCount} 筆）</p>
+            <p className="text-xl font-bold text-red-600">NT$ {expenseTotal.toLocaleString()}</p>
           </div>
-          <div className="bg-white p-4 rounded-xl shadow-sm border">
-            <p className="text-xs text-gray-500 mb-1">清單進度</p>
-            <p className="text-xl font-bold text-green-600">
-              {checklistCompleted} / {checklistTotal}
-            </p>
+          <div className="rounded-lg border bg-white p-4 shadow-sm">
+            <p className="mb-1 text-xs text-gray-500">清單完成</p>
+            <p className="text-xl font-bold text-green-600">{checklistCompleted} / {checklistTotal}</p>
           </div>
-          <div className="bg-white p-4 rounded-xl shadow-sm border col-span-2">
-            <p className="text-xs text-gray-500 mb-1">票券數量</p>
+          <div className="col-span-2 rounded-lg border bg-white p-4 shadow-sm">
+            <p className="mb-1 text-xs text-gray-500">票券</p>
             <p className="text-xl font-bold text-blue-600">{ticketCount} 張</p>
           </div>
-        </div>
+        </section>
 
-        {/* Itinerary */}
-        <div className="p-6">
-          <h3 className="text-xl font-bold mb-6">行程預覽</h3>
+        <section className="p-6">
+          <h2 className="mb-6 text-xl font-bold">每日行程</h2>
           {safeDays.length === 0 ? (
-            <p className="text-sm text-gray-400 italic bg-gray-50 p-4 rounded-xl">尚無行程資料</p>
+            <p className="rounded-lg bg-gray-50 p-4 text-sm italic text-gray-500">尚無行程資料</p>
           ) : (
             safeDays.map(day => (
-              <div key={day.id} className="mb-8" data-testid="offline-preview-day">
-                <h4 className="font-bold text-lg mb-4 text-gray-800">{day.label || ''}</h4>
-                {!day.items || day.items.length === 0 ? (
-                  <p className="text-sm text-gray-400 italic bg-gray-50 p-4 rounded-xl">此日尚無景點</p>
+              <section key={day.id} className="mb-8" data-testid="offline-preview-day" aria-label={day.label}>
+                <h3 className="mb-4 text-lg font-bold text-gray-800">{day.label}</h3>
+                {day.items.length === 0 ? (
+                  <p className="rounded-lg bg-gray-50 p-4 text-sm italic text-gray-500">此日尚無景點</p>
                 ) : (
                   <div className="space-y-4">
                     {day.items.map(item => (
-                      <div key={item.id} className="bg-white border rounded-xl p-4 shadow-sm" data-testid="offline-preview-place">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">{item.time || '未定時'}</span>
-                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">{item.category || '景點'}</span>
+                      <article key={item.id} className="rounded-lg border bg-white p-4 shadow-sm" data-testid="offline-preview-place">
+                        <div className="mb-2 flex items-start justify-between gap-3">
+                          <span className="rounded bg-blue-50 px-2 py-1 text-sm font-bold text-blue-600">{item.time || '未定時間'}</span>
+                          <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{item.category}</span>
                         </div>
-                        <h5 className="font-bold text-lg mb-1">{item.name || ''}</h5>
-                        {item.address && (
-                          <p className="text-xs text-gray-500 mb-2">📍 {item.address}</p>
-                        )}
-                        {item.note && (
-                          <p className="text-sm text-gray-700 bg-yellow-50 p-2 rounded mt-2">{item.note}</p>
-                        )}
-                      </div>
+                        <h4 className="mb-1 text-lg font-bold">{item.name}</h4>
+                        {item.address ? <p className="mb-2 text-xs text-gray-500">{item.address}</p> : null}
+                        {item.note ? <p className="mt-2 rounded bg-yellow-50 p-2 text-sm text-gray-700">{item.note}</p> : null}
+                      </article>
                     ))}
                   </div>
                 )}
-              </div>
+              </section>
             ))
           )}
-        </div>
+        </section>
 
-        {/* Danger Zone */}
-        <div className="p-6 border-t mt-8 text-center">
+        <section className="mt-8 border-t p-6 text-center">
           <button
             type="button"
             onClick={onClearCache}
-            className="text-red-500 hover:text-red-700 text-sm font-medium px-4 py-2"
+            className="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700"
             data-testid="offline-preview-clear-cache"
           >
-            清除此裝置快取
+            清除此裝置的離線資料
           </button>
-        </div>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }

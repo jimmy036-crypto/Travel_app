@@ -164,30 +164,35 @@ export default function TravelApp() {
 
     if (!isOnline) {
       const hasCache = offlineCacheSummaries.some(s => s.roomId === safeRoomId);
-      if (hasCache) {
-        const fullSnap = readOfflineTripSnapshot(safeRoomId);
-        if (fullSnap) {
-          setOfflinePreviewData(fullSnap);
-        } else {
-          toast.info({
-            title: "尚無離線資料",
-            description: "快取資料已損毀或不相容。"
-          });
-        }
-        return true;
-      } else {
+      if (!hasCache) {
         toast.info({
-          title: "尚無離線資料",
-          description: "請先連線並開啟此旅程一次。"
+          title: "\u5c1a\u7121\u96e2\u7dda\u8cc7\u6599",
+          description: "\u6b64\u65c5\u7a0b\u5c1a\u672a\u5efa\u7acb\u53ef\u7528\u7684\u96e2\u7dda\u5feb\u53d6\uff0c\u8acb\u91cd\u65b0\u9023\u7dda\u5f8c\u958b\u555f\u3002",
         });
         return false;
       }
+
+      const fullSnap = readOfflineTripSnapshot(safeRoomId);
+      if (!fullSnap) {
+        setOfflinePreviewData(null);
+        refreshOfflineCacheSummaries();
+        toast.info({
+          title: "\u5c1a\u7121\u96e2\u7dda\u8cc7\u6599",
+          description: "\u96e2\u7dda\u8cc7\u6599\u5df2\u640d\u58de\u3001\u5931\u6548\u6216\u9700\u8981\u91cd\u65b0\u9023\u7dda\u958b\u555f\u3002",
+        });
+        return false;
+      }
+
+      setActiveRoomId(null);
+      setOfflinePreviewData(fullSnap);
+      return true;
     }
 
+    setOfflinePreviewData(null);
     window.history.pushState(null, '', `?room=${encodeURIComponent(safeRoomId)}`);
     setActiveRoomId(safeRoomId);
     return true;
-  }, [isOnline, offlineCacheSummaries, toast]);
+  }, [isOnline, offlineCacheSummaries, refreshOfflineCacheSummaries, toast]);
 
   useEffect(() => {
     writeStorage('google-travel-my-trips', JSON.stringify(myTrips));
@@ -206,6 +211,7 @@ export default function TravelApp() {
     const handlePopState = () => {
       const roomId = extractRoomId(new URLSearchParams(window.location.search).get('room'));
       if (!roomId) {
+        setOfflinePreviewData(null);
         setShowFeatureTour(false);
         setShowTripTourSelection(false);
         setTripTourAvailability({
@@ -410,6 +416,7 @@ export default function TravelApp() {
     });
     setPendingFeatureTour(false);
     setActiveRoomId(null);
+    setOfflinePreviewData(null);
   };
 
   const openReleaseNotes = useCallback(() => {
@@ -648,6 +655,46 @@ export default function TravelApp() {
       </Suspense>
     );
   }
+
+  if (offlinePreviewData) return (
+    <>
+      <OfflineTripPreview
+        summary={offlinePreviewData}
+        isOnline={isOnline}
+        onBack={() => setOfflinePreviewData(null)}
+        onClearCache={async () => {
+          const ok = await confirm({
+            title: "\u6e05\u9664\u672c\u88dd\u7f6e\u96e2\u7dda\u8cc7\u6599\uff1f",
+            description: "\u53ea\u6703\u522a\u9664\u6b64\u88dd\u7f6e\u4e0a\u7684\u96e2\u7dda\u5feb\u53d6\uff0c\u4e0d\u6703\u522a\u9664\u96f2\u7aef\u65c5\u7a0b\u8cc7\u6599\u3002",
+            confirmText: "\u6e05\u9664",
+            cancelText: "\u53d6\u6d88",
+          });
+          if (!ok) return;
+
+          const res = removeOfflineTripSnapshot(offlinePreviewData.roomId);
+          if (res?.ok) {
+            refreshOfflineCacheSummaries();
+            setOfflinePreviewData(null);
+            toast.info({ title: "\u5df2\u6e05\u9664\u96e2\u7dda\u8cc7\u6599" });
+            return;
+          }
+
+          toast.error({
+            title: "\u6e05\u9664\u96e2\u7dda\u8cc7\u6599\u5931\u6557",
+            description: "\u8acb\u7a0d\u5f8c\u518d\u8a66\uff0c\u6216\u91cd\u65b0\u9023\u7dda\u5f8c\u958b\u555f\u65c5\u7a0b\u3002",
+          });
+        }}
+        onOpenOnline={() => {
+          if (!isOnline) return;
+          const id = offlinePreviewData.roomId;
+          setOfflinePreviewData(null);
+          openTripRoom(id);
+        }}
+      />
+      <OfflineBanner isOnline={isOnline} />
+      {releaseExperience}
+    </>
+  );
 
   if (activeRoomId) return (
     <>
