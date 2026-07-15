@@ -24,6 +24,11 @@ const STATUS_CONFIG = {
     dotClass: 'bg-red-500',
     textClass: 'text-red-600',
   },
+  offline: {
+    label: '離線',
+    dotClass: 'bg-slate-500',
+    textClass: 'text-slate-600',
+  },
 };
 
 export const SyncStatusIndicator = ({ status = 'idle' }) => {

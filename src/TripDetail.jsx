@@ -1257,6 +1257,7 @@ const TripDetail = ({
   onCheckUpdates,
   isCheckingUpdates,
   onTourAvailabilityChange,
+  isOnline = true,
 }) => {
   const confirm = useConfirm();
   const toast = useToast();
@@ -2953,7 +2954,7 @@ const TripDetail = ({
                       aria-label="自訂旅程外觀"
                     />
                     <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
-                    {db ? <SyncStatusIndicator status={syncStatus} /> : null}
+                    {db ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
                 </div>
