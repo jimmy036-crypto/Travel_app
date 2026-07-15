@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { generateId } from '../../helpers.js';
 import {
   buildOfflineTripSnapshot,
   writeOfflineTripSnapshot,
@@ -6,6 +7,8 @@ import {
   listOfflineTripSummaries,
   removeOfflineTripSnapshot
 } from './offlineTripCache.js';
+
+const CACHE_KEY = 'google-travel-offline-trip-cache-v1';
 
 describe('offlineTripCache', () => {
   beforeEach(() => {
@@ -352,5 +355,271 @@ describe('offlineTripCache', () => {
     
     expect(listOfflineTripSummaries().length).toBe(3);
     expect(readOfflineTripSnapshot('r2').meta.title).toBe('T2 Updated');
+  });
+
+  it('CACHE-KEY-01 rejects __proto__ as a room id', () => {
+    expect(buildOfflineTripSnapshot({ roomId: '__proto__', meta: { title: 'T' } })).toBeNull();
+    expect(writeOfflineTripSnapshot({ version: 1, roomId: '__proto__' }).ok).toBe(false);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+  });
+
+  it('CACHE-KEY-02 rejects constructor as a room id', () => {
+    expect(buildOfflineTripSnapshot({ roomId: 'constructor', meta: { title: 'T' } })).toBeNull();
+    expect(writeOfflineTripSnapshot({ version: 1, roomId: 'constructor' }).ok).toBe(false);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+  });
+
+  it('CACHE-KEY-03 rejects prototype as a room id', () => {
+    expect(buildOfflineTripSnapshot({ roomId: 'prototype', meta: { title: 'T' } })).toBeNull();
+    expect(writeOfflineTripSnapshot({ version: 1, roomId: 'prototype' }).ok).toBe(false);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+  });
+
+  it('CACHE-KEY-04 writes and reads a generated room id', () => {
+    const roomId = generateId();
+    const snap = buildOfflineTripSnapshot({ roomId, meta: { title: 'Generated' } });
+    expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+    expect(readOfflineTripSnapshot(roomId).roomId).toBe(roomId);
+  });
+
+  it('CACHE-CONTAINER-01 treats non-plain cache containers as empty', () => {
+    [JSON.stringify([]), JSON.stringify('x'), JSON.stringify(1), JSON.stringify(true), JSON.stringify('2026-07-15T00:00:00.000Z')].forEach((raw) => {
+      localStorage.setItem(CACHE_KEY, raw);
+      expect(listOfflineTripSummaries()).toEqual([]);
+      const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } });
+      expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+      expect(readOfflineTripSnapshot('r1').meta.title).toBe('T');
+      localStorage.clear();
+    });
+  });
+
+  it('CACHE-STORAGE-01 getItem throw makes write fail without throwing', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage blocked');
+    });
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } });
+    expect(() => writeOfflineTripSnapshot(snap)).not.toThrow();
+    expect(writeOfflineTripSnapshot(snap)).toEqual({ ok: false, reason: 'storage-unavailable' });
+  });
+
+  it('CACHE-STORAGE-02 getItem throw makes read return null', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage blocked');
+    });
+    expect(() => readOfflineTripSnapshot('r1')).not.toThrow();
+    expect(readOfflineTripSnapshot('r1')).toBeNull();
+  });
+
+  it('CACHE-STORAGE-03 getItem throw makes list return []', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage blocked');
+    });
+    expect(() => listOfflineTripSummaries()).not.toThrow();
+    expect(listOfflineTripSummaries()).toEqual([]);
+  });
+
+  it('CACHE-STORAGE-04 getItem throw makes remove fail without throwing', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage blocked');
+    });
+    expect(() => removeOfflineTripSnapshot('r1')).not.toThrow();
+    expect(removeOfflineTripSnapshot('r1')).toEqual({ ok: false, reason: 'storage-unavailable' });
+  });
+
+  it('CACHE-STORAGE-05 setItem throw does not make failed write visible', () => {
+    const snap1 = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T1' } });
+    expect(writeOfflineTripSnapshot(snap1).ok).toBe(true);
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('storage blocked');
+    });
+    const snap2 = buildOfflineTripSnapshot({ roomId: 'r2', meta: { title: 'T2' } });
+    expect(writeOfflineTripSnapshot(snap2)).toEqual({ ok: false, reason: 'storage-unavailable' });
+
+    vi.restoreAllMocks();
+    expect(readOfflineTripSnapshot('r1')).not.toBeNull();
+    expect(readOfflineTripSnapshot('r2')).toBeNull();
+  });
+
+  it('CACHE-SCHEMA-01 days array containing null does not make public APIs throw', () => {
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } });
+    snap.days = [null, { id: 'day1', label: 'Day 1', items: [] }];
+    expect(() => writeOfflineTripSnapshot(snap)).not.toThrow();
+    expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+    expect(() => readOfflineTripSnapshot('r1')).not.toThrow();
+    expect(readOfflineTripSnapshot('r1').days).toHaveLength(1);
+    expect(() => listOfflineTripSummaries()).not.toThrow();
+  });
+
+  it('CACHE-SCHEMA-02 day.items that is not an array is normalized to []', () => {
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } });
+    snap.days = [{ id: 'day1', label: 'Day 1', items: { bad: true } }];
+    expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+    expect(readOfflineTripSnapshot('r1').days[0].items).toEqual([]);
+  });
+
+  it('CACHE-SCHEMA-03 item text fields that are objects are not retained', () => {
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } });
+    snap.days = [{
+      id: 'day1',
+      label: 'Day 1',
+      items: [{ id: 'p1', name: { unsafe: true }, time: {}, address: {}, note: {}, category: {} }]
+    }];
+    expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+    expect(readOfflineTripSnapshot('r1').days[0].items[0]).toEqual({
+      id: 'p1',
+      name: '',
+      time: '',
+      address: '',
+      note: '',
+      category: ''
+    });
+  });
+
+  it('CACHE-SCHEMA-04 members removes objects and empty strings', () => {
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T', members: ['Ann', '', '  ', { name: 'Bob' }, 'Bob'] } });
+    expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+    expect(readOfflineTripSnapshot('r1').meta.members).toEqual(['Ann', 'Bob']);
+  });
+
+  it('CACHE-SCHEMA-05 summary NaN, Infinity, and negative values are normalized', () => {
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } });
+    snap.summary = {
+      expenseTotal: Number.NaN,
+      expenseCount: Number.POSITIVE_INFINITY,
+      checklistCompleted: -1,
+      checklistTotal: 2.8,
+      ticketCount: -10
+    };
+    expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+    expect(readOfflineTripSnapshot('r1').summary).toEqual({
+      expenseTotal: 0,
+      expenseCount: 0,
+      checklistCompleted: 0,
+      checklistTotal: 2,
+      ticketCount: 0
+    });
+  });
+
+  it('CACHE-SCHEMA-06 direct snapshot write strips resources, attachment, and storagePath', () => {
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } });
+    snap.resources = [{ url: 'https://example.test' }];
+    snap.attachment = 'file';
+    snap.storagePath = 'rooms/r1/file';
+    snap.days = [{
+      id: 'day1',
+      label: 'Day 1',
+      resources: ['x'],
+      items: [{
+        id: 'p1',
+        name: 'P',
+        attachment: 'a',
+        storagePath: 's',
+        resources: [{ id: 'r' }],
+        imageUrl: 'https://firebasestorage.googleapis.com/file'
+      }]
+    }];
+    expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+    const readBack = readOfflineTripSnapshot('r1');
+    expect(readBack.resources).toBeUndefined();
+    expect(readBack.attachment).toBeUndefined();
+    expect(readBack.storagePath).toBeUndefined();
+    expect(readBack.days[0].resources).toBeUndefined();
+    expect(readBack.days[0].items[0].resources).toBeUndefined();
+    expect(readBack.days[0].items[0].attachment).toBeUndefined();
+    expect(readBack.days[0].items[0].storagePath).toBeUndefined();
+    expect(readBack.days[0].items[0].imageUrl).toBeUndefined();
+  });
+
+  it('CACHE-SCHEMA-07 read snapshot is safe for OfflineTripPreview consumption', () => {
+    const snap = buildOfflineTripSnapshot({
+      roomId: 'r1',
+      meta: { title: 'T', destination: 'D', members: ['Ann'] },
+      itinerary: [{ id: 'Day 1', label: 'Day 1', items: [{ id: 'p1', name: 'P' }] }]
+    });
+    expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+    const readBack = readOfflineTripSnapshot('r1');
+    expect(readBack.meta && typeof readBack.meta === 'object').toBe(true);
+    expect(Array.isArray(readBack.days)).toBe(true);
+    expect(readBack.days.every(day => day && Array.isArray(day.items))).toBe(true);
+    expect(readBack.summary && typeof readBack.summary === 'object').toBe(true);
+    expect(() => readBack.days.map(day => day.items.map(item => item.name || ''))).not.toThrow();
+  });
+
+  it('CACHE-SIZE-01 writes a legal snapshot when Blob is unavailable', () => {
+    const originalBlob = globalThis.Blob;
+    vi.stubGlobal('Blob', undefined);
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } });
+    expect(writeOfflineTripSnapshot(snap).ok).toBe(true);
+    expect(readOfflineTripSnapshot('r1')).not.toBeNull();
+    vi.stubGlobal('Blob', originalBlob);
+  });
+
+  it('CACHE-SIZE-02 applies the size limit using UTF-8 bytes for Chinese text', () => {
+    const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: '旅'.repeat(360000) } });
+    const res = writeOfflineTripSnapshot(snap);
+    expect(res).toEqual({ ok: false, reason: 'too-large' });
+  });
+
+  it('CACHE-SIZE-03 oversized Chinese snapshot does not overwrite old cache', () => {
+    const oldSnap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'old' } });
+    expect(writeOfflineTripSnapshot(oldSnap).ok).toBe(true);
+    const largeSnap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: '旅'.repeat(360000) } });
+    expect(writeOfflineTripSnapshot(largeSnap)).toEqual({ ok: false, reason: 'too-large' });
+    expect(readOfflineTripSnapshot('r1').meta.title).toBe('old');
+  });
+
+  it('CACHE-EVICT-01 keeps a newly written older room', () => {
+    for (let i = 1; i <= 3; i++) {
+      const snap = buildOfflineTripSnapshot({ roomId: `r${i}`, meta: { title: `T${i}` } });
+      snap.cachedAt = 1000 + i;
+      writeOfflineTripSnapshot(snap);
+    }
+    const oldNewRoom = buildOfflineTripSnapshot({ roomId: 'r4', meta: { title: 'T4' } });
+    oldNewRoom.cachedAt = 1;
+    expect(writeOfflineTripSnapshot(oldNewRoom).ok).toBe(true);
+    expect(readOfflineTripSnapshot('r4')).not.toBeNull();
+    expect(listOfflineTripSummaries().map(item => item.roomId).sort()).toEqual(['r2', 'r3', 'r4']);
+  });
+
+  it('CACHE-EVICT-02 updating an existing room keeps the total at 3', () => {
+    for (let i = 1; i <= 3; i++) {
+      const snap = buildOfflineTripSnapshot({ roomId: `r${i}`, meta: { title: `T${i}` } });
+      writeOfflineTripSnapshot(snap);
+    }
+    const updated = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'Updated' } });
+    expect(writeOfflineTripSnapshot(updated).ok).toBe(true);
+    expect(listOfflineTripSummaries()).toHaveLength(3);
+    expect(readOfflineTripSnapshot('r1').meta.title).toBe('Updated');
+  });
+
+  it('CACHE-EVICT-03 evicts deterministically when cachedAt values are equal', () => {
+    ['r1', 'r2', 'r3'].forEach((roomId) => {
+      const snap = buildOfflineTripSnapshot({ roomId, meta: { title: roomId } });
+      snap.cachedAt = 1000;
+      writeOfflineTripSnapshot(snap);
+    });
+    const snap4 = buildOfflineTripSnapshot({ roomId: 'r4', meta: { title: 'r4' } });
+    snap4.cachedAt = 1000;
+    expect(writeOfflineTripSnapshot(snap4).ok).toBe(true);
+    expect(listOfflineTripSummaries().map(item => item.roomId)).toEqual(['r1', 'r2', 'r4']);
+  });
+
+  it('CACHE-EVICT-04 invalid entries do not count toward the max trip limit', () => {
+    const valid = {};
+    for (let i = 1; i <= 3; i++) {
+      const snap = buildOfflineTripSnapshot({ roomId: `r${i}`, meta: { title: `T${i}` } });
+      snap.cachedAt = 1000 + i;
+      valid[`r${i}`] = snap;
+    }
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      ...valid,
+      invalid1: { version: 1, roomId: 'invalid1', cachedAt: 10000, meta: 'bad', days: [], summary: {} },
+      invalid2: { version: 2, roomId: 'invalid2' }
+    }));
+    const snap4 = buildOfflineTripSnapshot({ roomId: 'r4', meta: { title: 'T4' } });
+    snap4.cachedAt = 2000;
+    expect(writeOfflineTripSnapshot(snap4).ok).toBe(true);
+    expect(listOfflineTripSummaries().map(item => item.roomId)).toEqual(['r4', 'r3', 'r2']);
   });
 });

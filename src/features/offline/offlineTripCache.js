@@ -3,6 +3,13 @@ import { extractRoomId, sortDayIds, getDayDisplay } from '../../helpers.js';
 const CACHE_KEY = 'google-travel-offline-trip-cache-v1';
 const MAX_TRIPS = 3;
 const MAX_SIZE_BYTES = 1000 * 1024; // roughly 1MB
+const DANGEROUS_ROOM_IDS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function isPlainObject(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
 
 function validateRoomId(roomId) {
   if (typeof roomId !== 'string') return '';
@@ -10,14 +17,225 @@ function validateRoomId(roomId) {
   if (!trimmed) return '';
   if (trimmed.includes('/') || trimmed.includes('\\')) return '';
   if (trimmed.length > 160) return '';
-  
+
   try {
     const extracted = extractRoomId(trimmed);
-    if (!extracted) return '';
+    if (!extracted || DANGEROUS_ROOM_IDS.has(extracted)) return '';
     return extracted;
   } catch {
     return '';
   }
+}
+
+function normalizeText(value, fallback = '') {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function normalizeNullableText(value) {
+  if (value === null || value === undefined) return null;
+  return typeof value === 'string' ? value : null;
+}
+
+function normalizeMembers(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter(member => typeof member === 'string' && member.trim()).map(member => member.trim());
+}
+
+function normalizeFiniteNumber(value, fallback = 0) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function normalizeCount(value) {
+  return Math.floor(normalizeFiniteNumber(value, 0));
+}
+
+function normalizeSummary(summary) {
+  if (!isPlainObject(summary)) return null;
+  return {
+    expenseTotal: normalizeFiniteNumber(summary.expenseTotal),
+    expenseCount: normalizeCount(summary.expenseCount),
+    checklistCompleted: normalizeCount(summary.checklistCompleted),
+    checklistTotal: normalizeCount(summary.checklistTotal),
+    ticketCount: normalizeCount(summary.ticketCount)
+  };
+}
+
+function normalizeMeta(meta) {
+  if (!isPlainObject(meta)) return null;
+  return {
+    title: normalizeText(meta.title),
+    destination: normalizeText(meta.destination),
+    startDate: normalizeNullableText(meta.startDate),
+    endDate: normalizeNullableText(meta.endDate),
+    members: normalizeMembers(meta.members),
+    transport: normalizeNullableText(meta.transport),
+    themeColor: normalizeText(meta.themeColor)
+  };
+}
+
+function normalizeItem(item) {
+  if (!isPlainObject(item)) return null;
+  return {
+    id: normalizeText(item.id),
+    name: normalizeText(item.customName) || normalizeText(item.name),
+    time: normalizeText(item.time),
+    address: normalizeText(item.address),
+    note: normalizeText(item.memo) || normalizeText(item.note),
+    category: normalizeText(item.category) || normalizeText(item.type)
+  };
+}
+
+function normalizeDay(day) {
+  if (!isPlainObject(day)) return null;
+  const items = Array.isArray(day.items)
+    ? day.items.map(normalizeItem).filter(Boolean)
+    : [];
+  return {
+    id: normalizeText(day.id),
+    label: normalizeText(day.label),
+    items
+  };
+}
+
+function canonicalizeSnapshot(snapshot, { fillCachedAt = false } = {}) {
+  if (!isPlainObject(snapshot)) return { ok: false, reason: 'invalid-snapshot' };
+
+  const roomId = validateRoomId(snapshot.roomId);
+  if (!roomId) return { ok: false, reason: 'invalid-room-id' };
+  if (snapshot.version !== 1) return { ok: false, reason: 'invalid-version' };
+
+  const meta = normalizeMeta(snapshot.meta);
+  if (!meta) return { ok: false, reason: 'invalid-meta' };
+
+  if (!Array.isArray(snapshot.days)) return { ok: false, reason: 'invalid-days' };
+  const days = snapshot.days.map(normalizeDay).filter(Boolean);
+
+  const summary = normalizeSummary(snapshot.summary);
+  if (!summary) return { ok: false, reason: 'invalid-summary' };
+
+  let cachedAt = snapshot.cachedAt;
+  if (typeof cachedAt !== 'number' || !Number.isFinite(cachedAt) || cachedAt <= 0) {
+    if (!fillCachedAt) return { ok: false, reason: 'invalid-cached-at' };
+    cachedAt = Date.now();
+  }
+
+  return {
+    ok: true,
+    snapshot: {
+      version: 1,
+      roomId,
+      cachedAt,
+      meta,
+      days,
+      summary
+    }
+  };
+}
+
+function classifyStorageError(error) {
+  const name = String(error?.name || '');
+  const message = String(error?.message || '');
+  return /quota/i.test(`${name} ${message}`) ? 'quota-error' : 'storage-unavailable';
+}
+
+function safeGetCacheRaw() {
+  try {
+    return { ok: true, value: localStorage.getItem(CACHE_KEY) };
+  } catch (error) {
+    return { ok: false, reason: classifyStorageError(error) };
+  }
+}
+
+function safeSetCacheRaw(value) {
+  try {
+    localStorage.setItem(CACHE_KEY, value);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: classifyStorageError(error) };
+  }
+}
+
+function parseCacheContainer(raw) {
+  if (!raw) return Object.create(null);
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!isPlainObject(parsed)) return Object.create(null);
+
+    const cache = Object.create(null);
+    Object.entries(parsed).forEach(([key, value]) => {
+      if (Object.hasOwn(parsed, key)) cache[key] = value;
+    });
+    return cache;
+  } catch {
+    return Object.create(null);
+  }
+}
+
+function readCacheContainer() {
+  const raw = safeGetCacheRaw();
+  if (!raw.ok) return raw;
+  return { ok: true, cache: parseCacheContainer(raw.value) };
+}
+
+function getCanonicalCacheEntries(cache) {
+  const entries = [];
+  Object.entries(cache).forEach(([key, value]) => {
+    if (!Object.hasOwn(cache, key)) return;
+    const canonical = canonicalizeSnapshot(value);
+    if (!canonical.ok) return;
+    if (key !== canonical.snapshot.roomId) return;
+    entries.push(canonical.snapshot);
+  });
+  return entries;
+}
+
+function buildCacheObject(entries) {
+  const cache = Object.create(null);
+  entries.forEach((entry) => {
+    cache[entry.roomId] = entry;
+  });
+  return cache;
+}
+
+function sortNewestFirst(a, b) {
+  const timeDiff = (b.cachedAt || 0) - (a.cachedAt || 0);
+  if (timeDiff !== 0) return timeDiff;
+  return String(a.roomId).localeCompare(String(b.roomId));
+}
+
+function evictCacheEntries(entries, protectedRoomId) {
+  const latestByRoom = Object.create(null);
+  entries.forEach((entry) => {
+    latestByRoom[entry.roomId] = entry;
+  });
+
+  const protectedEntry = latestByRoom[protectedRoomId];
+  if (!protectedEntry) return Object.values(latestByRoom).sort(sortNewestFirst).slice(0, MAX_TRIPS);
+
+  const others = Object.values(latestByRoom)
+    .filter(entry => entry.roomId !== protectedRoomId)
+    .sort(sortNewestFirst)
+    .slice(0, MAX_TRIPS - 1);
+
+  return [protectedEntry, ...others].sort(sortNewestFirst);
+}
+
+function utf8ByteLength(value) {
+  const str = String(value);
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(str).length;
+  }
+
+  let bytes = 0;
+  for (const char of str) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint <= 0x7f) bytes += 1;
+    else if (codePoint <= 0x7ff) bytes += 2;
+    else if (codePoint <= 0xffff) bytes += 3;
+    else bytes += 4;
+  }
+  return bytes;
 }
 
 export function buildOfflineTripSnapshot({
@@ -34,24 +252,14 @@ export function buildOfflineTripSnapshot({
 
   let days = [];
 
-  const mapItem = (item) => {
-    if (!item) return null;
-    return {
-      id: item.id || '',
-      name: item.customName || item.name || '',
-      time: item.time || '',
-      address: item.address || '',
-      note: item.memo || item.note || '',
-      category: item.category || item.type || '景點'
-    };
-  };
+  const mapItem = (item) => normalizeItem(isPlainObject(item) ? item : null);
 
   if (itinerary && typeof itinerary === 'object' && !Array.isArray(itinerary)) {
     const dayIds = Object.keys(itinerary);
     const sortedDayIds = sortDayIds(dayIds);
     days = sortedDayIds.map(dayId => {
-      const items = Array.isArray(itinerary[dayId]) 
-        ? itinerary[dayId].map(mapItem).filter(Boolean) 
+      const items = Array.isArray(itinerary[dayId])
+        ? itinerary[dayId].map(mapItem).filter(Boolean)
         : [];
       const { title, dateStr } = getDayDisplay(dayId, meta.startDate);
       const label = dateStr ? `${title} ${dateStr}` : title;
@@ -63,14 +271,15 @@ export function buildOfflineTripSnapshot({
     });
   } else if (Array.isArray(itinerary)) {
     days = itinerary.map(day => {
+      if (!isPlainObject(day)) return null;
       const { title, dateStr } = getDayDisplay(day.id, meta.startDate);
-      const label = day.label || (dateStr ? `${title} ${dateStr}` : title);
+      const label = normalizeText(day.label) || (dateStr ? `${title} ${dateStr}` : title);
       return {
-        id: day.id,
+        id: normalizeText(day.id),
         label,
         items: Array.isArray(day.items) ? day.items.map(mapItem).filter(Boolean) : []
       };
-    });
+    }).filter(Boolean);
   }
 
   let checklistCompleted = 0;
@@ -78,37 +287,30 @@ export function buildOfflineTripSnapshot({
   if (Array.isArray(checklistItems)) {
     checklistTotal = checklistItems.length;
     checklistCompleted = checklistItems.filter(i => {
-      const isCompleted = i.completed !== undefined ? i.completed : i.checked;
+      const isCompleted = i?.completed !== undefined ? i.completed : i?.checked;
       return Boolean(isCompleted);
     }).length;
   }
 
-  let expenseCount = 0;
-  if (Array.isArray(expenses)) {
-    expenseCount = expenses.length;
-  }
-
-  let ticketCount = 0;
-  if (Array.isArray(tickets)) {
-    ticketCount = tickets.length;
-  }
+  const expenseCount = Array.isArray(expenses) ? expenses.length : 0;
+  const ticketCount = Array.isArray(tickets) ? tickets.length : 0;
 
   const snapshot = {
     version: 1,
     roomId: normId,
     cachedAt: Date.now(),
     meta: {
-      title: meta.title || '',
-      destination: meta.destination || '',
-      startDate: meta.startDate || null,
-      endDate: meta.endDate || null,
-      members: Array.isArray(meta.members) ? meta.members : [],
-      transport: meta.transport || null,
-      themeColor: meta.themeColor || ''
+      title: normalizeText(meta.title),
+      destination: normalizeText(meta.destination),
+      startDate: normalizeNullableText(meta.startDate),
+      endDate: normalizeNullableText(meta.endDate),
+      members: normalizeMembers(meta.members),
+      transport: normalizeNullableText(meta.transport),
+      themeColor: normalizeText(meta.themeColor)
     },
     days,
     summary: {
-      expenseTotal: expenseStats?.totalExpense || 0,
+      expenseTotal: normalizeFiniteNumber(expenseStats?.totalExpense),
       expenseCount,
       checklistCompleted,
       checklistTotal,
@@ -119,107 +321,25 @@ export function buildOfflineTripSnapshot({
   return snapshot;
 }
 
-function readAllCache() {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return {};
-    return parsed;
-  } catch {
-    return {};
-  }
-}
-
-function writeAllCache(cacheObj) {
-  try {
-    const str = JSON.stringify(cacheObj);
-    localStorage.setItem(CACHE_KEY, str);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function writeOfflineTripSnapshot(snapshot) {
-  if (!snapshot || typeof snapshot !== 'object') {
-    return { ok: false, reason: 'invalid-snapshot' };
-  }
+  const canonical = canonicalizeSnapshot(snapshot, { fillCachedAt: true });
+  if (!canonical.ok) return { ok: false, reason: canonical.reason };
 
-  const normRoomId = validateRoomId(snapshot.roomId);
-  if (!normRoomId) {
-    return { ok: false, reason: 'invalid-room-id' };
-  }
-
-  if (snapshot.version !== 1) {
-    return { ok: false, reason: 'invalid-version' };
-  }
-
-  let snapshotCopy;
-  try {
-    snapshotCopy = JSON.parse(JSON.stringify(snapshot));
-  } catch {
-    return { ok: false, reason: 'invalid-snapshot' };
-  }
-
-  if (typeof snapshotCopy.cachedAt !== 'number' || !Number.isFinite(snapshotCopy.cachedAt) || snapshotCopy.cachedAt <= 0) {
-    snapshotCopy.cachedAt = Date.now();
-  }
-
-  snapshotCopy.roomId = normRoomId;
-
-  if (typeof snapshotCopy.meta !== 'object' || snapshotCopy.meta === null || Array.isArray(snapshotCopy.meta)) {
-    return { ok: false, reason: 'invalid-meta' };
-  }
-  if (!Array.isArray(snapshotCopy.days)) {
-    return { ok: false, reason: 'invalid-days' };
-  }
-  if (typeof snapshotCopy.summary !== 'object' || snapshotCopy.summary === null || Array.isArray(snapshotCopy.summary)) {
-    return { ok: false, reason: 'invalid-summary' };
-  }
-
-  const snapshotStr = JSON.stringify(snapshotCopy);
-  const byteSize = new Blob([snapshotStr]).size;
+  const snapshotStr = JSON.stringify(canonical.snapshot);
+  const byteSize = utf8ByteLength(snapshotStr);
   if (byteSize > MAX_SIZE_BYTES) {
-    console.warn(`[offlineTripCache] Snapshot for ${snapshotCopy.roomId} is too large (${byteSize} bytes)`);
+    console.warn(`[offlineTripCache] Snapshot for ${canonical.snapshot.roomId} is too large (${byteSize} bytes)`);
     return { ok: false, reason: 'too-large' };
   }
 
-  const cache = readAllCache();
-  const originalCacheStr = localStorage.getItem(CACHE_KEY) || '{}';
+  const cacheRead = readCacheContainer();
+  if (!cacheRead.ok) return { ok: false, reason: 'storage-unavailable' };
 
-  cache[snapshotCopy.roomId] = snapshotCopy;
-
-  const entries = Object.values(cache);
-  if (entries.length > MAX_TRIPS) {
-    const others = entries.filter(e => e.roomId !== snapshotCopy.roomId);
-    others.sort((a, b) => (b.cachedAt || 0) - (a.cachedAt || 0));
-    
-    const toKeep = [snapshotCopy, ...others.slice(0, MAX_TRIPS - 1)];
-    const newCache = {};
-    for (const item of toKeep) {
-      newCache[item.roomId] = item;
-    }
-    
-    if (!writeAllCache(newCache)) {
-      try {
-        localStorage.setItem(CACHE_KEY, originalCacheStr);
-      } catch {
-        // ignore rollback error
-      }
-      return { ok: false, reason: 'quota-error' };
-    }
-    return { ok: true };
-  }
-
-  if (!writeAllCache(cache)) {
-    try {
-      localStorage.setItem(CACHE_KEY, originalCacheStr);
-    } catch {
-      // ignore rollback error
-    }
-    return { ok: false, reason: 'quota-error' };
-  }
+  const existingEntries = getCanonicalCacheEntries(cacheRead.cache)
+    .filter(entry => entry.roomId !== canonical.snapshot.roomId);
+  const nextEntries = evictCacheEntries([...existingEntries, canonical.snapshot], canonical.snapshot.roomId);
+  const setResult = safeSetCacheRaw(JSON.stringify(buildCacheObject(nextEntries)));
+  if (!setResult.ok) return { ok: false, reason: setResult.reason };
 
   return { ok: true };
 }
@@ -227,65 +347,44 @@ export function writeOfflineTripSnapshot(snapshot) {
 export function readOfflineTripSnapshot(roomId) {
   const normId = validateRoomId(roomId);
   if (!normId) return null;
-  
-  const cache = readAllCache();
-  const snapshot = cache[normId];
-  if (!snapshot) return null;
-  
-  if (snapshot.roomId !== normId) return null;
-  if (snapshot.version !== 1) return null;
-  if (typeof snapshot.cachedAt !== 'number' || !Number.isFinite(snapshot.cachedAt) || snapshot.cachedAt <= 0) return null;
-  if (typeof snapshot.meta !== 'object' || snapshot.meta === null || Array.isArray(snapshot.meta)) return null;
-  if (!Array.isArray(snapshot.days)) return null;
-  if (typeof snapshot.summary !== 'object' || snapshot.summary === null || Array.isArray(snapshot.summary)) return null;
-  
-  return JSON.parse(JSON.stringify(snapshot));
+
+  const cacheRead = readCacheContainer();
+  if (!cacheRead.ok) return null;
+  if (!Object.hasOwn(cacheRead.cache, normId)) return null;
+
+  const canonical = canonicalizeSnapshot(cacheRead.cache[normId]);
+  if (!canonical.ok) return null;
+  if (canonical.snapshot.roomId !== normId) return null;
+
+  return JSON.parse(JSON.stringify(canonical.snapshot));
 }
 
 export function listOfflineTripSummaries() {
-  const cache = readAllCache();
-  const summaries = [];
-  for (const key in cache) {
-    const item = cache[key];
-    if (item) {
-      if (key !== item.roomId) continue;
-      const normId = validateRoomId(item.roomId);
-      if (!normId || item.roomId !== normId) continue;
-      if (item.version !== 1) continue;
-      if (typeof item.cachedAt !== 'number' || !Number.isFinite(item.cachedAt) || item.cachedAt <= 0) continue;
-      if (typeof item.meta !== 'object' || item.meta === null || Array.isArray(item.meta)) continue;
-      if (!Array.isArray(item.days)) continue;
-      if (typeof item.summary !== 'object' || item.summary === null || Array.isArray(item.summary)) continue;
+  const cacheRead = readCacheContainer();
+  if (!cacheRead.ok) return [];
 
-      summaries.push({
-        roomId: item.roomId,
-        cachedAt: item.cachedAt,
-        title: item.meta?.title || '',
-        destination: item.meta?.destination || '',
-      });
-    }
-  }
-  summaries.sort((a, b) => (b.cachedAt || 0) - (a.cachedAt || 0));
-  return summaries;
+  return getCanonicalCacheEntries(cacheRead.cache)
+    .sort(sortNewestFirst)
+    .map(item => ({
+      roomId: item.roomId,
+      cachedAt: item.cachedAt,
+      title: item.meta.title,
+      destination: item.meta.destination,
+    }));
 }
 
 export function removeOfflineTripSnapshot(roomId) {
   const normId = validateRoomId(roomId);
   if (!normId) return { ok: false, reason: 'invalid-room-id' };
-  
-  const cache = readAllCache();
-  if (!cache[normId]) return { ok: true };
-  
-  const originalCacheStr = localStorage.getItem(CACHE_KEY) || '{}';
-  delete cache[normId];
-  
-  if (!writeAllCache(cache)) {
-    try {
-      localStorage.setItem(CACHE_KEY, originalCacheStr);
-    } catch {
-      // ignore rollback error
-    }
-    return { ok: false, reason: 'quota-error' };
-  }
+
+  const cacheRead = readCacheContainer();
+  if (!cacheRead.ok) return { ok: false, reason: 'storage-unavailable' };
+  if (!Object.hasOwn(cacheRead.cache, normId)) return { ok: true };
+
+  const nextEntries = getCanonicalCacheEntries(cacheRead.cache)
+    .filter(entry => entry.roomId !== normId);
+  const setResult = safeSetCacheRaw(JSON.stringify(buildCacheObject(nextEntries)));
+  if (!setResult.ok) return { ok: false, reason: setResult.reason };
+
   return { ok: true };
 }
