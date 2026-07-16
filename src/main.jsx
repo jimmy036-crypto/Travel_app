@@ -3,6 +3,7 @@ import App from './App.jsx';
 import { GlobalModalProvider } from './components/ui/GlobalModalProvider.jsx';
 import { ToastProvider } from './components/ui/ToastProvider.jsx';
 import './index.css';
+import { initializePwaInstallController } from './pwaInstallController.js';
 
 const rootElement = document.getElementById('root');
 
@@ -12,6 +13,8 @@ if (!rootElement) {
 
 // 全站只能建立一個 React root。
 // PWA 更新提示由 vite.config.js 在 production build 注入 pwa-update-entry.jsx。
+initializePwaInstallController();
+
 createRoot(rootElement).render(
   <GlobalModalProvider>
     <ToastProvider>
