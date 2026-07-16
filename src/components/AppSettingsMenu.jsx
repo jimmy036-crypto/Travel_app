@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { usePwaInstall } from '../hooks/usePwaInstall.js';
+import { PwaInstallInstructionsDialog } from './PwaInstallInstructionsDialog.jsx';
+import { useToast } from './ui/useToast.js';
 
 const MENU_WIDTH = 256;
 const MENU_MARGIN = 12;
@@ -16,7 +19,7 @@ function getMenuPosition(trigger) {
   const rect = trigger.getBoundingClientRect();
   const viewportWidth = window.innerWidth || 390;
   const viewportHeight = window.innerHeight || 844;
-  const estimatedHeight = 316;
+  const estimatedHeight = 376;
   const hasRoomBelow = rect.bottom + MENU_MARGIN + estimatedHeight <= viewportHeight;
   const top = hasRoomBelow
     ? rect.bottom + 8
@@ -40,9 +43,27 @@ export const AppSettingsMenu = ({
   isCheckingUpdates = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [showInstallInstructions, setShowInstallInstructions] = useState(false);
   const [position, setPosition] = useState({ top: MENU_MARGIN, left: MENU_MARGIN });
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
+  const isMountedRef = useRef(false);
+  const toast = useToast();
+  const {
+    isInstalled,
+    nativePromptAvailable,
+    isPrompting,
+    platform,
+    browser,
+    requestInstall,
+  } = usePwaInstall();
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const closeMenu = useCallback(({ restoreFocus = false } = {}) => {
     setIsOpen(false);
@@ -72,6 +93,63 @@ export const AppSettingsMenu = ({
     closeMenu();
     action?.();
   }, [closeMenu]);
+
+  const restoreTriggerFocus = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      triggerRef.current?.focus?.();
+    });
+  }, []);
+
+  const closeInstallInstructions = useCallback(() => {
+    setShowInstallInstructions(false);
+    restoreTriggerFocus();
+  }, [restoreTriggerFocus]);
+
+  const handleInstallPromptResult = useCallback((result) => {
+    if (!isMountedRef.current) return;
+
+    if (result?.status === 'accepted') {
+      toast.info({
+        title: '安裝要求已接受',
+        description: '完成安裝後，即可從裝置主畫面或應用程式列表開啟。',
+      });
+      return;
+    }
+
+    if (result?.status === 'already-installed') {
+      toast.info({ title: 'App 已安裝' });
+      return;
+    }
+
+    if (result?.status === 'unavailable') {
+      toast.info({
+        title: '目前無法直接安裝',
+        description: '瀏覽器尚未提供安裝選項，請稍後再試。',
+      });
+      return;
+    }
+
+    if (result?.status === 'failed') {
+      toast.error({
+        title: '無法安裝 App',
+        description: '請稍後再試，或使用瀏覽器的安裝選單。',
+      });
+    }
+  }, [toast]);
+
+  const handleNativeInstall = useCallback(() => {
+    closeMenu();
+    void requestInstall().then(handleInstallPromptResult);
+  }, [closeMenu, handleInstallPromptResult, requestInstall]);
+
+  const handleOpenInstallInstructions = useCallback(() => {
+    closeMenu();
+    setShowInstallInstructions(true);
+  }, [closeMenu]);
+
+  const showInstalledStatus = isInstalled;
+  const showNativeInstallAction = !showInstalledStatus && nativePromptAvailable;
+  const showIosInstallAction = !showInstalledStatus && !nativePromptAvailable && platform === 'ios';
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -193,6 +271,45 @@ export const AppSettingsMenu = ({
           >
             {isCheckingUpdates ? '檢查中...' : '檢查更新'}
           </button>
+          {showInstalledStatus ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="app-settings-install-status"
+              data-install-state="installed"
+              disabled
+              aria-disabled="true"
+              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 ${t.mainText}`}
+            >
+              App 已安裝
+            </button>
+          ) : null}
+          {showNativeInstallAction ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="app-settings-install-app"
+              data-install-state="native"
+              onClick={handleNativeInstall}
+              disabled={isPrompting}
+              aria-disabled={isPrompting ? 'true' : undefined}
+              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 ${t.mainText}`}
+            >
+              安裝 App
+            </button>
+          ) : null}
+          {showIosInstallAction ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="app-settings-install-app"
+              data-install-state="ios"
+              onClick={handleOpenInstallInstructions}
+              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
+            >
+              加入主畫面
+            </button>
+          ) : null}
           <div
             role="none"
             data-testid="app-settings-version"
@@ -204,6 +321,12 @@ export const AppSettingsMenu = ({
         </div>,
         document.body,
       ) : null}
+      <PwaInstallInstructionsDialog
+        open={showInstallInstructions}
+        platform={platform}
+        browser={browser}
+        onClose={closeInstallInstructions}
+      />
     </>
   );
 };
