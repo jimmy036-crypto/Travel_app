@@ -58,6 +58,7 @@ import { usePlaceActions } from './features/places/usePlaceActions.js';
 import { useExpenseActions } from './features/expenses/useExpenseActions.js';
 import { ExpenseSection } from './features/expenses/ExpenseSection.jsx';
 import { persistItinerary } from './services/placesService.js';
+import { buildOfflineTripSnapshot, writeOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -2889,6 +2890,42 @@ const TripDetail = ({
       }
     };
   }, [handleAddPlaceFromSearch, handleDragEnd, safeCurrentDay]);
+  useEffect(() => {
+    if (
+      !db ||
+      !roomId ||
+      !isOnline ||
+      isLoading ||
+      loadError ||
+      !meta ||
+      !hasLoadedRoomRef.current ||
+      syncStatus !== "saved" ||
+      hasDirtyBranches(dirtyBranchesRef)
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      const snap = buildOfflineTripSnapshot({
+        roomId,
+        meta,
+        itinerary,
+        expenseStats,
+        expenses,
+        checklistItems,
+        tickets
+      });
+      if (snap) {
+        try {
+          writeOfflineTripSnapshot(snap);
+        } catch (error) {
+          console.warn("Offline trip cache write failed:", error);
+        }
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [isOnline, isLoading, loadError, meta, roomId, itinerary, expenseStats, expenses, checklistItems, tickets, syncStatus]);
 
   if (loadError) {
     return (
@@ -2943,7 +2980,7 @@ const TripDetail = ({
               <div className={`relative z-40 p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-md shrink-0 border-b backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
-                    <button onClick={onBack} className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
+                    <button onClick={onBack} data-testid="back-to-lobby" className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
                     <input
                       ref={tripAppearanceInputRef}
                       type="color"
@@ -2953,7 +2990,7 @@ const TripDetail = ({
                       tabIndex={-1}
                       aria-label="自訂旅程外觀"
                     />
-                    <h1 className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
+                    <h1 data-testid="trip-detail-title" className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
                     {db ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>

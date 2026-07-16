@@ -43,9 +43,12 @@ import { WhatsNewDialog } from './components/WhatsNewDialog.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 import { EmptyState } from './components/ui/EmptyState.jsx';
 import { useToast } from './components/ui/useToast.js';
+import { useConfirm } from './components/ui/useConfirm.js';
 import { checkForPwaUpdate } from './pwaUpdateController.js';
 import { useOnlineStatus } from './hooks/useOnlineStatus.js';
 import { OfflineBanner } from './components/OfflineBanner.jsx';
+import { listOfflineTripSummaries, removeOfflineTripSnapshot, readOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
+import { OfflineTripPreview } from './features/offline/OfflineTripPreview.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -74,6 +77,7 @@ const formatDateForInput = (date) => {
 export default function TravelApp() {
   const { isOnline, hasBeenOffline } = useOnlineStatus();
   const toast = useToast();
+  const confirm = useConfirm();
   
   const lastOnlineState = useRef(isOnline);
   useEffect(() => {
@@ -134,6 +138,17 @@ export default function TravelApp() {
     return extractRoomId(new URLSearchParams(window.location.search).get('room')) || null;
   });
 
+  const [offlinePreviewData, setOfflinePreviewData] = useState(null);
+  const [offlineCacheSummaries, setOfflineCacheSummaries] = useState([]);
+
+  const refreshOfflineCacheSummaries = useCallback(() => {
+    setOfflineCacheSummaries(listOfflineTripSummaries());
+  }, []);
+
+  useEffect(() => {
+    refreshOfflineCacheSummaries();
+  }, [activeRoomId, refreshOfflineCacheSummaries]);
+
   const setPendingFeatureTour = useCallback((isPending) => {
     setPendingFeatureTourRequested(Boolean(isPending));
     if (isPending) {
@@ -146,10 +161,38 @@ export default function TravelApp() {
   const openTripRoom = useCallback((roomId) => {
     const safeRoomId = extractRoomId(roomId);
     if (!safeRoomId) return false;
+
+    if (!isOnline) {
+      const hasCache = offlineCacheSummaries.some(s => s.roomId === safeRoomId);
+      if (!hasCache) {
+        toast.info({
+          title: "\u5c1a\u7121\u96e2\u7dda\u8cc7\u6599",
+          description: "\u6b64\u65c5\u7a0b\u5c1a\u672a\u5efa\u7acb\u53ef\u7528\u7684\u96e2\u7dda\u5feb\u53d6\uff0c\u8acb\u91cd\u65b0\u9023\u7dda\u5f8c\u958b\u555f\u3002",
+        });
+        return false;
+      }
+
+      const fullSnap = readOfflineTripSnapshot(safeRoomId);
+      if (!fullSnap) {
+        setOfflinePreviewData(null);
+        refreshOfflineCacheSummaries();
+        toast.info({
+          title: "\u5c1a\u7121\u96e2\u7dda\u8cc7\u6599",
+          description: "\u96e2\u7dda\u8cc7\u6599\u5df2\u640d\u58de\u3001\u5931\u6548\u6216\u9700\u8981\u91cd\u65b0\u9023\u7dda\u958b\u555f\u3002",
+        });
+        return false;
+      }
+
+      setActiveRoomId(null);
+      setOfflinePreviewData(fullSnap);
+      return true;
+    }
+
+    setOfflinePreviewData(null);
     window.history.pushState(null, '', `?room=${encodeURIComponent(safeRoomId)}`);
     setActiveRoomId(safeRoomId);
     return true;
-  }, []);
+  }, [isOnline, offlineCacheSummaries, refreshOfflineCacheSummaries, toast]);
 
   useEffect(() => {
     writeStorage('google-travel-my-trips', JSON.stringify(myTrips));
@@ -168,6 +211,7 @@ export default function TravelApp() {
     const handlePopState = () => {
       const roomId = extractRoomId(new URLSearchParams(window.location.search).get('room'));
       if (!roomId) {
+        setOfflinePreviewData(null);
         setShowFeatureTour(false);
         setShowTripTourSelection(false);
         setTripTourAvailability({
@@ -372,6 +416,7 @@ export default function TravelApp() {
     });
     setPendingFeatureTour(false);
     setActiveRoomId(null);
+    setOfflinePreviewData(null);
   };
 
   const openReleaseNotes = useCallback(() => {
@@ -611,6 +656,46 @@ export default function TravelApp() {
     );
   }
 
+  if (offlinePreviewData) return (
+    <>
+      <OfflineTripPreview
+        summary={offlinePreviewData}
+        isOnline={isOnline}
+        onBack={() => setOfflinePreviewData(null)}
+        onClearCache={async () => {
+          const ok = await confirm({
+            title: "\u6e05\u9664\u672c\u88dd\u7f6e\u96e2\u7dda\u8cc7\u6599\uff1f",
+            description: "\u53ea\u6703\u522a\u9664\u6b64\u88dd\u7f6e\u4e0a\u7684\u96e2\u7dda\u5feb\u53d6\uff0c\u4e0d\u6703\u522a\u9664\u96f2\u7aef\u65c5\u7a0b\u8cc7\u6599\u3002",
+            confirmText: "\u6e05\u9664",
+            cancelText: "\u53d6\u6d88",
+          });
+          if (!ok) return;
+
+          const res = removeOfflineTripSnapshot(offlinePreviewData.roomId);
+          if (res?.ok) {
+            refreshOfflineCacheSummaries();
+            setOfflinePreviewData(null);
+            toast.info({ title: "\u5df2\u6e05\u9664\u96e2\u7dda\u8cc7\u6599" });
+            return;
+          }
+
+          toast.error({
+            title: "\u6e05\u9664\u96e2\u7dda\u8cc7\u6599\u5931\u6557",
+            description: "\u8acb\u7a0d\u5f8c\u518d\u8a66\uff0c\u6216\u91cd\u65b0\u9023\u7dda\u5f8c\u958b\u555f\u65c5\u7a0b\u3002",
+          });
+        }}
+        onOpenOnline={() => {
+          if (!isOnline) return;
+          const id = offlinePreviewData.roomId;
+          setOfflinePreviewData(null);
+          openTripRoom(id);
+        }}
+      />
+      <OfflineBanner isOnline={isOnline} />
+      {releaseExperience}
+    </>
+  );
+
   if (activeRoomId) return (
     <>
     <APIProvider apiKey={API_KEY}>
@@ -804,6 +889,13 @@ export default function TravelApp() {
                     <p className={`text-xs mb-1.5 font-medium ${cTheme.subText}`}>📅 {String(trip.startDate || '').replace(/-/g, '/')} <span className="mx-1 opacity-50">→</span> {String(trip.endDate || '').replace(/-/g, '/')}</p>
                     <p className={`text-xs truncate font-medium ${cTheme.subText}`}>👥 {Array.isArray(trip.members) ? trip.members.join(', ') : '自己'}</p>
                   </div>
+                  {offlineCacheSummaries.find(s => s.roomId === trip.roomId) && (
+                    <div className={`mt-4 pt-3 border-t ${cTheme.cardBorder}`} data-testid="offline-cache-status">
+                      <p className={`text-xs font-medium flex items-center gap-1 ${cTheme.subText}`}>
+                        <span className="text-green-500">✓</span> 可離線查看 · 更新於 {new Date(offlineCacheSummaries.find(s => s.roomId === trip.roomId).cachedAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -887,6 +979,42 @@ export default function TravelApp() {
       )}
 
       {showDatePicker && ( <DateRangePickerModal initialStart={newStart} initialEnd={newEnd} onClose={() => setShowDatePicker(false)} onConfirm={(start, end) => { setNewStart(start); setNewEnd(end); setShowDatePicker(false); }} t={t} /> )}
+
+      {offlinePreviewData && (
+        <OfflineTripPreview
+           summary={offlinePreviewData}
+           isOnline={isOnline}
+           onBack={() => setOfflinePreviewData(null)}
+           onClearCache={async () => {
+             const ok = await confirm({
+               title: "清除此裝置的離線資料？",
+               description: "只會刪除這台裝置的快取，不會刪除雲端旅程。",
+               confirmText: "清除",
+               cancelText: "取消"
+             });
+             if (ok) {
+               const res = removeOfflineTripSnapshot(offlinePreviewData.roomId);
+               if (res && res.ok) {
+                 refreshOfflineCacheSummaries();
+                 setOfflinePreviewData(null);
+                 toast.info({ title: "已清除離線資料" });
+               } else {
+                 toast.info({
+                   title: "清除離線快取失敗",
+                   description: "儲存空間發生錯誤或已滿。"
+                 });
+               }
+             }
+           }}
+           onOpenOnline={() => {
+             if (isOnline) {
+               const id = offlinePreviewData.roomId;
+               setOfflinePreviewData(null);
+               openTripRoom(id);
+             }
+           }}
+        />
+      )}
     </div>
     <OfflineBanner isOnline={isOnline} />
     {releaseExperience}
