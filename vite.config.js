@@ -3,27 +3,6 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-/**
- * 只在 production build 注入更新提示入口。
- * 這樣不需要修改既有 main.jsx，也不會讓 npm run dev 被 Service Worker 快取干擾。
- */
-const injectPwaUpdatePrompt = {
-  name: 'inject-pwa-update-prompt',
-  apply: 'build',
-  transformIndexHtml() {
-    return [
-      {
-        tag: 'script',
-        attrs: {
-          type: 'module',
-          src: '/src/pwa-update-entry.jsx'
-        },
-        injectTo: 'body'
-      }
-    ]
-  }
-}
-
 export default defineConfig({
   plugins: [
     react(),
@@ -88,8 +67,7 @@ export default defineConfig({
           }
         ]
       }
-    }),
-    injectPwaUpdatePrompt
+    })
   ],
   server: {
     host: '0.0.0.0',

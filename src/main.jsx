@@ -12,8 +12,14 @@ if (!rootElement) {
 }
 
 // 全站只能建立一個 React root。
-// PWA 更新提示由 vite.config.js 在 production build 注入 pwa-update-entry.jsx。
+// Production 透過 bundled dynamic import 載入 PWA 更新提示。
 initializePwaInstallController();
+
+if (import.meta.env.PROD) {
+  void import('./pwa-update-entry.jsx').catch((error) => {
+    console.error('Failed to load PWA update prompt:', error);
+  });
+}
 
 createRoot(rootElement).render(
   <GlobalModalProvider>
