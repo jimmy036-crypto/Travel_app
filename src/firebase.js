@@ -1,5 +1,9 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
+  connectAuthEmulator,
+  getAuth,
+} from "firebase/auth";
+import {
   connectDatabaseEmulator,
   getDatabase,
 } from "firebase/database";
@@ -22,15 +26,32 @@ const firebaseConfig = {
 const shouldUseEmulators =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
 
+const requiredFirebaseConfigKeys = [
+  "apiKey",
+  "authDomain",
+  "databaseURL",
+  "projectId",
+  "storageBucket",
+  "messagingSenderId",
+  "appId",
+];
+
 if (typeof document !== "undefined") {
   document.documentElement.dataset.firebaseEmulator =
     shouldUseEmulators ? "true" : "false";
 }
 
 const initFirebase = () => {
-  if (!firebaseConfig.apiKey || !firebaseConfig.databaseURL) {
-    console.warn("Firebase 環境變數不完整。");
-    return { db: null, storage: null };
+  const missingConfigKeys = requiredFirebaseConfigKeys.filter(
+    (key) => !firebaseConfig[key],
+  );
+
+  if (missingConfigKeys.length > 0) {
+    console.warn(
+      "Firebase config is incomplete.",
+      { missingConfigKeys },
+    );
+    return { auth: null, db: null, storage: null };
   }
 
   try {
@@ -39,30 +60,32 @@ const initFirebase = () => {
         ? initializeApp(firebaseConfig)
         : getApp();
 
+    const auth = getAuth(firebaseApp);
     const db = getDatabase(firebaseApp);
     const storage = getStorage(firebaseApp);
 
-    // 只有明確使用 emulator mode 時才連到本機，
-    // 避免正式 Vercel 網站誤連 127.0.0.1。
     if (
       shouldUseEmulators &&
       !globalThis.__TRAVEL_FIREBASE_EMULATORS_CONNECTED__
     ) {
+      connectAuthEmulator(auth, "http://127.0.0.1:9099", {
+        disableWarnings: true,
+      });
       connectDatabaseEmulator(db, "127.0.0.1", 9000);
       connectStorageEmulator(storage, "127.0.0.1", 9199);
 
       globalThis.__TRAVEL_FIREBASE_EMULATORS_CONNECTED__ = true;
 
       console.info(
-        "Firebase Emulator 已連線：Database 9000、Storage 9199",
+        "Firebase Emulators connected: Auth 9099, Database 9000, Storage 9199.",
       );
     }
 
-    return { db, storage };
+    return { auth, db, storage };
   } catch (error) {
-    console.warn("Firebase 初始化失敗：", error);
-    return { db: null, storage: null };
+    console.warn("Firebase initialization failed.", error);
+    return { auth: null, db: null, storage: null };
   }
 };
 
-export const { db, storage } = initFirebase();
+export const { auth, db, storage } = initFirebase();
