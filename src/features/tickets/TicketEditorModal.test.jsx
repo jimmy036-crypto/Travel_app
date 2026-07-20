@@ -659,3 +659,161 @@ describe('TicketEditorModal attachment safety and accessibility', () => {
     expect(props.onSubmit).not.toHaveBeenCalled();
   });
 });
+
+describe('TicketEditorModal async submission contract', () => {
+  const prepareValidWebForm = async (user) => {
+    await chooseWebLink(user);
+  };
+
+  it('EDITOR-51 calls an async onSubmit only once during duplicate submission', async () => {
+    const user = userEvent.setup();
+    let resolveSubmit;
+    const onSubmit = vi.fn(() => new Promise((resolve) => {
+      resolveSubmit = resolve;
+    }));
+    renderEditor({ onSubmit });
+    await prepareValidWebForm(user);
+    const form = screen.getByTestId('ticket-submit-button').closest('form');
+
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    resolveSubmit();
+    await waitFor(() => expect(screen.getByTestId('ticket-submit-button')).toBeEnabled());
+  });
+
+  it('EDITOR-52 disables submit while the Promise is pending', async () => {
+    const user = userEvent.setup();
+    let resolveSubmit;
+    renderEditor({
+      onSubmit: () => new Promise((resolve) => {
+        resolveSubmit = resolve;
+      }),
+    });
+    await prepareValidWebForm(user);
+
+    await user.click(screen.getByTestId('ticket-submit-button'));
+
+    expect(screen.getByTestId('ticket-submit-button')).toBeDisabled();
+    expect(screen.getByTestId('ticket-submit-button')).toHaveTextContent('儲存中…');
+    resolveSubmit();
+    await waitFor(() => expect(screen.getByTestId('ticket-submit-button')).toBeEnabled());
+  });
+
+  it('EDITOR-53 disables cancel while the Promise is pending', async () => {
+    const user = userEvent.setup();
+    let resolveSubmit;
+    renderEditor({
+      onSubmit: () => new Promise((resolve) => {
+        resolveSubmit = resolve;
+      }),
+    });
+    await prepareValidWebForm(user);
+
+    await user.click(screen.getByTestId('ticket-submit-button'));
+
+    expect(screen.getByTestId('ticket-cancel-button')).toBeDisabled();
+    resolveSubmit();
+    await waitFor(() => expect(screen.getByTestId('ticket-cancel-button')).toBeEnabled());
+  });
+
+  it('EDITOR-54 ignores Escape while submission is pending', async () => {
+    const user = userEvent.setup();
+    let resolveSubmit;
+    const onClose = vi.fn();
+    renderEditor({
+      onClose,
+      onSubmit: () => new Promise((resolve) => {
+        resolveSubmit = resolve;
+      }),
+    });
+    await prepareValidWebForm(user);
+    await user.click(screen.getByTestId('ticket-submit-button'));
+
+    await user.keyboard('{Escape}');
+
+    expect(onClose).not.toHaveBeenCalled();
+    resolveSubmit();
+    await waitFor(() => expect(screen.getByTestId('ticket-submit-button')).toBeEnabled());
+  });
+
+  it('EDITOR-55 keeps the modal open after onSubmit rejects', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    renderEditor({ onClose, onSubmit: vi.fn().mockRejectedValue(new Error('database failed')) });
+    await prepareValidWebForm(user);
+
+    await user.click(screen.getByTestId('ticket-submit-button'));
+
+    await waitFor(() => expect(screen.getByTestId('ticket-submission-error')).toHaveTextContent('票券暫時無法儲存'));
+    expect(screen.getByTestId('ticket-editor-modal')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('EDITOR-56 preserves entered fields after onSubmit rejects', async () => {
+    const user = userEvent.setup();
+    renderEditor({ onSubmit: vi.fn().mockRejectedValue(new Error('database failed')) });
+    await chooseWebLink(user, { title: '保留的票券', url: 'tickets.example/preserved' });
+
+    await user.click(screen.getByTestId('ticket-submit-button'));
+
+    await waitFor(() => expect(screen.getByTestId('ticket-submission-error')).not.toBeEmptyDOMElement());
+    expect(screen.getByTestId('ticket-title-input')).toHaveValue('保留的票券');
+    expect(screen.getByTestId('ticket-url-input')).toHaveValue('tickets.example/preserved');
+  });
+
+  it('EDITOR-57 exposes submission failure through an assertive aria-live region', async () => {
+    const user = userEvent.setup();
+    renderEditor({ onSubmit: vi.fn().mockRejectedValue(new Error('database failed')) });
+    await prepareValidWebForm(user);
+
+    await user.click(screen.getByTestId('ticket-submit-button'));
+
+    await waitFor(() => expect(screen.getByTestId('ticket-submission-error')).toHaveTextContent('票券暫時無法儲存，請稍後再試。'));
+    expect(screen.getByTestId('ticket-submission-error')).toHaveAttribute('aria-live', 'assertive');
+  });
+
+  it('EDITOR-58 hides progress for null and shows an accessible progressbar for a number', () => {
+    const view = renderEditor({ uploadProgress: null });
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+
+    view.rerender(<TicketEditorModal {...view.props} uploadProgress={45} />);
+
+    expect(screen.getByRole('progressbar', { name: '附件上傳進度' })).toHaveAttribute('aria-valuemin', '0');
+    expect(screen.getByRole('progressbar', { name: '附件上傳進度' })).toHaveAttribute('aria-valuemax', '100');
+  });
+
+  it('EDITOR-59 reports progress value and uses it in pending button copy', async () => {
+    const user = userEvent.setup();
+    let resolveSubmit;
+    renderEditor({
+      uploadProgress: 45,
+      onSubmit: () => new Promise((resolve) => {
+        resolveSubmit = resolve;
+      }),
+    });
+    await prepareValidWebForm(user);
+
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '45');
+    await user.click(screen.getByTestId('ticket-submit-button'));
+    expect(screen.getByTestId('ticket-submit-button')).toHaveTextContent('上傳中 45%');
+
+    resolveSubmit();
+    await waitFor(() => expect(screen.getByTestId('ticket-submit-button')).toBeEnabled());
+  });
+
+  it('EDITOR-60 does not close itself after async onSubmit succeeds', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    renderEditor({ onClose, onSubmit });
+    await prepareValidWebForm(user);
+
+    await user.click(screen.getByTestId('ticket-submit-button'));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId('ticket-editor-modal')).toBeInTheDocument();
+  });
+});

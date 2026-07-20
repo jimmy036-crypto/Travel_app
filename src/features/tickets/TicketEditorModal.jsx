@@ -147,6 +147,7 @@ export function TicketEditorModal({
   defaultDayId = '',
   activeMember = '',
   t = {},
+  uploadProgress = null,
   onClose,
   onSubmit,
 }) {
@@ -170,6 +171,9 @@ export function TicketEditorModal({
   const [fileInputKey, setFileInputKey] = useState(0);
   const [moreSettingsOpen, setMoreSettingsOpen] = useState(false);
   const [errors, setErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState('');
+  const isSubmittingRef = useRef(false);
   const titleInputRef = useRef(null);
 
   const theme = {
@@ -188,7 +192,7 @@ export function TicketEditorModal({
     const frameId = window.requestAnimationFrame(() => titleInputRef.current?.focus());
 
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !isSubmittingRef.current) {
         event.preventDefault();
         onClose?.();
       }
@@ -342,8 +346,9 @@ export function TicketEditorModal({
     return { action: 'keep', file: null };
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    if (isSubmittingRef.current) return;
     if (!validate()) return;
 
     const attachmentChange = getAttachmentChange();
@@ -384,15 +389,31 @@ export function TicketEditorModal({
       updatedAt: isEdit ? originalTicket.updatedAt : null,
     };
 
-    onSubmit?.({
+    const payload = {
       ticket: normalizeTicket(draft, { members: validMembers }),
       attachmentChange,
-    });
+    };
+
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    setSubmissionError('');
+    try {
+      await onSubmit?.(payload);
+    } catch {
+      setSubmissionError('票券暫時無法儲存，請稍後再試。');
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const inputClass = `mt-1 w-full min-w-0 rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${theme.inputBg} ${theme.cardBorder} ${theme.mainText}`;
   const sectionClass = `rounded-2xl border p-4 ${theme.cardBorder}`;
   const errorMessages = Object.values(errors).filter(Boolean);
+  const normalizedUploadProgress = uploadProgress === null
+    || !Number.isFinite(Number(uploadProgress))
+    ? null
+    : Math.min(100, Math.max(0, Math.round(Number(uploadProgress))));
 
   return createPortal(
     <div
@@ -758,6 +779,35 @@ export function TicketEditorModal({
             <div data-testid="ticket-form-errors" aria-live="polite" className="sr-only">
               {errorMessages.length > 0 ? `表單有 ${errorMessages.length} 個欄位需要修正。` : ''}
             </div>
+            <div
+              data-testid="ticket-submission-error"
+              aria-live="assertive"
+              className={submissionError ? 'rounded-xl bg-red-500/10 p-3 text-sm font-bold text-red-600' : 'sr-only'}
+            >
+              {submissionError}
+            </div>
+            {normalizedUploadProgress !== null ? (
+              <div className="space-y-1">
+                <div className={`flex justify-between text-xs font-bold ${theme.subText}`}>
+                  <span>附件上傳進度</span>
+                  <span>{normalizedUploadProgress}%</span>
+                </div>
+                <div
+                  data-testid="ticket-upload-progress"
+                  role="progressbar"
+                  aria-label="附件上傳進度"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow={normalizedUploadProgress}
+                  className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10"
+                >
+                  <div
+                    className="h-full rounded-full bg-blue-600 transition-[width]"
+                    style={{ width: `${normalizedUploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <footer
@@ -768,6 +818,7 @@ export function TicketEditorModal({
               type="button"
               data-testid="ticket-cancel-button"
               onClick={() => onClose?.()}
+              disabled={isSubmitting}
               className={`min-h-12 rounded-xl border px-5 text-sm font-black ${theme.cardBorder} ${theme.mainText}`}
             >
               取消
@@ -775,10 +826,14 @@ export function TicketEditorModal({
             <button
               type="submit"
               data-testid="ticket-submit-button"
-              disabled={validDays.length === 0}
+              disabled={validDays.length === 0 || isSubmitting}
               className="min-h-12 rounded-xl bg-blue-600 px-6 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {isEdit ? '儲存變更' : '新增票券'}
+              {isSubmitting
+                ? normalizedUploadProgress !== null
+                  ? `上傳中 ${normalizedUploadProgress}%`
+                  : '儲存中…'
+                : isEdit ? '儲存變更' : '新增票券'}
             </button>
           </footer>
         </form>
