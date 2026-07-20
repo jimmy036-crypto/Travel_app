@@ -64,7 +64,7 @@ async function failStorageUploadForFile(
     // so the failure injector must cover both upload protocols.
     const shouldFail = request.method() === 'POST'
       && ['multipart', 'resumable'].includes(uploadProtocol)
-      && objectName.endsWith(`/${fileName}`);
+      && objectName.endsWith(`_${fileName}`);
 
     if (!shouldFail) {
       await route.continue();
@@ -138,7 +138,7 @@ async function openTicketModal(page: Page): Promise<void> {
   await ticketTab.click();
   await expect(page.getByTestId('ticket-panel')).toBeVisible();
   await page.getByTestId('add-ticket-button').click();
-  await expect(page.getByTestId('ticket-modal')).toBeVisible();
+  await expect(page.getByTestId('ticket-editor-modal')).toBeVisible();
 }
 
 function placeCard(page: Page) {
@@ -215,16 +215,10 @@ test.describe('Storage 上傳失敗與垃圾檔案清理', () => {
       buffer: PNG_1X1,
     });
 
-    const dialogPromise = page.waitForEvent('dialog');
-    await page.getByTestId('ticket-save-button').click();
-    const dialog = await dialogPromise;
-
-    expect(dialog.type()).toBe('alert');
-    expect(dialog.message()).toBe('上傳失敗，請稍後再試！');
-    await dialog.accept();
-
-    await expect(page.getByTestId('ticket-modal')).toBeVisible();
-    await expect(page.getByTestId('ticket-save-button')).toBeEnabled();
+    await page.getByTestId('ticket-submit-button').click();
+    await expect(page.getByText('附件上傳失敗')).toBeVisible();
+    await expect(page.getByTestId('ticket-editor-modal')).toBeVisible();
+    await expect(page.getByTestId('ticket-submit-button')).toBeEnabled();
 
     const tickets = toList(
       await readEmulatorData<TicketItem[] | Record<string, TicketItem>>(
