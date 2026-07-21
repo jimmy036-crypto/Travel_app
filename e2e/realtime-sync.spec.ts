@@ -495,9 +495,10 @@ function ticketCard(page: Page, title = STORAGE_SYNC_TICKET_TITLE) {
 
 async function addTicketImageThroughUi(page: Page): Promise<void> {
   await page.getByTestId('add-ticket-button').click();
-  await expect(page.getByTestId('ticket-modal')).toBeVisible();
+  await expect(page.getByTestId('ticket-editor-modal')).toBeVisible();
 
   await page.getByTestId('ticket-title-input').fill(STORAGE_SYNC_TICKET_TITLE);
+  await page.getByTestId('ticket-more-settings-toggle').click();
   await page.getByTestId('ticket-memo-input').fill(STORAGE_SYNC_TICKET_MEMO);
   await page.getByTestId('ticket-file-input').setInputFiles({
     name: STORAGE_SYNC_TICKET_FILE_NAME,
@@ -505,8 +506,8 @@ async function addTicketImageThroughUi(page: Page): Promise<void> {
     buffer: PNG_1X1,
   });
 
-  await page.getByTestId('ticket-save-button').click();
-  await expect(page.getByTestId('ticket-modal')).toBeHidden({
+  await page.getByTestId('ticket-submit-button').click();
+  await expect(page.getByTestId('ticket-editor-modal')).toBeHidden({
     timeout: 35_000,
   });
 }
@@ -530,7 +531,7 @@ async function waitForStoredTicketAttachment(): Promise<TicketItem> {
                 `${STORAGE_SYNC_PREFIX}/`,
               ),
               correctFileName: String(savedTicket.storagePath || '').endsWith(
-                `/${STORAGE_SYNC_TICKET_FILE_NAME}`,
+                `_${STORAGE_SYNC_TICKET_FILE_NAME}`,
               ),
             }
           : null;
@@ -567,7 +568,7 @@ async function expectSyncedTicketAttachment(page: Page): Promise<void> {
   await expect(card).toContainText(STORAGE_SYNC_TICKET_TITLE);
   await expect(card).toContainText(STORAGE_SYNC_TICKET_MEMO);
   await expect(
-    card.getByRole('button', { name: /全螢幕驗票模式/ }),
+    card.getByRole('button', { name: /全螢幕查看票券/ }),
   ).toBeVisible();
 }
 

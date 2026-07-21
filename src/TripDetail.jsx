@@ -12,7 +12,6 @@ import {
   CopyItemModal,
   ExpenseModal,
   SettlementModal,
-  TicketModal,
   FullscreenTicketModal,
   ChecklistModal,
   ExportItineraryModal,
@@ -27,7 +26,6 @@ import { SkeletonButton, SkeletonText } from './components/ui/Skeleton.jsx';
 
 import { db, storage } from "./firebase";
 import { ref as dbRef, onValue, update } from "firebase/database";
-import { deleteObject, ref as storageRef } from "firebase/storage";
 import {
   formatStayTime,
   generateId,
@@ -57,6 +55,15 @@ import { useToast } from './components/ui/useToast.js';
 import { usePlaceActions } from './features/places/usePlaceActions.js';
 import { useExpenseActions } from './features/expenses/useExpenseActions.js';
 import { ExpenseSection } from './features/expenses/ExpenseSection.jsx';
+import { TicketEditorModal } from './features/tickets/TicketEditorModal.jsx';
+import { TicketWalletSection } from './features/tickets/TicketWalletSection.jsx';
+import { copyTicketOrderNumber } from './features/tickets/ticketClipboard.js';
+import {
+  clearTicketActiveMember,
+  readTicketActiveMember,
+  writeTicketActiveMember,
+} from './features/tickets/ticketIdentity.js';
+import { useTicketActions } from './features/tickets/useTicketActions.js';
 import { persistItinerary } from './services/placesService.js';
 import { buildOfflineTripSnapshot, writeOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
 
@@ -1285,6 +1292,8 @@ const TripDetail = ({
   const checklistWriteVersionRef = useRef(0);
   const placeDeleteConfirmRef = useRef(false);
   const expenseDeleteConfirmRef = useRef(false);
+  const ticketMutationRef = useRef(false);
+  const ticketLoadedRoomRef = useRef('');
 
   const setMeta = useCallback((updater) => {
     dirtyBranchesRef.current.meta = true;
@@ -1306,11 +1315,6 @@ const TripDetail = ({
     setSettlementsState(updater);
   }, []);
 
-  const setTickets = useCallback((updater) => {
-    dirtyBranchesRef.current.tickets = true;
-    setTicketsState(updater);
-  }, []);
-
   const [currentDay, setCurrentDay] = useState("Day 1");
   const [activeTab, setActiveTab] = useState("plan");
 
@@ -1323,7 +1327,10 @@ const TripDetail = ({
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showSettlementModal, setShowSettlementModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState(/** @type {any} */ (null));
-  const [showTicketModal, setShowTicketModal] = useState(false);
+  const [ticketEditorState, setTicketEditorState] = useState(
+    /** @type {{mode: 'create' | 'edit', ticket: any | null} | null} */ (null)
+  );
+  const [ticketActiveMember, setTicketActiveMember] = useState('');
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [checklistActor, setChecklistActorState] = useState(() => {
     try {
@@ -1383,6 +1390,7 @@ const TripDetail = ({
   useEffect(() => {
     let cancelled = false;
 
+    ticketLoadedRoomRef.current = '';
     dirtyBranchesRef.current = { meta: false, itinerary: false, expenses: false, settlements: false, tickets: false };
     writeVersionRef.current = { meta: 0, itinerary: 0, expenses: 0, settlements: 0, tickets: 0 };
     hasLoadedRoomRef.current = false;
@@ -1415,6 +1423,7 @@ const TripDetail = ({
         setSettlementsState([]);
         setTicketsState([]);
         setChecklistItemsState([]);
+        ticketLoadedRoomRef.current = roomId;
         setIsLoading(false);
         setSyncStatus("saved");
       });
@@ -1441,6 +1450,7 @@ const TripDetail = ({
         const loadedSettlements = toSafeList(data['settlements']);
         const loadedTickets = toSafeList(data['tickets']);
         const loadedChecklist = normalizeChecklist(data['checklist']);
+        ticketLoadedRoomRef.current = roomId;
 
         if (!dirtyBranchesRef.current.meta) setMetaState(loadedMeta);
         if (!dirtyBranchesRef.current.itinerary) setItineraryState(loadedItinerary);
@@ -1529,16 +1539,6 @@ const TripDetail = ({
     lastLocalWriteAtRef,
     setSyncStatus,
   });
-  useRoomBranchSync({
-    roomId,
-    branch: "tickets",
-    value: tickets,
-    dirtyBranchesRef,
-    writeVersionRef,
-    lastLocalWriteAtRef,
-    setSyncStatus,
-  });
-
   useEffect(() => {
     if (meta && roomId) onUpdateTripMeta?.(roomId, meta);
   }, [meta, onUpdateTripMeta, roomId]);
@@ -1701,7 +1701,7 @@ const TripDetail = ({
         editingItemData
         || copyingItem
         || showExpenseModal
-        || showTicketModal
+        || ticketEditorState
         || showChecklistModal
       ),
       failed: Boolean(loadError),
@@ -1722,7 +1722,7 @@ const TripDetail = ({
     roomId,
     showChecklistModal,
     showExpenseModal,
-    showTicketModal,
+    ticketEditorState,
   ]);
 
   const safeCurrentDay = existingDays.includes(currentDay) ? currentDay : (existingDays[0] || "Day 1");
@@ -1880,6 +1880,61 @@ const TripDetail = ({
   };
 
   const membersList = useMemo(() => normalizeMembers(meta?.members), [meta]);
+
+  useEffect(() => {
+    if (isLoading || !meta || ticketLoadedRoomRef.current !== roomId) return;
+    const storedMember = readTicketActiveMember({ roomId, members: membersList });
+    if (!storedMember) clearTicketActiveMember(roomId);
+    setTicketActiveMember((current) => (current === storedMember ? current : storedMember));
+  }, [isLoading, membersList, meta, roomId]);
+
+  const closeTicketEditor = useCallback(() => setTicketEditorState(null), []);
+
+  const {
+    saveTicket,
+    deleteTicket,
+    isSavingTicket,
+    deletingTicketId,
+    uploadProgress,
+  } = useTicketActions({
+    room: { db, roomId, storage },
+    data: { tickets, members: membersList },
+    state: { setTicketsState, setSyncStatus },
+    refs: { dirtyBranchesRef, lastLocalWriteAtRef, ticketMutationRef },
+    feedback: { confirm, toast },
+    callbacks: { closeTicketEditor },
+  });
+
+  const handleSelectTicketActiveMember = useCallback((member) => {
+    const normalizedMember = String(member || '').trim();
+    if (!normalizedMember) {
+      clearTicketActiveMember(roomId);
+      setTicketActiveMember('');
+      return;
+    }
+    if (writeTicketActiveMember({ roomId, member: normalizedMember, members: membersList })) {
+      setTicketActiveMember(normalizedMember);
+    }
+  }, [membersList, roomId]);
+
+  const handleCopyTicketOrderNumber = useCallback(async (orderNumber) => {
+    try {
+      await copyTicketOrderNumber(orderNumber);
+      toast.success({ title: '訂單編號已複製' });
+    } catch {
+      toast.error({ title: '無法複製訂單編號' });
+    }
+  }, [toast]);
+
+  const openNewTicket = useCallback(() => {
+    if (isSavingTicket) return;
+    setTicketEditorState({ mode: 'create', ticket: null });
+  }, [isSavingTicket]);
+
+  const openTicketEditor = useCallback((ticket) => {
+    if (isSavingTicket) return;
+    setTicketEditorState({ mode: 'edit', ticket });
+  }, [isSavingTicket]);
 
   const openNewExpense = useCallback(() => {
     setEditingExpense(null);
@@ -2104,25 +2159,6 @@ const TripDetail = ({
     setCopyingItem(null);
     alert(`✅ 已將「${item.customName || item.name}」複製到 ${targetDay}！`);
   };
-
-  const handleDeleteTicket = useCallback(async (ticket) => {
-    if (!window.confirm(`確定刪除「${String(ticket?.title || '此票券')}」？`)) return;
-
-    if (ticket?.storagePath && storage) {
-      try {
-        await deleteObject(storageRef(storage, String(ticket.storagePath)));
-      } catch (error) {
-        const isMissing = error?.code === 'storage/object-not-found';
-        if (!isMissing) {
-          console.warn('Delete ticket file failed:', error);
-          const removeRecordOnly = window.confirm('附件檔案刪除失敗。仍要只刪除票券紀錄嗎？');
-          if (!removeRecordOnly) return;
-        }
-      }
-    }
-
-    setTickets((previousTickets) => previousTickets.filter((item) => item.id !== ticket?.id));
-  }, [setTickets]);
 
   const commitChecklistPatch = useCallback((patch) => {
     if (!db || !roomId || !patch || Object.keys(patch).length === 0) return;
@@ -3351,52 +3387,23 @@ const TripDetail = ({
                 onUpdateBudget={handleBudgetChange}
               />
 
-              <div data-testid="ticket-panel" className={`scrollbar-hide flex-1 flex-col overflow-y-auto overscroll-y-contain backdrop-blur-xl ${t.sidebarBg} ${activeTab === 'ticket' ? 'flex' : 'hidden'}`}>
-                <div className={`p-6 border-b sticky top-0 z-10 shadow-lg backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`text-xs font-bold uppercase tracking-widest ${t.subText}`}>隨身協作大廳</p>
-                      <h2 className={`text-2xl font-black mt-1 ${t.mainText}`}>共同票券夾 🎟️</h2>
-                    </div>
-                    <button type="button" data-testid="add-ticket-button" onClick={() => setShowTicketModal(true)} className="bg-amber-600 hover:bg-amber-500 text-white px-5 py-2.5 rounded-2xl text-sm font-bold shadow-lg shadow-amber-500/30 active:scale-95 transition-all">
-                      ➕ 新增票券
-                    </button>
-                  </div>
-                </div>
-                <div className="p-4 pb-24 space-y-4">
-                  {!Array.isArray(tickets) || tickets.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center mt-20 opacity-60">
-                      <span className="text-6xl mb-4">🎟️</span>
-                      <p className={`font-bold ${t.mainText}`}>共用票券夾尚未加入資料</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {(/** @type {any[]} */ (tickets)).map(ticket => (
-                        <div key={String(ticket.id)} data-testid="ticket-card" data-ticket-id={String(ticket.id)} className={`relative flex flex-col p-4 rounded-3xl border shadow-sm transition-transform hover:-translate-y-1 ${t.itemBg} ${t.cardBorder}`}>
-                          <button type="button" data-testid="ticket-delete-button" onClick={() => { void handleDeleteTicket(ticket); }} className="absolute top-3 right-3 w-7 h-7 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center text-xs font-bold hover:bg-red-500 hover:text-white transition-colors">✕</button>
-                          <div className="mb-2"><span className={`text-[10px] px-2 py-0.5 rounded-md border font-bold ${ticket.owner === '所有人' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'bg-purple-500/10 text-purple-600 border-purple-500/20'}`}>👤 {String(ticket.owner || '所有人')}</span></div>
-                          <div className="flex items-center gap-3 mb-4 mt-2">
-                             <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-600 border border-amber-500/30 flex items-center justify-center text-lg shrink-0">
-                               {ticket.type === 'image' ? '📸' : ticket.type === 'pdf' ? '📄' : '🔗'}
-                             </div>
-                             <div className="flex-1 pr-6">
-                               <h3 className={`font-bold text-sm line-clamp-2 ${t.mainText}`}>{String(ticket.title)}</h3>
-                               {ticket.memo ? <p className={`text-[10px] mt-1 ${t.subText}`}>{String(ticket.memo)}</p> : null}
-                             </div>
-                          </div>
-                          {ticket.type === 'image' ? (
-                            <button onClick={() => setFullscreenTicket(ticket)} className="w-full bg-slate-900 text-white font-bold text-xs py-3 rounded-xl shadow-md border border-slate-700 hover:bg-slate-800 transition-colors">🔍 全螢幕驗票模式</button>
-                          ) : ticket.type === 'pdf' ? (
-                            <button onClick={() => { if (!openExternalUrl(ticket.url)) alert("票券網址格式不正確！"); }} className="w-full bg-emerald-600 text-white font-bold text-xs py-3 rounded-xl shadow-md border border-emerald-500 hover:bg-emerald-500 transition-colors">📄 開啟 PDF 文件檔案</button>
-                          ) : (
-                            <button onClick={() => { if (!openExternalUrl(ticket.url)) alert("票券網址格式不正確！"); }} className="w-full bg-blue-600 text-white font-bold text-xs py-3 rounded-xl shadow-md border border-blue-500 hover:bg-blue-500 transition-colors">🌐 開啟數位網址連結</button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <TicketWalletSection
+                key={roomId}
+                isActive={activeTab === 'ticket'}
+                tickets={tickets}
+                members={membersList}
+                activeMember={ticketActiveMember}
+                startDate={meta.startDate}
+                t={t}
+                isSavingTicket={isSavingTicket}
+                deletingTicketId={deletingTicketId}
+                onSelectActiveMember={handleSelectTicketActiveMember}
+                onCreateTicket={openNewTicket}
+                onEditTicket={openTicketEditor}
+                onDeleteTicket={deleteTicket}
+                onOpenImage={setFullscreenTicket}
+                onCopyOrderNumber={handleCopyTicketOrderNumber}
+              />
 
             </div>
 
@@ -3620,7 +3627,21 @@ const TripDetail = ({
         />
       ) : null}
       {showSettlementModal ? <SettlementModal members={membersList} suggestions={expenseStats.preTripTransfers} onClose={() => setShowSettlementModal(false)} onSave={handleSaveSettlement} t={t} /> : null}
-      {showTicketModal ? <TicketModal roomId={roomId} members={membersList} onClose={() => setShowTicketModal(false)} onSave={(newTicket) => { setTickets(prev => [...prev, newTicket]); setShowTicketModal(false); }} t={t} /> : null}
+      {ticketEditorState ? (
+        <TicketEditorModal
+          mode={ticketEditorState.mode}
+          ticket={ticketEditorState.ticket}
+          members={membersList}
+          existingDays={existingDays}
+          startDate={meta.startDate}
+          defaultDayId={safeCurrentDay}
+          activeMember={ticketActiveMember}
+          uploadProgress={uploadProgress}
+          t={t}
+          onClose={closeTicketEditor}
+          onSubmit={saveTicket}
+        />
+      ) : null}
       {fullscreenTicket ? <FullscreenTicketModal ticket={fullscreenTicket} onClose={() => setFullscreenTicket(null)} /> : null}
       {viewingPlaceDetail ? (
         <PlaceItemDetailModal

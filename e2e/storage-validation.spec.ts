@@ -72,7 +72,7 @@ async function openTicketModal(page: Page): Promise<void> {
   await ticketTab.click();
   await expect(page.getByTestId('ticket-panel')).toBeVisible();
   await page.getByTestId('add-ticket-button').click();
-  await expect(page.getByTestId('ticket-modal')).toBeVisible();
+  await expect(page.getByTestId('ticket-editor-modal')).toBeVisible();
 }
 
 function placeCard(page: Page) {
@@ -140,27 +140,21 @@ test.describe('Storage 檔案格式與大小限制', () => {
     await openTicketModal(page);
     const input = page.getByTestId('ticket-file-input');
 
-    await expectRejectedFile(
-      page,
-      input,
-      {
-        name: 'phase-4-invalid-ticket.txt',
-        mimeType: 'text/plain',
-        buffer: INVALID_TEXT_FILE,
-      },
-      '只允許上傳圖片或 PDF 檔案！',
-    );
+    await input.setInputFiles({
+      name: 'phase-4-invalid-ticket.txt',
+      mimeType: 'text/plain',
+      buffer: INVALID_TEXT_FILE,
+    });
+    await expect(page.getByText('僅接受 JPEG、PNG、WebP、GIF 圖片或 PDF。')).toBeVisible();
+    await expect(input).toHaveValue('');
 
-    await expectRejectedFile(
-      page,
-      input,
-      {
-        name: 'phase-4-oversized-ticket.png',
-        mimeType: 'image/png',
-        buffer: OVERSIZED_TICKET_IMAGE,
-      },
-      '檔案不可超過 10 MB！',
-    );
+    await input.setInputFiles({
+      name: 'phase-4-oversized-ticket.png',
+      mimeType: 'image/png',
+      buffer: OVERSIZED_TICKET_IMAGE,
+    });
+    await expect(page.getByText('檔案大小不可超過 10 MB。')).toBeVisible();
+    await expect(input).toHaveValue('');
 
     const tickets = toList(
       await readEmulatorData<unknown[] | Record<string, unknown>>(

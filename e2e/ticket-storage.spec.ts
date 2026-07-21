@@ -119,9 +119,10 @@ test('圖片票券會上傳、持久化並從 Database 與 Storage 一併刪除'
   await openTicketPanel(page);
 
   await page.getByTestId('add-ticket-button').click();
-  await expect(page.getByTestId('ticket-modal')).toBeVisible();
+  await expect(page.getByTestId('ticket-editor-modal')).toBeVisible();
 
   await page.getByTestId('ticket-title-input').fill(TICKET_TITLE);
+  await page.getByTestId('ticket-more-settings-toggle').click();
   await page.getByTestId('ticket-memo-input').fill(TICKET_MEMO);
   await page.getByTestId('ticket-file-input').setInputFiles({
     name: TICKET_FILE_NAME,
@@ -129,8 +130,8 @@ test('圖片票券會上傳、持久化並從 Database 與 Storage 一併刪除'
     buffer: PNG_1X1,
   });
 
-  await page.getByTestId('ticket-save-button').click();
-  await expect(page.getByTestId('ticket-modal')).toBeHidden({
+  await page.getByTestId('ticket-submit-button').click();
+  await expect(page.getByTestId('ticket-editor-modal')).toBeHidden({
     timeout: 35_000,
   });
   await expect(ticketCard(page)).toBeVisible();
@@ -154,7 +155,7 @@ test('圖片票券會上傳、持久化並從 Database 與 Storage 一併刪除'
                 `${STORAGE_PREFIX}/`,
               ),
               correctFileName: String(savedTicket.storagePath || '').endsWith(
-                `/${TICKET_FILE_NAME}`,
+                `_${TICKET_FILE_NAME}`,
               ),
             }
           : null;
@@ -190,11 +191,9 @@ test('圖片票券會上傳、持久化並從 Database 與 Storage 一併刪除'
   await openTicketPanel(page);
   await expect(ticketCard(page)).toBeVisible();
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.type()).toBe('confirm');
-    await dialog.accept();
-  });
   await ticketCard(page).getByTestId('ticket-delete-button').click();
+  await expect(page.getByTestId('confirm-dialog')).toContainText('刪除這張票券？');
+  await page.getByTestId('confirm-accept').click();
   await expect(ticketCard(page)).toBeHidden();
 
   await expect
@@ -223,9 +222,10 @@ test('PDF 票券會上傳、持久化並從 Database 與 Storage 一併刪除', 
   await openTicketPanel(page);
 
   await page.getByTestId('add-ticket-button').click();
-  await expect(page.getByTestId('ticket-modal')).toBeVisible();
+  await expect(page.getByTestId('ticket-editor-modal')).toBeVisible();
 
   await page.getByTestId('ticket-title-input').fill(PDF_TICKET_TITLE);
+  await page.getByTestId('ticket-more-settings-toggle').click();
   await page.getByTestId('ticket-memo-input').fill(PDF_TICKET_MEMO);
   await page.getByTestId('ticket-file-input').setInputFiles({
     name: PDF_TICKET_FILE_NAME,
@@ -233,15 +233,15 @@ test('PDF 票券會上傳、持久化並從 Database 與 Storage 一併刪除', 
     buffer: PDF_TICKET_BYTES,
   });
 
-  await page.getByTestId('ticket-save-button').click();
-  await expect(page.getByTestId('ticket-modal')).toBeHidden({
+  await page.getByTestId('ticket-submit-button').click();
+  await expect(page.getByTestId('ticket-editor-modal')).toBeHidden({
     timeout: 35_000,
   });
 
   const pdfCard = ticketCard(page, PDF_TICKET_TITLE);
   await expect(pdfCard).toBeVisible();
   await expect(
-    pdfCard.getByRole('button', { name: /開啟 PDF 文件檔案/ }),
+    pdfCard.getByRole('link', { name: /開啟 PDF 票券/ }),
   ).toBeVisible();
 
   let savedTicket: TicketItem | undefined;
@@ -263,7 +263,7 @@ test('PDF 票券會上傳、持久化並從 Database 與 Storage 一併刪除', 
                 `${STORAGE_PREFIX}/`,
               ),
               correctFileName: String(savedTicket.storagePath || '').endsWith(
-                `/${PDF_TICKET_FILE_NAME}`,
+                `_${PDF_TICKET_FILE_NAME}`,
               ),
             }
           : null;
@@ -301,14 +301,12 @@ test('PDF 票券會上傳、持久化並從 Database 與 Storage 一併刪除', 
   const reloadedPdfCard = ticketCard(page, PDF_TICKET_TITLE);
   await expect(reloadedPdfCard).toBeVisible();
   await expect(
-    reloadedPdfCard.getByRole('button', { name: /開啟 PDF 文件檔案/ }),
+    reloadedPdfCard.getByRole('link', { name: /開啟 PDF 票券/ }),
   ).toBeVisible();
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.type()).toBe('confirm');
-    await dialog.accept();
-  });
   await reloadedPdfCard.getByTestId('ticket-delete-button').click();
+  await expect(page.getByTestId('confirm-dialog')).toContainText('刪除這張票券？');
+  await page.getByTestId('confirm-accept').click();
   await expect(reloadedPdfCard).toBeHidden();
 
   await expect
