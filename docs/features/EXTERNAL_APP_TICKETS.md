@@ -137,6 +137,34 @@ rooms/{roomId}/tickets/{ticketId}/{revision}_{safeFileName}
 
 卡片會呈現日期、時間、使用成員、主要出示人、建議提前時間及外部 App 的登入／網路／動態條碼提示。這些提示不代表系統通知，也不會要求 Notification 權限。
 
-## 下一階段測試計畫
+## Phase 7A-4 Emulator E2E
 
-Phase 7A-4 預計補齊新票券 CRUD、Realtime、三種來源切換、replacement／remove、成員篩選與 manual mode 的完整 Firebase Emulator E2E 矩陣。第一版仍不建立示範旅程、首次導覽、custom scheme、Notification API 或 production deploy。
+Firebase Emulator E2E 覆蓋三種票券來源 CRUD、App Link／fallback／manual mode、成員與共同票券篩選、裝置身分、Realtime 多 Context、legacy read compatibility，以及附件 keep／replace／remove 與 cleanup failure。自動化測試只使用 Emulator，不會跟隨第三方票券連結，也不會要求 Notification 權限或偵測 App 是否安裝。
+
+## 尚待真實裝置人工 QA
+
+以下項目需要真實裝置與已安裝／未安裝的第三方 App 才能確認；Emulator E2E 通過不代表這些項目已通過。
+
+### iPhone Safari
+
+- Universal Link 由使用者點擊後的實際行為。
+- 未安裝 App 時是否正確落到網頁。
+- 動態票券提示。
+- Clipboard。
+- Editor safe-area。
+
+### iPhone 主畫面 PWA
+
+- 外部連結跳轉。
+- 返回 Travel App。
+- Modal 捲動。
+- 安全區域。
+
+### Android Chrome
+
+- Android App Link。
+- 未安裝 App fallback。
+- 返回鍵行為。
+- Clipboard。
+
+第一版仍不建立示範旅程、首次導覽、custom scheme、Notification API 或 production deploy。
