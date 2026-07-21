@@ -321,8 +321,11 @@ export function DemoTripPreview({
   onBack,
   onCreateTrip,
   onCloneDemo,
+  createActionLabel = '建立我的第一個旅程',
+  showCloneAction = true,
 }) {
   const [activeTab, setActiveTab] = useState(() => normalizeInitialTab(initialTab));
+  const canShowCloneAction = showCloneAction === true && typeof onCloneDemo === 'function';
   const theme = useMemo(() => ({
     page: t?.pageBg || 'bg-slate-50 dark:bg-slate-950',
     card: t?.cardBg || 'bg-white dark:bg-slate-900',
@@ -381,12 +384,14 @@ export function DemoTripPreview({
       </main>
 
       <footer className={`border-t px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 ${theme.card} ${theme.border}`}>
-        <div className="mx-auto grid w-full max-w-6xl gap-3 sm:grid-cols-3">
-          <button type="button" data-testid="demo-create-trip-button" onClick={() => onCreateTrip?.()} className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-black text-white shadow-md shadow-blue-500/20">建立我的第一個旅程</button>
-          <button type="button" data-testid="demo-clone-trip-button" onClick={() => onCloneDemo?.(demo)} className="min-h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-md shadow-emerald-500/20">複製這份範例開始修改</button>
+        <div className={`mx-auto grid w-full max-w-6xl gap-3 ${canShowCloneAction ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+          <button type="button" data-testid="demo-create-trip-button" onClick={() => onCreateTrip?.()} className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-black text-white shadow-md shadow-blue-500/20">{createActionLabel}</button>
+          {canShowCloneAction ? (
+            <button type="button" data-testid="demo-clone-trip-button" onClick={() => onCloneDemo(demo)} className="min-h-11 rounded-xl bg-emerald-600 px-4 text-sm font-black text-white shadow-md shadow-emerald-500/20">複製這份範例開始修改</button>
+          ) : null}
           <button type="button" onClick={() => onBack?.()} className={`min-h-11 rounded-xl border px-4 text-sm font-black ${theme.card} ${theme.border} ${theme.main}`}>返回首頁</button>
         </div>
-        <p className={`mx-auto mt-3 max-w-6xl text-center text-xs leading-5 ${theme.sub}`}>只有在你明確選擇後才會呼叫建立或複製 callback；本 Preview 不會自行儲存。</p>
+        <p className={`mx-auto mt-3 max-w-6xl text-center text-xs leading-5 ${theme.sub}`}>只有在你明確選擇後才會呼叫{canShowCloneAction ? '建立或複製' : '建立'} callback；本 Preview 不會自行儲存。</p>
       </footer>
     </div>
   );

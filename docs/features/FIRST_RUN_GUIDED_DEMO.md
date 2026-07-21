@@ -133,3 +133,36 @@ Preview 提供總覽、行程、票券、記帳、清單五個分頁。分頁與
 - 不建立首次啟動 modal。
 - 不改變 Whats New 或 FeatureTour。
 - 不建立 production deploy。
+
+## Phase 7B-2：Lobby 與 Settings 入口
+
+本機示範已接入正式 App view，但仍維持唯讀與零 persistence：
+
+- 沒有真實旅程時，Lobby 的既有「建立新旅程／匯入旅程」EmptyState 保持主要操作，旁邊顯示較低視覺權重的「先看看東京三日範例」卡片。
+- 已有真實旅程時，Lobby 不混入假旅程卡片；示範入口只出現在設定選單，並與「功能導覽」及「更新內容」維持獨立操作。
+- 設定選單沒有真實旅程時不顯示重複入口。
+
+App 使用獨立的 `demoPreviewState`：
+
+```js
+{
+  demo,
+  initialTab,
+}
+```
+
+正式 view priority 是 UX Foundation dev demo、DemoTripPreview、OfflineTripPreview、TripDetail、Lobby。當 Demo Preview 開啟時，不會在底下 mount Lobby、TripDetail、Offline Preview、FeatureTour、建立／編輯 Modal或 Whats New；關閉只會清除 `demoPreviewState`，不重新載入頁面、不改 URL，也不改變 release seen 或 feature-tour pending marker。
+
+從 Demo Preview 點「建立我的第一個旅程」或「建立另一個旅程」只會關閉示範並開啟既有的空白建立 Modal。它不會預填東京資料、不會送出表單、不會建立 Firebase room，也不會複製 itinerary、tickets、expenses 或 checklist。
+
+真正 Clone Flow 尚未實作，因此正式 App integration 傳入 `showCloneAction={false}`，完全不 render Clone CTA；元件本身仍保留 Phase 7B-1 的預設契約，供 Phase 7B-5 完成真正複製流程後明確重新啟用。
+
+此整合仍然：
+
+- 不把 demo 放進 `myTrips`，不寫 `google-travel-my-trips`。
+- 不寫入或修改 Offline Trip Cache。
+- 不建立或讀寫 Firebase demo room。
+- 不實作 First-run Welcome 或 onboarding seen key。
+- 不修改 FeatureTour chapters 或 spotlight controller。
+
+Browser Back 的專用 demo history 行為尚未加入；目前開啟與關閉示範都不修改 URL，返回由 Preview 的「返回首頁」按鈕處理。若未來要讓 browser Back 關閉 Preview，必須先定義不產生 Firebase room query、且不干擾既有 TripDetail／Offline Preview history 的路由契約。

@@ -329,4 +329,79 @@ describe('AppSettingsMenu', () => {
     await user.click(screen.getByTestId('app-settings-check-updates'));
     expect(onCheckUpdates).toHaveBeenCalledTimes(1);
   });
+
+  it('hides the demo entry when disabled or callback is missing', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderMenu({ showDemoEntry: false, onOpenDemo: vi.fn() });
+    await openMenu(user);
+    expect(screen.queryByTestId('app-settings-demo-trip')).not.toBeInTheDocument();
+    unmount();
+
+    renderMenu({ showDemoEntry: true, onOpenDemo: undefined });
+    await openMenu(user);
+    expect(screen.queryByTestId('app-settings-demo-trip')).not.toBeInTheDocument();
+  });
+
+  it('shows the demo entry, closes first, and calls its callback once', async () => {
+    const user = userEvent.setup();
+    const onOpenDemo = vi.fn();
+    renderMenu({ showDemoEntry: true, onOpenDemo });
+    await openMenu(user);
+    const entry = screen.getByTestId('app-settings-demo-trip');
+    expect(entry).toHaveTextContent('查看示範旅程');
+    await user.click(entry);
+    expect(onOpenDemo).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('app-settings-menu')).not.toBeInTheDocument();
+  });
+
+  it('keeps Escape focus behavior with the demo entry enabled', async () => {
+    const user = userEvent.setup();
+    renderMenu({ showDemoEntry: true, onOpenDemo: vi.fn() });
+    const trigger = screen.getByTestId('app-settings-trigger');
+    await openMenu(user);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByTestId('app-settings-menu')).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('keeps release notes, feature tour, and install actions independent', async () => {
+    const user = userEvent.setup();
+    const onOpenReleaseNotes = vi.fn();
+    const onStartFeatureTour = vi.fn();
+    const onOpenDemo = vi.fn();
+    setInstallSnapshot({ nativePromptAvailable: true });
+    renderMenu({ showDemoEntry: true, onOpenDemo, onOpenReleaseNotes, onStartFeatureTour });
+
+    await openMenu(user);
+    await user.click(screen.getByTestId('app-settings-release-notes'));
+    expect(onOpenReleaseNotes).toHaveBeenCalledTimes(1);
+    expect(onOpenDemo).not.toHaveBeenCalled();
+
+    await openMenu(user);
+    await user.click(screen.getByTestId('app-settings-feature-tour'));
+    expect(onStartFeatureTour).toHaveBeenCalledTimes(1);
+    expect(onOpenDemo).not.toHaveBeenCalled();
+
+    await openMenu(user);
+    await user.click(screen.getByTestId('app-settings-install-app'));
+    expect(installMock.snapshot.requestInstall).toHaveBeenCalledTimes(1);
+    expect(onOpenDemo).not.toHaveBeenCalled();
+  });
+
+  it('keeps the menu within a small viewport and scrollable', async () => {
+    const user = userEvent.setup();
+    const originalHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 320 });
+    renderMenu({ showDemoEntry: true, onOpenDemo: vi.fn() });
+    const trigger = screen.getByTestId('app-settings-trigger');
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      top: 260, bottom: 304, left: 330, right: 374, width: 44, height: 44, x: 330, y: 260, toJSON: () => ({}),
+    });
+    await openMenu(user);
+    const menu = screen.getByTestId('app-settings-menu');
+    expect(Number.parseFloat(menu.style.top)).toBeGreaterThanOrEqual(12);
+    expect(menu.style.maxHeight).toBe('calc(100dvh - 24px)');
+    expect(menu).toHaveClass('overflow-y-auto');
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight });
+  });
 });

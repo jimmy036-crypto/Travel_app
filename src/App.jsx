@@ -30,6 +30,7 @@ import {
 
 // 引入拆分出去的核心元件與 UI
 const TripDetail = lazy(() => import('./TripDetail.jsx'));
+const DemoTripPreview = lazy(() => import('./features/onboarding/DemoTripPreview.jsx'));
 const UXFoundationDemo = import.meta.env.DEV
   ? lazy(() => import('./components/ui/UXFoundationDemo.jsx'))
   : null;
@@ -49,6 +50,14 @@ import { useOnlineStatus } from './hooks/useOnlineStatus.js';
 import { OfflineBanner } from './components/OfflineBanner.jsx';
 import { listOfflineTripSummaries, removeOfflineTripSnapshot, readOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
 import { OfflineTripPreview } from './features/offline/OfflineTripPreview.jsx';
+import { DemoTripEntryCard } from './features/onboarding/DemoTripEntryCard.jsx';
+import { createTokyoDemoTrip } from './features/onboarding/demoTripData.js';
+
+const DEMO_TABS = new Set(['overview', 'itinerary', 'tickets', 'expenses', 'checklist']);
+
+const normalizeBuiltInDemoTab = (value) => (
+  DEMO_TABS.has(value) ? value : 'overview'
+);
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -140,6 +149,7 @@ export default function TravelApp() {
 
   const [offlinePreviewData, setOfflinePreviewData] = useState(null);
   const [offlineCacheSummaries, setOfflineCacheSummaries] = useState([]);
+  const [demoPreviewState, setDemoPreviewState] = useState(null);
 
   const refreshOfflineCacheSummaries = useCallback(() => {
     setOfflineCacheSummaries(listOfflineTripSummaries());
@@ -293,6 +303,24 @@ export default function TravelApp() {
     setNewTransport("汽車 🚗"); setNewThemeColor("#3b82f6");
     setTripModalMode('create');
   }, []);
+
+  const openBuiltInDemo = useCallback((initialTab = 'overview') => {
+    const safeInitialTab = normalizeBuiltInDemoTab(initialTab);
+    setShowWhatsNew(false);
+    setDemoPreviewState({
+      demo: createTokyoDemoTrip(),
+      initialTab: safeInitialTab,
+    });
+  }, []);
+
+  const closeBuiltInDemo = useCallback(() => {
+    setDemoPreviewState(null);
+  }, []);
+
+  const handleCreateTripFromDemo = useCallback(() => {
+    setDemoPreviewState(null);
+    openCreateModal();
+  }, [openCreateModal]);
 
   const fillEmulatorRequiredFields = () => {
     const start = new Date();
@@ -656,6 +684,22 @@ export default function TravelApp() {
     );
   }
 
+  if (demoPreviewState) {
+    return (
+      <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入示範旅程...</div>}>
+        <DemoTripPreview
+          demo={demoPreviewState.demo}
+          initialTab={demoPreviewState.initialTab}
+          t={t}
+          onBack={closeBuiltInDemo}
+          onCreateTrip={handleCreateTripFromDemo}
+          showCloneAction={false}
+          createActionLabel={hasTrips ? '建立另一個旅程' : '建立我的第一個旅程'}
+        />
+      </Suspense>
+    );
+  }
+
   if (offlinePreviewData) return (
     <>
       <OfflineTripPreview
@@ -758,6 +802,8 @@ export default function TravelApp() {
               onOpenAppearance={() => lobbyAppearanceInputRef.current?.click?.()}
               onOpenReleaseNotes={openReleaseNotes}
               onStartFeatureTour={startFeatureTour}
+              showDemoEntry={hasTrips}
+              onOpenDemo={() => openBuiltInDemo('overview')}
               onCheckUpdates={handleCheckAppUpdate}
               isCheckingUpdates={isCheckingAppUpdate}
             />
@@ -846,30 +892,33 @@ export default function TravelApp() {
         ) : null}
 
         {!hasTrips ? (
-          <EmptyState
-            testId="lobby-empty-state"
-            className={`${t.cardBg} ${t.cardBorder} mt-16 md:mt-24`}
-            icon={(
+          <div className="mt-16 space-y-6 md:mt-24">
+            <EmptyState
+              testId="lobby-empty-state"
+              className={`${t.cardBg} ${t.cardBorder}`}
+              icon={(
               <svg viewBox="0 0 48 48" className="h-14 w-14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M8 34c7-4 13-4 20 0s13 4 20 0" />
                 <path d="M12 30V12l10 5 10-5 10 5v18" />
                 <path d="M22 17v18" />
                 <path d="M32 12v23" />
               </svg>
-            )}
-            title="建立你的第一個旅程"
-            description="集中管理每日行程、景點、費用與旅伴協作，從第一個旅程開始規劃。"
-            primaryAction={{
-              label: '建立新旅程',
-              testId: 'lobby-empty-create-trip',
-              onClick: openCreateModal,
-            }}
-            secondaryAction={{
-              label: '匯入旅程',
-              testId: 'lobby-empty-import-trip',
-              onClick: () => setShowImportModal(true),
-            }}
-          />
+              )}
+              title="建立你的第一個旅程"
+              description="集中管理每日行程、景點、費用與旅伴協作，從第一個旅程開始規劃。"
+              primaryAction={{
+                label: '建立新旅程',
+                testId: 'lobby-empty-create-trip',
+                onClick: openCreateModal,
+              }}
+              secondaryAction={{
+                label: '匯入旅程',
+                testId: 'lobby-empty-import-trip',
+                onClick: () => setShowImportModal(true),
+              }}
+            />
+            <DemoTripEntryCard t={t} onOpenDemo={() => openBuiltInDemo('overview')} />
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {myTrips.map(trip => {

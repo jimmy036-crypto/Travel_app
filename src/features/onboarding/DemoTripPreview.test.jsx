@@ -249,6 +249,25 @@ describe('DemoTripPreview callbacks and isolation boundaries', () => {
     expect(props.onCloneDemo).toHaveBeenCalledWith(demo);
   });
 
+  it('hides clone action when showCloneAction is false and uses a two-column footer', () => {
+    renderPreview({ showCloneAction: false });
+    expect(screen.queryByTestId('demo-clone-trip-button')).not.toBeInTheDocument();
+    expect(screen.getByTestId('demo-create-trip-button').parentElement).toHaveClass('sm:grid-cols-2');
+  });
+
+  it('hides clone action when onCloneDemo is not a function', () => {
+    renderPreview({ onCloneDemo: undefined });
+    expect(screen.queryByTestId('demo-clone-trip-button')).not.toBeInTheDocument();
+  });
+
+  it('uses a custom create action label without changing the default contract', () => {
+    const { unmount } = renderPreview({ createActionLabel: '建立另一個旅程' });
+    expect(screen.getByTestId('demo-create-trip-button')).toHaveTextContent('建立另一個旅程');
+    unmount();
+    renderPreview();
+    expect(screen.getByTestId('demo-create-trip-button')).toHaveTextContent('建立我的第一個旅程');
+  });
+
   it('does not read or write localStorage while rendering and switching tabs', async () => {
     const user = userEvent.setup();
     const getItemSpy = vi.spyOn(Storage.prototype, 'getItem');
