@@ -1,0 +1,45 @@
+# Test Matrix
+
+## Test Layers
+
+| Layer | Tool | Purpose | Typical command | Required when |
+|---|---|---|---|---|
+| Unit | Vitest | Pure models, calculations, storage adapters, and controllers | `npm run test:run -- <files>` | Domain logic or helpers change |
+| Component | Vitest + Testing Library | Rendering, callbacks, accessibility, and local interaction | `npm run test:run -- <component tests>` | Components or UI contracts change |
+| Integration | Vitest + mocks | App/Trip coordination, persistence ordering, and view exclusion | `npm run test:run -- <integration tests>` | Cross-component state flow changes |
+| Browser E2E | Playwright | Real user flows against Firebase Emulator | `npm run test:e2e -- <spec>` | Cross-page, Firebase, realtime, Storage, drag, or mobile flow changes |
+| Fast gate | Project verifier | Typecheck, lint, Vitest, and production build | `npm run agent:verify` | Before every implementation commit |
+| Full gate | Project verifier | Fast gate plus full Playwright matrix | `npm run agent:verify:all` | Shared E2E/config changes, major release, or explicit task requirement |
+
+## Playwright Projects
+
+### Desktop Chrome
+
+- Primary desktop interaction and layout project.
+- Covers keyboard/mouse flows, new windows/anchors without third-party navigation, realtime contexts, and Emulator persistence.
+
+### Mobile Safari
+
+- Mobile viewport and WebKit behavior proxy.
+- Covers safe-area layouts, scrolling, touch-sized controls, modal sheets, horizontal overflow, and interaction interception.
+- Does not replace physical iPhone/PWA validation.
+
+## Regression Suites
+
+- **Lobby/App Shell:** home, settings, release notes, tour, empty states, skeletons.
+- **Trip:** place CRUD, itinerary drag, checklist and realtime room updates.
+- **Expenses:** creation, editing, deletion, split conservation, and settlement rendering.
+- **Tickets/Storage:** canonical tickets, external-app behavior, attachment lifecycle, validation, failures, and legacy compatibility.
+- **Offline/PWA:** awareness, read-only preview, cache lifecycle, install/update behavior.
+- **Infrastructure:** Emulator smoke, Firebase namespace, shared helpers, and full multi-project execution.
+
+## Smoke Strategy
+
+Smoke tests prove that the App loads, uses the Emulator namespace, opens the key changed flow, and leaves no unexpected data. They do not substitute for targeted assertions or regression suites.
+
+## Evidence Rules
+
+- Record the exact command, project, pass/fail counts, and commit under test.
+- A skipped test is not a passed test; explain conditional skips.
+- Do not use `test.only`, force click, arbitrary sleeps, assertion weakening, or production services.
+- Preserve failure artifacts only while diagnosing; do not commit reports, traces, screenshots, or coverage output.

@@ -1,13 +1,13 @@
-# Claude Code 專案指令
+# Claude Repository Guide
 
-開始任何工作前，必須完整閱讀並遵守根目錄的 `AGENTS.md`。
+Use `.ai/` as the only authoritative source for project context and coordination.
 
-本專案採用「Agent 實作與測試、CI 驗證、人工合併」模式。禁止直接推送保護分支、正式部署、存取 secrets，或為了通過測試而降低測試標準。
+Read, in order:
 
-常用指令：
+1. [.ai/PROJECT_STATUS.md](.ai/PROJECT_STATUS.md)
+2. [.ai/ARCHITECTURE.md](.ai/ARCHITECTURE.md)
+3. [.ai/DECISIONS.md](.ai/DECISIONS.md)
+4. [.ai/AGENT_RULES.md](.ai/AGENT_RULES.md)
+5. [.ai/TEST_MATRIX.md](.ai/TEST_MATRIX.md)
 
-```bash
-npm run agent:guardrails
-npm run agent:verify
-npm run agent:verify:all
-```
+Continue with the active task and relevant role definition inside `.ai/`. This file intentionally contains no independent project state or rules.
