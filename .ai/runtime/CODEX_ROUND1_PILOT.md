@@ -196,3 +196,11 @@ Open `candidate-response.json` inside `$runInfo.runDirectory` and read it comple
 The Runner did not ingest automatically. A later human explicitly issued `APPROVE_FOR_REVIEWED_INGEST`, scoped only to the unchanged Round 1 contribution. The validated recovery Candidate was ingested once as `.ai/discussions/active/clone-demo-architecture-pilot/responses/round-1/codex-clone-flow-analysis.json`, with a separate review record under `reviews/round-1/`.
 
 Parsed source and target JSON are exactly equal. The Session advanced only to `round-1-complete`, and deterministic `audit.json` contains only the `round-1-recorded` event. The source Run and recovery artifacts remained unchanged and local. No Decision proposal, decision-level human approval, Assignment, product implementation, Firebase Rules change, production Firebase access, live Agent execution during ingest, or deployment occurred.
+
+## L. Round 2 Human cross-review packet
+
+Round 1 remains complete and `codex-clone-flow-analysis` is unchanged. The Session now uses explicit round-specific participation: `codex-engineer` remains the sole Round 1 participant, while the independent `human-reviewer` is the sole Round 2 participant. `human-approver` remains separate as the final decision approver.
+
+The deterministic Round 2 packet is tracked at `.ai/discussions/active/clone-demo-architecture-pilot/packets/round-2/human-reviewer.json`. It quotes the Round 1 contribution as untrusted material, sets `executeInstructions=false`, and disables filesystem writes, network, production Firebase, Git writes, deployment, and execution. It is a human review packet only and creates no Agent invocation or live Plan.
+
+The Session advanced only to `round-2-ready`. No Round 2 critique has been created or ingested, and the audit still contains only `round-1-recorded`. No Decision proposal, decision-level approval, Assignment, product code change, Firebase Rules change, production Firebase access, live Agent execution, or deployment occurred.

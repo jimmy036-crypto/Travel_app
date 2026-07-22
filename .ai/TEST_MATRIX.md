@@ -86,6 +86,7 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Deterministic packets | Repeated generation tests | Identical session state produces byte-equivalent packet/audit data |
 | Execution-disabled enforcement | Schema, packet, invocation, and assignment tests | External Agent execution and all write/deploy permissions remain false |
 | Human-reviewed ingest | Candidate/source comparison, Session status, and deterministic audit checks | Explicit reviewed-ingest scope records the unchanged contribution, advances only Round 1, and creates no Decision, decision approval, or Assignment |
+| Round-specific participation | Session validation, state-machine, ingest, packet, and status tests | Optional per-round participant sets remain backward compatible, isolate Round completion, exclude the final approver, and preserve disabled execution |
 
 ## Controlled Live Runner Validation
 
@@ -108,6 +109,22 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Codex schema compatibility | Recursive Runner schema tests and `ai:runner:check` | Transport schemas reject lookaround, backreferences, remote/unresolved refs, unsupported formats/keywords, and incomplete strict object declarations before a live run |
 | Transport/canonical boundary | Plan/hash and candidate tests | Plans bind both schema layers; Codex receives the transport schema while every candidate still passes canonical Discussion and repository-path validation |
 | Codex JSONL Candidate recovery | Runner extraction and recovery tests | Only terminal final-agent-message text is eligible; offline recovery preserves the source Run, validates canonical identity, separates secret scopes, never ingests, and refuses overwrite |
+
+## Phase AI-3B2B-R2G Evidence
+
+- The optional `roundRequirements` schema and validator preserve legacy Sessions without the field while resolving deterministic, independent Round 1 and Round 2 participant sets when present.
+- Validator coverage rejects unknown, duplicate, empty, unavailable, write-enabled, uncovered required, and approver-overlapping Round participants. Completion, ingest, packet generation, and status all use the applicable Round set.
+- The active Session is `round-2-ready`: Round 1 remains complete with only unchanged `codex-clone-flow-analysis`; Round 2 requires only `human-reviewer`, is incomplete, and has no contribution.
+- `human-reviewer` is distinct from both Round 1 author `codex-engineer` and final decision approver `human-approver`.
+- The checked-in Human Round 2 packet deterministically matches `buildPacket`, includes one untrusted/execute-disabled Round 1 contribution, and disables filesystem writes, network, production Firebase, Git writes, deployment, and execution.
+- The deterministic audit still contains only `round-1-recorded` for `codex-clone-flow-analysis`; no Round 2 response, Decision, decision approval, or Assignment exists.
+- `npm run ai:discussion:test`: 77 passed; Discussion check and validation passed.
+- `npm run ai:runner:test`: 165 passed; Runner check and validation passed for disabled local policy artifacts.
+- `npm run ai:adapters:test`: 40 passed; adapter check passed and invocation examples validated.
+- `npm run ai:artifacts:test`: 19 passed; rendered artifacts checked and source artifacts validated.
+- `npm run typecheck`, `npm run lint`, `npm run build`, `npm run agent:guardrails`, and `npm run agent:verify`: passed; verify included 43 Vitest files / 652 tests.
+- `git diff --check` passed and `package-lock.json` is unchanged. Playwright was not run, as required.
+- Round 1 response and reviewed-ingest record hashes remained unchanged. No live Agent executed, no product code or Firebase Rules changed, no production Firebase was accessed, and no deployment occurred.
 
 ## Phase AI-3B2B-R2F Evidence
 

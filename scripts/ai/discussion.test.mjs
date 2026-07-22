@@ -15,6 +15,7 @@ import {
   directoryDigest,
   ingestResponse,
   recordApproval,
+  resolveRoundParticipantIds,
   sessionStatus,
   validateAllDiscussionArtifacts,
   validateAnalysis,
@@ -27,6 +28,7 @@ import {
 } from './discussion-lib.mjs';
 
 const FIXTURE = path.join(REPO_ROOT, '.ai', 'discussions', 'examples', 'demo-persistence-boundary');
+const ACTIVE = path.join(REPO_ROOT, '.ai', 'discussions', 'active', 'clone-demo-architecture-pilot');
 const PACKET = '.ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json';
 const tempRoots = [];
 
@@ -70,6 +72,11 @@ function makeRound1Ready() {
     value.assignments = [];
   });
   return session;
+}
+function configureRoundRequirements(value, round1ParticipantIds = ['codex-engineer'], round2ParticipantIds = ['reviewer']) {
+  value.roundRequirements = { round1ParticipantIds, round2ParticipantIds };
+  const selected = new Set([...round1ParticipantIds, ...round2ParticipantIds]);
+  value.participants.forEach((participant) => { participant.required = participant.role !== 'approver' && selected.has(participant.participantId); });
 }
 
 test.after(() => tempRoots.forEach((root) => rmSync(root, { recursive: true, force: true })));
@@ -221,4 +228,107 @@ test('discussion check finds the synthetic fixture and validates the active pilo
       (directory) => path.basename(directory) === 'clone-demo-architecture-pilot',
     ),
   );
+});
+
+test('legacy session without roundRequirements preserves required participant fallback', () => {
+  const session = sessionJson(FIXTURE);
+  assert.equal(Object.hasOwn(session, 'roundRequirements'), false);
+  assert.deepEqual(resolveRoundParticipantIds(session, 'round-1'), ['codex-engineer', 'gemini-analyst', 'reviewer']);
+  assert.deepEqual(resolveRoundParticipantIds(session, 'round-2'), ['codex-engineer', 'gemini-analyst', 'reviewer']);
+});
+test('Round 1 and Round 2 resolve different participant sets', () => {
+  const session = mutateCopy(sessionJson(FIXTURE), (value) => configureRoundRequirements(value));
+  validateSession(session);
+  assert.deepEqual(resolveRoundParticipantIds(session, 'round-1'), ['codex-engineer']);
+  assert.deepEqual(resolveRoundParticipantIds(session, 'round-2'), ['reviewer']);
+});
+test('Round 2 reviewer selection does not make completed Round 1 incomplete', () => {
+  const checked = checkSession(ACTIVE);
+  assert.equal(checked.round1Complete, true);
+  assert.deepEqual(resolveRoundParticipantIds(checked.session, 'round-2'), ['human-reviewer']);
+});
+test('unknown Round participant ID fails', () => {
+  const session = mutateCopy(sessionJson(FIXTURE), (value) => configureRoundRequirements(value, ['missing-reviewer'], ['reviewer']));
+  assert.throws(() => validateSession(session), /Unknown Round participant/);
+});
+test('duplicate Round participant ID fails', () => {
+  const session = mutateCopy(sessionJson(FIXTURE), (value) => configureRoundRequirements(value, ['codex-engineer', 'codex-engineer'], ['reviewer']));
+  assert.throws(() => validateSession(session), /unique participant IDs/);
+});
+test('empty Round requirement fails', () => {
+  const session = mutateCopy(sessionJson(FIXTURE), (value) => configureRoundRequirements(value, [], ['reviewer']));
+  assert.throws(() => validateSession(session), /at least 1 non-empty string/);
+});
+test('required participant missing from both Round requirements fails', () => {
+  const session = mutateCopy(sessionJson(FIXTURE), (value) => {
+    configureRoundRequirements(value);
+    value.participants.find((participant) => participant.participantId === 'gemini-analyst').required = true;
+  });
+  assert.throws(() => validateSession(session), /must appear in at least one Round requirement/);
+});
+test('unavailable participant cannot be selected by explicit Round requirements', () => {
+  const session = mutateCopy(sessionJson(FIXTURE), (value) => configureRoundRequirements(value, ['gemini-analyst'], ['reviewer']));
+  assert.throws(() => validateSession(session), /Unavailable participant/);
+});
+test('final approver cannot also be a Round reviewer', () => {
+  const session = mutateCopy(sessionJson(FIXTURE), (value) => configureRoundRequirements(value, ['codex-engineer'], ['human-approver']));
+  assert.throws(() => validateSession(session), /reviewer and approver must be different/);
+});
+test('Round 1 ingest rejects a participant not assigned to Round 1', () => {
+  const session = makeRound1Ready();
+  updateSession(session, (value) => configureRoundRequirements(value, ['reviewer'], ['codex-engineer']));
+  const incoming = path.join(path.dirname(session), 'incoming-round-1.json');
+  writeJson(incoming, artifact('responses/round-1/codex-analysis.json'));
+  assert.throws(() => ingestResponse(session, incoming), /not assigned to round-1/);
+});
+test('Round 2 ingest rejects a participant not assigned to Round 2', () => {
+  const session = makeRound1Ready();
+  updateSession(session, (value) => configureRoundRequirements(value));
+  const round1 = path.join(path.dirname(session), 'incoming-round-1.json');
+  writeJson(round1, artifact('responses/round-1/codex-analysis.json'));
+  ingestResponse(session, round1);
+  updateSession(session, (value) => { value.status = 'round-2-ready'; value.rounds.round1ContributionIds = ['r1-codex-analysis']; });
+  const round2 = path.join(path.dirname(session), 'incoming-round-2.json');
+  writeJson(round2, artifact('responses/round-2/codex-critique.json'));
+  assert.throws(() => ingestResponse(session, round2), /not assigned to round-2/);
+});
+test('Round 2 packet is limited to the selected human reviewer', () => {
+  assert.equal(buildPacket(ACTIVE, 'round-2', 'human-reviewer').participant.participantId, 'human-reviewer');
+  assert.throws(() => buildPacket(ACTIVE, 'round-2', 'codex-engineer'), /not assigned to round-2/);
+});
+test('Round 1 packet remains limited to its Round 1 participant', () => {
+  assert.equal(buildPacket(ACTIVE, 'round-1', 'codex-engineer').participant.participantId, 'codex-engineer');
+  assert.throws(() => buildPacket(ACTIVE, 'round-1', 'human-reviewer'), /not assigned to round-1/);
+});
+test('status reports required participants for each Round', () => {
+  const status = sessionStatus(ACTIVE);
+  assert.deepEqual(status.round1.requiredParticipants, ['codex-engineer']);
+  assert.deepEqual(status.round2.requiredParticipants, ['human-reviewer']);
+});
+test('active Session keeps Round 1 complete', () => assert.equal(sessionStatus(ACTIVE).round1.complete, true));
+test('active Session is ready for Round 2 with no Round 2 response', () => {
+  const status = sessionStatus(ACTIVE);
+  assert.equal(status.status, 'round-2-ready');
+  assert.equal(status.round2.complete, false);
+  assert.deepEqual(status.round2.contributions, []);
+});
+test('Human Round 2 packet keeps execution disabled', () => assert.equal(buildPacket(ACTIVE, 'round-2', 'human-reviewer').execution.enabled, false));
+test('checked-in Human Round 2 packet matches deterministic output', () => {
+  const packetFile = path.join(ACTIVE, 'packets', 'round-2', 'human-reviewer.json');
+  assert.deepEqual(json(packetFile), buildPacket(ACTIVE, 'round-2', 'human-reviewer'));
+});
+test('Human Round 2 packet disables network Firebase Git writes and deploy', () => {
+  const permissions = buildPacket(ACTIVE, 'round-2', 'human-reviewer').permissions;
+  assert.deepEqual(permissions, { filesystem: 'read-only', network: false, productionFirebase: false, gitWrite: false, deploy: false });
+});
+test('active audit contains no Round 2 event', () => {
+  const events = buildAudit(ACTIVE).events;
+  assert.deepEqual(events, [{ sequence: 1, event: 'round-1-recorded', artifactId: 'codex-clone-flow-analysis' }]);
+});
+test('Round 2 preparation creates no Decision Approval or Assignment', () => {
+  const status = sessionStatus(ACTIVE);
+  assert.equal(status.decision, 'not-proposed');
+  assert.equal(status.humanApproval, 'pending');
+  assert.deepEqual(status.assignments, []);
+  assert.equal(status.executionEnabled, false);
 });

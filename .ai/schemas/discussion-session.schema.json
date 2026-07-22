@@ -29,6 +29,15 @@
     "constraints": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
     "questions": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
     "participants": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/participant" } },
+    "roundRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["round1ParticipantIds", "round2ParticipantIds"],
+      "properties": {
+        "round1ParticipantIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "round2ParticipantIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
     "rounds": {
       "type": "object",
       "additionalProperties": false,

@@ -2,6 +2,17 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2G — Round 2 Human Reviewer Packet
+
+- Added optional `roundRequirements` to Discussion Sessions while preserving the legacy fallback where both rounds use `participants[].required`.
+- Added deterministic per-round participant resolution and enforced round-specific completion, ingest, packet creation, and status reporting.
+- Added validation for unknown, duplicate, empty, unavailable, write-enabled, uncovered required, and approver-overlapping Round participants.
+- Kept `codex-engineer` as the sole Round 1 participant and selected the independent `human-reviewer` as the sole Round 2 participant; `human-approver` remains the separate final decision approver.
+- Advanced the active Session only to `round-2-ready`. The unchanged `codex-clone-flow-analysis` contribution remains the sole completed Round 1 response, and no Round 2 response exists.
+- Added a reviewer-selection record and deterministic Human cross-review packet with quoted Round 1 material marked untrusted and all execution, network, production Firebase, Git-write, and deploy permissions disabled.
+- The deterministic audit remains limited to `round-1-recorded` for `codex-clone-flow-analysis`.
+- Added 21 Discussion tests for 77 passing tests total. No live Agent ran, and no Decision, decision-level approval, Assignment, product code, Firebase Rules, production Firebase access, or deployment was created.
+
 ## Phase AI-3B2B-R2F — Human-reviewed Round 1 Ingest
 
 - Recorded the human decision `APPROVE_FOR_REVIEWED_INGEST`, scoped only to ingesting the reviewed Round 1 contribution and updating Session/audit governance artifacts.

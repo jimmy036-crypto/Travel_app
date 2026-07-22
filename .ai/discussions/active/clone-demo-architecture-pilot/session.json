@@ -7,7 +7,7 @@
   "title": "Design an Explicit Demo-to-Real-Trip Clone Flow",
   "topic": "How should a user explicitly clone the built-in Tokyo Demo into a real trip while preserving the Demo local-only, read-only, and not-in-myTrips boundaries?",
   "objective": "Produce an evidence-based architecture recommendation for the future Clone Flow covering product flow, write boundaries, Firebase creation ordering, failure recovery, duplicate-operation prevention, data transformation, authorization review, and regression strategy. This session makes no product decision and performs no implementation.",
-  "status": "round-1-complete",
+  "status": "round-2-ready",
   "executionMode": "import-only",
   "context": {
     "knownFacts": [
@@ -16,7 +16,8 @@
       "The production App currently hides the Demo clone action and routes the Demo create action to the existing blank create modal.",
       "The existing create-trip path writes a new rooms/{roomId} record before adding its metadata to myTrips and navigating to the room.",
       "Clone Flow was deferred pending explicit consent, canonical IDs, validation, and partial-failure handling.",
-      "The human-reviewed Codex Round 1 contribution codex-clone-flow-analysis has been ingested. No product decision, implementation approval, assignment, production Firebase access, or deployment exists."
+      "The human-reviewed Codex Round 1 contribution codex-clone-flow-analysis has been ingested. No product decision, implementation approval, assignment, production Firebase access, or deployment exists.",
+      "Round 2 is assigned to the independent human-reviewer participant. The human-approver remains separate and no Decision or decision-level approval exists."
     ],
     "repositoryPaths": [
       "src/App.jsx",
@@ -68,11 +69,16 @@
   ],
   "participants": [
     { "participantId": "codex-engineer", "agent": "codex", "role": "engineer", "required": true, "writeAccess": false, "availability": "available" },
+    { "participantId": "human-reviewer", "agent": "human", "role": "reviewer", "required": true, "writeAccess": false, "availability": "human-controlled" },
     { "participantId": "human-approver", "agent": "human", "role": "approver", "required": false, "writeAccess": false, "availability": "human-controlled" }
   ],
+  "roundRequirements": {
+    "round1ParticipantIds": ["codex-engineer"],
+    "round2ParticipantIds": ["human-reviewer"]
+  },
   "rounds": { "round1ContributionIds": ["codex-clone-flow-analysis"], "round2ContributionIds": [] },
   "decision": { "decisionId": "clone-demo-architecture-proposal", "proposalPath": null },
   "humanApproval": { "required": true, "approverParticipantId": "human-approver", "approvalPath": null },
   "assignments": [],
-  "timestamps": { "createdAt": "2026-07-22T06:00:00Z", "updatedAt": "2026-07-22T12:34:24.863Z" }
+  "timestamps": { "createdAt": "2026-07-22T06:00:00Z", "updatedAt": "2026-07-22T13:22:40.093Z" }
 }

@@ -84,7 +84,10 @@ function validateEvidence(evidence, location) {
 }
 
 export function validateSession(session) {
-  exactKeys(session, ['schemaVersion', 'artifactType', 'fixture', 'source', 'sessionId', 'title', 'topic', 'objective', 'status', 'executionMode', 'context', 'constraints', 'questions', 'participants', 'rounds', 'decision', 'humanApproval', 'assignments', 'timestamps'], 'discussion-session');
+  const hasRoundRequirements = Object.hasOwn(session, 'roundRequirements');
+  const sessionKeys = ['schemaVersion', 'artifactType', 'fixture', 'source', 'sessionId', 'title', 'topic', 'objective', 'status', 'executionMode', 'context', 'constraints', 'questions', 'participants', 'rounds', 'decision', 'humanApproval', 'assignments', 'timestamps'];
+  if (hasRoundRequirements) sessionKeys.push('roundRequirements');
+  exactKeys(session, sessionKeys, 'discussion-session');
   validateCommon(session, 'discussion-session');
   requireString(session.title, 'session.title'); requireString(session.topic, 'session.topic'); requireString(session.objective, 'session.objective');
   if (!SESSION_STATUSES.includes(session.status)) fail('session.status is invalid');
@@ -109,6 +112,18 @@ export function validateSession(session) {
     if (participant.writeAccess !== false) fail(`${location}.writeAccess must be false`);
     if (!['available', 'unavailable', 'human-controlled'].includes(participant.availability)) fail(`${location}.availability is invalid`);
   });
+  if (hasRoundRequirements) {
+    exactKeys(session.roundRequirements, ['round1ParticipantIds', 'round2ParticipantIds'], 'session.roundRequirements');
+    for (const key of ['round1ParticipantIds', 'round2ParticipantIds']) {
+      const ids = session.roundRequirements[key];
+      requireStringArray(ids, `session.roundRequirements.${key}`, { min: 1 });
+      if (new Set(ids).size !== ids.length) fail(`session.roundRequirements.${key} must contain unique participant IDs`);
+      ids.forEach((id, index) => {
+        requireId(id, `session.roundRequirements.${key}[${index}]`);
+        if (!participantIds.has(id)) fail(`Unknown Round participant ${id}`);
+      });
+    }
+  }
   exactKeys(session.rounds, ['round1ContributionIds', 'round2ContributionIds'], 'session.rounds');
   for (const [key, ids] of Object.entries(session.rounds)) {
     if (!Array.isArray(ids) || new Set(ids).size !== ids.length) fail(`session.rounds.${key} must contain unique IDs`);
@@ -122,6 +137,21 @@ export function validateSession(session) {
   requireId(session.humanApproval.approverParticipantId, 'session.humanApproval.approverParticipantId');
   const approver = session.participants.find((item) => item.participantId === session.humanApproval.approverParticipantId);
   if (!approver || approver.agent !== 'human' || approver.role !== 'approver') fail('session approver must be a human approver participant');
+  const reviewerIds = new Set([
+    ...resolveRoundParticipantIds(session, 'round-1'),
+    ...resolveRoundParticipantIds(session, 'round-2'),
+  ]);
+  if (reviewerIds.has(session.humanApproval.approverParticipantId)) fail('session reviewer and approver must be different participants');
+  if (hasRoundRequirements) {
+    for (const participant of session.participants) {
+      if (participant.required && !reviewerIds.has(participant.participantId)) fail(`Required participant ${participant.participantId} must appear in at least one Round requirement`);
+    }
+    for (const participantId of reviewerIds) {
+      const participant = session.participants.find((item) => item.participantId === participantId);
+      if (participant.writeAccess !== false) fail(`Round participant ${participantId} must have writeAccess=false`);
+      if (participant.availability === 'unavailable') fail(`Unavailable participant ${participantId} cannot be selected for an active Round`);
+    }
+  }
   if (session.humanApproval.approvalPath !== null) assertSafeRepositoryPath(session.humanApproval.approvalPath, 'session.humanApproval.approvalPath');
   if (!Array.isArray(session.assignments)) fail('session.assignments must be an array');
   session.assignments.forEach((item, index) => assertSafeRepositoryPath(item, `session.assignments[${index}]`));
@@ -252,12 +282,20 @@ function assertParticipantMatches(session, contribution) {
   if (expected.agent !== contribution.participant.agent || expected.role !== contribution.participant.role) fail(`${contribution.contributionId} participant agent or role does not match the session`);
 }
 
-function requiredRoundParticipantIds(session) {
+function requiredParticipantIds(session) {
   return session.participants.filter((item) => item.required).map((item) => item.participantId).sort();
+}
+
+export function resolveRoundParticipantIds(session, round) {
+  if (!['round-1', 'round-2'].includes(round)) fail(`Unsupported participant requirement round ${round}`);
+  if (!session.roundRequirements) return requiredParticipantIds(session);
+  const key = round === 'round-1' ? 'round1ParticipantIds' : 'round2ParticipantIds';
+  return [...session.roundRequirements[key]].sort();
 }
 
 function roundParticipantIds(entries) { return entries.map(({ artifact }) => artifact.participant.participantId).sort(); }
 function sameSet(left, right) { return JSON.stringify([...new Set(left)].sort()) === JSON.stringify([...new Set(right)].sort()); }
+function sameSortedIds(left, right) { return JSON.stringify([...left].sort()) === JSON.stringify([...right].sort()); }
 
 function pathOverlaps(left, right) {
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
@@ -319,9 +357,10 @@ export function checkSession(sessionDirectory, { requireSynthetic = false } = {}
   });
   if (!sameSet(session.rounds.round1ContributionIds, round1.map(({ artifact }) => artifact.contributionId))) fail('session Round 1 contribution index is stale');
   if (!sameSet(session.rounds.round2ContributionIds, round2.map(({ artifact }) => artifact.contributionId))) fail('session Round 2 contribution index is stale');
-  const required = requiredRoundParticipantIds(session);
-  const round1Complete = sameSet(required, roundParticipantIds(round1));
-  const round2Complete = sameSet(required, roundParticipantIds(round2));
+  const round1Required = resolveRoundParticipantIds(session, 'round-1');
+  const round2Required = resolveRoundParticipantIds(session, 'round-2');
+  const round1Complete = sameSortedIds(round1Required, roundParticipantIds(round1));
+  const round2Complete = sameSortedIds(round2Required, roundParticipantIds(round2));
   const beyondRound1 = !['draft', 'round-1-ready', 'blocked'].includes(session.status);
   const beyondRound2 = ['round-2-complete', 'decision-proposed', 'changes-requested', 'human-approved', 'human-rejected', 'assignments-ready', 'completed'].includes(session.status);
   if (beyondRound1 && !round1Complete) fail('Missing required participant blocks Round 1 completion');
@@ -415,6 +454,7 @@ export function buildPacket(sessionDirectory, round, participantId) {
   const participant = participantFor(checked.session, participantId);
   const outputSchemas = { 'round-1': '.ai/schemas/discussion-analysis.schema.json', 'round-2': '.ai/schemas/discussion-critique.schema.json', decision: '.ai/schemas/discussion-decision.schema.json' };
   if (!Object.hasOwn(outputSchemas, round)) fail(`Unsupported packet round ${round}`);
+  if (round !== 'decision' && !resolveRoundParticipantIds(checked.session, round).includes(participantId)) fail(`${participantId} is not assigned to ${round}`);
   if (round === 'decision' && participant.role !== 'architect') fail('Decision packet requires an architect participant');
   if (round === 'round-2' && !checked.round1Complete) fail('Round 2 packet requires complete Round 1');
   if (round === 'decision' && !checked.round2Complete) fail('Decision packet requires complete Round 2');
@@ -437,9 +477,9 @@ export function sessionStatus(sessionDirectory) {
   const checked = checkSession(sessionDirectory);
   return {
     sessionId: checked.session.sessionId, status: checked.session.status,
-    requiredParticipants: requiredRoundParticipantIds(checked.session),
-    round1: { complete: checked.round1Complete, contributions: checked.round1.map(({ artifact }) => artifact.contributionId) },
-    round2: { complete: checked.round2Complete, contributions: checked.round2.map(({ artifact }) => artifact.contributionId) },
+    requiredParticipants: requiredParticipantIds(checked.session),
+    round1: { requiredParticipants: resolveRoundParticipantIds(checked.session, 'round-1'), complete: checked.round1Complete, contributions: checked.round1.map(({ artifact }) => artifact.contributionId) },
+    round2: { requiredParticipants: resolveRoundParticipantIds(checked.session, 'round-2'), complete: checked.round2Complete, contributions: checked.round2.map(({ artifact }) => artifact.contributionId) },
     decision: checked.proposal ? 'proposed' : 'not-proposed', humanApproval: checked.approval?.action ?? 'pending',
     assignments: checked.assignments.map((item) => item.assignmentId), executionEnabled: false,
   };
@@ -462,6 +502,8 @@ export function ingestResponse(sessionDirectory, responseFile, { onTarget = () =
   assertParticipantMatches(session, response);
   if (existingContributionIds(sessionDirectory).has(response.contributionId)) fail(`Duplicate contributionId ${response.contributionId}`);
   const isRound1 = response.artifactType === 'discussion-analysis';
+  const responseRound = isRound1 ? 'round-1' : 'round-2';
+  if (!resolveRoundParticipantIds(session, responseRound).includes(response.participant.participantId)) fail(`${response.participant.participantId} is not assigned to ${responseRound}`);
   if (isRound1 && session.status !== 'round-1-ready') fail('Session is not ready for Round 1 ingest');
   if (!isRound1) {
     if (!['round-1-complete', 'round-2-ready'].includes(session.status)) fail('Session is not ready for Round 2 ingest');
