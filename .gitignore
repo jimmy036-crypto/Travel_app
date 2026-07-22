@@ -54,6 +54,9 @@ travel-e2e-debug*.zip
 
 coverage/
 
+# AI Project OS task history is local or exported outside the repository.
+.ai/tasks/archive/
+
 # Active agent handoff is local task state; commit reusable templates instead.
 tasks/active/HANDOFF.md
 

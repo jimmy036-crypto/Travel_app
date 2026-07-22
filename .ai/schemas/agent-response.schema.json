@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/agent-response.schema.json",
+  "title": "Travel App Agent Response",
+  "description": "A structured handoff from an AI Project OS role.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "agent",
+    "role",
+    "status",
+    "summary",
+    "outputs",
+    "evidence",
+    "risks",
+    "decisions",
+    "nextActions",
+    "blockers"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "agent": {
+      "type": "string",
+      "minLength": 1
+    },
+    "role": {
+      "enum": ["architect", "codex", "gemini", "reviewer", "qa", "docs"]
+    },
+    "status": {
+      "enum": ["completed", "partial", "blocked", "failed", "review-required"]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "path", "description"],
+        "properties": {
+          "type": {
+            "enum": ["code", "document", "test", "review", "decision", "plan", "report"]
+          },
+          "path": {
+            "type": ["string", "null"]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "status", "result"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": ["passed", "failed", "not-run", "info"]
+          },
+          "result": {
+            "type": "string"
+          },
+          "artifact": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "severity", "description", "mitigation", "status"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "enum": ["critical", "high", "medium", "low"]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mitigation": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": ["open", "controlled", "closed"]
+          }
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decisionId", "status", "summary"],
+        "properties": {
+          "decisionId": {
+            "type": "string",
+            "pattern": "^ADR-[0-9]{3,}$"
+          },
+          "status": {
+            "enum": ["proposed", "accepted", "rejected", "deprecated", "superseded"]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "nextActions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ownerRole", "action", "required"],
+        "properties": {
+          "ownerRole": {
+            "enum": ["architect", "codex", "gemini", "reviewer", "qa", "docs", "human"]
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description", "requiredInput"],
+        "properties": {
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requiredInput": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "commit": {
+          "type": ["string", "null"]
+        },
+        "startedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

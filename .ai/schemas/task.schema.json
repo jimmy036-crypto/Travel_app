@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/task.schema.json",
+  "title": "Travel App AI Task",
+  "description": "A verifiable unit of work managed by the AI Project OS.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "title",
+    "status",
+    "objective",
+    "branch",
+    "baseBranch",
+    "ownerRole",
+    "riskLevel",
+    "scope",
+    "acceptanceCriteria",
+    "validation",
+    "timestamps"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9-]*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": ["proposed", "ready", "in-progress", "in-review", "blocked", "completed", "cancelled"]
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 1
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baseBranch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ownerRole": {
+      "enum": ["architect", "codex", "gemini", "reviewer", "qa", "docs", "human"]
+    },
+    "riskLevel": {
+      "enum": ["critical", "high", "medium", "low"]
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowedPaths", "forbiddenPaths", "nonGoals"],
+      "properties": {
+        "allowedPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "forbiddenPaths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "nonGoals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "acceptanceCriteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "status", "evidence"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "enum": ["pending", "passed", "failed", "waived"]
+          },
+          "evidence": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "validation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "category", "required", "status", "evidence"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "category": {
+            "enum": ["unit", "component", "integration", "e2e", "static", "build", "guardrail"]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": ["not-run", "passed", "failed", "skipped"]
+          },
+          "evidence": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^ADR-[0-9]{3,}$"
+      }
+    },
+    "risks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createdAt", "updatedAt", "completedAt"],
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}
