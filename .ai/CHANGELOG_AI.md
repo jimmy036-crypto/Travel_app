@@ -20,3 +20,14 @@ Record important AI-governance changes and decisions. Product release notes rema
 - No product behavior changed.
 - No deployment was performed.
 - No branch history was rewritten.
+
+## Phase AI-2A — Understanding Skills
+
+- Added a tool-agnostic Understand Skill.
+- Added a tool-agnostic Explain Diff Skill.
+- Added structured understanding-guide and explain-diff schemas.
+- Added a deterministic, self-contained offline HTML renderer using only Node.js built-ins.
+- Added quiz behavior, semantic validation, security escaping, and stale-artifact detection.
+- Added the first real First-run Welcome understanding and diff artifacts.
+- No product behavior changed.
+- No deployment was performed.

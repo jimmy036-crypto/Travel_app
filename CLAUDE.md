@@ -11,3 +11,5 @@ Read, in order:
 5. [.ai/TEST_MATRIX.md](.ai/TEST_MATRIX.md)
 
 Continue with the active task and relevant role definition inside `.ai/`. This file intentionally contains no independent project state or rules.
+
+For understanding work, use `.ai/skills/`, read the relevant `SKILL.md`, validate JSON against `.ai/schemas/`, and store formal artifacts in `.ai/artifacts/`. The shared skill rules live only in `.ai/`, not in this file.

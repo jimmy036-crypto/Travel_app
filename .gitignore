@@ -57,6 +57,10 @@ coverage/
 # AI Project OS task history is local or exported outside the repository.
 .ai/tasks/archive/
 
+# Local learning-artifact work; source JSON and rendered HTML remain tracked.
+.ai/artifacts/tmp/
+.ai/artifacts/drafts/
+
 # Active agent handoff is local task state; commit reusable templates instead.
 tasks/active/HANDOFF.md
 

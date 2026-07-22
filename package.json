@@ -24,7 +24,11 @@
     "agent:verify:all": "node scripts/agent-verify.mjs all",
     "verify:fast": "npm run agent:guardrails && npm run agent:verify",
     "verify:full": "npm run agent:guardrails && npm run agent:verify:all",
-    "task:preflight": "node scripts/task-preflight.mjs"
+    "task:preflight": "node scripts/task-preflight.mjs",
+    "ai:artifacts:test": "node --test scripts/ai/learning-artifact.test.mjs",
+    "ai:artifacts:validate": "node scripts/ai/learning-artifact.mjs validate-all",
+    "ai:artifacts:render": "node scripts/ai/learning-artifact.mjs render-all",
+    "ai:artifacts:check": "node scripts/ai/learning-artifact.mjs check"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",

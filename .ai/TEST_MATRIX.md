@@ -43,3 +43,15 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 - A skipped test is not a passed test; explain conditional skips.
 - Do not use `test.only`, force click, arbitrary sleeps, assertion weakening, or production services.
 - Preserve failure artifacts only while diagnosing; do not commit reports, traces, screenshots, or coverage output.
+
+## AI Learning Artifact Validation
+
+| Check | Evidence | Required behavior |
+|---|---|---|
+| Schema parsing | JSON parse gate for all `.ai/schemas/*.json` | Draft 2020-12 schemas remain valid JSON |
+| Semantic validation | `npm run ai:artifacts:validate` | Required fields, exact five-question quiz, evidence IDs, line ranges, refs, and safe paths pass |
+| Security escaping | `npm run ai:artifacts:test` | Artifact text is escaped and cannot create script, event handler, iframe, object, embed, or remote resource execution |
+| Deterministic rendering | `npm run ai:artifacts:test` | Identical validated JSON produces byte-identical HTML using `generatedAt` only |
+| Stale artifact detection | `npm run ai:artifacts:check` | Missing or outdated rendered HTML fails without rewriting files |
+| Offline HTML | Node tests plus local browser inspection | No CDN, remote font/image, fetch, storage write, or network dependency |
+| Quiz behavior | Node tests plus local browser inspection | Exactly five questions can be scored; explanations display without persistence |

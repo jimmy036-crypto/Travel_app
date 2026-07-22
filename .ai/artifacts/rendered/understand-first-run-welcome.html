@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>First-run Welcome Experience</title>
+  <style>
+:root{color-scheme:light dark;--bg:#f6f7fb;--panel:#fff;--text:#182033;--muted:#59647a;--line:#dfe3ec;--accent:#6d4aff;--accent-soft:#eeeaff;--good:#13795b;--warn:#a15c00;--danger:#b42318}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.6;overflow-wrap:anywhere}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.9em;overflow-wrap:anywhere}.shell{width:min(1120px,100%);margin:0 auto;padding:clamp(16px,4vw,48px)}.hero{padding:clamp(24px,6vw,64px);border-radius:28px;color:#fff;background:linear-gradient(135deg,#37258f,#6d4aff 55%,#2587a8);box-shadow:0 20px 60px #20195c33}.eyebrow,.card-kicker{text-transform:uppercase;letter-spacing:.08em;font-size:.76rem;font-weight:800}.hero h1{margin:.25rem 0 .75rem;font-size:clamp(2rem,6vw,4rem);line-height:1.06}.hero p{max-width:70ch}.metadata{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin:20px 0 0}.metadata div{min-width:0;padding:12px;border:1px solid #ffffff3b;border-radius:14px;background:#ffffff16}.metadata dt{font-size:.75rem;opacity:.8}.metadata dd{margin:2px 0 0;font-weight:700}.section{margin:clamp(22px,5vw,52px) 0}.section>h2{font-size:clamp(1.5rem,4vw,2.25rem);margin:0 0 18px}.card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:14px}.card,.flow,.boundary-grid article{min-width:0;padding:20px;border:1px solid var(--line);border-radius:18px;background:var(--panel);box-shadow:0 8px 24px #1820330b}.card h3,.flow h3,.boundary-grid h3{margin:.25rem 0 .5rem}.card h4{margin:1rem 0 .25rem}.card-kicker{color:var(--accent)}.timeline{list-style:none;padding:0;display:grid;gap:14px}.timeline li{display:flex;gap:14px;padding:18px;border-left:4px solid var(--accent);background:var(--panel);border-radius:0 16px 16px 0}.timeline h3,.timeline p{margin:0}.step-number,.flow-step>span{display:grid;place-items:center;flex:0 0 34px;width:34px;height:34px;border-radius:50%;color:#fff;background:var(--accent);font-weight:800}.flow{margin-bottom:14px}.flow-steps{display:flex;align-items:stretch;gap:10px;overflow-x:auto;padding:8px 0}.flow-step{min-width:190px;flex:1;padding:14px;border-radius:14px;background:var(--accent-soft);color:#201a45}.flow-arrow{align-self:center;font-size:1.7rem;color:var(--accent)}.boundary-grid,.before-after{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:14px}.badge{display:inline-block;padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:#3a277d;font-size:.75rem;font-weight:800;text-transform:uppercase}.badge-critical,.badge-high{background:#ffe9e7;color:var(--danger)}.badge-medium{background:#fff1d7;color:var(--warn)}.badge-low{background:#e4f7f0;color:var(--good)}.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:16px;background:var(--panel)}table{width:100%;border-collapse:collapse;min-width:720px}th,td{padding:12px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}th{font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}.glossary{display:grid;gap:10px}.glossary div{padding:14px 18px;border:1px solid var(--line);border-radius:14px;background:var(--panel)}.glossary dt{font-weight:800}.glossary dd{margin:4px 0 0;color:var(--muted)}.quiz{display:grid;gap:14px}.quiz-question{min-width:0;margin:0;padding:18px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}.quiz-question legend{padding:0 6px;font-weight:800}.quiz-options{display:grid;gap:8px}.quiz-options label{display:flex;gap:10px;min-height:44px;align-items:center;padding:8px 10px;border-radius:10px;background:var(--bg);cursor:pointer}.quiz-question.is-correct{border-color:var(--good)}.quiz-question.is-wrong{border-color:var(--danger)}.quiz-evidence{color:var(--muted);font-size:.85rem}.quiz-explanation{padding:10px;border-radius:10px;background:var(--accent-soft)}.quiz-actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px}.quiz-actions button{min-height:44px;border:0;border-radius:12px;padding:10px 18px;color:#fff;background:var(--accent);font-weight:800;cursor:pointer}.quiz-actions output{font-weight:800}.empty{color:var(--muted);font-style:italic}footer{margin-top:50px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted)}@media(prefers-color-scheme:dark){:root{--bg:#0e1220;--panel:#171d2e;--text:#edf1ff;--muted:#adb7cf;--line:#30394f;--accent:#aa94ff;--accent-soft:#292249}.flow-step{color:#f3efff}.badge{color:#e8e0ff}.badge-critical,.badge-high{background:#4d211f;color:#ffb4ad}.badge-medium{background:#493417;color:#ffd18a}.badge-low{background:#153d32;color:#8be0c1}}@media(max-width:600px){.shell{padding:12px}.hero{border-radius:18px;padding:22px 18px}.flow-steps{flex-direction:column;overflow:visible}.flow-step{min-width:0}.flow-arrow{transform:rotate(90deg)}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}@media print{:root{color-scheme:light;--bg:#fff;--panel:#fff;--text:#000;--muted:#333;--line:#bbb}.shell{width:100%;padding:0}.hero{color:#000;background:#fff;box-shadow:none;border:2px solid #333}.section,.card,.flow,.quiz-question{break-inside:avoid}.quiz-actions{display:none}}
+</style>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero"><div class="eyebrow">understanding-guide</div><h1>First-run Welcome Experience</h1><p>First-run Welcome 是只在缺乏既有使用訊號時顯示的四步驟導覽，完成後只記錄本機 onboarding marker，再依使用者選擇開啟 Demo、空白建立流程或 Lobby。</p><dl class="metadata">
+    <div><dt>Project</dt><dd>Travel App</dd></div>
+    <div><dt>Source ref</dt><dd><code>c847650e6ea2fc58d6bee7b60f72a290e4fc3b21</code></dd></div>
+    <div><dt>Generated</dt><dd>2026-07-22T12:00:00+08:00</dd></div>
+    <div><dt>Language</dt><dd>zh-TW</dd></div>
+    <div><dt>Generator role</dt><dd>docs</dd></div>
+  </dl></header>
+    <section id="overview" class="section"><h2>Overview</h2><div class="card-grid overview-grid">
+    <article class="card"><div class="card-kicker">One sentence</div><p>First-run Welcome 是只在缺乏既有使用訊號時顯示的四步驟導覽，完成後只記錄本機 onboarding marker，再依使用者選擇開啟 Demo、空白建立流程或 Lobby。</p></article>
+    <article class="card"><div class="card-kicker">Why it exists</div><p>讓真正的新使用者先理解行程、東京唯讀範例、建立旅程與離線預覽，同時避免自動建立 Firebase 資料或與 What&#39;s New、FeatureTour 疊加。</p></article>
+    <article class="card"><div class="card-kicker">Audience</div><ul class=""><li>第一次使用 Travel App 的使用者</li><li>維護 App 初始流程的工程師與 QA</li></ul></article>
+    <article class="card"><div class="card-kicker">Prerequisites</div><ul class=""><li>理解 Lobby、Demo Preview 與真實 Trip 是互斥 App views</li><li>知道 localStorage 是裝置狀態而非授權</li></ul></article>
+  </div></section>
+<section id="journey" class="section"><h2>User journey</h2><ol class="timeline"><li><span class="step-number">1</span><div><h3>判定是否為真正新使用者</h3><p>App 在寫入空的 myTrips 預設值前建立一次 eligibility snapshot；任一既有使用訊號都會阻止自動 Welcome。</p></div></li><li><span class="step-number">2</span><div><h3>顯示四步驟 Welcome</h3><p>符合資格且沒有 room deep link 或其他互斥 view 時顯示 dialog，What&#39;s New 與 FeatureTour 不同時顯示。</p></div></li><li><span class="step-number">3</span><div><h3>閱讀產品概念</h3><p>四步依序介紹集中管理、東京唯讀範例、建立自己的旅程、多人協作與唯讀離線預覽。</p></div></li><li><span class="step-number">4</span><div><h3>選擇完成動作</h3><p>使用者可開啟東京 Demo、開啟既有空白建立 Modal，或略過並留在 Lobby；三者都先完成 onboarding。</p></div></li><li><span class="step-number">5</span><div><h3>後續 session 行為</h3><p>當次 first-run session 不立刻顯示 What&#39;s New；重新載入後 Welcome 不再顯示，未讀的 release flow 可恢復。</p></div></li></ol></section>
+<section id="modules" class="section"><h2>Architecture modules</h2><div class="card-grid"><article class="card"><h3>onboardingState</h3><p>讀取裝置使用訊號、產生一次性 eligibility snapshot、判斷資格並安全讀寫 onboarding marker。</p><h4>Entry points</h4><ul class=""><li>readFirstRunEligibilitySnapshot</li><li>shouldShowFirstRunOnboarding</li><li>markFirstRunOnboardingSeen</li></ul><h4>Dependencies</h4><ul class=""><li>Browser localStorage</li><li>window.location.search</li></ul></article><article class="card"><h3>TravelApp coordination</h3><p>保存 first-run session gate、安排 Welcome 與其他 views/modal 的優先順序，並執行三種完成動作。</p><h4>Entry points</h4><ul class=""><li>TravelApp</li><li>completeFirstRunOnboarding</li><li>openBuiltInDemo</li><li>openCreateModal</li></ul><h4>Dependencies</h4><ul class=""><li>onboardingState</li><li>releaseNotes</li><li>DemoTripPreview</li><li>FirstRunWelcomeDialog</li></ul></article><article class="card"><h3>FirstRunWelcomeDialog</h3><p>呈現四步內容、焦點控制、捲動鎖定與一次性 callback；不自行持久化或導航。</p><h4>Entry points</h4><ul class=""><li>FirstRunWelcomeDialog</li></ul><h4>Dependencies</h4><ul class=""><li>React state and effects</li><li>App-provided callbacks</li></ul></article><article class="card"><h3>Release experience</h3><p>管理 current release 的 seen/pending keys；first-run session 只抑制顯示，不把 release 標記為已讀。</p><h4>Entry points</h4><ul class=""><li>hasSeenCurrentRelease</li><li>markCurrentReleaseSeen</li><li>CURRENT_RELEASE_SEEN_KEY</li></ul><h4>Dependencies</h4><ul class=""><li>Browser localStorage</li><li>Browser sessionStorage</li></ul></article></div></section>
+<section id="flows" class="section"><h2>Flows</h2><article class="flow"><h3>Eligibility 與 deep-link 延後</h3><p>deep link 是當次 view gate，不是 returning-user 訊號。</p><div class="flow-steps"><div class="flow-step"><span>1</span><strong>讀取一次性 snapshot</strong><p>保留 onboarding、trips、release、外觀、offline、member identity 與 room query 狀態。</p></div><div class="flow-arrow" aria-hidden="true">→</div><div class="flow-step"><span>2</span><strong>計算 eligibility</strong><p>只有前六個既有使用訊號全為 false 才符合 first-run。</p></div><div class="flow-arrow" aria-hidden="true">→</div><div class="flow-step"><span>3</span><strong>檢查 room deep link</strong><p>有 room 時先載入 TripDetail，不寫 marker。</p></div><div class="flow-arrow" aria-hidden="true">→</div><div class="flow-step"><span>4</span><strong>返回 Lobby</strong><p>資格仍未 resolved，其他互斥 view 清除後才顯示 Welcome。</p></div></div></article><article class="flow"><h3>完成 onboarding</h3><p>App 與 Dialog 都有一次性 guard，避免雙擊或重複事件執行兩次。</p><div class="flow-steps"><div class="flow-step"><span>1</span><strong>接受 Demo、Create 或 Skip</strong><p>completion ref 先鎖定。</p></div><div class="flow-arrow" aria-hidden="true">→</div><div class="flow-step"><span>2</span><strong>寫入 onboarding marker</strong><p>嘗試把 travel-app-seen-onboarding-v1 寫成 true；失敗不阻斷當次流程。</p></div><div class="flow-arrow" aria-hidden="true">→</div><div class="flow-step"><span>3</span><strong>更新 App state</strong><p>firstRunResolved 變 true，Welcome 卸載。</p></div><div class="flow-arrow" aria-hidden="true">→</div><div class="flow-step"><span>4</span><strong>執行選定下一步</strong><p>Demo 開本機 preview；Create 開空白 Modal；Skip 不做額外導航。</p></div></div></article></section>
+<section id="state" class="section"><h2>State flow</h2><div class="card-grid"><article class="card"><h3>firstRunSnapshot</h3><p><strong>Owner:</strong> TravelApp</p><p><strong>Initial:</strong> App 首次 render 時由 readFirstRunEligibilitySnapshot 產生，之後不重新讀取。</p><ul class=""><li>App mount: 未建立 → 固定 snapshot. 避免 App 自己寫入空 myTrips 後改變資格。</li></ul></article><article class="card"><h3>firstRunResolved</h3><p><strong>Owner:</strong> TravelApp</p><p><strong>Initial:</strong> 非 first-run session 為 true；first-run session 為 false。</p><ul class=""><li>任一完成動作: false → true. 本 session 不重新開啟 Welcome，即使 storage write 失敗。</li></ul></article><article class="card"><h3>showFirstRunWelcome</h3><p><strong>Owner:</strong> TravelApp</p><p><strong>Initial:</strong> 符合 first-run 且沒有 room deep link 時為 true。</p><ul class=""><li>延後條件解除: false → true. 返回 Lobby 後顯示 Welcome 並關閉 What&#39;s New。</li><li>完成 onboarding: true → false. 先卸載 dialog，再進入下一個 view 或 modal。</li></ul></article><article class="card"><h3>Dialog step</h3><p><strong>Owner:</strong> FirstRunWelcomeDialog</p><p><strong>Initial:</strong> 0；不合法 initialStep 也回到 0。</p><ul class=""><li>Next: 0-2 → 1-3. 只切換本機 ephemeral step，不完成 onboarding。</li><li>Back: 1-3 → 0-2. 只回上一頁。</li></ul></article></div></section>
+<section id="data" class="section"><h2>Data flow and side effects</h2><div class="card-grid"><article class="card"><div class="card-kicker">read</div><h3>localStorage existing-use keys → firstRunSnapshot</h3><p><strong>Persistence:</strong> 既有裝置資料，不由 Welcome 建立</p><p><strong>Side effect:</strong> 無；讀取失敗時使用安全 fresh fallback。</p></article><article class="card"><div class="card-kicker">read</div><h3>window.location.search room → firstRunSnapshot.hasRoomDeepLink</h3><p><strong>Persistence:</strong> URL view state</p><p><strong>Side effect:</strong> 只延後顯示，不改 eligibility。</p></article><article class="card"><div class="card-kicker">write true</div><h3>completion action → travel-app-seen-onboarding-v1</h3><p><strong>Persistence:</strong> localStorage</p><p><strong>Side effect:</strong> 下次載入不再顯示 Welcome。</p></article><article class="card"><div class="card-kicker">create built-in view model</div><h3>Demo action → demoPreviewState</h3><p><strong>Persistence:</strong> React memory only</p><p><strong>Side effect:</strong> 切換到唯讀 Demo；不建立 room。</p></article><article class="card"><div class="card-kicker">set create</div><h3>Create action → tripModalMode</h3><p><strong>Persistence:</strong> React memory only until user submits</p><p><strong>Side effect:</strong> 顯示既有空白建立 Modal；點 CTA 本身不寫 Firebase。</p></article></div></section>
+<section id="boundaries" class="section"><h2>Read / Write boundaries</h2><div class="boundary-grid"><article><h3>Reads</h3><ul class=""><li>travel-app-seen-onboarding-v1</li><li>google-travel-my-trips</li><li>travel-app-seen-release-*</li><li>google-travel-custom-bg</li><li>google-travel-offline-trip-cache-v1</li><li>travel-active-member-* and travel-checklist-actor-*</li><li>URL room query</li></ul></article><article><h3>Writes</h3><ul class=""><li>travel-app-seen-onboarding-v1 = true after Demo, Create, Skip, or Escape</li></ul></article><article><h3>Must not write</h3><ul class=""><li>Firebase Realtime Database rooms</li><li>Firebase Storage</li><li>google-travel-my-trips Demo entries</li><li>Offline Trip Cache</li><li>current release seen marker</li><li>production data or rules</li></ul></article><article><h3>External systems</h3><ul class=""><li>Browser localStorage</li><li>Browser sessionStorage for release flow</li><li>Browser URL query</li></ul></article></div></section>
+<section id="invariants" class="section"><h2>Invariants</h2><ul class=""><li>空的 google-travel-my-trips 陣列本身不代表 returning user。</li><li>room deep link 只延後 Welcome，不能把 onboarding 永久標記為完成。</li><li>Next 與 Back 不寫 onboarding marker。</li><li>Demo、Create、Skip 的完成 callback 在 App 與 Dialog 層都只執行一次。</li><li>First-run session 不標記 current release seen，也不與 What&#39;s New 或 FeatureTour 疊加。</li><li>storage write 失敗時，本 session 仍 resolved 且使用者選擇繼續執行。</li></ul></section>
+<section id="non-goals" class="section"><h2>What it does not do</h2><ul class=""><li>不自動建立 Firebase room 或複製東京範例。</li><li>不把 Demo 放入 myTrips 或 Offline Trip Cache。</li><li>不提供完整離線編輯或背景同步。</li><li>不把裝置 member identity 當成授權。</li><li>不修改 FeatureTour chapters 或自動標記 release seen。</li></ul></section>
+<section id="decisions" class="section"><h2>Architecture decisions</h2><div class="card-grid"><article class="card"><div class="card-kicker">ADR-001 · accepted</div><p>Built-in Demo 使用本機資料，不寫 Firebase Database 或 Storage。</p></article><article class="card"><div class="card-kicker">ADR-002 · accepted</div><p>Built-in Demo 不加入代表真實旅程參照的 myTrips。</p></article><article class="card"><div class="card-kicker">ADR-004 · accepted</div><p>Offline Preview 是唯讀快照，不支援離線 mutation replay。</p></article><article class="card"><div class="card-kicker">ADR-005 · accepted</div><p>Demo 與 first-run phases 不修改既有 FeatureTour chapters。</p></article></div></section>
+<section id="risks" class="section"><h2>Risks</h2><div class="card-grid"><article class="card risk-card">
+    <span class="badge badge-high">high</span>
+    <h3>localStorage 訊號只能判斷裝置使用歷史，不能作為身分或授權證據。</h3>
+    <p><strong>Mitigation:</strong> 保持 onboarding eligibility 與 Firebase authorization 完全分離。</p>
+  </article><article class="card risk-card">
+    <span class="badge badge-medium">medium</span>
+    <h3>storage 完全不可用時安全 fallback 會把裝置視為 fresh，可能再次顯示 Welcome。</h3>
+    <p><strong>Mitigation:</strong> App 以 firstRunResolved 在同一 session 防止重開，並將失敗視為非致命。</p>
+  </article><article class="card risk-card">
+    <span class="badge badge-medium">medium</span>
+    <h3>App.jsx 同時協調 release、Demo、Offline、Trip 與 modal，優先順序變更容易造成疊加回歸。</h3>
+    <p><strong>Mitigation:</strong> 維持 integration 與 E2E 排他性測試。</p>
+  </article><article class="card risk-card">
+    <span class="badge badge-low">low</span>
+    <h3>真實行動裝置的虛擬鍵盤與 safe-area 行為仍可能不同於 Playwright Mobile Safari。</h3>
+    <p><strong>Mitigation:</strong> 保留實機 QA，不以模擬專案取代。</p>
+  </article></div></section>
+<section id="tests" class="section"><h2>Test coverage</h2><div class="card-grid"><article class="card">
+    <div class="card-kicker">unit · passed</div>
+    <h3><code>src/features/onboarding/onboardingState.test.js</code></h3>
+    <p>marker failure safety、所有 eligibility 訊號、empty trips 與 deep-link eligibility。</p>
+  </article><article class="card">
+    <div class="card-kicker">component · passed</div>
+    <h3><code>src/features/onboarding/FirstRunWelcomeDialog.test.jsx</code></h3>
+    <p>四步內容、一次性 callback、focus trap、Escape、scroll lock、mobile layout 與無 storage access。</p>
+  </article><article class="card">
+    <div class="card-kicker">integration · passed</div>
+    <h3><code>src/App.firstRunWelcomeIntegration.test.jsx</code></h3>
+    <p>Welcome 優先順序、三種完成動作、Firebase/offline non-effects、release 恢復與 deep-link 延後。</p>
+  </article><article class="card">
+    <div class="card-kicker">e2e · passed</div>
+    <h3><code>e2e/first-run-welcome.spec.ts</code></h3>
+    <p>真實 browser flow、Emulator rooms 為空、localStorage marker、Mobile layout 與 deep-link 返回。</p>
+  </article></div></section>
+<section id="evidence" class="section"><h2>Evidence</h2><div class="table-wrap"><table>
+    <thead><tr><th>ID</th><th>Claim</th><th>Location</th><th>Confidence</th></tr></thead>
+    <tbody><tr>
+      <td><code>E1</code></td>
+      <td>onboarding marker 是 version 1 且 key 為 travel-app-seen-onboarding-v1。</td>
+      <td><code>src/features/onboarding/onboardingState.js:1-5</code><br>FIRST_RUN_ONBOARDING_VERSION / FIRST_RUN_ONBOARDING_SEEN_KEY</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E2</code></td>
+      <td>marker 的讀寫均以 try/catch 保護，寫入失敗回傳 false。</td>
+      <td><code>src/features/onboarding/onboardingState.js:15-31</code><br>hasSeenFirstRunOnboarding / markFirstRunOnboardingSeen</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E3</code></td>
+      <td>只有具 version、roomId、cachedAt、meta、days、summary 的非空 offline cache 才算既有使用訊號。</td>
+      <td><code>src/features/onboarding/onboardingState.js:45-68</code><br>hasValidOfflineContent</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E4</code></td>
+      <td>room query 被獨立讀成 hasRoomDeepLink。</td>
+      <td><code>src/features/onboarding/onboardingState.js:71-78</code><br>readRoomDeepLink</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E5</code></td>
+      <td>eligibility snapshot 讀取 trips、release history、外觀、offline cache 與 member identity history。</td>
+      <td><code>src/features/onboarding/onboardingState.js:80-120</code><br>readFirstRunEligibilitySnapshot</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E6</code></td>
+      <td>deep-link 不參與 shouldShowFirstRunOnboarding 的永久資格判斷。</td>
+      <td><code>src/features/onboarding/onboardingState.js:123-130</code><br>shouldShowFirstRunOnboarding</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E7</code></td>
+      <td>App 在 myTrips effect 前建立一次性 snapshot 並用 deep-link 決定初始 Welcome 顯示。</td>
+      <td><code>src/App.jsx:108-125</code><br>TravelApp first-run state</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E8</code></td>
+      <td>first-run session gate 阻止 What&#39;s New，互斥 view 清除後才補顯示 Welcome。</td>
+      <td><code>src/App.jsx:235-280</code><br>release and deferred Welcome effects</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E9</code></td>
+      <td>完成流程先 guard、寫 marker、resolve/close，再選擇 Demo 或 create；Skip 沒有額外 action。</td>
+      <td><code>src/App.jsx:388-397</code><br>completeFirstRunOnboarding</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E10</code></td>
+      <td>Welcome 顯示時 release experience 為 null，Demo、Offline 與 Trip views 不會同時 render。</td>
+      <td><code>src/App.jsx:698-817</code><br>releaseExperience and view priority</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E11</code></td>
+      <td>Dialog 定義四個步驟，並在完成 callback 層防止重複執行。</td>
+      <td><code>src/features/onboarding/FirstRunWelcomeDialog.jsx:3-46</code><br>STEPS / finishOnce</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E12</code></td>
+      <td>Dialog 鎖定 body scroll、處理 Escape 與 Tab focus trap，unmount 時恢復。</td>
+      <td><code>src/features/onboarding/FirstRunWelcomeDialog.jsx:48-85</code><br>dialog lifecycle effect</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E13</code></td>
+      <td>最終步顯示 Demo/Create，Skip 全程可用；這些都是 button callbacks。</td>
+      <td><code>src/features/onboarding/FirstRunWelcomeDialog.jsx:142-195</code><br>FirstRunWelcomeDialog footer</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E14</code></td>
+      <td>unit tests 證明 empty trips 仍符合資格、各 returning signal 阻止 Welcome、deep link 不取消資格。</td>
+      <td><code>src/features/onboarding/onboardingState.test.js:52-147</code><br>first-run eligibility tests</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E15</code></td>
+      <td>integration tests 證明 Demo/Create/Skip 的 persistence 與 Firebase、offline、release non-effects。</td>
+      <td><code>src/App.firstRunWelcomeIntegration.test.jsx:163-218</code><br>App first-run welcome integration</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E16</code></td>
+      <td>integration test 證明 deep link 返回 Lobby 後才顯示 Welcome，marker 仍未寫入。</td>
+      <td><code>src/App.firstRunWelcomeIntegration.test.jsx:247-257</code><br>deep-link deferral test</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E17</code></td>
+      <td>E2E 證明四步 Demo flow 不建立 room、不加入 myTrips、不標記 release seen。</td>
+      <td><code>e2e/first-run-welcome.spec.ts:33-76</code><br>fresh user completes four steps</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E18</code></td>
+      <td>ADR 明確規定 Demo 不寫 Firebase 且不加入 myTrips。</td>
+      <td><code>.ai/DECISIONS.md:5-21</code><br>ADR-001 / ADR-002</td>
+      <td><span class="badge">verified</span></td>
+    </tr><tr>
+      <td><code>E19</code></td>
+      <td>架構文件區分本機唯讀 Demo 與唯讀 Offline Preview。</td>
+      <td><code>.ai/ARCHITECTURE.md:36-43</code><br>Offline / Demo</td>
+      <td><span class="badge">verified</span></td>
+    </tr></tbody>
+  </table></div></section>
+<section id="unknowns" class="section"><h2>Known unknowns</h2><div class="card-grid"><article class="card">
+    <h3>所有實體 iPhone 的虛擬鍵盤與 safe-area 是否都能完整操作四步 footer？</h3>
+    <p><strong>Impact:</strong> 可能影響小螢幕上完成 CTA 的可達性。</p>
+    <p><strong>Next step:</strong> 以真實 iPhone Safari 與主畫面 PWA 進行人工 QA。</p>
+  </article><article class="card">
+    <h3>瀏覽器完全封鎖 localStorage 時，跨 reload 是否會重複看到 Welcome？</h3>
+    <p><strong>Impact:</strong> fresh fallback 無法跨 session 保存完成狀態。</p>
+    <p><strong>Next step:</strong> 維持目前非致命行為，若需改善須另做隱私與儲存策略決策。</p>
+  </article></div></section>
+<section id="glossary" class="section"><h2>Glossary</h2><dl class="glossary"><div><dt>Eligibility snapshot</dt><dd>App 初始 render 只建立一次的裝置使用訊號集合，避免 mount effects 改變判定。</dd></div><div><dt>First-run resolved</dt><dd>本 session 已完成或不需要 first-run 的 React state；它不等同於 storage marker 寫入成功。</dd></div><div><dt>Deep-link deferral</dt><dd>先允許 room view 載入，等返回 Lobby 才顯示尚未完成的 Welcome。</dd></div><div><dt>Built-in Demo</dt><dd>不建立 Firebase room、不加入 myTrips、不寫 Offline Cache 的本機唯讀東京範例。</dd></div><div><dt>What&#39;s New</dt><dd>以 release seen key 管理的版本更新說明；first-run session 只抑制，不標記已讀。</dd></div></dl></section>
+<section id="quiz" class="section"><h2>Quiz</h2><form id="learning-quiz" class="quiz" novalidate>
+    <fieldset class="quiz-question" data-correct="0">
+      <legend>1. 哪個條件本身不會取消 first-run eligibility？</legend>
+      <div class="quiz-options"><label>
+        <input type="radio" name="Q1" value="0">
+        <span>URL 有 room deep link</span>
+      </label><label>
+        <input type="radio" name="Q1" value="1">
+        <span>myTrips 是非空陣列</span>
+      </label><label>
+        <input type="radio" name="Q1" value="2">
+        <span>存在 release seen key</span>
+      </label><label>
+        <input type="radio" name="Q1" value="3">
+        <span>存在有效 Offline Cache</span>
+      </label></div>
+      <p class="quiz-evidence">Evidence: E4, E6</p>
+      <p class="quiz-explanation" hidden>hasRoomDeepLink 只控制初始顯示時機，shouldShowFirstRunOnboarding 不把它列為 returning signal。</p>
+    </fieldset><fieldset class="quiz-question" data-correct="0">
+      <legend>2. 使用者選擇查看東京 Demo 時，哪項資料會被持久化？</legend>
+      <div class="quiz-options"><label>
+        <input type="radio" name="Q2" value="0">
+        <span>只有 onboarding seen marker</span>
+      </label><label>
+        <input type="radio" name="Q2" value="1">
+        <span>Firebase demo room</span>
+      </label><label>
+        <input type="radio" name="Q2" value="2">
+        <span>Demo entry in myTrips</span>
+      </label><label>
+        <input type="radio" name="Q2" value="3">
+        <span>Offline Trip Cache snapshot</span>
+      </label></div>
+      <p class="quiz-evidence">Evidence: E9, E15, E18</p>
+      <p class="quiz-explanation" hidden>完成流程只嘗試寫 onboarding marker；Demo view model 保存在 React state。</p>
+    </fieldset><fieldset class="quiz-question" data-correct="0">
+      <legend>3. 為何 eligibility snapshot 必須在 App 初始 render 建立一次？</legend>
+      <div class="quiz-options"><label>
+        <input type="radio" name="Q3" value="0">
+        <span>避免 App 寫入空 myTrips 後誤改資格</span>
+      </label><label>
+        <input type="radio" name="Q3" value="1">
+        <span>提高 Firebase query 速度</span>
+      </label><label>
+        <input type="radio" name="Q3" value="2">
+        <span>預載 Google Maps</span>
+      </label><label>
+        <input type="radio" name="Q3" value="3">
+        <span>同步 FeatureTour</span>
+      </label></div>
+      <p class="quiz-evidence">Evidence: E7, E14</p>
+      <p class="quiz-explanation" hidden>App mount 後會保存空 myTrips；一次性 snapshot 保留 mount 前的真實使用訊號。</p>
+    </fieldset><fieldset class="quiz-question" data-correct="0">
+      <legend>4. Skip 在同一 session 對 What&#39;s New 的影響是什麼？</legend>
+      <div class="quiz-options"><label>
+        <input type="radio" name="Q4" value="0">
+        <span>暫時抑制但不標記 release seen</span>
+      </label><label>
+        <input type="radio" name="Q4" value="1">
+        <span>立即標記 release seen</span>
+      </label><label>
+        <input type="radio" name="Q4" value="2">
+        <span>立即顯示 What&#39;s New</span>
+      </label><label>
+        <input type="radio" name="Q4" value="3">
+        <span>清除 release history</span>
+      </label></div>
+      <p class="quiz-evidence">Evidence: E8, E15</p>
+      <p class="quiz-explanation" hidden>first-run session gate 持續抑制 release prompt，integration test 也確認 mark seen 未被呼叫。</p>
+    </fieldset><fieldset class="quiz-question" data-correct="0">
+      <legend>5. onboarding marker 寫入失敗時，App 應如何處理？</legend>
+      <div class="quiz-options"><label>
+        <input type="radio" name="Q5" value="0">
+        <span>本 session 仍 resolved 並繼續使用者動作</span>
+      </label><label>
+        <input type="radio" name="Q5" value="1">
+        <span>重新開啟 Welcome</span>
+      </label><label>
+        <input type="radio" name="Q5" value="2">
+        <span>建立 Firebase fallback</span>
+      </label><label>
+        <input type="radio" name="Q5" value="3">
+        <span>清除所有 localStorage</span>
+      </label></div>
+      <p class="quiz-evidence">Evidence: E2, E9</p>
+      <p class="quiz-explanation" hidden>mark function 安全回傳 false，而 App 仍更新 firstRunResolved 與關閉 dialog。</p>
+    </fieldset>
+    <div class="quiz-actions">
+      <button type="button" id="check-quiz">Check answers</button>
+      <output id="quiz-result" aria-live="polite"></output>
+    </div>
+  </form></section>
+    <footer>Generated deterministically from the validated source JSON. No external assets or network requests are required.</footer>
+  </main>
+  <script>
+(()=>{const form=document.getElementById('learning-quiz');const button=document.getElementById('check-quiz');const result=document.getElementById('quiz-result');if(!form||!button||!result)return;button.addEventListener('click',()=>{const questions=Array.from(form.querySelectorAll('.quiz-question'));let correct=0;questions.forEach((question)=>{const selected=question.querySelector('input:checked');const isCorrect=selected!==null&&Number(selected.value)===Number(question.dataset.correct);if(isCorrect)correct+=1;question.classList.toggle('is-correct',isCorrect);question.classList.toggle('is-wrong',!isCorrect);const explanation=question.querySelector('.quiz-explanation');if(explanation)explanation.hidden=false});const percent=Math.round(correct/questions.length*100);result.textContent=correct+' / '+questions.length+' correct ('+percent+'%)'})})();
+</script>
+</body>
+</html>

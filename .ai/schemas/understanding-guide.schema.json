@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/understanding-guide.schema.json",
+  "title": "Travel App Understanding Guide",
+  "description": "A portable, evidence-backed explanation of an existing Travel App capability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "metadata",
+    "overview",
+    "userJourney",
+    "modules",
+    "flows",
+    "state",
+    "data",
+    "boundaries",
+    "invariants",
+    "nonGoals",
+    "decisions",
+    "risks",
+    "tests",
+    "evidence",
+    "glossary",
+    "unknowns",
+    "quiz"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "artifactType": { "const": "understanding-guide" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "topic", "project", "sourceRef", "generatedAt", "language", "generatorRole"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "topic": { "type": "string", "minLength": 1 },
+        "project": { "type": "string", "minLength": 1 },
+        "sourceRef": { "type": "string", "minLength": 1 },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "language": { "enum": ["en", "zh-TW"] },
+        "generatorRole": { "enum": ["architect", "codex", "gemini", "reviewer", "qa", "docs", "human"] }
+      }
+    },
+    "overview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oneSentence", "purpose", "audience", "prerequisites"],
+      "properties": {
+        "oneSentence": { "type": "string", "minLength": 1 },
+        "purpose": { "type": "string", "minLength": 1 },
+        "audience": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "prerequisites": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "userJourney": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step", "title", "description"],
+        "properties": {
+          "step": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "modules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "responsibility", "entryPoints", "dependencies"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "responsibility": { "type": "string", "minLength": 1 },
+          "entryPoints": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "dependencies": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "flows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "description", "steps"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["order", "action", "result"],
+              "properties": {
+                "order": { "type": "integer", "minimum": 1 },
+                "action": { "type": "string", "minLength": 1 },
+                "result": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "state": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["stateName", "owner", "initialValue", "transitions"],
+        "properties": {
+          "stateName": { "type": "string", "minLength": 1 },
+          "owner": { "type": "string", "minLength": 1 },
+          "initialValue": { "type": "string" },
+          "transitions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["trigger", "from", "to", "effect"],
+              "properties": {
+                "trigger": { "type": "string", "minLength": 1 },
+                "from": { "type": "string", "minLength": 1 },
+                "to": { "type": "string", "minLength": 1 },
+                "effect": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "data": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "destination", "operation", "persistence", "sideEffect"],
+        "properties": {
+          "source": { "type": "string", "minLength": 1 },
+          "destination": { "type": "string", "minLength": 1 },
+          "operation": { "type": "string", "minLength": 1 },
+          "persistence": { "type": "string", "minLength": 1 },
+          "sideEffect": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "boundaries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reads", "writes", "mustNotWrite", "externalSystems"],
+      "properties": {
+        "reads": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "writes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "mustNotWrite": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "externalSystems": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "invariants": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "nonGoals": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "summary", "status"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^ADR-[0-9]{3,}$" },
+          "summary": { "type": "string", "minLength": 1 },
+          "status": { "enum": ["proposed", "accepted", "rejected", "deprecated", "superseded"] }
+        }
+      }
+    },
+    "risks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/risk" } },
+    "tests": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/test" } },
+    "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } },
+    "glossary": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["term", "definition"],
+        "properties": {
+          "term": { "type": "string", "minLength": 1 },
+          "definition": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "impact", "nextStep"],
+        "properties": {
+          "question": { "type": "string", "minLength": 1 },
+          "impact": { "type": "string", "minLength": 1 },
+          "nextStep": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "quiz": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "$ref": "#/$defs/quizQuestion" } }
+  },
+  "$defs": {
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "description", "mitigation"],
+      "properties": {
+        "severity": { "enum": ["critical", "high", "medium", "low"] },
+        "description": { "type": "string", "minLength": 1 },
+        "mitigation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "type", "behaviorProtected", "evidenceStatus"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["unit", "component", "integration", "e2e", "static", "manual"] },
+        "behaviorProtected": { "type": "string", "minLength": 1 },
+        "evidenceStatus": { "enum": ["passed", "failed", "not-run", "source-reviewed"] }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "claim", "path", "symbol", "lineStart", "lineEnd", "confidence"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^E[0-9]+$" },
+        "claim": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "symbol": { "type": "string", "minLength": 1 },
+        "lineStart": { "type": "integer", "minimum": 1 },
+        "lineEnd": { "type": "integer", "minimum": 1 },
+        "confidence": { "enum": ["verified", "inferred", "uncertain"] }
+      }
+    },
+    "quizQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "options", "correctOption", "explanation", "evidenceRefs"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^Q[1-5]$" },
+        "question": { "type": "string", "minLength": 1 },
+        "options": { "type": "array", "minItems": 2, "maxItems": 6, "items": { "type": "string", "minLength": 1 } },
+        "correctOption": { "type": "integer", "minimum": 0 },
+        "explanation": { "type": "string", "minLength": 1 },
+        "evidenceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^E[0-9]+$" } }
+      }
+    }
+  }
+}

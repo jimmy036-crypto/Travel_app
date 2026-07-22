@@ -19,7 +19,8 @@ Statuses describe the product program, while `PROJECT_STATUS.md` records branch-
 
 - **Phase AI-1 — Foundation:** Establish `.ai/` as the single source for status, architecture, decisions, risks, roles, tests, tasks, and schemas. Completed.
 - **Phase AI-1.1 — Guided Demo Alignment:** Align the foundation with the Phase 7B-3 product baseline in an isolated worktree. Completed.
-- **Phase AI-2 — Understand and Explain Diff Skills:** Define evidence-based project understanding and diff explanation capabilities. Next.
+- **Phase AI-2A — Understanding Skills:** Add tool-agnostic Understand and Explain Diff contracts, schemas, deterministic offline rendering, quizzes, validation, and real First-run Welcome artifacts. Completed.
+- **Phase AI-2B — Agent Adapters and Invocation Workflow:** Connect shared skills to supported agent invocation surfaces without duplicating skill rules. Next.
 - **Phase AI-3 — Agent Interoperability:** Validate shared task, response, and decision payloads across supported agents. Planned.
 - **Phase AI-4 — Governance Automation:** Add safe local checks for status freshness, decision links, risk ownership, and release evidence without changing CI unless separately authorized. Planned.
 - **Phase AI-5 — Release Intelligence:** Produce evidence-based release readiness summaries and roadmap updates from verified repository state. Planned.

@@ -1,0 +1,168 @@
+{
+  "schemaVersion": "1.0",
+  "artifactType": "explain-diff",
+  "metadata": {
+    "title": "First-run Welcome: 92ef883 to c847650",
+    "project": "Travel App",
+    "baseRef": "92ef883fb237ecf942baaf946e28ab7d4e50c556",
+    "headRef": "c847650e6ea2fc58d6bee7b60f72a290e4fc3b21",
+    "generatedAt": "2026-07-22T12:00:00+08:00",
+    "language": "zh-TW",
+    "generatorRole": "docs"
+  },
+  "intent": {
+    "summary": "這個 diff 在既有 Guided Demo 入口之上加入真正新使用者專用的四步驟 Welcome，建立一次性 eligibility、view 優先順序與安全完成流程。",
+    "drivers": [
+      "空 myTrips key 不能被誤判為 returning user。",
+      "Welcome 必須優先於 What's New 且不能覆蓋 deep-linked Trip。",
+      "Demo、Create、Skip 必須有明確且不自動建立雲端資料的完成語意。",
+      "storage failure、重複事件、focus 與 mobile layout 需要回歸保障。"
+    ],
+    "nonGoals": ["不實作 Clone Flow", "不修改 FeatureTour chapters", "不建立 Firebase demo room", "不自動填入東京資料", "不標記 current release seen"]
+  },
+  "before": {
+    "summary": "Phase 7B-2 已有本機東京 Demo、Lobby/Settings 入口與互斥 Demo view，但沒有 first-run Welcome 或 onboarding eligibility marker。",
+    "behaviors": [
+      "使用者可從空 Lobby 卡片或已有旅程時的 Settings 主動開啟 Demo。",
+      "Demo 的 Create CTA 只開啟既有空白旅程 Modal。",
+      "What's New 依 release seen 邏輯自行顯示，沒有 first-run session gate。"
+    ],
+    "state": ["demoPreviewState 管理 Demo view", "release state 管理 What's New 與 FeatureTour", "沒有 firstRunSnapshot、firstRunResolved 或 showFirstRunWelcome"],
+    "data": ["沒有 travel-app-seen-onboarding-v1", "Demo 仍不進入 Firebase、myTrips 或 Offline Cache"]
+  },
+  "after": {
+    "summary": "Phase 7B-3 在 App 初始 render 判斷真正新使用者，顯示可存取的四步 Welcome，並以一次性完成流程連到 Demo、空白 Create 或 Lobby。",
+    "behaviors": [
+      "fresh storage 與只有空 myTrips 的使用者看到 Welcome。",
+      "非空 trips、release history、自訂外觀、有效 offline cache 或 member identity history 代表 returning use。",
+      "room deep link 先載入 Trip，返回 Lobby 後才顯示 Welcome。",
+      "first-run session 抑制 What's New，但不寫 release seen marker。"
+    ],
+    "state": ["新增一次性 firstRunSnapshot", "新增 firstRunResolved 與 showFirstRunWelcome", "新增 suppressReleasePromptForFirstRunSession 與 completion refs", "Dialog 以 ephemeral step 管理四頁內容"],
+    "data": ["完成時寫入 travel-app-seen-onboarding-v1=true", "讀取多組既有裝置訊號", "Demo/Firebase/myTrips/Offline Cache 邊界維持不變"]
+  },
+  "behavioralChanges": [
+    { "area": "Fresh-user entry", "before": "空 Lobby 只提供建立、匯入與主動 Demo 入口。", "after": "真正新使用者自動看到四步 Welcome，Lobby 作為被 dialog 攔截的背景。", "userVisible": true },
+    { "area": "Returning-user detection", "before": "沒有跨多種本機訊號的 onboarding eligibility。", "after": "一次性 snapshot 綜合 trips、release、appearance、offline 與 member identity history。", "userVisible": false },
+    { "area": "Deep link", "before": "room query 直接載入 Trip。", "after": "仍先載入 Trip；若仍符合 first-run，返回 Lobby 後才補顯示 Welcome。", "userVisible": true },
+    { "area": "Release priority", "before": "What's New 依 release gate 顯示。", "after": "first-run session 優先並持續抑制 What's New，但不標記 release seen。", "userVisible": true },
+    { "area": "Completion actions", "before": "Demo/Create 只能從既有入口觸發，沒有 onboarding completion。", "after": "Demo、Create、Skip 都先寫 onboarding marker、resolve session，再執行各自動作。", "userVisible": true },
+    { "area": "Accessibility", "before": "沒有 Welcome dialog。", "after": "新增 dialog semantics、焦點初始值與 trap、Escape skip、body scroll lock、safe-area 與 mobile 高度限制。", "userVisible": true }
+  ],
+  "conceptGroups": [
+    {
+      "title": "Eligibility and persistence",
+      "summary": "新增獨立 onboardingState，將 storage failure 視為安全 fallback，並把 deep link 與永久資格拆開。",
+      "files": ["src/features/onboarding/onboardingState.js", "src/features/onboarding/onboardingState.test.js"],
+      "impacts": ["empty trips 仍是 fresh", "多種既有使用訊號可避免打擾 returning users", "只有 completion marker 是新增持久化資料"]
+    },
+    {
+      "title": "Accessible four-step dialog",
+      "summary": "新增純展示/callback 元件，內容、focus、Escape、scroll lock 與 responsive 行為由元件負責，持久化留在 App。",
+      "files": ["src/features/onboarding/FirstRunWelcomeDialog.jsx", "src/features/onboarding/FirstRunWelcomeDialog.test.jsx"],
+      "impacts": ["四個教育步驟", "最後頁提供 Demo 與 Create，Skip 全程可用", "callback 與 Escape 只完成一次"]
+    },
+    {
+      "title": "App view and release orchestration",
+      "summary": "App 擷取初始 snapshot、加入 first-run session gate、延後條件與共用 completion helper。",
+      "files": ["src/App.jsx", "src/App.firstRunWelcomeIntegration.test.jsx", "src/App.guidedDemoIntegration.test.jsx"],
+      "impacts": ["Welcome 優先於 release UI", "Demo/Offline/Trip/modal 與 Welcome 互斥", "三種完成動作共享 marker 與 duplicate guard"]
+    },
+    {
+      "title": "Browser regression coverage",
+      "summary": "新增 Emulator-backed E2E 並調整 returning-user helper，使既有 specs 不被 Welcome 遮住。",
+      "files": ["e2e/first-run-welcome.spec.ts", "e2e/support/releaseNotes.ts"],
+      "impacts": ["驗證 rooms 保持空", "驗證 marker 與 release seen 邊界", "驗證 deep-link 返回與 mobile layout"]
+    },
+    {
+      "title": "Feature documentation",
+      "summary": "更新 Guided Demo 文件，記錄 first-run 判定、優先順序、deep-link 延後與 non-goals。",
+      "files": ["docs/features/FIRST_RUN_GUIDED_DEMO.md"],
+      "impacts": ["讓文件與實作邊界一致", "保留 Clone/Tour Center 後續工作"]
+    }
+  ],
+  "changedFiles": [
+    { "path": "docs/features/FIRST_RUN_GUIDED_DEMO.md", "changeType": "modified", "responsibility": "Guided Demo and onboarding design documentation", "whyItChanged": "記錄 first-run eligibility、release priority、deep-link 與 completion 行為。" },
+    { "path": "e2e/first-run-welcome.spec.ts", "changeType": "added", "responsibility": "Browser and Emulator regression coverage", "whyItChanged": "驗證 fresh、returning、Demo、Create、Skip 與 deep-link flows。" },
+    { "path": "e2e/support/releaseNotes.ts", "changeType": "modified", "responsibility": "Returning-user E2E setup", "whyItChanged": "既有 release tests 需要明確標記 onboarding seen，避免新 Welcome 遮罩。" },
+    { "path": "src/App.firstRunWelcomeIntegration.test.jsx", "changeType": "added", "responsibility": "App coordination regression coverage", "whyItChanged": "證明 modal/view priority、storage、Firebase/offline non-effects 與 release interaction。" },
+    { "path": "src/App.guidedDemoIntegration.test.jsx", "changeType": "modified", "responsibility": "Guided Demo integration coverage", "whyItChanged": "將既有 Guided Demo 情境標記為 returning session。" },
+    { "path": "src/App.jsx", "changeType": "modified", "responsibility": "App shell, routing, modal, release, Demo and first-run coordination", "whyItChanged": "加入 initial snapshot、session gate、deferred display、completion helper 與 Welcome render。" },
+    { "path": "src/features/onboarding/FirstRunWelcomeDialog.jsx", "changeType": "added", "responsibility": "Accessible four-step presentation", "whyItChanged": "提供純 callback Welcome UI 與 focus/scroll lifecycle。" },
+    { "path": "src/features/onboarding/FirstRunWelcomeDialog.test.jsx", "changeType": "added", "responsibility": "Welcome component tests", "whyItChanged": "保護內容、操作、一次性 callback、accessibility 與 responsive layout。" },
+    { "path": "src/features/onboarding/onboardingState.js", "changeType": "added", "responsibility": "First-run marker and eligibility model", "whyItChanged": "集中 storage-safe eligibility 與 marker 操作。" },
+    { "path": "src/features/onboarding/onboardingState.test.js", "changeType": "added", "responsibility": "Eligibility and marker unit tests", "whyItChanged": "保護所有 returning signals、empty trips、deep link 與 storage failures。" }
+  ],
+  "stateChanges": [
+    { "state": "firstRunSnapshot", "before": "不存在。", "after": "App mount 時讀取一次並固定。", "impact": "判定不受 App 後續寫入空 myTrips 或預設外觀影響。" },
+    { "state": "suppressReleasePromptForFirstRunSession", "before": "不存在；release prompt 只依 release seen。", "after": "符合 fresh、無 trips 且 release 未讀時固定為 true。", "impact": "同 session 完成 Welcome 後也不連續彈出 What's New。" },
+    { "state": "firstRunResolved", "before": "不存在。", "after": "first-run session 初始 false，完成任一動作後 true。", "impact": "即使 marker 寫入失敗也防止同 session 重開。" },
+    { "state": "showFirstRunWelcome", "before": "不存在。", "after": "受 eligibility、deep link 與互斥 view 控制。", "impact": "Welcome 可以延後顯示且不覆蓋 Trip/Demo/Offline/modal。" },
+    { "state": "Dialog step", "before": "不存在。", "after": "0 到 3 的 ephemeral React state。", "impact": "Next/Back 不持久化或完成 onboarding。" }
+  ],
+  "dataChanges": [
+    { "data": "travel-app-seen-onboarding-v1", "before": "不存在。", "after": "Demo/Create/Skip/Escape 完成時嘗試寫入 true。", "persistence": "Browser localStorage", "sideEffect": "後續 reload 不再顯示 Welcome。" },
+    { "data": "Existing-use snapshot", "before": "沒有統一模型。", "after": "讀取 myTrips、release key prefix、custom background、offline cache、member/checklist identity keys。", "persistence": "只讀既有 localStorage；snapshot 在 React memory", "sideEffect": "決定是否自動顯示 Welcome。" },
+    { "data": "Room deep link", "before": "只驅動 active Trip route。", "after": "同時記錄 hasRoomDeepLink 以延後 Welcome。", "persistence": "URL query and React state", "sideEffect": "不寫 onboarding marker，返回 Lobby 才顯示。" },
+    { "data": "Demo and trip creation", "before": "使用者從 Lobby/Settings 主動開啟。", "after": "也可由 Welcome completion 開啟。", "persistence": "Demo 仍只在 React memory；Create 仍待表單提交", "sideEffect": "CTA 本身不建立 Firebase room、不寫 myTrips 或 Offline Cache。" }
+  ],
+  "compatibility": {
+    "preserved": [
+      "Built-in Demo 仍是本機唯讀資料且不建立 Firebase room。",
+      "Demo 仍不加入 myTrips 或 Offline Cache。",
+      "Create action 仍開啟既有空白旅程 Modal。",
+      "returning users 的既有 What's New flow 維持。",
+      "FeatureTour chapters、Firebase schema、rules 與 production 設定未改。"
+    ],
+    "breaking": [],
+    "legacy": ["既有 release history、非空 trips、自訂外觀、有效 offline cache 或 member identity keys 會避免自動 Welcome。", "只有空 myTrips 的既有裝置仍被視為 fresh，這是刻意相容行為。"]
+  },
+  "risks": [
+    { "severity": "high", "description": "App.jsx 的 release/view/modal 排序變得更複雜，未來新增 overlay 容易破壞互斥。", "mitigation": "維持 App integration 排他性測試並把新 view 加入 deferred condition。" },
+    { "severity": "medium", "description": "localStorage 不可用時 marker 無法跨 reload 保存。", "mitigation": "同 session 以 firstRunResolved 防重開；跨 session 行為保持安全且非致命。" },
+    { "severity": "medium", "description": "release helper 改為標記 onboarding seen 可能隱藏真正 first-run 問題。", "mitigation": "first-run 有獨立未預先 seed marker 的 E2E spec，existing specs 明確代表 returning user。" },
+    { "severity": "low", "description": "Mobile Safari project 無法完全代表實體 iOS safe-area 和鍵盤。", "mitigation": "保留實機 manual QA。" }
+  ],
+  "testing": [
+    { "path": "src/features/onboarding/onboardingState.test.js", "type": "unit", "behaviorProtected": "26 類 marker/eligibility 邊界的實作來源與回歸案例。", "evidenceStatus": "passed" },
+    { "path": "src/features/onboarding/FirstRunWelcomeDialog.test.jsx", "type": "component", "behaviorProtected": "四步 UI、callbacks、focus、Escape、scroll 與安全邊界。", "evidenceStatus": "passed" },
+    { "path": "src/App.firstRunWelcomeIntegration.test.jsx", "type": "integration", "behaviorProtected": "App priority、completion、storage failure、release、Demo/Firebase/offline non-effects。", "evidenceStatus": "passed" },
+    { "path": "e2e/first-run-welcome.spec.ts", "type": "e2e", "behaviorProtected": "Desktop Chrome 與 Mobile Safari first-run browser flows against Emulator。", "evidenceStatus": "passed" },
+    { "path": "src/App.guidedDemoIntegration.test.jsx", "type": "integration", "behaviorProtected": "既有 Guided Demo returning-user flow 不被 Welcome 回歸影響。", "evidenceStatus": "passed" }
+  ],
+  "rollback": {
+    "strategy": "若需要撤回 Phase 7B-3，回復 base ref 的 App/release helper 行為並移除新增 onboarding modules、tests、E2E 與文件；不要只移除 dialog 而留下 session gate。",
+    "steps": [
+      "以完整 Phase 7B-3 commit 邊界進行可審查的 revert。",
+      "確認 App 回到 Guided Demo entry-only 行為。",
+      "重跑 Guided Demo、What's New、Offline Preview 與 App shell regressions。",
+      "確認 onboarding marker 不再被新程式讀寫。"
+    ]
+  },
+  "evidence": [
+    { "id": "E1", "claim": "diff 新增 onboarding marker、offline cache validation、deep-link snapshot 與 returning signal 判定。", "path": "src/features/onboarding/onboardingState.js", "symbol": "onboarding state module", "lineStart": 1, "lineEnd": 130, "confidence": "verified" },
+    { "id": "E2", "claim": "App 在初始 render 產生 snapshot 並初始化 first-run session state。", "path": "src/App.jsx", "symbol": "TravelApp first-run state", "lineStart": 108, "lineEnd": 125, "confidence": "verified" },
+    { "id": "E3", "claim": "App 的 release effect 被 first-run gate 阻擋，deferred effect 等互斥條件清除才開 Welcome。", "path": "src/App.jsx", "symbol": "release and deferred Welcome effects", "lineStart": 235, "lineEnd": 280, "confidence": "verified" },
+    { "id": "E4", "claim": "completion helper 對重複事件設 guard，寫 marker、resolve、close，再分流 Demo/Create/Skip。", "path": "src/App.jsx", "symbol": "completeFirstRunOnboarding", "lineStart": 388, "lineEnd": 397, "confidence": "verified" },
+    { "id": "E5", "claim": "Welcome 與 release UI、Demo、Offline、Trip views 互斥。", "path": "src/App.jsx", "symbol": "releaseExperience and view priority", "lineStart": 698, "lineEnd": 817, "confidence": "verified" },
+    { "id": "E6", "claim": "Dialog 有四步內容與一次性 completion callback。", "path": "src/features/onboarding/FirstRunWelcomeDialog.jsx", "symbol": "STEPS / finishOnce", "lineStart": 3, "lineEnd": 46, "confidence": "verified" },
+    { "id": "E7", "claim": "Dialog 提供 Escape、focus trap、scroll restoration、safe-area 與 final actions。", "path": "src/features/onboarding/FirstRunWelcomeDialog.jsx", "symbol": "dialog effect and render", "lineStart": 48, "lineEnd": 195, "confidence": "verified" },
+    { "id": "E8", "claim": "eligibility unit tests涵蓋 empty trips、returning signals、deep link 與 storage unavailable。", "path": "src/features/onboarding/onboardingState.test.js", "symbol": "first-run eligibility tests", "lineStart": 52, "lineEnd": 147, "confidence": "verified" },
+    { "id": "E9", "claim": "App integration tests驗證 Demo/Create/Skip、release non-effect 與 Firebase/offline non-effects。", "path": "src/App.firstRunWelcomeIntegration.test.jsx", "symbol": "completion integration tests", "lineStart": 163, "lineEnd": 218, "confidence": "verified" },
+    { "id": "E10", "claim": "App integration tests驗證 returning signals、empty trips、deep-link deferral 與 storage failure。", "path": "src/App.firstRunWelcomeIntegration.test.jsx", "symbol": "eligibility and resilience integration tests", "lineStart": 220, "lineEnd": 282, "confidence": "verified" },
+    { "id": "E11", "claim": "E2E 驗證 fresh Demo flow、rooms/myTrips 為空、release marker 不變與 reload 後 release 恢復。", "path": "e2e/first-run-welcome.spec.ts", "symbol": "fresh user E2E", "lineStart": 33, "lineEnd": 76, "confidence": "verified" },
+    { "id": "E12", "claim": "E2E 驗證 deep-linked Trip 先顯示，返回 Lobby 後才顯示 Welcome。", "path": "e2e/first-run-welcome.spec.ts", "symbol": "room deep-link E2E", "lineStart": 138, "lineEnd": 154, "confidence": "verified" },
+    { "id": "E13", "claim": "ADR 保持 Demo 不寫 Firebase 且不加入 myTrips。", "path": ".ai/DECISIONS.md", "symbol": "ADR-001 / ADR-002", "lineStart": 5, "lineEnd": 21, "confidence": "verified" }
+  ],
+  "unknowns": [
+    { "question": "first-run eligibility 的既有使用訊號集合未來是否需要版本化擴充？", "impact": "新增 local-only 功能可能代表 returning use，但目前不會被偵測。", "nextStep": "若加入新持久化 domain，透過 ADR 評估是否加入 snapshot。" },
+    { "question": "實體 iOS 上四步 dialog 的鍵盤、safe-area 與 installed PWA 行為是否一致？", "impact": "Mobile Safari 模擬不能完全代表實機。", "nextStep": "執行既有 real-device QA 清單。" }
+  ],
+  "quiz": [
+    { "id": "Q1", "question": "這個 diff 新增的永久資料是哪一項？", "options": ["travel-app-seen-onboarding-v1 marker", "Firebase demo room", "Demo myTrips entry", "Offline Demo snapshot"], "correctOption": 0, "explanation": "新增持久化只有 onboarding marker；其餘 Demo 邊界保持。", "evidenceRefs": ["E1", "E4", "E13"] },
+    { "id": "Q2", "question": "Phase 7B-3 如何處理 room deep link？", "options": ["先顯示 Trip，返回 Lobby 後再顯示 Welcome", "取消 onboarding 資格", "在 Trip 上疊 Welcome", "立即寫 marker"], "correctOption": 0, "explanation": "deep link 是 deferred display gate，不是 returning signal。", "evidenceRefs": ["E1", "E3", "E12"] },
+    { "id": "Q3", "question": "為何 first-run session 完成後不立刻顯示 What's New？", "options": ["session gate 固定抑制 release prompt，但不 mark seen", "release key 被刪除", "FeatureTour 取代 release", "Firebase 尚未連線"], "correctOption": 0, "explanation": "suppressReleasePromptForFirstRunSession 保持 true 到 reload，避免連續 modal。", "evidenceRefs": ["E2", "E3", "E9"] },
+    { "id": "Q4", "question": "Create completion action改變了哪個既有契約？", "options": ["沒有；仍只開空白 Modal，待使用者提交", "自動填入東京資料", "立即建立 Firebase room", "複製 Demo tickets"], "correctOption": 0, "explanation": "completion helper 只呼叫既有 openCreateModal。", "evidenceRefs": ["E4", "E9"] },
+    { "id": "Q5", "question": "哪個測試層直接驗證 Emulator rooms 保持空？", "options": ["Playwright E2E", "Dialog component test", "onboardingState unit test", "Markdown documentation"], "correctOption": 0, "explanation": "first-run E2E 使用 readEmulatorData 檢查 rooms 並同時驗證 myTrips。", "evidenceRefs": ["E11"] }
+  ]
+}

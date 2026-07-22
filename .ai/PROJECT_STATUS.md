@@ -1,20 +1,20 @@
 # Project Status
 
 - **Project Name:** Travel App
-- **Current Phase:** Phase AI-1.1 — AI Project OS aligned with Phase 7B-3
-- **Current Branch:** `chore/ai-project-os-on-guided-demo`
+- **Current Phase:** Phase AI-2A - Understanding Skills
+- **Current Branch:** `feat/ai-understanding-skills`
 - **Product Baseline:** `feature/first-run-guided-demo`
 - **Latest Product Commit:** `c847650e6ea2fc58d6bee7b60f72a290e4fc3b21`
 - **Latest Stable Commit:** `000650cd1aba2eeabf08361fed6c9018843fae6b` on `origin/main`
-- **Active Feature:** AI Project OS alignment and preparation for Understanding Skills
+- **Active Feature:** Portable Understand and Explain Diff artifacts
 - **Completed Product Work:** Phase 7B-1, Phase 7B-2, and Phase 7B-3
-- **Completed AI Work:** Phase AI-1 and Phase AI-1.1
-- **Roadmap Progress:** Phase 7B-1 through Phase 7B-3 and Phase AI-1 through Phase AI-1.1 are complete on this integration branch.
+- **Completed AI Work:** Phase AI-1, Phase AI-1.1, and Phase AI-2A
+- **Roadmap Progress:** Phase 7B-1 through Phase 7B-3 and Phase AI-1 through Phase AI-2A are complete on this feature branch.
 - **Current Risks:** Large App/TripDetail coordination surfaces, local member identity not being authorization, Emulator-heavy regression cost, documentation drift, and real-device PWA/link behavior pending manual confirmation.
 - **Current Decisions:** Built-in Demo is local-only and read-only, Demo is excluded from `myTrips`, Clone Flow is deferred, Offline Preview is read-only, and FeatureTour remains unchanged by the Demo phases.
 - **Regression Status:** Phase 7B-3 recorded 652 passing Vitest tests and 184 passing Playwright tests, with 14 existing conditional PWA skips. That evidence belongs to product commit `c847650e6ea2fc58d6bee7b60f72a290e4fc3b21`. This AI Project OS alignment changes no product code and does not claim that the complete E2E matrix was rerun for this alignment.
-- **Testing Status:** Schema parsing, typecheck, lint, production build, allowed-path review, and `git diff --check` passed for this alignment. Complete Playwright was not rerun because the alignment changes governance files only.
+- **Testing Status:** All five AI schemas parse; 19 Node artifact tests, validation of both source artifacts, deterministic render/check, typecheck, lint, build, agent guardrails, and fast agent verification passed on this branch. Complete Playwright was not rerun because product behavior is unchanged.
 - **Production Status:** No deployment performed.
-- **Upcoming Milestone:** Phase AI-2 — Understand and Explain Diff Skills
+- **Upcoming Milestone:** Phase AI-2B - Agent adapters and invocation workflow
 
 Update this file whenever the active branch, product baseline, validation evidence, or milestone changes.

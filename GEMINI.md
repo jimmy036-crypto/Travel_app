@@ -11,3 +11,5 @@ Follow this reading sequence:
 5. [.ai/TEST_MATRIX.md](.ai/TEST_MATRIX.md)
 
 Afterward, use `.ai/tasks/active/` for the assigned work and `.ai/agents/` for role boundaries. Keep repository facts out of this entry file.
+
+For understanding work, use `.ai/skills/`, read the relevant `SKILL.md`, validate JSON against `.ai/schemas/`, and store formal artifacts in `.ai/artifacts/`. The shared skill rules live only in `.ai/`, not in this file.

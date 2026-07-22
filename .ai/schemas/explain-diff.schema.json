@@ -1,0 +1,231 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/explain-diff.schema.json",
+  "title": "Travel App Explain Diff",
+  "description": "A portable, evidence-backed behavioral explanation of changes between two Git refs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "metadata",
+    "intent",
+    "before",
+    "after",
+    "behavioralChanges",
+    "conceptGroups",
+    "changedFiles",
+    "stateChanges",
+    "dataChanges",
+    "compatibility",
+    "risks",
+    "testing",
+    "rollback",
+    "evidence",
+    "unknowns",
+    "quiz"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "artifactType": { "const": "explain-diff" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "project", "baseRef", "headRef", "generatedAt", "language", "generatorRole"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "project": { "type": "string", "minLength": 1 },
+        "baseRef": { "type": "string", "minLength": 1 },
+        "headRef": { "type": "string", "minLength": 1 },
+        "generatedAt": { "type": "string", "format": "date-time" },
+        "language": { "enum": ["en", "zh-TW"] },
+        "generatorRole": { "enum": ["architect", "codex", "gemini", "reviewer", "qa", "docs", "human"] }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "drivers", "nonGoals"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "drivers": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "nonGoals": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "before": { "$ref": "#/$defs/snapshot" },
+    "after": { "$ref": "#/$defs/snapshot" },
+    "behavioralChanges": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["area", "before", "after", "userVisible"],
+        "properties": {
+          "area": { "type": "string", "minLength": 1 },
+          "before": { "type": "string", "minLength": 1 },
+          "after": { "type": "string", "minLength": 1 },
+          "userVisible": { "type": "boolean" }
+        }
+      }
+    },
+    "conceptGroups": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "summary", "files", "impacts"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "summary": { "type": "string", "minLength": 1 },
+          "files": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "impacts": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "changedFiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "changeType", "responsibility", "whyItChanged"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "changeType": { "enum": ["added", "modified", "deleted", "renamed", "copied"] },
+          "responsibility": { "type": "string", "minLength": 1 },
+          "whyItChanged": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "stateChanges": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["state", "before", "after", "impact"],
+        "properties": {
+          "state": { "type": "string", "minLength": 1 },
+          "before": { "type": "string", "minLength": 1 },
+          "after": { "type": "string", "minLength": 1 },
+          "impact": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "dataChanges": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "before", "after", "persistence", "sideEffect"],
+        "properties": {
+          "data": { "type": "string", "minLength": 1 },
+          "before": { "type": "string", "minLength": 1 },
+          "after": { "type": "string", "minLength": 1 },
+          "persistence": { "type": "string", "minLength": 1 },
+          "sideEffect": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preserved", "breaking", "legacy"],
+      "properties": {
+        "preserved": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "breaking": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "legacy": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "risks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/risk" } },
+    "testing": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/test" } },
+    "rollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "steps"],
+      "properties": {
+        "strategy": { "type": "string", "minLength": 1 },
+        "steps": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "impact", "nextStep"],
+        "properties": {
+          "question": { "type": "string", "minLength": 1 },
+          "impact": { "type": "string", "minLength": 1 },
+          "nextStep": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "quiz": { "type": "array", "minItems": 5, "maxItems": 5, "items": { "$ref": "#/$defs/quizQuestion" } }
+  },
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "behaviors", "state", "data"],
+      "properties": {
+        "summary": { "type": "string", "minLength": 1 },
+        "behaviors": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+        "state": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "data": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "description", "mitigation"],
+      "properties": {
+        "severity": { "enum": ["critical", "high", "medium", "low"] },
+        "description": { "type": "string", "minLength": 1 },
+        "mitigation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "type", "behaviorProtected", "evidenceStatus"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["unit", "component", "integration", "e2e", "static", "manual"] },
+        "behaviorProtected": { "type": "string", "minLength": 1 },
+        "evidenceStatus": { "enum": ["passed", "failed", "not-run", "source-reviewed"] }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "claim", "path", "symbol", "lineStart", "lineEnd", "confidence"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^E[0-9]+$" },
+        "claim": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "symbol": { "type": "string", "minLength": 1 },
+        "lineStart": { "type": "integer", "minimum": 1 },
+        "lineEnd": { "type": "integer", "minimum": 1 },
+        "confidence": { "enum": ["verified", "inferred", "uncertain"] }
+      }
+    },
+    "quizQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "question", "options", "correctOption", "explanation", "evidenceRefs"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^Q[1-5]$" },
+        "question": { "type": "string", "minLength": 1 },
+        "options": { "type": "array", "minItems": 2, "maxItems": 6, "items": { "type": "string", "minLength": 1 } },
+        "correctOption": { "type": "integer", "minimum": 0 },
+        "explanation": { "type": "string", "minLength": 1 },
+        "evidenceRefs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^E[0-9]+$" } }
+      }
+    }
+  }
+}
