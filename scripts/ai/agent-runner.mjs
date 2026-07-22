@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { approveLiveRun, checkRunner, doctorAgents, executeLiveRun, inspectRun, loadRunnerArtifact, prepareLiveRun, statusLiveRunPlan, validateAllRunnerArtifacts } from './agent-runner-lib.mjs';
+import { approveLiveRun, checkRunner, diagnoseRun, doctorAgents, executeLiveRun, inspectRun, loadRunnerArtifact, prepareLiveRun, statusLiveRunPlan, validateAllRunnerArtifacts } from './agent-runner-lib.mjs';
 
 function usage() {
-  console.error('Usage: agent-runner <doctor [--json]|validate <json>|validate-all|check|prepare codex <skill> <input> [--attempt <label>]|approve <plan> --phrase <exact>|status <plan>|inspect <run-dir>|execute <plan> <approval>>');
+  console.error('Usage: agent-runner <doctor [--json]|validate <json>|validate-all|check|prepare codex <skill> <input> [--attempt <label>]|approve <plan> --phrase <exact>|status <plan>|inspect <run-dir>|diagnose <run-dir>|execute <plan> <approval>>');
   process.exitCode = 2;
 }
 
@@ -26,6 +26,8 @@ async function main() {
     const result = approveLiveRun(args[0], args.slice(2).join(' ')); console.log(JSON.stringify({ approvalPath: result.approvalPath, planId: result.approval.planId, expiresAt: result.approval.expiresAt }, null, 2));
   } else if (command === 'inspect' && args.length === 1) {
     console.log(JSON.stringify(inspectRun(args[0]), null, 2));
+  } else if (command === 'diagnose' && args.length === 1) {
+    console.log(JSON.stringify(diagnoseRun(args[0]), null, 2));
   } else if (command === 'status' && args.length === 1) {
     console.log(JSON.stringify(statusLiveRunPlan(args[0]), null, 2));
   } else if (command === 'execute' && args.length === 2) {

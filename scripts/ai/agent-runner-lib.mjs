@@ -556,6 +556,114 @@ export function inspectRun(runDirectory, { root = REPO_ROOT } = {}) {
   return { planIdentity: { planId: plan.planId, attemptId, planSha256: plan.planSha256 }, agent: plan.agent, skill: plan.skill, launchStatus, childStarted, approvalConsumed, boundFileHashStatus: hashStatus, packetHashStatus: hashStatus.packet, exitCode: result.exitCode, timedOut: result.timedOut, truncated: result.truncated, validation: result.validation, candidateResponseValidation: result.validation, currentCandidateValidation: currentValidation, secretPatternScan: result.security.findings, importEligibility: eligible ? 'eligible-for-human-review' : 'ineligible', automaticIngest: false, recommendedNextAction, humanReviewChecklist: ['Confirm the response matches the requested round and participant.', 'Review every security finding without reproducing secret-like content.', 'Verify repository evidence and unresolved assumptions.', 'Run discussion ingest separately only after human acceptance.'] };
 }
 
+function collectErrorDetails(value, depth = 0) {
+  if (depth > 4 || value === null || value === undefined) return { messages: [], codes: [], types: [] };
+  if (typeof value === 'string') {
+    try { return collectErrorDetails(JSON.parse(value), depth + 1); }
+    catch { return { messages: [value], codes: [], types: [] }; }
+  }
+  if (!isObject(value)) return { messages: [], codes: [], types: [] };
+  const details = { messages: [], codes: [], types: [] };
+  if (typeof value.code === 'string') details.codes.push(value.code);
+  if (typeof value.type === 'string') details.types.push(value.type);
+  for (const nested of [value.message, value.error]) {
+    const collected = collectErrorDetails(nested, depth + 1);
+    details.messages.push(...collected.messages); details.codes.push(...collected.codes); details.types.push(...collected.types);
+  }
+  return details;
+}
+
+function diagnosticSecretTypes(text) { return scanSecretPatterns(String(text ?? '')).map((finding) => finding.type); }
+
+function safeDiagnosticSummary(message, secretTypes) {
+  const before = diagnosticSecretTypes(message);
+  before.forEach((type) => secretTypes.add(type));
+  if (before.length) return null;
+  let safe = String(message).replace(/[\r\n\t]+/g, ' ').trim();
+  safe = safe.replace(/Authorization\s*:\s*\S+/gi, 'Authorization: [redacted]');
+  safe = safe.replace(/Bearer\s+\S+/gi, 'Bearer [redacted]');
+  safe = safe.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-account]');
+  safe = safe.replace(/(?:[A-Z]:\\|\/Users\/|\/home\/)[^\s]+/gi, '[redacted-path]');
+  safe = safe.replace(/\b[A-Za-z0-9._~-]{24,}\b/g, '[redacted-id]');
+  if (safe.length > 300) safe = safe.slice(0, 300);
+  const after = diagnosticSecretTypes(safe);
+  after.forEach((type) => secretTypes.add(type));
+  return after.length ? null : safe;
+}
+
+function classifyRunFailure(evidenceText) {
+  const text = evidenceText.toLowerCase();
+  if (/invalid_json_schema|invalid schema|response_format|output.?schema|schema must/.test(text)) return { rootCauseCategory: 'OUTPUT_SCHEMA_REJECTED', confidence: 'high', retryWithoutCodeChange: false, humanActionRequired: false, recommendedNextAction: 'repair-runner-before-retry' };
+  if (/authentication|unauthori|invalid_api_key|login required|not logged in|sign.?in/.test(text)) return { rootCauseCategory: 'CODEX_AUTHENTICATION_FAILURE', confidence: 'high', retryWithoutCodeChange: false, humanActionRequired: true, recommendedNextAction: 'reauthenticate-codex' };
+  if (/quota|rate.?limit|too many requests|\b429\b/.test(text)) return { rootCauseCategory: 'CODEX_QUOTA_OR_RATE_LIMIT', confidence: 'high', retryWithoutCodeChange: true, humanActionRequired: true, recommendedNextAction: 'wait-and-retry-later' };
+  if (/repository_error|not (?:a )?trusted (?:git )?repository|repository.{0,24}trust|safe\.directory|git repository check/.test(text)) return { rootCauseCategory: 'CODEX_REPOSITORY_TRUST_FAILURE', confidence: 'high', retryWithoutCodeChange: false, humanActionRequired: true, recommendedNextAction: 'repair-local-environment' };
+  if (/missing environment|environment variable|not found in path|\benoent\b/.test(text)) return { rootCauseCategory: 'SANITIZED_ENVIRONMENT_INCOMPLETE', confidence: 'medium', retryWithoutCodeChange: false, humanActionRequired: false, recommendedNextAction: 'repair-runner-before-retry' };
+  if (/config\.toml|configuration error|invalid config|model is not configured|unknown model/.test(text)) return { rootCauseCategory: 'CODEX_CONFIGURATION_FAILURE', confidence: 'high', retryWithoutCodeChange: false, humanActionRequired: true, recommendedNextAction: 'repair-local-environment' };
+  if (/unknown (?:argument|option)|unexpected argument|invalid value for/.test(text)) return { rootCauseCategory: 'RUNNER_ARGV_INVALID', confidence: 'high', retryWithoutCodeChange: false, humanActionRequired: false, recommendedNextAction: 'repair-runner-before-retry' };
+  if (/stdin packet|invalid packet|prompt is required|no prompt/.test(text)) return { rootCauseCategory: 'STDIN_PACKET_INVALID', confidence: 'medium', retryWithoutCodeChange: false, humanActionRequired: false, recommendedNextAction: 'repair-runner-before-retry' };
+  if (/service unavailable|temporar(?:y|ily)|upstream|provider|connection reset|network error|stream error|\b503\b/.test(text)) return { rootCauseCategory: 'CODEX_PROVIDER_TRANSIENT_FAILURE', confidence: 'medium', retryWithoutCodeChange: true, humanActionRequired: false, recommendedNextAction: 'wait-and-retry-later' };
+  if (/internal error|internal failure|panic|fatal runtime/.test(text)) return { rootCauseCategory: 'CODEX_CLI_INTERNAL_FAILURE', confidence: 'medium', retryWithoutCodeChange: false, humanActionRequired: true, recommendedNextAction: 'investigate-manually' };
+  return { rootCauseCategory: 'UNKNOWN_EXIT1', confidence: 'low', retryWithoutCodeChange: false, humanActionRequired: true, recommendedNextAction: 'investigate-manually' };
+}
+
+export function diagnoseRun(runDirectory, { root = REPO_ROOT } = {}) {
+  assertRepositoryPath(runDirectory, 'run directory');
+  if (!runDirectory.startsWith('.ai/runs/')) fail('diagnose may only read .ai/runs directories');
+  const directory = path.join(root, runDirectory);
+  const plan = validatePlan(JSON.parse(readFileSync(path.join(directory, 'plan.json'), 'utf8')));
+  const result = validateResult(JSON.parse(readFileSync(path.join(directory, 'result.json'), 'utf8')));
+  const stdout = readFileSync(path.join(directory, 'stdout.jsonl'), 'utf8');
+  const stderr = readFileSync(path.join(directory, 'stderr.txt'), 'utf8');
+  let candidate; let candidateParsed = true;
+  try { candidate = JSON.parse(readFileSync(path.join(directory, 'candidate-response.json'), 'utf8')); }
+  catch { candidate = null; candidateParsed = false; }
+  const lines = stdout.split(/\r?\n/).filter((line) => line.trim());
+  const eventTypeCounts = new Map(); const errorEventTypes = new Set(); const errorCodes = new Set(); const errorTypes = new Set(); const rawMessages = [];
+  let parsedEventCount = 0; let invalidLineCount = 0; let errorEventCount = 0; let threadOrSessionCreated = false; let turnStarted = false; let turnFailed = false;
+  for (const line of lines) {
+    let event;
+    try { event = JSON.parse(line); parsedEventCount += 1; }
+    catch { invalidLineCount += 1; continue; }
+    const eventType = typeof event?.type === 'string' ? event.type : '(missing)';
+    eventTypeCounts.set(eventType, (eventTypeCounts.get(eventType) ?? 0) + 1);
+    if (/^(?:thread|session)\.started$/.test(eventType)) threadOrSessionCreated = true;
+    if (eventType === 'turn.started') turnStarted = true;
+    if (eventType === 'turn.failed') turnFailed = true;
+    if (eventType === 'error' || /(?:error|failed)$/.test(eventType)) {
+      errorEventCount += 1; errorEventTypes.add(eventType);
+      const details = collectErrorDetails(event);
+      details.messages.forEach((message) => rawMessages.push(message));
+      details.codes.forEach((code) => errorCodes.add(code));
+      details.types.forEach((type) => errorTypes.add(type));
+    }
+  }
+  const secretTypes = new Set([...diagnosticSecretTypes(stdout), ...diagnosticSecretTypes(stderr)]);
+  const safeErrorSummaries = [];
+  for (const message of rawMessages) {
+    const summary = safeDiagnosticSummary(message, secretTypes);
+    if (summary && !safeErrorSummaries.includes(summary)) safeErrorSummaries.push(summary);
+  }
+  const evidenceText = [...errorCodes, ...errorTypes, ...rawMessages].join(' ');
+  const classification = classifyRunFailure(evidenceText);
+  const attemptId = planAttemptId(plan);
+  const childStarted = result.childStarted ?? result.exitCode !== -1;
+  const launchStatus = result.launchStatus ?? (childStarted ? 'started' : 'not-started');
+  const candidateStatus = !candidateParsed ? 'invalid' : candidate === null ? 'null' : result.validation.valid ? 'valid' : 'invalid';
+  let recommendedNextAction = classification.recommendedNextAction;
+  if (secretTypes.size) recommendedNextAction = 'security-review-required';
+  else if (candidateStatus === 'valid' && childStarted && result.exitCode === 0 && !result.timedOut && !result.truncated && result.validation.valid) recommendedNextAction = 'human-review-existing-candidate';
+  const safeFailureSummary = safeErrorSummaries[0] ?? (result.exitCode === 0 ? 'Run completed without a diagnostic error event.' : `Run exited with code ${result.exitCode}; no safe structured error message was available.`);
+  return {
+    runDirectory, runId: result.runId, planId: plan.planId, attemptId, launchStatus, childStarted, exitCode: result.exitCode, timedOut: result.timedOut, truncated: result.truncated,
+    stdoutBytes: Buffer.byteLength(stdout), stderrBytes: Buffer.byteLength(stderr), jsonlLineCount: lines.length, parsedEventCount, invalidLineCount,
+    eventTypeCounts: Object.fromEntries([...eventTypeCounts].sort(([left], [right]) => left.localeCompare(right))), errorEventCount,
+    supportingEventTypes: [...errorEventTypes].sort(), errorCodes: [...errorCodes].sort(), safeErrorSummaries, safeFailureSummary,
+    secretFindingTypes: [...secretTypes].sort(), threadOrSessionCreated, turnStarted, turnFailed, candidateStatus,
+    rootCauseCategory: classification.rootCauseCategory, confidence: classification.confidence, retryWithoutCodeChange: classification.retryWithoutCodeChange,
+    humanActionRequired: classification.humanActionRequired, recommendedNextAction, automaticPrepare: false, automaticApproval: false, automaticExecute: false, automaticIngest: false,
+  };
+}
+
 function readJsonIfPresent(file) {
   if (!existsSync(file)) return null;
   try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; }

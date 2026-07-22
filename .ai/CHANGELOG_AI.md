@@ -2,6 +2,16 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2B — Codex Exit-1 Diagnosis
+
+- Safely diagnosed the initial Run's four JSONL events without reproducing raw output or sensitive values.
+- Confirmed that the initial child process started, the initial Approval remains consumed, exit code was `1`, and the candidate was null; no response was ingested.
+- Classified the root cause as `OUTPUT_SCHEMA_REJECTED` with high confidence: Codex rejected const/enum schema nodes that omitted explicit JSON Schema `type` declarations.
+- Added the read-only `diagnose` command with bounded, secret-scanned summaries and evidence-based failure categories.
+- Applied a transport-schema compatibility fix without weakening canonical Discussion validation, and added mock-only regression coverage.
+- Prepared a deterministic, execution-disabled local `retry-1` Plan after the fix passed all required tests. No Approval was created and no Agent prompt was executed during diagnosis.
+- No product behavior changed and no deployment occurred. Approval and execute remain human-only operations in an ordinary shell.
+
 ## Phase AI-3B2B-R1 — Recoverable Runner Attempts
 
 - Added atomic, exclusive Approval claims that become used markers only after the child `spawn` event.

@@ -84,6 +84,18 @@ node scripts/ai/agent-runner.mjs status $planInfo.planPath
 
 This creates only a local Plan. A human must still review it, create the short-lived Approval, and execute it later from an ordinary PowerShell window. No retry is automatic.
 
+## E.1 Diagnose a failed Run safely
+
+If a complete matching Run failed, use the read-only diagnostic command before preparing another attempt:
+
+```powershell
+node scripts/ai/agent-runner.mjs diagnose <run-directory>
+```
+
+Diagnosis counts JSONL events, extracts bounded secret-scanned error summaries, and classifies only supported evidence. It never changes the Run, Plan, Approval, or Discussion Session and never prepares, approves, executes, or ingests anything automatically. Do not print or copy the complete `stdout.jsonl`.
+
+The initial Round 1 Run started Codex but failed because the structured-output schema contained const/enum nodes without explicit `type` declarations. Its Approval remains permanently consumed. The transport schema is now compatible, and the prepared `retry-1` Plan is a distinct deterministic attempt; it still requires separate human review, Approval, and execution in an ordinary PowerShell window.
+
 ## F. Human Plan review
 
 First verify:

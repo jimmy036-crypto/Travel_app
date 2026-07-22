@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   REPO_ROOT, RunnerValidationError, approveLiveRun, assertLiveWorktreeClean, buildApproval, buildLiveRunPlan,
-  checkRunner, computePlanHash, createApprovalClaim, detectManagedAgentEnvironment, doctorAgents, executeLiveRun, inspectRun,
+  checkRunner, computePlanHash, createApprovalClaim, detectManagedAgentEnvironment, diagnoseRun, doctorAgents, executeLiveRun, inspectRun,
   loadRunnerArtifact, prepareLiveRun, runChildProcess, sanitizeChildEnvironment, scanSecretPatterns,
   statusLiveRunPlan, validateAllRunnerArtifacts, validateApproval, validateAttemptId, validateBoundFiles, validateCandidate, validatePlan,
   validatePolicy, validateResult,
@@ -40,6 +40,20 @@ function successfulProcess(overrides = {}) {
     if (spawned) lifecycle.onSpawn?.(spawnedAt);
     return { exitCode: 0, timedOut: false, truncated: false, stdout: `${JSON.stringify(validCandidate())}\n`, stderr: '', removedEnvironmentNames: [], spawned, spawnedAt: spawned ? spawnedAt : null, spawnError: null, ...overrides };
   };
+}
+function diagnosticFailureEvent(code, message, type = 'invalid_request_error') {
+  return { type: 'turn.failed', error: { message: JSON.stringify({ type: 'error', error: { type, code, message, param: null } }) } };
+}
+function diagnosticRun({ events, rawLines, stderr = '', candidate = null, resultOverrides = {} } = {}) {
+  const root = tempRoot(); const livePlan = plan(root); const runDirectory = '.ai/runs/run-diagnostic-test-001';
+  const approval = buildApproval(livePlan, `I APPROVE LIVE RUN ${livePlan.planId}`, { clock: () => new Date(FIXED) });
+  const defaultEvents = [{ type: 'thread.started', thread_id: 'redacted' }, { type: 'turn.started' }, diagnosticFailureEvent('unknown_error', 'Unclassified failure.')];
+  const stdout = `${(rawLines ?? (events ?? defaultEvents).map((event) => JSON.stringify(event))).join('\n')}\n`;
+  const validation = candidate === null ? { valid: false, errors: ['No structured candidate response was found in stdout.'] } : { valid: true, errors: [] };
+  const result = validateResult({ schemaVersion: '1.0.0', artifactType: 'live-run-result', runId: 'run-diagnostic-test-001', planId: livePlan.planId, planSha256: livePlan.planSha256, attemptId: livePlan.attemptId, agent: 'codex', skill: 'discuss', startedAt: FIXED, completedAt: '2026-07-22T04:00:01.000Z', launchStatus: 'started', childStarted: true, approvalConsumed: true, exitCode: 1, timedOut: false, truncated: false, stdoutFormat: 'jsonl', rawOutputPath: `${runDirectory}/stdout.jsonl`, validatedResponsePath: `${runDirectory}/candidate-response.json`, validation, security: { reviewRequired: false, findings: [], removedEnvironmentNames: [] }, importStatus: 'not-reviewed', ...resultOverrides });
+  writeArtifact(root, `${runDirectory}/plan.json`, livePlan); writeArtifact(root, `${runDirectory}/approval.json`, approval);
+  const directory = path.join(root, runDirectory); mkdirSync(directory, { recursive: true }); writeFileSync(path.join(directory, 'stdout.jsonl'), stdout); writeFileSync(path.join(directory, 'stderr.txt'), stderr); writeFileSync(path.join(directory, 'candidate-response.json'), `${JSON.stringify(candidate, null, 2)}\n`); writeFileSync(path.join(directory, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
+  return { root, runDirectory, livePlan, result };
 }
 test.after(() => tempRoots.forEach((root) => rmSync(root, { recursive: true, force: true })));
 
@@ -254,4 +268,87 @@ test('nested Agent block does not create a claim', async () => {
   const setup = executionSetup(); setup.options.env = { CODEX_THREAD_ID: 'redacted' };
   await assert.rejects(() => executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options), /BLOCKED_NESTED_AGENT_EXECUTION/);
   assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/approval-claims', `${setup.livePlan.planId}.json`)), false);
+});
+
+test('diagnose is read-only', () => {
+  const setup = diagnosticRun(); const resultPath = path.join(setup.root, setup.runDirectory, 'result.json'); const before = readFileSync(resultPath, 'utf8');
+  diagnoseRun(setup.runDirectory, { root: setup.root }); assert.equal(readFileSync(resultPath, 'utf8'), before);
+});
+test('diagnose does not reproduce complete stdout', () => {
+  const marker = 'COMPLETE_RAW_STDOUT_SENTINEL'; const setup = diagnosticRun({ events: [{ type: 'thread.started', payload: marker }, diagnosticFailureEvent('unknown_error', 'Failure summary.') ] });
+  assert.equal(JSON.stringify(diagnoseRun(setup.runDirectory, { root: setup.root })).includes(marker), false);
+});
+test('diagnose counts JSONL event types', () => {
+  const setup = diagnosticRun({ events: [{ type: 'thread.started' }, { type: 'turn.started' }, { type: 'error', message: 'Failure.' }, diagnosticFailureEvent('unknown_error', 'Failure.') ] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.deepEqual(report.eventTypeCounts, { error: 1, 'thread.started': 1, 'turn.failed': 1, 'turn.started': 1 }); assert.equal(report.parsedEventCount, 4);
+});
+test('diagnose counts invalid JSON lines', () => {
+  const setup = diagnosticRun({ rawLines: [JSON.stringify({ type: 'turn.started' }), 'not-json'] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.equal(report.jsonlLineCount, 2); assert.equal(report.parsedEventCount, 1); assert.equal(report.invalidLineCount, 1);
+});
+test('diagnose extracts structured error events', () => {
+  const setup = diagnosticRun({ events: [diagnosticFailureEvent('invalid_json_schema', 'Invalid schema for response_format.')] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.deepEqual(report.errorCodes, ['invalid_json_schema']); assert.deepEqual(report.supportingEventTypes, ['turn.failed']);
+});
+test('diagnose scans error summaries for secrets', () => {
+  const setup = diagnosticRun({ events: [diagnosticFailureEvent('auth_error', 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz')] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.deepEqual(report.secretFindingTypes, ['bearer-token']); assert.equal(report.recommendedNextAction, 'security-review-required');
+});
+test('diagnose never reproduces secret-like values', () => {
+  const secret = 'abcdefghijklmnopqrstuvwxyz123456'; const setup = diagnosticRun({ events: [diagnosticFailureEvent('auth_error', `Bearer ${secret}`)] });
+  assert.equal(JSON.stringify(diagnoseRun(setup.runDirectory, { root: setup.root })).includes(secret), false);
+});
+test('diagnose classifies output schema rejection', () => {
+  const setup = diagnosticRun({ events: [diagnosticFailureEvent('invalid_json_schema', "Invalid schema for response_format: schema must have a 'type' key.")] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.equal(report.rootCauseCategory, 'OUTPUT_SCHEMA_REJECTED'); assert.equal(report.confidence, 'high'); assert.equal(report.recommendedNextAction, 'repair-runner-before-retry');
+});
+test('diagnose classifies authentication failure', () => {
+  const setup = diagnosticRun({ events: [diagnosticFailureEvent('authentication_error', 'Login required before this request.')] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.equal(report.rootCauseCategory, 'CODEX_AUTHENTICATION_FAILURE'); assert.equal(report.recommendedNextAction, 'reauthenticate-codex');
+});
+test('diagnose classifies quota failure', () => {
+  const setup = diagnosticRun({ events: [diagnosticFailureEvent('rate_limit_error', 'Rate limit exceeded (429).')] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.equal(report.rootCauseCategory, 'CODEX_QUOTA_OR_RATE_LIMIT'); assert.equal(report.retryWithoutCodeChange, true);
+});
+test('diagnose classifies transient provider failure', () => {
+  const setup = diagnosticRun({ events: [diagnosticFailureEvent('provider_error', 'Service unavailable from upstream provider.')] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.equal(report.rootCauseCategory, 'CODEX_PROVIDER_TRANSIENT_FAILURE'); assert.equal(report.recommendedNextAction, 'wait-and-retry-later');
+});
+test('diagnose classifies repository trust failure', () => {
+  const setup = diagnosticRun({ events: [diagnosticFailureEvent('repository_error', 'Repository trust check failed: not a trusted repository.')] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.equal(report.rootCauseCategory, 'CODEX_REPOSITORY_TRUST_FAILURE'); assert.equal(report.recommendedNextAction, 'repair-local-environment');
+});
+test('diagnose classifies unknown failure', () => {
+  const setup = diagnosticRun({ events: [diagnosticFailureEvent('mystery', 'Something unrecognized happened.')] }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.equal(report.rootCauseCategory, 'UNKNOWN_EXIT1'); assert.equal(report.confidence, 'low');
+});
+test('diagnose handles empty stderr', () => {
+  const setup = diagnosticRun({ stderr: '' }); assert.equal(diagnoseRun(setup.runDirectory, { root: setup.root }).stderrBytes, 0);
+});
+test('diagnose handles a null candidate', () => {
+  const setup = diagnosticRun({ candidate: null }); assert.equal(diagnoseRun(setup.runDirectory, { root: setup.root }).candidateStatus, 'null');
+});
+test('diagnose never automatically prepares a Plan', () => {
+  const setup = diagnosticRun(); const report = diagnoseRun(setup.runDirectory, { root: setup.root }); assert.equal(report.automaticPrepare, false); assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/plans')), false);
+});
+test('diagnose never automatically creates an Approval', () => {
+  const setup = diagnosticRun(); const report = diagnoseRun(setup.runDirectory, { root: setup.root }); assert.equal(report.automaticApproval, false); assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/approvals')), false);
+});
+test('diagnose never automatically executes an Agent', () => {
+  const setup = diagnosticRun(); const report = diagnoseRun(setup.runDirectory, { root: setup.root }); assert.equal(report.automaticExecute, false); assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/used-approvals')), false);
+});
+test('diagnose never automatically ingests a response', () => {
+  const setup = diagnosticRun(); const report = diagnoseRun(setup.runDirectory, { root: setup.root }); assert.equal(report.automaticIngest, false); assert.equal(existsSync(path.join(setup.root, '.ai/discussions/examples/demo-persistence-boundary/responses')), false);
+});
+test('retry Plan records retry-1 attempt label', () => {
+  const retry = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'retry-1' }); assert.equal(retry.attemptId, 'retry-1'); assert.notEqual(retry.planId, plan().planId);
+});
+test('discussion output schema gives const and enum nodes explicit types', () => {
+  const pending = [json(path.join(REPO_ROOT, '.ai/schemas/discussion-analysis.schema.json'))];
+  while (pending.length) {
+    const value = pending.pop();
+    if (!value || typeof value !== 'object') continue;
+    if (Object.hasOwn(value, 'const') || Object.hasOwn(value, 'enum')) assert.equal(typeof value.type, 'string');
+    pending.push(...Object.values(value));
+  }
 });
