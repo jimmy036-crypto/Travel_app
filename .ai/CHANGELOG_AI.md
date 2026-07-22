@@ -31,3 +31,16 @@ Record important AI-governance changes and decisions. Product release notes rema
 - Added the first real First-run Welcome understanding and diff artifacts.
 - No product behavior changed.
 - No deployment was performed.
+
+## Phase AI-2B - Agent Adapters and Invocation Workflow
+
+- Added shared Codex/Gemini skill adapters.
+- Added Claude project skill adapters.
+- Added Gemini slash-command adapters.
+- Added an adapter manifest with computed canonical hashes.
+- Added an invocation schema and six plan-only examples.
+- Added a deterministic plan-only invocation generator.
+- Added a redacted CLI availability doctor.
+- No external Agent prompt was executed.
+- No product behavior changed.
+- No deployment was performed.

@@ -28,7 +28,11 @@
     "ai:artifacts:test": "node --test scripts/ai/learning-artifact.test.mjs",
     "ai:artifacts:validate": "node scripts/ai/learning-artifact.mjs validate-all",
     "ai:artifacts:render": "node scripts/ai/learning-artifact.mjs render-all",
-    "ai:artifacts:check": "node scripts/ai/learning-artifact.mjs check"
+    "ai:artifacts:check": "node scripts/ai/learning-artifact.mjs check",
+    "ai:adapters:test": "node --test scripts/ai/agent-adapter.test.mjs",
+    "ai:adapters:check": "node scripts/ai/agent-adapter.mjs check",
+    "ai:adapters:doctor": "node scripts/ai/agent-adapter.mjs doctor",
+    "ai:invocations:validate": "node scripts/ai/agent-adapter.mjs validate-all"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",

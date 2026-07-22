@@ -13,3 +13,5 @@ Follow this reading sequence:
 Afterward, use `.ai/tasks/active/` for the assigned work and `.ai/agents/` for role boundaries. Keep repository facts out of this entry file.
 
 For understanding work, use `.ai/skills/`, read the relevant `SKILL.md`, validate JSON against `.ai/schemas/`, and store formal artifacts in `.ai/artifacts/`. The shared skill rules live only in `.ai/`, not in this file.
+
+Gemini workspace adapters live under `.agents/skills/`, with slash commands under `.gemini/commands/`. Those TOML files only route arguments to canonical `.ai/skills/` rules and must not copy the complete workflow.

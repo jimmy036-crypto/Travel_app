@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "agent-invocation",
+  "agent": "gemini",
+  "skill": "explain-diff",
+  "mode": "plan-only",
+  "workingDirectory": ".",
+  "canonicalSkill": ".ai/skills/explain-diff/SKILL.md",
+  "adapterPath": ".agents/skills/explain-diff/SKILL.md",
+  "arguments": { "baseRef": "92ef883fb237ecf942baaf946e28ab7d4e50c556", "headRef": "c847650e6ea2fc58d6bee7b60f72a290e4fc3b21" },
+  "permissions": { "filesystem": "read-only", "network": false, "productionFirebase": false, "gitWrite": false, "deploy": false },
+  "expectedOutput": { "schema": ".ai/schemas/explain-diff.schema.json", "draftPath": ".ai/artifacts/drafts/explain-diff-92ef883-c847650.json" },
+  "execution": {
+    "enabled": false,
+    "reason": "Phase AI-2B generates plans only and does not execute an external agent.",
+    "interactiveInvocation": "/explain-diff 92ef883fb237ecf942baaf946e28ab7d4e50c556 c847650e6ea2fc58d6bee7b60f72a290e4fc3b21",
+    "headlessArgvPreview": ["gemini", "-p", "Use /explain-diff with base 92ef883fb237ecf942baaf946e28ab7d4e50c556 and head c847650e6ea2fc58d6bee7b60f72a290e4fc3b21. Return schema-conforming JSON only.", "--output-format", "json"]
+  }
+}

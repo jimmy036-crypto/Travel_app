@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0.0",
+  "canonicalRoot": ".ai/skills",
+  "skills": [
+    {
+      "name": "understand",
+      "canonicalPath": ".ai/skills/understand/SKILL.md",
+      "canonicalSha256": "537e0283d6e95bbe50da13b344b7dc87697d18af0b949464272e1eb0db965eda",
+      "outputSchema": ".ai/schemas/understanding-guide.schema.json",
+      "adapters": {
+        "shared": ".agents/skills/understand/SKILL.md",
+        "claude": ".claude/skills/understand/SKILL.md",
+        "geminiCommand": ".gemini/commands/understand.toml"
+      }
+    },
+    {
+      "name": "explain-diff",
+      "canonicalPath": ".ai/skills/explain-diff/SKILL.md",
+      "canonicalSha256": "72faad489ec5bfec3a27d96d9710b258da5fecd5fababb6d94f0c0ca05339388",
+      "outputSchema": ".ai/schemas/explain-diff.schema.json",
+      "adapters": {
+        "shared": ".agents/skills/explain-diff/SKILL.md",
+        "claude": ".claude/skills/explain-diff/SKILL.md",
+        "geminiCommand": ".gemini/commands/explain-diff.toml"
+      }
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+description = "Explain the behavioral changes between two Travel App Git refs."
+prompt = "Activate the workspace explain-diff skill by reading .agents/skills/explain-diff/SKILL.md, then follow its .ai/skills canonical source. Treat {{args}} as the base and head refs and return JSON conforming to .ai/schemas/explain-diff.schema.json."

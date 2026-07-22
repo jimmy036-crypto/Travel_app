@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "agent-invocation",
+  "agent": "claude",
+  "skill": "understand",
+  "mode": "plan-only",
+  "workingDirectory": ".",
+  "canonicalSkill": ".ai/skills/understand/SKILL.md",
+  "adapterPath": ".claude/skills/understand/SKILL.md",
+  "arguments": { "topic": "First-run Welcome Experience" },
+  "permissions": { "filesystem": "read-only", "network": false, "productionFirebase": false, "gitWrite": false, "deploy": false },
+  "expectedOutput": { "schema": ".ai/schemas/understanding-guide.schema.json", "draftPath": ".ai/artifacts/drafts/understand-first-run-welcome-experience.json" },
+  "execution": {
+    "enabled": false,
+    "reason": "Phase AI-2B generates plans only and does not execute an external agent.",
+    "interactiveInvocation": "/understand First-run Welcome Experience",
+    "headlessArgvPreview": ["claude", "-p", "Use /understand for topic: First-run Welcome Experience. Return schema-conforming JSON only.", "--permission-mode", "plan", "--output-format", "json"]
+  }
+}

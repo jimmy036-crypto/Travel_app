@@ -1,0 +1,2 @@
+description = "Create an evidence-backed understanding guide for a Travel App topic."
+prompt = "Activate the workspace understand skill by reading .agents/skills/understand/SKILL.md, then follow its .ai/skills canonical source. Treat {{args}} as the topic and return JSON conforming to .ai/schemas/understanding-guide.schema.json."

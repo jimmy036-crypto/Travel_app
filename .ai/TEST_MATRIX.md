@@ -55,3 +55,17 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Stale artifact detection | `npm run ai:artifacts:check` | Missing or outdated rendered HTML fails without rewriting files |
 | Offline HTML | Node tests plus local browser inspection | No CDN, remote font/image, fetch, storage write, or network dependency |
 | Quiz behavior | Node tests plus local browser inspection | Exactly five questions can be scored; explanations display without persistence |
+
+## AI Agent Adapter Validation
+
+| Check | Evidence | Required behavior |
+|---|---|---|
+| Canonical hash freshness | `npm run ai:adapters:check` | Manifest SHA-256 values match canonical skill bytes |
+| Thin-adapter validation | Adapter Node tests and check | Line limits, required metadata, canonical references, and duplication limits pass |
+| Agent discovery layout | Adapter check | Shared, Claude, and Gemini entry files exist as regular files at declared paths |
+| Gemini command safety | Adapter Node tests | TOML has only description/prompt and rejects shell or file injection forms |
+| Invocation schema | Schema parse plus `npm run ai:invocations:validate` | All examples remain additional-property-free, plan-only documents |
+| Argument sanitization | Adapter Node tests | Empty topics and unsafe Git refs fail before an argv preview is produced |
+| Read-only permission planning | Adapter Node tests | Filesystem is read-only; network, production Firebase, Git writes, deploy, and execution are false |
+| CLI doctor redaction | Injected-spawn Node tests | Missing CLIs are non-fatal and output contains no environment, credential, or auth paths |
+| Deterministic invocation plans | Adapter Node tests | Identical inputs produce identical structured argv arrays and output paths |

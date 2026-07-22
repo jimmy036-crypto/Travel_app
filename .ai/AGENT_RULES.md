@@ -47,3 +47,7 @@ All roles obey repository safety boundaries, current task scope, accepted ADRs, 
 ## Shared Handoff Minimum
 
 Every role reports status, evidence, changed or reviewed scope, unresolved risks, blockers, and the next responsible role. Structured integrations should conform to `.ai/schemas/agent-response.schema.json`.
+
+## Adapter Truth Boundary
+
+Phase AI-2B adapters are routing layers only. They must never become competing sources of workflow truth; complete skill behavior remains exclusively under `.ai/skills/`.
