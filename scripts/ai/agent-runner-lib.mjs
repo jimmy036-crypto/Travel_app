@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateArtifact as validateDiscussionArtifact } from './discussion-lib.mjs';
@@ -10,6 +10,8 @@ export const POLICY_PATH = '.ai/runtime/policy.template.json';
 export const LOCAL_POLICY_PATH = '.ai/runtime/local/policy.json';
 export const LOCAL_PLANS_DIR = '.ai/runtime/local/plans';
 export const LOCAL_APPROVALS_DIR = '.ai/runtime/local/approvals';
+export const LOCAL_APPROVAL_CLAIMS_DIR = '.ai/runtime/local/approval-claims';
+export const LOCAL_USED_APPROVALS_DIR = '.ai/runtime/local/used-approvals';
 export const RUNS_DIR = '.ai/runs';
 export const DEFAULT_LIMITS = Object.freeze({ maxRuntimeSeconds: 600, maxOutputBytes: 5 * 1024 * 1024 });
 
@@ -17,6 +19,7 @@ const AGENTS = ['codex', 'claude', 'gemini'];
 const SKILLS = ['discuss', 'understand', 'explain-diff'];
 const MANAGED_ENV_NAMES = ['CODEX_THREAD_ID', 'CODEX_SANDBOX_NETWORK_DISABLED', 'CODEX_MANAGED_BY_NPM', 'CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'GEMINI_CLI', 'GEMINI_CLI_HOME'];
 const SECRET_ENV_NAME = /(API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|PRIVATE_KEY|GITHUB_TOKEN|FIREBASE|AWS_|AZURE_|GOOGLE_APPLICATION_CREDENTIALS)/i;
+const ATTEMPT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const PERMISSIONS = Object.freeze({ filesystem: 'read-only', network: false, productionFirebase: false, gitWrite: false, deploy: false });
 const SKILL_CONFIG = Object.freeze({
   discuss: { adapter: '.agents/skills/discuss/SKILL.md', defaultSchema: '.ai/schemas/discussion-analysis.schema.json' },
@@ -47,11 +50,24 @@ function exactKeys(value, expected, location) {
   const wanted = [...expected].sort();
   if (JSON.stringify(actual) !== JSON.stringify(wanted)) fail(`${location} keys must be exactly: ${wanted.join(', ')}`);
 }
+function exactKeysWithOptional(value, required, optional, location) {
+  if (!isObject(value)) fail(`${location} must be an object`);
+  const actual = Object.keys(value);
+  const allowed = new Set([...required, ...optional]);
+  const missing = required.filter((key) => !Object.hasOwn(value, key));
+  const unexpected = actual.filter((key) => !allowed.has(key));
+  if (missing.length || unexpected.length) fail(`${location} keys are invalid (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})`);
+}
 function assertString(value, location) { if (typeof value !== 'string' || !value.trim()) fail(`${location} must be a non-empty string`); }
 function assertBoolean(value, expected, location) { if (value !== expected) fail(`${location} must be ${expected}`); }
 function assertDate(value, location) { assertString(value, location); if (!Number.isFinite(Date.parse(value))) fail(`${location} must be an ISO date-time`); }
 function assertHash(value, location) { if (!/^[a-f0-9]{64}$/.test(value ?? '')) fail(`${location} must be SHA-256 hex`); }
 function assertId(value, location) { if (!/^[a-z0-9][a-z0-9-]{7,63}$/.test(value ?? '')) fail(`${location} is invalid`); }
+export function validateAttemptId(value, location = 'attemptId') {
+  if (!ATTEMPT_ID_PATTERN.test(value ?? '')) fail(`${location} must match [a-z0-9][a-z0-9-]{0,31}`);
+  return value;
+}
+export function planAttemptId(plan) { return plan.attemptId ?? 'initial'; }
 
 export function assertRepositoryPath(value, location = 'path') {
   if (typeof value !== 'string' || !value.trim()) fail(`${location} must be a non-empty repository-relative path`);
@@ -118,9 +134,10 @@ function validateArgv(argv) {
 }
 
 export function validatePlan(plan, { verifyHash = true } = {}) {
-  exactKeys(plan, ['schemaVersion', 'artifactType', 'planId', 'createdAt', 'agent', 'skill', 'mode', 'workingDirectory', 'packetPath', 'packetSha256', 'adapterPath', 'adapterSha256', 'outputSchema', 'outputSchemaSha256', 'argv', 'stdinSource', 'permissions', 'limits', 'execution', 'planSha256'], 'plan');
+  exactKeysWithOptional(plan, ['schemaVersion', 'artifactType', 'planId', 'createdAt', 'agent', 'skill', 'mode', 'workingDirectory', 'packetPath', 'packetSha256', 'adapterPath', 'adapterSha256', 'outputSchema', 'outputSchemaSha256', 'argv', 'stdinSource', 'permissions', 'limits', 'execution', 'planSha256'], ['attemptId'], 'plan');
   if (plan.schemaVersion !== '1.0.0' || plan.artifactType !== 'live-run-plan') fail('plan identity is invalid');
   assertId(plan.planId, 'plan.planId'); assertDate(plan.createdAt, 'plan.createdAt');
+  if (Object.hasOwn(plan, 'attemptId')) validateAttemptId(plan.attemptId, 'plan.attemptId');
   if (plan.agent !== 'codex' || !SKILLS.includes(plan.skill) || plan.mode !== 'read-only-analysis' || plan.workingDirectory !== '.') fail('plan provider, skill, mode, or working directory is invalid');
   for (const key of ['packetPath', 'adapterPath', 'outputSchema', 'stdinSource']) assertRepositoryPath(plan[key], `plan.${key}`);
   for (const key of ['packetSha256', 'adapterSha256', 'outputSchemaSha256', 'planSha256']) assertHash(plan[key], `plan.${key}`);
@@ -147,9 +164,19 @@ export function validateApproval(approval, { plan, now } = {}) {
 }
 
 export function validateResult(result) {
-  exactKeys(result, ['schemaVersion', 'artifactType', 'runId', 'planId', 'planSha256', 'agent', 'skill', 'startedAt', 'completedAt', 'exitCode', 'timedOut', 'truncated', 'stdoutFormat', 'rawOutputPath', 'validatedResponsePath', 'validation', 'security', 'importStatus'], 'result');
+  const lifecycleKeys = ['attemptId', 'launchStatus', 'childStarted', 'approvalConsumed'];
+  exactKeysWithOptional(result, ['schemaVersion', 'artifactType', 'runId', 'planId', 'planSha256', 'agent', 'skill', 'startedAt', 'completedAt', 'exitCode', 'timedOut', 'truncated', 'stdoutFormat', 'rawOutputPath', 'validatedResponsePath', 'validation', 'security', 'importStatus'], lifecycleKeys, 'result');
   if (result.schemaVersion !== '1.0.0' || result.artifactType !== 'live-run-result') fail('result identity is invalid');
   assertId(result.runId, 'result.runId'); assertId(result.planId, 'result.planId'); assertHash(result.planSha256, 'result.planSha256');
+  const lifecycleCount = lifecycleKeys.filter((key) => Object.hasOwn(result, key)).length;
+  if (lifecycleCount !== 0 && lifecycleCount !== lifecycleKeys.length) fail('result lifecycle fields must be provided together');
+  if (lifecycleCount) {
+    validateAttemptId(result.attemptId, 'result.attemptId');
+    if (!['not-started', 'started'].includes(result.launchStatus)) fail('result.launchStatus is invalid');
+    if (typeof result.childStarted !== 'boolean' || typeof result.approvalConsumed !== 'boolean') fail('result lifecycle booleans are invalid');
+    if (result.launchStatus === 'not-started' && (result.childStarted || result.approvalConsumed || result.exitCode !== -1)) fail('not-started result lifecycle is inconsistent');
+    if (result.childStarted && (!result.approvalConsumed || result.launchStatus !== 'started')) fail('started child must consume approval');
+  }
   if (result.agent !== 'codex' || !SKILLS.includes(result.skill)) fail('result provider or skill is invalid');
   assertDate(result.startedAt, 'result.startedAt'); assertDate(result.completedAt, 'result.completedAt');
   if (!Number.isInteger(result.exitCode) || typeof result.timedOut !== 'boolean' || typeof result.truncated !== 'boolean' || result.stdoutFormat !== 'jsonl') fail('result process fields are invalid');
@@ -223,9 +250,10 @@ function validateInput(skill, packet, packetPath) {
   return SKILL_CONFIG[skill].defaultSchema;
 }
 
-export function buildLiveRunPlan(agent, skill, inputPath, { root = REPO_ROOT, clock = () => new Date(), capabilities } = {}) {
+export function buildLiveRunPlan(agent, skill, inputPath, { root = REPO_ROOT, clock = () => new Date(), capabilities, attemptId = 'initial' } = {}) {
   if (agent !== 'codex') fail('only codex may be prepared in AI-3B1');
   if (!SKILLS.includes(skill)) fail('skill is not allowed');
+  validateAttemptId(attemptId);
   const policy = validatePolicy(readJsonFile(root, POLICY_PATH), { committed: true });
   if (!policy.allowedSkills.includes(skill)) fail('skill is not allowed by committed policy');
   const packetFile = resolveRepositoryFile(root, inputPath, 'input path');
@@ -239,13 +267,13 @@ export function buildLiveRunPlan(agent, skill, inputPath, { root = REPO_ROOT, cl
   const packetSha256 = sha256(text);
   const adapterSha256 = sha256File(root, adapterPath);
   const outputSchemaSha256 = sha256File(root, outputSchema);
-  const planId = `live-${sha256(stableJson({ agent, skill, packetSha256, adapterSha256, outputSchemaSha256 })).slice(0, 20)}`;
+  const planId = `live-${sha256(stableJson({ agent, skill, attemptId, packetSha256, adapterSha256, outputSchemaSha256 })).slice(0, 20)}`;
   const supportsOutputSchema = capabilities?.supportedFlags?.includes('--output-schema') ?? false;
   const argv = ['codex', 'exec', '--ephemeral', '--sandbox', 'read-only', '--json'];
   if (supportsOutputSchema) argv.push('--output-schema', outputSchema);
   argv.push('-');
   const plan = {
-    schemaVersion: '1.0.0', artifactType: 'live-run-plan', planId, createdAt: new Date(clock()).toISOString(), agent, skill, mode: 'read-only-analysis', workingDirectory: '.',
+    schemaVersion: '1.0.0', artifactType: 'live-run-plan', planId, attemptId, createdAt: new Date(clock()).toISOString(), agent, skill, mode: 'read-only-analysis', workingDirectory: '.',
     packetPath: inputPath.replace(/\\/g, '/'), packetSha256, adapterPath, adapterSha256, outputSchema, outputSchemaSha256, argv, stdinSource: inputPath.replace(/\\/g, '/'),
     permissions: { ...PERMISSIONS }, limits: { maxRuntimeSeconds: policy.maxRuntimeSeconds, maxOutputBytes: policy.maxOutputBytes },
     execution: { enabled: false, reason: 'Preparation only. A hash-bound human approval and enabled local policy are required from an ordinary shell.' }, planSha256: '0'.repeat(64),
@@ -263,6 +291,46 @@ function writeLocalJson(root, repositoryDirectory, filename, value) {
   if (existsSync(output)) fail(`refusing to overwrite ${path.relative(root, output).replace(/\\/g, '/')}`);
   writeFileSync(output, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
   return path.relative(root, output).replace(/\\/g, '/');
+}
+
+function safeLaunchError(error) {
+  const code = typeof error?.code === 'string' ? error.code : error?.name === 'Error' ? 'ERROR' : String(error?.name ?? 'ERROR');
+  return `${code}: child process could not be started`;
+}
+
+export function createApprovalClaim(claim, { root = REPO_ROOT, writeFileSyncImpl = writeFileSync } = {}) {
+  exactKeys(claim, ['planId', 'planSha256', 'approvalPath', 'claimedAt', 'attemptId', 'runId'], 'approval claim');
+  assertId(claim.planId, 'approval claim.planId'); assertHash(claim.planSha256, 'approval claim.planSha256');
+  assertRepositoryPath(claim.approvalPath, 'approval claim.approvalPath'); assertDate(claim.claimedAt, 'approval claim.claimedAt');
+  validateAttemptId(claim.attemptId, 'approval claim.attemptId'); assertId(claim.runId, 'approval claim.runId');
+  const directory = path.join(root, LOCAL_APPROVAL_CLAIMS_DIR);
+  mkdirSync(directory, { recursive: true });
+  const output = path.join(directory, `${claim.planId}.json`);
+  try {
+    writeFileSyncImpl(output, `${JSON.stringify(claim, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+  } catch (error) {
+    if (error?.code === 'EEXIST') fail('BLOCKED_APPROVAL_ALREADY_CLAIMED');
+    throw error;
+  }
+  return path.relative(root, output).replace(/\\/g, '/');
+}
+
+function removeCurrentClaim(root, claimPath) {
+  const resolved = path.join(root, claimPath);
+  if (existsSync(resolved)) unlinkSync(resolved);
+}
+
+function promoteClaimToUsed(root, claimPath, planId) {
+  const usedDirectory = path.join(root, LOCAL_USED_APPROVALS_DIR);
+  mkdirSync(usedDirectory, { recursive: true });
+  const usedPath = path.join(usedDirectory, `${planId}.json`);
+  if (existsSync(usedPath)) fail('approval has already been used');
+  renameSync(path.join(root, claimPath), usedPath);
+  return path.relative(root, usedPath).replace(/\\/g, '/');
+}
+
+function writeRunJson(root, runDirectory, filename, value) {
+  writeFileSync(path.join(root, runDirectory, filename), `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
 export function prepareLiveRun(agent, skill, inputPath, options = {}) {
@@ -334,12 +402,14 @@ export function validateCandidate(candidate, plan, packet) {
   return { valid: errors.length === 0, errors };
 }
 
-export function runChildProcess(argv, stdin, limits, { spawnImpl = spawn, cwd = REPO_ROOT, env = process.env } = {}) {
+export function runChildProcess(argv, stdin, limits, { spawnImpl = spawn, cwd = REPO_ROOT, env = process.env, clock = () => new Date(), onSpawn } = {}) {
   return new Promise((resolve) => {
     const sanitized = sanitizeChildEnvironment(env);
-    const child = spawnImpl(argv[0], argv.slice(1), { cwd, shell: false, env: sanitized.env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
-    let stdout = Buffer.alloc(0); let stderr = Buffer.alloc(0); let timedOut = false; let truncated = false; let settled = false;
-    const finish = (exitCode) => { if (settled) return; settled = true; clearTimeout(timer); resolve({ exitCode: Number.isInteger(exitCode) ? exitCode : -1, timedOut, truncated, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8'), removedEnvironmentNames: sanitized.removedNames }); };
+    let child;
+    try { child = spawnImpl(argv[0], argv.slice(1), { cwd, shell: false, env: sanitized.env, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); }
+    catch (error) { resolve({ exitCode: -1, timedOut: false, truncated: false, stdout: '', stderr: safeLaunchError(error), removedEnvironmentNames: sanitized.removedNames, spawned: false, spawnedAt: null, spawnError: safeLaunchError(error) }); return; }
+    let stdout = Buffer.alloc(0); let stderr = Buffer.alloc(0); let timedOut = false; let truncated = false; let settled = false; let spawned = false; let spawnedAt = null; let spawnError = null; let timer;
+    const finish = (exitCode) => { if (settled) return; settled = true; clearTimeout(timer); resolve({ exitCode: Number.isInteger(exitCode) ? exitCode : -1, timedOut, truncated, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8'), removedEnvironmentNames: sanitized.removedNames, spawned, spawnedAt, spawnError }); };
     const collect = (kind) => (chunk) => {
       const data = Buffer.from(chunk); const current = kind === 'stdout' ? stdout : stderr;
       const remaining = limits.maxOutputBytes - current.length;
@@ -348,8 +418,12 @@ export function runChildProcess(argv, stdin, limits, { spawnImpl = spawn, cwd = 
       if (data.length > remaining) { truncated = true; child.kill(); }
     };
     child.stdout.on('data', collect('stdout')); child.stderr.on('data', collect('stderr'));
-    child.on('error', () => finish(-1)); child.on('close', finish);
-    const timer = setTimeout(() => { timedOut = true; child.kill(); }, limits.maxRuntimeSeconds * 1000);
+    child.on('spawn', () => {
+      spawned = true; spawnedAt = new Date(clock()).toISOString();
+      try { onSpawn?.(spawnedAt); } catch (error) { spawnError = safeLaunchError(error); child.kill(); }
+    });
+    child.on('error', (error) => { spawnError = safeLaunchError(error); finish(-1); }); child.on('close', finish);
+    timer = setTimeout(() => { timedOut = true; child.kill(); }, limits.maxRuntimeSeconds * 1000);
     child.stdin.end(stdin);
   });
 }
@@ -385,30 +459,75 @@ export async function executeLiveRun(planPath, approvalPath, options = {}) {
   validateApproval(approval, { plan, now: options.clock ? options.clock() : new Date() });
   if (!localPolicy.allowedAgents.includes(plan.agent) || !localPolicy.allowedSkills.includes(plan.skill)) fail('plan is not allowed by local policy');
   validateBoundFiles(plan, { root });
-  const usedPath = `.ai/runtime/local/used-approvals/${plan.planId}.json`;
+  const usedPath = `${LOCAL_USED_APPROVALS_DIR}/${plan.planId}.json`;
   if (existsSync(path.join(root, usedPath))) fail('approval has already been used');
   const capabilities = (options.doctor ?? doctorAgents)({ spawnSyncImpl: options.spawnSyncImpl }).find((item) => item.agent === plan.agent);
   if (!capabilities?.liveExecutionEligible) fail('Agent CLI is not live-execution eligible');
   assertLiveWorktreeClean(options.gitStatusLines ?? gitStatus(root, options.spawnSyncImpl), localPolicy.allowedUntrackedPaths);
   const packetText = readFileSync(resolveRepositoryFile(root, plan.stdinSource), 'utf8');
   const startedAt = new Date(options.clock ? options.clock() : new Date());
-  writeLocalJson(root, '.ai/runtime/local/used-approvals', `${plan.planId}.json`, { planId: plan.planId, planSha256: plan.planSha256, usedAt: startedAt.toISOString() });
   const runId = `run-${sha256(`${plan.planSha256}:${startedAt.toISOString()}`).slice(0, 20)}`;
-  const processResult = await (options.runProcess ?? runChildProcess)(plan.argv, packetText, plan.limits, { spawnImpl: options.spawnImpl, cwd: root, env: options.env ?? process.env });
-  const candidate = parseCandidateResponse(processResult.stdout);
-  const packet = JSON.parse(packetText);
-  const validation = processResult.exitCode === 0 && !processResult.timedOut && !processResult.truncated ? validateCandidate(candidate, plan, packet) : { valid: false, errors: ['Process did not complete successfully within limits.'] };
-  const findings = scanSecretPatterns(processResult.stdout);
   const runDir = `${RUNS_DIR}/${runId}`;
+  const attemptId = planAttemptId(plan);
+  const claimedAt = startedAt.toISOString();
+  const approvalRepositoryPath = path.isAbsolute(approvalPath) ? path.relative(root, approvalPath).replace(/\\/g, '/') : approvalPath.replace(/\\/g, '/');
+  const claim = { planId: plan.planId, planSha256: plan.planSha256, approvalPath: approvalRepositoryPath, claimedAt, attemptId, runId };
+  const claimPath = createApprovalClaim(claim, { root, writeFileSyncImpl: options.writeFileSyncImpl });
+  if (existsSync(path.join(root, usedPath))) { removeCurrentClaim(root, claimPath); fail('approval has already been used'); }
+  const initialAttempt = { schemaVersion: '1.0.0', artifactType: 'live-run-attempt', runId, planId: plan.planId, planSha256: plan.planSha256, attemptId, claimedAt, childStarted: false, status: 'claimed' };
+  try {
+    mkdirSync(path.join(root, RUNS_DIR), { recursive: true });
+    mkdirSync(path.join(root, runDir));
+    writeRunJson(root, runDir, 'plan.json', plan);
+    writeRunJson(root, runDir, 'approval.json', approval);
+    writeRunJson(root, runDir, 'attempt.json', initialAttempt);
+  } catch (error) {
+    removeCurrentClaim(root, claimPath);
+    throw error;
+  }
+
+  let childStarted = false; let approvalConsumed = false; let spawnedAt = null; let lifecycleError = null;
+  const markSpawned = (value) => {
+    if (childStarted && approvalConsumed) return;
+    childStarted = true; approvalConsumed = true; spawnedAt = value ?? new Date(options.clock ? options.clock() : new Date()).toISOString();
+    writeRunJson(root, runDir, 'attempt.json', { ...initialAttempt, childStarted: true, status: 'running', spawnedAt });
+    promoteClaimToUsed(root, claimPath, plan.planId);
+  };
+  let processResult;
+  try {
+    processResult = await (options.runProcess ?? runChildProcess)(plan.argv, packetText, plan.limits, { spawnImpl: options.spawnImpl, cwd: root, env: options.env ?? process.env, clock: options.clock, onSpawn: markSpawned });
+  } catch (error) {
+    processResult = { exitCode: -1, timedOut: false, truncated: false, stdout: '', stderr: safeLaunchError(error), removedEnvironmentNames: [], spawned: childStarted, spawnedAt, spawnError: safeLaunchError(error) };
+  }
+  if (processResult?.spawned && !childStarted) {
+    try { markSpawned(processResult.spawnedAt); } catch (error) { lifecycleError = safeLaunchError(error); childStarted = true; approvalConsumed = true; spawnedAt = processResult.spawnedAt; }
+  }
+  if (!childStarted) removeCurrentClaim(root, claimPath);
+
+  const stdout = String(processResult?.stdout ?? '');
+  const stderr = String(processResult?.stderr ?? processResult?.spawnError ?? lifecycleError ?? '');
+  const exitCode = childStarted && Number.isInteger(processResult?.exitCode) ? processResult.exitCode : -1;
+  const timedOut = childStarted ? Boolean(processResult?.timedOut) : false;
+  const truncated = childStarted ? Boolean(processResult?.truncated) : false;
+  const candidate = childStarted ? parseCandidateResponse(stdout) : null;
+  let packet;
+  try { packet = JSON.parse(packetText); } catch { packet = { text: packetText }; }
+  const validation = !childStarted
+    ? { valid: false, errors: ['Child process did not start.'] }
+    : exitCode === 0 && !timedOut && !truncated
+      ? validateCandidate(candidate, plan, packet)
+      : { valid: false, errors: ['Process did not complete successfully within limits.'] };
+  if (lifecycleError) { validation.valid = false; validation.errors.push('Approval lifecycle transition failed after child start.'); }
+  const findings = scanSecretPatterns(stdout);
+  const completedAt = new Date(options.clock ? options.clock() : new Date()).toISOString();
+  const launchStatus = childStarted ? 'started' : 'not-started';
+  writeFileSync(path.join(root, runDir, 'stdout.jsonl'), stdout, 'utf8');
+  writeFileSync(path.join(root, runDir, 'stderr.txt'), stderr, 'utf8');
+  writeRunJson(root, runDir, 'candidate-response.json', candidate);
   const relative = (name) => `${runDir}/${name}`;
-  mkdirSync(path.join(root, runDir), { recursive: true });
-  writeFileSync(path.join(root, relative('plan.json')), `${JSON.stringify(plan, null, 2)}\n`);
-  writeFileSync(path.join(root, relative('approval.json')), `${JSON.stringify(approval, null, 2)}\n`);
-  writeFileSync(path.join(root, relative('stdout.jsonl')), processResult.stdout);
-  writeFileSync(path.join(root, relative('stderr.txt')), processResult.stderr);
-  writeFileSync(path.join(root, relative('candidate-response.json')), `${JSON.stringify(candidate, null, 2)}\n`);
-  const result = validateResult({ schemaVersion: '1.0.0', artifactType: 'live-run-result', runId, planId: plan.planId, planSha256: plan.planSha256, agent: plan.agent, skill: plan.skill, startedAt: startedAt.toISOString(), completedAt: new Date(options.clock ? options.clock() : new Date()).toISOString(), exitCode: processResult.exitCode, timedOut: processResult.timedOut, truncated: processResult.truncated, stdoutFormat: 'jsonl', rawOutputPath: relative('stdout.jsonl'), validatedResponsePath: relative('candidate-response.json'), validation, security: { reviewRequired: findings.length > 0, findings, removedEnvironmentNames: processResult.removedEnvironmentNames ?? [] }, importStatus: 'not-reviewed' });
-  writeFileSync(path.join(root, relative('result.json')), `${JSON.stringify(result, null, 2)}\n`);
+  const result = validateResult({ schemaVersion: '1.0.0', artifactType: 'live-run-result', runId, planId: plan.planId, planSha256: plan.planSha256, attemptId, agent: plan.agent, skill: plan.skill, startedAt: claimedAt, completedAt, launchStatus, childStarted, approvalConsumed, exitCode, timedOut, truncated, stdoutFormat: 'jsonl', rawOutputPath: relative('stdout.jsonl'), validatedResponsePath: relative('candidate-response.json'), validation, security: { reviewRequired: findings.length > 0, findings, removedEnvironmentNames: processResult?.removedEnvironmentNames ?? [] }, importStatus: 'not-reviewed' });
+  writeRunJson(root, runDir, 'result.json', result);
+  writeRunJson(root, runDir, 'attempt.json', { ...initialAttempt, childStarted, status: childStarted ? 'completed' : 'launch-failed', spawnedAt, completedAt, launchStatus, approvalConsumed, exitCode, timedOut, truncated, spawnError: processResult?.spawnError ?? lifecycleError ?? null });
   return { runDirectory: runDir, result };
 }
 
@@ -418,14 +537,70 @@ export function inspectRun(runDirectory, { root = REPO_ROOT } = {}) {
   const directory = path.join(root, runDirectory);
   const plan = validatePlan(JSON.parse(readFileSync(path.join(directory, 'plan.json'), 'utf8')));
   const result = validateResult(JSON.parse(readFileSync(path.join(directory, 'result.json'), 'utf8')));
-  const candidate = JSON.parse(readFileSync(path.join(directory, 'candidate-response.json'), 'utf8'));
-  const packet = readJsonFile(root, plan.packetPath);
+  let candidate = null; try { candidate = JSON.parse(readFileSync(path.join(directory, 'candidate-response.json'), 'utf8')); } catch { /* represented as an invalid candidate below */ }
+  let packet; const packetText = readFileSync(resolveRepositoryFile(root, plan.packetPath), 'utf8'); try { packet = JSON.parse(packetText); } catch { packet = { text: packetText }; }
   const hashStatus = { packet: sha256File(root, plan.packetPath) === plan.packetSha256, adapter: sha256File(root, plan.adapterPath) === plan.adapterSha256, outputSchema: sha256File(root, plan.outputSchema) === plan.outputSchemaSha256 };
   const sessionMatch = plan.skill !== 'discuss' || candidate?.sessionId === packet.sessionId;
   const participantMatch = plan.skill !== 'discuss' || candidate?.participant?.participantId === packet.participant?.participantId;
   const roundMatch = plan.skill !== 'discuss' || (packet.round === 'decision' ? candidate?.status === 'proposed' : candidate?.round === (packet.round === 'round-1' ? 'independent-analysis' : 'cross-review'));
-  const eligible = result.exitCode === 0 && !result.timedOut && !result.truncated && result.validation.valid && sessionMatch && participantMatch && roundMatch && result.security.findings.length === 0 && result.importStatus !== 'rejected';
-  return { planIdentity: { planId: plan.planId, planSha256: plan.planSha256 }, agent: plan.agent, skill: plan.skill, packetHashStatus: hashStatus.packet, exitCode: result.exitCode, timedOut: result.timedOut, truncated: result.truncated, candidateResponseValidation: result.validation, secretPatternScan: result.security.findings, importEligibility: eligible ? 'eligible-for-human-review' : 'ineligible', automaticIngest: false, humanReviewChecklist: ['Confirm the response matches the requested round and participant.', 'Review every security finding without reproducing secret-like content.', 'Verify repository evidence and unresolved assumptions.', 'Run discussion ingest separately only after human acceptance.'] };
+  let approvalIdentity = false;
+  try { const approval = JSON.parse(readFileSync(path.join(directory, 'approval.json'), 'utf8')); validateApproval(approval, { plan }); approvalIdentity = true; } catch { /* a failed identity check makes the run ineligible */ }
+  const attemptId = planAttemptId(plan);
+  const childStarted = result.childStarted ?? result.exitCode !== -1;
+  const launchStatus = result.launchStatus ?? (childStarted ? 'started' : 'not-started');
+  const approvalConsumed = result.approvalConsumed ?? childStarted;
+  const resultIdentity = result.planId === plan.planId && result.planSha256 === plan.planSha256 && (result.attemptId ?? attemptId) === attemptId;
+  let currentValidation; try { currentValidation = validateCandidate(candidate, plan, packet); } catch (error) { currentValidation = { valid: false, errors: [error.message] }; }
+  const eligible = launchStatus === 'started' && childStarted && approvalConsumed && resultIdentity && approvalIdentity && Object.values(hashStatus).every(Boolean) && result.exitCode === 0 && !result.timedOut && !result.truncated && result.validation.valid && currentValidation.valid && sessionMatch && participantMatch && roundMatch && result.security.findings.length === 0 && result.importStatus !== 'rejected';
+  const recommendedNextAction = eligible ? 'human-review-required' : childStarted || approvalConsumed ? 'prepare-new-attempt' : 'human-may-retry-approved-plan';
+  return { planIdentity: { planId: plan.planId, attemptId, planSha256: plan.planSha256 }, agent: plan.agent, skill: plan.skill, launchStatus, childStarted, approvalConsumed, boundFileHashStatus: hashStatus, packetHashStatus: hashStatus.packet, exitCode: result.exitCode, timedOut: result.timedOut, truncated: result.truncated, validation: result.validation, candidateResponseValidation: result.validation, currentCandidateValidation: currentValidation, secretPatternScan: result.security.findings, importEligibility: eligible ? 'eligible-for-human-review' : 'ineligible', automaticIngest: false, recommendedNextAction, humanReviewChecklist: ['Confirm the response matches the requested round and participant.', 'Review every security finding without reproducing secret-like content.', 'Verify repository evidence and unresolved assumptions.', 'Run discussion ingest separately only after human acceptance.'] };
+}
+
+function readJsonIfPresent(file) {
+  if (!existsSync(file)) return null;
+  try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; }
+}
+
+export function statusLiveRunPlan(planPath, { root = REPO_ROOT, now = () => new Date() } = {}) {
+  const plan = loadRunnerArtifact(planPath, { root });
+  const attemptId = planAttemptId(plan);
+  const approvalFile = path.join(root, LOCAL_APPROVALS_DIR, `${plan.planId}.json`);
+  const usedFile = path.join(root, LOCAL_USED_APPROVALS_DIR, `${plan.planId}.json`);
+  const claimFile = path.join(root, LOCAL_APPROVAL_CLAIMS_DIR, `${plan.planId}.json`);
+  const approval = readJsonIfPresent(approvalFile);
+  const approvalExists = existsSync(approvalFile);
+  const approvalExpiresAt = typeof approval?.expiresAt === 'string' ? approval.expiresAt : null;
+  const approvalExpired = approvalExpiresAt !== null && Date.parse(approvalExpiresAt) <= new Date(now()).getTime();
+  const matchingRuns = [];
+  const runsDirectory = path.join(root, RUNS_DIR);
+  if (existsSync(runsDirectory)) {
+    for (const name of readdirSync(runsDirectory).sort()) {
+      const directory = path.join(runsDirectory, name);
+      let stat; try { stat = lstatSync(directory); } catch { continue; }
+      if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
+      const runPlan = readJsonIfPresent(path.join(directory, 'plan.json'));
+      const runResult = readJsonIfPresent(path.join(directory, 'result.json'));
+      const matches = (runPlan?.planId === plan.planId && runPlan?.planSha256 === plan.planSha256) || (runResult?.planId === plan.planId && runResult?.planSha256 === plan.planSha256);
+      if (!matches) continue;
+      const required = ['plan.json', 'approval.json', 'stdout.jsonl', 'stderr.txt', 'candidate-response.json', 'result.json'];
+      const complete = runResult !== null && required.every((file) => existsSync(path.join(directory, file)));
+      matchingRuns.push({ runId: runResult?.runId ?? name, path: `${RUNS_DIR}/${name}`, complete, startedAt: runResult?.startedAt ?? null, completedAt: runResult?.completedAt ?? null, exitCode: Number.isInteger(runResult?.exitCode) ? runResult.exitCode : null, validationValid: typeof runResult?.validation?.valid === 'boolean' ? runResult.validation.valid : null });
+    }
+  }
+  const completeRuns = matchingRuns.filter((run) => run.complete);
+  const incompleteRuns = matchingRuns.filter((run) => !run.complete);
+  const approvalUsed = existsSync(usedFile);
+  const claimExists = existsSync(claimFile);
+  const legacyOrphanedUsedMarker = approvalUsed && completeRuns.length === 0;
+  let recommendedNextAction;
+  if (completeRuns.length) recommendedNextAction = 'inspect-existing-run';
+  else if (claimExists) recommendedNextAction = 'wait-for-running-attempt';
+  else if (incompleteRuns.length) recommendedNextAction = 'investigate-incomplete-run';
+  else if (approvalUsed) recommendedNextAction = 'prepare-new-attempt';
+  else if (!approvalExists) recommendedNextAction = 'create-approval';
+  else if (approvalExpired) recommendedNextAction = 'approval-expired';
+  else recommendedNextAction = 'execute-approved-plan';
+  return { planId: plan.planId, attemptId, planSha256: plan.planSha256, approvalExists, approvalExpiresAt, approvalUsed, claimExists, matchingRuns, completeRuns, incompleteRuns, legacyOrphanedUsedMarker, recommendedNextAction };
 }
 
 export function runnerArtifactFiles({ root = REPO_ROOT } = {}) {

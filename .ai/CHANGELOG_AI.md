@@ -2,6 +2,17 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R1 — Recoverable Runner Attempts
+
+- Added atomic, exclusive Approval claims that become used markers only after the child `spawn` event.
+- Added Run directories and `attempt.json` before process launch, plus durable result/stdout/stderr/candidate artifacts for launch failures.
+- Added deterministic `--attempt` Plan identities and read-only Plan status reporting.
+- Made inspect tolerate failed launches, invalid candidates, and null candidates without enabling automatic ingest.
+- Preserved the existing used marker; no Approval was reused.
+- The existing Plan has a complete matching failed Run and status recommends `inspect-existing-run`, so no retry Plan was prepared by this task.
+- No Agent prompt was executed, no response was ingested, no product behavior changed, and no deployment occurred.
+- Approval and execute remain human-only operations in an ordinary shell.
+
 ## Phase AI-3B2A — First Codex Round 1 Pilot Preparation
 
 - Added the first non-synthetic Discussion Session.

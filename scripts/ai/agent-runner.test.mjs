@@ -1,14 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
   REPO_ROOT, RunnerValidationError, approveLiveRun, assertLiveWorktreeClean, buildApproval, buildLiveRunPlan,
-  checkRunner, computePlanHash, detectManagedAgentEnvironment, doctorAgents, executeLiveRun, inspectRun,
+  checkRunner, computePlanHash, createApprovalClaim, detectManagedAgentEnvironment, doctorAgents, executeLiveRun, inspectRun,
   loadRunnerArtifact, prepareLiveRun, runChildProcess, sanitizeChildEnvironment, scanSecretPatterns,
-  validateAllRunnerArtifacts, validateApproval, validateBoundFiles, validateCandidate, validatePlan,
+  statusLiveRunPlan, validateAllRunnerArtifacts, validateApproval, validateAttemptId, validateBoundFiles, validateCandidate, validatePlan,
   validatePolicy, validateResult,
 } from './agent-runner-lib.mjs';
 
@@ -32,7 +32,14 @@ function validCandidate() { return json(path.join(REPO_ROOT, '.ai/discussions/ex
 function executionSetup() {
   const root = tempRoot(); const livePlan = plan(root); const approval = buildApproval(livePlan, `I APPROVE LIVE RUN ${livePlan.planId}`, { clock: () => new Date('2026-07-22T04:01:00.000Z') });
   writeArtifact(root, '.ai/runtime/local/plans/plan.json', livePlan); writeArtifact(root, '.ai/runtime/local/approvals/approval.json', approval); enabledPolicy(root);
-  return { root, livePlan, approval, options: { root, env: {}, clock: () => new Date('2026-07-22T04:02:00.000Z'), doctor: () => [{ agent: 'codex', liveExecutionEligible: true }], gitStatusLines: [], runProcess: async () => ({ exitCode: 0, timedOut: false, truncated: false, stdout: `${JSON.stringify(validCandidate())}\n`, stderr: '', removedEnvironmentNames: [] }) } };
+  return { root, livePlan, approval, options: { root, env: {}, clock: () => new Date('2026-07-22T04:02:00.000Z'), doctor: () => [{ agent: 'codex', liveExecutionEligible: true }], gitStatusLines: [], runProcess: successfulProcess() } };
+}
+function successfulProcess(overrides = {}) {
+  return async (_argv, _stdin, _limits, lifecycle = {}) => {
+    const spawned = overrides.spawned ?? true; const spawnedAt = overrides.spawnedAt ?? '2026-07-22T04:02:00.000Z';
+    if (spawned) lifecycle.onSpawn?.(spawnedAt);
+    return { exitCode: 0, timedOut: false, truncated: false, stdout: `${JSON.stringify(validCandidate())}\n`, stderr: '', removedEnvironmentNames: [], spawned, spawnedAt: spawned ? spawnedAt : null, spawnError: null, ...overrides };
+  };
 }
 test.after(() => tempRoots.forEach((root) => rmSync(root, { recursive: true, force: true })));
 
@@ -62,23 +69,23 @@ test('nested Gemini environment blocks execute', () => assert.equal(detectManage
 test('nested detection reports names but not values', () => assert.deepEqual(detectManagedAgentEnvironment({ CODEX_THREAD_ID: 'secret-value' }).matchedNames, ['CODEX_THREAD_ID']));
 test('no nested bypass exists', () => { const source = readFileSync(path.join(REPO_ROOT, 'scripts/ai/agent-runner.mjs'), 'utf8'); assert.equal(/allow-nested|force-enable|\bbypass\b/.test(source), false); });
 
-function mockChild({ chunks = ['{}\n'], close = true } = {}) {
-  const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.stdin = { end(value) { child.stdinValue = value; queueMicrotask(() => { chunks.forEach((chunk) => child.stdout.emit('data', Buffer.from(chunk))); if (close) child.emit('close', 0); }); } }; child.kill = () => { child.killed = true; queueMicrotask(() => child.emit('close', -1)); }; return child;
+function mockChild({ chunks = ['{}\n'], close = true, spawnEvent = true, exitCode = 0 } = {}) {
+  const child = new EventEmitter(); child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.stdin = { end(value) { child.stdinValue = value; queueMicrotask(() => { if (spawnEvent) child.emit('spawn'); chunks.forEach((chunk) => child.stdout.emit('data', Buffer.from(chunk))); if (close) child.emit('close', exitCode); }); } }; child.kill = () => { child.killed = true; queueMicrotask(() => child.emit('close', -1)); }; return child;
 }
 test('spawn uses shell false', async () => { let options; await runChildProcess(['codex', 'exec'], 'prompt', { maxRuntimeSeconds: 1, maxOutputBytes: 1024 }, { env: {}, spawnImpl: (_c, _a, value) => { options = value; return mockChild(); } }); assert.equal(options.shell, false); });
 test('stdin carries prompt', async () => { const child = mockChild(); await runChildProcess(['codex', 'exec'], 'prompt-body', { maxRuntimeSeconds: 1, maxOutputBytes: 1024 }, { env: {}, spawnImpl: () => child }); assert.equal(child.stdinValue, 'prompt-body'); });
 test('prompt is not in argv', () => assert.equal(plan().argv.includes(readFileSync(path.join(REPO_ROOT, PACKET), 'utf8')), false));
 test('timeout kills process', async () => { const child = mockChild({ close: false }); const result = await runChildProcess(['codex', 'exec'], 'x', { maxRuntimeSeconds: 0.001, maxOutputBytes: 1024 }, { env: {}, spawnImpl: () => child }); assert.equal(result.timedOut, true); assert.equal(child.killed, true); });
 test('output limit kills process', async () => { const child = mockChild({ chunks: ['123456789'] }); const result = await runChildProcess(['codex', 'exec'], 'x', { maxRuntimeSeconds: 1, maxOutputBytes: 4 }, { env: {}, spawnImpl: () => child }); assert.equal(result.truncated, true); assert.equal(child.killed, true); });
-test('nonzero exit fails validation', async () => { const setup = executionSetup(); setup.options.runProcess = async () => ({ exitCode: 7, timedOut: false, truncated: false, stdout: `${JSON.stringify(validCandidate())}\n`, stderr: 'failure', removedEnvironmentNames: [] }); const { result } = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); assert.equal(result.validation.valid, false); });
+test('nonzero exit fails validation', async () => { const setup = executionSetup(); setup.options.runProcess = successfulProcess({ exitCode: 7, stdout: `${JSON.stringify(validCandidate())}\n`, stderr: 'failure' }); const { result } = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); assert.equal(result.validation.valid, false); });
 test('invalid JSON output fails', () => assert.equal(validateCandidate(null, plan(), json(path.join(REPO_ROOT, PACKET))).valid, false));
 test('invalid Schema response fails', () => assert.equal(validateCandidate({ artifactType: 'discussion-analysis' }, plan(), json(path.join(REPO_ROOT, PACKET))).valid, false));
 test('valid response becomes reviewable', () => assert.equal(validateCandidate(validCandidate(), plan(), json(path.join(REPO_ROOT, PACKET))).valid, true));
 test('valid response is not auto-imported', async () => { const setup = executionSetup(); const { result } = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); assert.equal(result.importStatus, 'not-reviewed'); });
-test('stderr is not parsed as response', async () => { const setup = executionSetup(); setup.options.runProcess = async () => ({ exitCode: 0, timedOut: false, truncated: false, stdout: '', stderr: JSON.stringify(validCandidate()), removedEnvironmentNames: [] }); const { result } = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); assert.equal(result.validation.valid, false); });
+test('stderr is not parsed as response', async () => { const setup = executionSetup(); setup.options.runProcess = successfulProcess({ stdout: '', stderr: JSON.stringify(validCandidate()) }); const { result } = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); assert.equal(result.validation.valid, false); });
 test('secret environment names are removed', () => assert.deepEqual(sanitizeChildEnvironment({ PATH: 'safe', API_KEY: 'do-not-log', GITHUB_TOKEN: 'do-not-log' }).removedNames, ['API_KEY', 'GITHUB_TOKEN']));
 test('secret environment values are never logged', () => assert.equal(JSON.stringify(sanitizeChildEnvironment({ API_KEY: 'sensitive-value' })).includes('sensitive-value'), false));
-test('secret-like model output blocks import', async () => { const setup = executionSetup(); const candidate = validCandidate(); candidate.recommendation = 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz'; setup.options.runProcess = async () => ({ exitCode: 0, timedOut: false, truncated: false, stdout: `${JSON.stringify(candidate)}\n`, stderr: '', removedEnvironmentNames: [] }); const output = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); assert.equal(inspectRun(output.runDirectory, { root: setup.root }).importEligibility, 'ineligible'); });
+test('secret-like model output blocks import', async () => { const setup = executionSetup(); const candidate = validCandidate(); candidate.recommendation = 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz'; setup.options.runProcess = successfulProcess({ stdout: `${JSON.stringify(candidate)}\n` }); const output = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); assert.equal(inspectRun(output.runDirectory, { root: setup.root }).importEligibility, 'ineligible'); });
 test('commit SHA is not treated as secret', () => assert.deepEqual(scanSecretPatterns('e5c1f96313159422a223a31079e9d02770fe6172'), []));
 test('dirty tracked worktree blocks execute', () => assert.throws(() => assertLiveWorktreeClean([' M src/App.jsx']), /BLOCKED_LIVE_RUN_DIRTY_TRACKED_WORKTREE/));
 test('unknown untracked file blocks execute', () => assert.throws(() => assertLiveWorktreeClean(['?? notes.txt']), /BLOCKED_LIVE_RUN_UNKNOWN_UNTRACKED_FILE/));
@@ -107,3 +114,144 @@ test('check does not modify files', () => { const file = path.join(REPO_ROOT, '.
 test('all committed runner artifacts validate', () => assert.equal(validateAllRunnerArtifacts().length, 4));
 test('approval examples remain hash-bound', () => { const value = loadRunnerArtifact('.ai/runtime/examples/codex-discuss-plan.json'); const approval = loadRunnerArtifact('.ai/runtime/examples/codex-discuss-approval.json'); assert.doesNotThrow(() => validateApproval(approval, { plan: value })); });
 test('result defaults to not-reviewed', () => assert.equal(loadRunnerArtifact('.ai/runtime/examples/codex-discuss-result.json').importStatus, 'not-reviewed'));
+
+test('approval claim is created with wx', () => {
+  const root = tempRoot(); const value = plan(root); let observed;
+  const claim = { planId: value.planId, planSha256: value.planSha256, approvalPath: '.ai/runtime/local/approvals/plan.json', claimedAt: FIXED, attemptId: value.attemptId, runId: 'run-claim-test-001' };
+  createApprovalClaim(claim, { root, writeFileSyncImpl(file, contents, options) { observed = options; writeFileSync(file, contents, options); } });
+  assert.equal(observed.flag, 'wx');
+});
+test('existing approval claim is blocked', () => {
+  const root = tempRoot(); const value = plan(root); const claim = { planId: value.planId, planSha256: value.planSha256, approvalPath: '.ai/runtime/local/approvals/plan.json', claimedAt: FIXED, attemptId: value.attemptId, runId: 'run-claim-test-002' };
+  createApprovalClaim(claim, { root });
+  assert.throws(() => createApprovalClaim(claim, { root }), /BLOCKED_APPROVAL_ALREADY_CLAIMED/);
+});
+test('run directory and claimed attempt exist before child spawn', async () => {
+  const setup = executionSetup();
+  setup.options.runProcess = async (_argv, _stdin, _limits, lifecycle) => {
+    const claims = path.join(setup.root, '.ai/runtime/local/approval-claims', `${setup.livePlan.planId}.json`);
+    assert.equal(existsSync(claims), true);
+    const runId = json(claims).runId; const runDirectory = path.join(setup.root, '.ai/runs', runId);
+    assert.equal(json(path.join(runDirectory, 'attempt.json')).status, 'claimed');
+    assert.equal(existsSync(path.join(runDirectory, 'plan.json')), true);
+    assert.equal(existsSync(path.join(runDirectory, 'approval.json')), true);
+    lifecycle.onSpawn(FIXED);
+    return { exitCode: 0, timedOut: false, truncated: false, stdout: `${JSON.stringify(validCandidate())}\n`, stderr: '', removedEnvironmentNames: [], spawned: true, spawnedAt: FIXED, spawnError: null };
+  };
+  await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+});
+test('used marker does not exist before spawn event', async () => {
+  const setup = executionSetup();
+  setup.options.runProcess = async (_argv, _stdin, _limits, lifecycle) => {
+    const used = path.join(setup.root, '.ai/runtime/local/used-approvals', `${setup.livePlan.planId}.json`);
+    assert.equal(existsSync(used), false); lifecycle.onSpawn(FIXED); assert.equal(existsSync(used), true);
+    return { exitCode: 0, timedOut: false, truncated: false, stdout: `${JSON.stringify(validCandidate())}\n`, stderr: '', removedEnvironmentNames: [], spawned: true, spawnedAt: FIXED, spawnError: null };
+  };
+  await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+});
+test('spawn event atomically promotes claim to used marker', async () => {
+  const setup = executionSetup(); const output = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+  assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/approval-claims', `${setup.livePlan.planId}.json`)), false);
+  assert.equal(json(path.join(setup.root, '.ai/runtime/local/used-approvals', `${setup.livePlan.planId}.json`)).runId, output.result.runId);
+});
+test('runChildProcess reports a real spawn event', async () => {
+  const result = await runChildProcess(['codex', 'exec'], 'x', { maxRuntimeSeconds: 1, maxOutputBytes: 1024 }, { env: {}, clock: () => new Date(FIXED), spawnImpl: () => mockChild() });
+  assert.equal(result.spawned, true); assert.equal(result.spawnedAt, FIXED); assert.equal(result.spawnError, null);
+});
+test('runChildProcess reports synchronous spawn failure without throwing', async () => {
+  const error = Object.assign(new Error('sensitive path omitted'), { code: 'ENOENT' });
+  const result = await runChildProcess(['codex', 'exec'], 'x', { maxRuntimeSeconds: 1, maxOutputBytes: 1024 }, { env: {}, spawnImpl: () => { throw error; } });
+  assert.equal(result.spawned, false); assert.equal(result.exitCode, -1); assert.match(result.spawnError, /^ENOENT:/); assert.equal(result.spawnError.includes('sensitive'), false);
+});
+test('pre-spawn failure removes the current claim', async () => {
+  const setup = executionSetup(); setup.options.runProcess = successfulProcess({ spawned: false, spawnedAt: null, exitCode: -1, stdout: '', stderr: 'ENOENT', spawnError: 'ENOENT' });
+  await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+  assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/approval-claims', `${setup.livePlan.planId}.json`)), false);
+});
+test('pre-spawn failure preserves a complete failed run', async () => {
+  const setup = executionSetup(); setup.options.runProcess = successfulProcess({ spawned: false, spawnedAt: null, exitCode: -1, stdout: '', stderr: 'ENOENT', spawnError: 'ENOENT' });
+  const output = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+  for (const file of ['attempt.json', 'plan.json', 'approval.json', 'stdout.jsonl', 'stderr.txt', 'candidate-response.json', 'result.json']) assert.equal(existsSync(path.join(setup.root, output.runDirectory, file)), true);
+  assert.equal(json(path.join(setup.root, output.runDirectory, 'candidate-response.json')), null);
+});
+test('pre-spawn failure does not consume approval', async () => {
+  const setup = executionSetup(); setup.options.runProcess = successfulProcess({ spawned: false, spawnedAt: null, exitCode: -1, stdout: '', stderr: 'ENOENT', spawnError: 'ENOENT' });
+  const { result } = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+  assert.deepEqual({ childStarted: result.childStarted, launchStatus: result.launchStatus, approvalConsumed: result.approvalConsumed, exitCode: result.exitCode }, { childStarted: false, launchStatus: 'not-started', approvalConsumed: false, exitCode: -1 });
+  assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/used-approvals', `${setup.livePlan.planId}.json`)), false);
+});
+test('spawned nonzero exit still consumes approval', async () => {
+  const setup = executionSetup(); setup.options.runProcess = successfulProcess({ exitCode: 9, stderr: 'failure' });
+  const { result } = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+  assert.equal(result.approvalConsumed, true); assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/used-approvals', `${setup.livePlan.planId}.json`)), true);
+});
+test('timeout after spawn leaves a complete run', async () => {
+  const setup = executionSetup(); setup.options.runProcess = successfulProcess({ exitCode: -1, timedOut: true });
+  const output = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+  assert.equal(output.result.timedOut, true); assert.equal(statusLiveRunPlan('.ai/runtime/local/plans/plan.json', { root: setup.root }).completeRuns.length, 1);
+});
+test('truncation after spawn leaves a complete run', async () => {
+  const setup = executionSetup(); setup.options.runProcess = successfulProcess({ exitCode: -1, truncated: true, stdout: '{' });
+  const output = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+  assert.equal(output.result.truncated, true); assert.equal(statusLiveRunPlan('.ai/runtime/local/plans/plan.json', { root: setup.root }).completeRuns.length, 1);
+});
+test('schema-invalid candidate remains inspectable', async () => {
+  const setup = executionSetup(); setup.options.runProcess = successfulProcess({ stdout: `${JSON.stringify({ artifactType: 'discussion-analysis' })}\n` });
+  const output = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); const report = inspectRun(output.runDirectory, { root: setup.root });
+  assert.equal(report.validation.valid, false); assert.equal(report.importEligibility, 'ineligible');
+});
+test('null candidate remains inspectable', async () => {
+  const setup = executionSetup(); setup.options.runProcess = successfulProcess({ stdout: '' });
+  const output = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); const report = inspectRun(output.runDirectory, { root: setup.root });
+  assert.equal(report.childStarted, true); assert.equal(report.importEligibility, 'ineligible');
+});
+test('same attempt label creates deterministic plan identity', () => {
+  const first = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'retry-1' }); const second = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'retry-1' });
+  assert.equal(first.planId, second.planId); assert.equal(first.planSha256, second.planSha256);
+});
+test('different attempt labels create different plan identities', () => {
+  const initial = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'initial' }); const retry = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'retry-1' });
+  assert.notEqual(initial.planId, retry.planId); assert.notEqual(initial.planSha256, retry.planSha256);
+});
+test('default attempt label is initial', () => assert.equal(plan().attemptId, 'initial'));
+test('illegal attempt labels are rejected', () => {
+  for (const value of ['', 'Retry-1', '-retry', 'a'.repeat(33), 'retry_1']) assert.throws(() => validateAttemptId(value), RunnerValidationError);
+});
+test('status is read-only', () => {
+  const setup = executionSetup(); const file = path.join(setup.root, '.ai/runtime/local/plans/plan.json'); const before = readFileSync(file, 'utf8'); statusLiveRunPlan('.ai/runtime/local/plans/plan.json', { root: setup.root }); assert.equal(readFileSync(file, 'utf8'), before);
+});
+test('status identifies a legacy orphaned used marker', () => {
+  const setup = executionSetup(); writeArtifact(setup.root, `.ai/runtime/local/used-approvals/${setup.livePlan.planId}.json`, { planId: setup.livePlan.planId, planSha256: setup.livePlan.planSha256, usedAt: FIXED });
+  const report = statusLiveRunPlan('.ai/runtime/local/plans/plan.json', { root: setup.root }); assert.equal(report.legacyOrphanedUsedMarker, true); assert.equal(report.recommendedNextAction, 'prepare-new-attempt');
+});
+test('status identifies a complete matching run', async () => {
+  const setup = executionSetup(); await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+  const report = statusLiveRunPlan('.ai/runtime/local/plans/plan.json', { root: setup.root }); assert.equal(report.completeRuns.length, 1); assert.equal(report.recommendedNextAction, 'inspect-existing-run');
+});
+test('status identifies an active claim', () => {
+  const setup = executionSetup(); createApprovalClaim({ planId: setup.livePlan.planId, planSha256: setup.livePlan.planSha256, approvalPath: '.ai/runtime/local/approvals/approval.json', claimedAt: FIXED, attemptId: setup.livePlan.attemptId, runId: 'run-status-claim-001' }, { root: setup.root });
+  const report = statusLiveRunPlan('.ai/runtime/local/plans/plan.json', { root: setup.root }); assert.equal(report.claimExists, true); assert.equal(report.recommendedNextAction, 'wait-for-running-attempt');
+});
+test('status identifies an expired approval', () => {
+  const setup = executionSetup(); writeArtifact(setup.root, `.ai/runtime/local/approvals/${setup.livePlan.planId}.json`, setup.approval); const report = statusLiveRunPlan('.ai/runtime/local/plans/plan.json', { root: setup.root, now: () => new Date('2026-07-22T05:00:00.000Z') }); assert.equal(report.recommendedNextAction, 'approval-expired');
+});
+test('inspect never enables automatic ingest', async () => {
+  const setup = executionSetup(); const output = await executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options); assert.equal(inspectRun(output.runDirectory, { root: setup.root }).automaticIngest, false);
+});
+test('concurrent execution permits only one claim', async () => {
+  const setup = executionSetup(); let release; const gate = new Promise((resolve) => { release = resolve; });
+  setup.options.runProcess = async (_argv, _stdin, _limits, lifecycle) => { await gate; lifecycle.onSpawn(FIXED); return { exitCode: 0, timedOut: false, truncated: false, stdout: `${JSON.stringify(validCandidate())}\n`, stderr: '', removedEnvironmentNames: [], spawned: true, spawnedAt: FIXED, spawnError: null }; };
+  const first = executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options);
+  await assert.rejects(() => executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options), /BLOCKED_APPROVAL_ALREADY_CLAIMED/);
+  release(); await first;
+});
+test('disabled local policy does not create a claim', async () => {
+  const setup = executionSetup(); const policy = json(path.join(setup.root, '.ai/runtime/local/policy.json')); policy.executionEnabled = false; writeFileSync(path.join(setup.root, '.ai/runtime/local/policy.json'), `${JSON.stringify(policy)}\n`);
+  await assert.rejects(() => executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options), /explicitly enabled/);
+  assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/approval-claims', `${setup.livePlan.planId}.json`)), false);
+});
+test('nested Agent block does not create a claim', async () => {
+  const setup = executionSetup(); setup.options.env = { CODEX_THREAD_ID: 'redacted' };
+  await assert.rejects(() => executeLiveRun('.ai/runtime/local/plans/plan.json', '.ai/runtime/local/approvals/approval.json', setup.options), /BLOCKED_NESTED_AGENT_EXECUTION/);
+  assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/approval-claims', `${setup.livePlan.planId}.json`)), false);
+});

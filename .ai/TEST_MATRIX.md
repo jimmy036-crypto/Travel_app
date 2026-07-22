@@ -98,3 +98,19 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Secret handling | Redaction and output-scan tests | Secret-named environment entries are removed without values; suspicious output blocks import eligibility |
 | Result review | Result and inspect tests | Structured candidates are validated and remain `not-reviewed`; no automatic ingest occurs |
 | Local-only artifacts | Prepare/approval/run tests | Plans, approvals, used markers, and raw output remain under ignored local directories |
+| Two-phase Approval lifecycle | Runner claim/spawn/concurrency tests | `wx` permits one claim; used marker appears only after `spawn`; disabled/nested execution creates no claim |
+| Durable launch attempts | Runner launch-failure/timeout/truncation tests | Run skeleton exists before spawn and every terminal outcome retains inspectable local artifacts |
+| Deterministic retry identity | Runner attempt tests | Same packet/attempt is deterministic; a different valid attempt label changes Plan ID and SHA-256 |
+| Read-only recovery status | Runner status tests | Status reports approvals, claims, complete/incomplete runs, legacy orphan state, and a bounded next action without writes |
+
+## Phase AI-3B2B-R1 Evidence
+
+- `npm run ai:runner:test`: 89 passed; all subprocess behavior is mocked and no Codex prompt starts.
+- `npm run ai:runner:check` / `npm run ai:runner:validate`: 4 disabled Runner artifacts checked and validated.
+- `npm run ai:discussion:test`: 56 passed; check and validate passed for 18 artifacts, 1 synthetic fixture, and 1 active Session.
+- `npm run ai:adapters:test`: 40 passed; adapter check passed and 9 invocation examples validated.
+- `npm run ai:artifacts:test`: 19 passed; 2 rendered artifacts checked and 2 source artifacts validated.
+- `npm run typecheck`, `npm run lint`, `npm run build`, and `npm run agent:guardrails`: passed.
+- `npm run agent:verify`: one complete run passed 43 Vitest files / 652 tests and the production build. Later repetition exposed the existing timing-sensitive `DIALOG-07` focus test; its isolated 12-test file and a standalone full 652-test Vitest rerun both passed. No out-of-scope product/test change was made.
+- `git diff --check`: passed; `package-lock.json` is unchanged.
+- Playwright was not run, as required by the recovery task.

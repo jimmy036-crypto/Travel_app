@@ -4,12 +4,13 @@
   "title": "Live Run Result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "artifactType", "runId", "planId", "planSha256", "agent", "skill", "startedAt", "completedAt", "exitCode", "timedOut", "truncated", "stdoutFormat", "rawOutputPath", "validatedResponsePath", "validation", "security", "importStatus"],
+  "required": ["schemaVersion", "artifactType", "runId", "planId", "planSha256", "attemptId", "agent", "skill", "startedAt", "completedAt", "launchStatus", "childStarted", "approvalConsumed", "exitCode", "timedOut", "truncated", "stdoutFormat", "rawOutputPath", "validatedResponsePath", "validation", "security", "importStatus"],
   "properties": {
     "schemaVersion": { "const": "1.0.0" }, "artifactType": { "const": "live-run-result" },
-    "runId": { "$ref": "#/$defs/id" }, "planId": { "$ref": "#/$defs/id" }, "planSha256": { "$ref": "#/$defs/hash" },
+    "runId": { "$ref": "#/$defs/id" }, "planId": { "$ref": "#/$defs/id" }, "planSha256": { "$ref": "#/$defs/hash" }, "attemptId": { "$ref": "#/$defs/attemptId" },
     "agent": { "const": "codex" }, "skill": { "enum": ["discuss", "understand", "explain-diff"] },
     "startedAt": { "type": "string", "format": "date-time" }, "completedAt": { "type": "string", "format": "date-time" },
+    "launchStatus": { "enum": ["not-started", "started"] }, "childStarted": { "type": "boolean" }, "approvalConsumed": { "type": "boolean" },
     "exitCode": { "type": "integer" }, "timedOut": { "type": "boolean" }, "truncated": { "type": "boolean" }, "stdoutFormat": { "const": "jsonl" },
     "rawOutputPath": { "$ref": "#/$defs/path" }, "validatedResponsePath": { "$ref": "#/$defs/path" },
     "validation": { "type": "object", "additionalProperties": false, "required": ["valid", "errors"], "properties": { "valid": { "type": "boolean" }, "errors": { "type": "array", "items": { "type": "string" } } } },
@@ -37,7 +38,7 @@
     "importStatus": { "enum": ["not-reviewed", "human-reviewed", "imported", "rejected"] }
   },
   "$defs": {
-    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{7,63}$" }, "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{7,63}$" }, "attemptId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" }, "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "path": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:[\\\\/])(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?![A-Za-z][A-Za-z0-9+.-]*:).+$" }
   }
 }

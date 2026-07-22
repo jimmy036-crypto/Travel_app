@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "artifactType", "planId", "createdAt", "agent", "skill", "mode", "workingDirectory", "packetPath", "packetSha256", "adapterPath", "adapterSha256", "outputSchema", "outputSchemaSha256", "argv", "stdinSource", "permissions", "limits", "execution", "planSha256"],
   "properties": {
     "schemaVersion": { "const": "1.0.0" }, "artifactType": { "const": "live-run-plan" },
-    "planId": { "$ref": "#/$defs/id" }, "createdAt": { "type": "string", "format": "date-time" },
+    "planId": { "$ref": "#/$defs/id" }, "attemptId": { "$ref": "#/$defs/attemptId" }, "createdAt": { "type": "string", "format": "date-time" },
     "agent": { "const": "codex" }, "skill": { "enum": ["discuss", "understand", "explain-diff"] }, "mode": { "const": "read-only-analysis" },
     "workingDirectory": { "const": "." }, "packetPath": { "$ref": "#/$defs/path" }, "packetSha256": { "$ref": "#/$defs/hash" },
     "adapterPath": { "$ref": "#/$defs/path" }, "adapterSha256": { "$ref": "#/$defs/hash" }, "outputSchema": { "$ref": "#/$defs/path" }, "outputSchemaSha256": { "$ref": "#/$defs/hash" },
@@ -19,6 +19,7 @@
   },
   "$defs": {
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{7,63}$" },
+    "attemptId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
     "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "path": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:[\\\\/])(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?![A-Za-z][A-Za-z0-9+.-]*:).+$" },
     "permissions": { "type": "object", "additionalProperties": false, "required": ["filesystem", "network", "productionFirebase", "gitWrite", "deploy"], "properties": { "filesystem": { "const": "read-only" }, "network": { "const": false }, "productionFirebase": { "const": false }, "gitWrite": { "const": false }, "deploy": { "const": false } } }

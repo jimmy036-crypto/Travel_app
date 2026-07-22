@@ -49,7 +49,42 @@ $planInfo
 
 Preparation does not run Codex. The Plan is local-only and must not be committed.
 
-## E. Human Plan review
+## E. Check Plan recovery status
+
+Status is read-only: it does not create an Approval, claim an Approval, retry a process, execute an Agent, or modify local artifacts.
+
+```powershell
+$statusInfo = node scripts/ai/agent-runner.mjs status `
+  $planInfo.planPath |
+  ConvertFrom-Json
+
+$statusInfo
+```
+
+Follow only the reported `recommendedNextAction`:
+
+- `inspect-existing-run`: inspect the matching Run; never reuse its Approval.
+- `wait-for-running-attempt`: leave the claim and Run untouched while a human investigates the ordinary-shell process.
+- `investigate-incomplete-run`: preserve every artifact and inspect file presence without retrying automatically.
+- `prepare-new-attempt`: create a deterministic new Plan; do not alter the old Plan or Approval.
+- `create-approval`, `execute-approved-plan`, or `approval-expired`: continue only through the explicit human steps below.
+
+Never manually delete a used marker. A legacy used marker without a complete matching Run must not be restored or reused. Prepare a distinct Plan instead:
+
+```powershell
+$planInfo = node scripts/ai/agent-runner.mjs prepare `
+  codex `
+  discuss `
+  .ai/discussions/active/clone-demo-architecture-pilot/packets/round-1/codex-engineer.json `
+  --attempt retry-1 |
+  ConvertFrom-Json
+
+node scripts/ai/agent-runner.mjs status $planInfo.planPath
+```
+
+This creates only a local Plan. A human must still review it, create the short-lived Approval, and execute it later from an ordinary PowerShell window. No retry is automatic.
+
+## F. Human Plan review
 
 First verify:
 
@@ -70,7 +105,7 @@ Then open `$planInfo.planPath` and manually confirm:
 
 Stop if any value is unexpected. Approval binds to exactly this Plan hash and does not authorize modifying the repository.
 
-## F. Create one short-lived Approval
+## G. Create one short-lived Approval
 
 Only after completing the Plan review, create the one-time local Approval using the exact generated phrase:
 
@@ -85,7 +120,7 @@ $approvalInfo
 
 The Approval applies only to one Plan hash, expires quickly, cannot be reused, and must not be committed. It authorizes only the reviewed read-only analysis run—not repository writes, Firebase access, deployment, or ingest.
 
-## G. Execute from the human shell
+## H. Execute from the human shell
 
 Reconfirm this is an ordinary PowerShell, the worktree is clean, the local policy is still constrained, and the packet/hash inputs have not changed. Then, and only then:
 
@@ -100,7 +135,7 @@ $runInfo
 
 The nested-Agent guard must refuse this command from an Agent-managed environment. Run output is local-only under `.ai/runs/` and must not be committed.
 
-## H. Inspect the bounded result
+## I. Inspect the bounded result
 
 ```powershell
 node scripts/ai/agent-runner.mjs inspect $runInfo.runDirectory
@@ -108,10 +143,10 @@ node scripts/ai/agent-runner.mjs inspect $runInfo.runDirectory
 
 Inspect reports process, hash, schema, identity, round, and secret-pattern status. Passing inspect means only that the artifact is structurally eligible for human review; it does not prove the analysis is correct.
 
-## I. Human content review
+## J. Human content review
 
 Open `candidate-response.json` inside `$runInfo.runDirectory` and read it completely. Verify repository evidence, assumptions, alternatives, risks, tests, unknowns, confidence, participant/session/round identity, and absence of sensitive data. Reject unsupported or unsafe content. Plan, Approval, stdout, stderr, candidate, and result files remain local and ignored.
 
-## J. Later, separate ingest
+## K. Later, separate ingest
 
 This Runner never ingests automatically. Only after a human accepts the candidate should a later, separately authorized task validate a copied response artifact and call the Discussion ingest command. Do not combine review and ingest into this runbook, do not auto-answer prompts, and do not pipe output directly into the active Session.
