@@ -2,6 +2,16 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2C — Codex Schema Compatibility
+
+- Confirmed from the preserved retry-1 Run that Codex started, consumed its Approval, and rejected `$defs.path.pattern` because regex lookaround is unsupported; its candidate remained null.
+- Added an RE2-compatible Codex transport schema for structured output while preserving the canonical Discussion schema and programmatic repository-path validation.
+- Added a recursive compatibility gate for lookaround, backreferences, remote or unresolved references, unsupported formats/keywords, incomplete object declarations, and nested schema containers.
+- Enforced compatibility during prepare, check, and execute-time bound-file validation. New Plans bind both transport and canonical schema SHA-256 values.
+- Added mock-only coverage proving canonical rejection of Windows/Unix absolute paths, traversal segments, and URI schemes even though transport path validation is intentionally minimal.
+- Prepared a deterministic, execution-disabled local `retry-2` Plan. No Approval was created, no Agent prompt was executed during repair, and no response was ingested.
+- Approval and execute remain human-only. No product behavior changed and no deployment occurred.
+
 ## Phase AI-3B2B-R2B — Codex Exit-1 Diagnosis
 
 - Safely diagnosed the initial Run's four JSONL events without reproducing raw output or sensitive values.

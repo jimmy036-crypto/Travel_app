@@ -94,7 +94,24 @@ node scripts/ai/agent-runner.mjs diagnose <run-directory>
 
 Diagnosis counts JSONL events, extracts bounded secret-scanned error summaries, and classifies only supported evidence. It never changes the Run, Plan, Approval, or Discussion Session and never prepares, approves, executes, or ingests anything automatically. Do not print or copy the complete `stdout.jsonl`.
 
-The initial Round 1 Run started Codex but failed because the structured-output schema contained const/enum nodes without explicit `type` declarations. Its Approval remains permanently consumed. The transport schema is now compatible, and the prepared `retry-1` Plan is a distinct deterministic attempt; it still requires separate human review, Approval, and execution in an ordinary PowerShell window.
+The initial Round 1 Run started Codex but failed because the structured-output schema contained const/enum nodes without explicit `type` declarations. Its Approval remains permanently consumed. The distinct `retry-1` Run also started Codex and permanently consumed its Approval, then failed because the canonical path pattern used regex lookaround unsupported by Codex.
+
+Codex now receives `.ai/schemas/codex-discussion-analysis.schema.json`, a transport-only schema with no lookaround. The Plan separately binds `.ai/schemas/discussion-analysis.schema.json`; after execution, `validateDiscussionArtifact` still rejects absolute paths, URI schemes, empty paths, and `..` traversal before a candidate can become eligible for human review. Never treat transport-schema acceptance as canonical validation.
+
+After diagnosing the preserved retry-1 Run, prepare the distinct retry-2 Plan only if the compatibility checks and regression suite pass:
+
+```powershell
+$planInfo = node scripts/ai/agent-runner.mjs prepare `
+  codex `
+  discuss `
+  .ai/discussions/active/clone-demo-architecture-pilot/packets/round-1/codex-engineer.json `
+  --attempt retry-2 |
+  ConvertFrom-Json
+
+node scripts/ai/agent-runner.mjs status $planInfo.planPath
+```
+
+This creates no Approval and executes no Agent. A human must still review both schema hashes and every disabled permission before using the separate Approval and execute steps in an ordinary PowerShell window.
 
 ## F. Human Plan review
 

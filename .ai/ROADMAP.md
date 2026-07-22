@@ -26,7 +26,8 @@ Statuses describe the product program, while `PROJECT_STATUS.md` records branch-
 - **Phase AI-3B2A — Prepare Codex Round 1 Pilot:** Add the first evidence-based non-synthetic Session, deterministic disabled Packet, and human-only runbook. Completed.
 - **Phase AI-3B2B-R1 — Recoverable Runner Attempts:** Add atomic Approval claims, pre-spawn Run records, durable launch failures, deterministic attempt labels, read-only status, and failure-safe inspection. Completed.
 - **Phase AI-3B2B-R2B — Codex Exit-1 Diagnosis:** Add secret-safe, read-only JSONL diagnosis; repair the Codex transport schema from direct failure evidence; and prepare a deterministic, execution-disabled retry Plan. Completed.
-- **Phase AI-3B2B-R2C — Human-approved retry-1 execution:** A human may approve and execute the prepared retry from an ordinary shell only after reviewing its status; inspect remains separate and ingest is not automatic. Next.
+- **Phase AI-3B2B-R2C — Codex Schema Compatibility:** Separate the RE2-compatible Codex transport schema from strict canonical Discussion validation, bind both layers into the Plan, and prepare deterministic retry-2. Completed.
+- **Phase AI-3B2B-R2D — Human-approved retry-2 execution and inspection:** A human may approve and execute the prepared retry from an ordinary shell only after reviewing its status; inspect remains separate and ingest is not automatic. Next.
 - **Phase AI-3B3 — Controlled Runner Expansion:** Evaluate additional providers only after pilot evidence and separate approval. Planned.
 - **Phase AI-4 — Governance Automation:** Add safe local checks for status freshness, decision links, risk ownership, and release evidence without changing CI unless separately authorized. Planned.
 - **Phase AI-5 — Release Intelligence:** Produce evidence-based release readiness summaries and roadmap updates from verified repository state. Planned.

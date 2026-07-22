@@ -104,6 +104,20 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Read-only recovery status | Runner status tests | Status reports approvals, claims, complete/incomplete runs, legacy orphan state, and a bounded next action without writes |
 | Read-only failure diagnosis | Runner diagnose tests | JSONL counts and structured error evidence are summarized without writes, raw output, sensitive values, or automatic actions |
 | Exit-1 classification | Runner classification tests | Schema, authentication, quota, provider, repository-trust, and unknown failures map only from explicit evidence to bounded next actions |
+| Codex schema compatibility | Recursive Runner schema tests and `ai:runner:check` | Transport schemas reject lookaround, backreferences, remote/unresolved refs, unsupported formats/keywords, and incomplete strict object declarations before a live run |
+| Transport/canonical boundary | Plan/hash and candidate tests | Plans bind both schema layers; Codex receives the transport schema while every candidate still passes canonical Discussion and repository-path validation |
+
+## Phase AI-3B2B-R2C Evidence
+
+- `npm run ai:runner:test`: 135 passed; all external Agent subprocess behavior is mocked and no Codex prompt starts.
+- `npm run ai:runner:check` / `npm run ai:runner:validate`: 4 disabled Runner artifacts checked and validated; the registered Codex transport schema passed compatibility validation.
+- `npm run ai:discussion:test`: 56 passed; check and validate passed for 18 artifacts, 1 synthetic fixture, and 1 active Session.
+- `npm run ai:adapters:test`: 40 passed; adapter check passed and 9 invocation examples validated.
+- `npm run ai:artifacts:test`: 19 passed; 2 rendered artifacts checked and 2 source artifacts validated.
+- `npm run typecheck`, `npm run lint`, `npm run build`, `npm run agent:guardrails`, and `npm run agent:verify`: passed; verify included 43 Vitest files / 652 tests.
+- `git diff --check`: passed; `package-lock.json` is unchanged. Playwright was not run, as required.
+- The preserved retry-1 Run was diagnosed as `OUTPUT_SCHEMA_REJECTED` for unsupported lookaround. Its Approval remains consumed, its candidate was null, and no response was ingested.
+- The local retry-2 Plan is execution-disabled and has no Approval, claim, or matching Run. No live Agent was executed.
 
 ## Phase AI-3B2B-R2B Evidence
 

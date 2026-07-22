@@ -9,7 +9,7 @@ import {
   checkRunner, computePlanHash, createApprovalClaim, detectManagedAgentEnvironment, diagnoseRun, doctorAgents, executeLiveRun, inspectRun,
   loadRunnerArtifact, prepareLiveRun, runChildProcess, sanitizeChildEnvironment, scanSecretPatterns,
   statusLiveRunPlan, validateAllRunnerArtifacts, validateApproval, validateAttemptId, validateBoundFiles, validateCandidate, validatePlan,
-  validatePolicy, validateResult,
+  validateCodexOutputSchemaCompatibility, validatePolicy, validateResult,
 } from './agent-runner-lib.mjs';
 
 const PACKET = '.ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json';
@@ -20,12 +20,12 @@ const clone = (value) => structuredClone(value);
 
 function tempRoot() {
   const root = mkdtempSync(path.join(os.tmpdir(), 'travel-runner-')); tempRoots.push(root);
-  for (const repositoryPath of ['.ai/runtime/policy.template.json', PACKET, '.agents/skills/discuss/SKILL.md', '.ai/schemas/discussion-analysis.schema.json']) {
+  for (const repositoryPath of ['.ai/runtime/policy.template.json', PACKET, '.agents/skills/discuss/SKILL.md', '.ai/schemas/discussion-analysis.schema.json', '.ai/schemas/codex-discussion-analysis.schema.json']) {
     const target = path.join(root, repositoryPath); mkdirSync(path.dirname(target), { recursive: true }); cpSync(path.join(REPO_ROOT, repositoryPath), target);
   }
   return root;
 }
-function plan(root = REPO_ROOT) { return buildLiveRunPlan('codex', 'discuss', PACKET, { root, clock: () => new Date(FIXED), capabilities: { supportedFlags: ['exec', '--ephemeral', '--sandbox', '--json'] } }); }
+function plan(root = REPO_ROOT) { return buildLiveRunPlan('codex', 'discuss', PACKET, { root, clock: () => new Date(FIXED), capabilities: { supportedFlags: ['exec', '--ephemeral', '--sandbox', '--json', '--output-schema'] } }); }
 function writeArtifact(root, repositoryPath, value) { const file = path.join(root, repositoryPath); mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`); return repositoryPath; }
 function enabledPolicy(root) { const policy = json(path.join(root, '.ai/runtime/policy.template.json')); policy.executionEnabled = true; return writeArtifact(root, '.ai/runtime/local/policy.json', policy); }
 function validCandidate() { return json(path.join(REPO_ROOT, '.ai/discussions/examples/demo-persistence-boundary/responses/round-1/codex-analysis.json')); }
@@ -351,4 +351,111 @@ test('discussion output schema gives const and enum nodes explicit types', () =>
     if (Object.hasOwn(value, 'const') || Object.hasOwn(value, 'enum')) assert.equal(typeof value.type, 'string');
     pending.push(...Object.values(value));
   }
+});
+
+function objectSchema(propertySchema) {
+  return { type: 'object', additionalProperties: false, required: ['value'], properties: { value: propertySchema } };
+}
+function candidateWithPath(repositoryPath) {
+  const candidate = validCandidate(); candidate.evidence[0].path = repositoryPath; return candidate;
+}
+
+test('Codex compatibility rejects negative lookahead', () => {
+  assert.throws(() => validateCodexOutputSchemaCompatibility(objectSchema({ type: 'string', pattern: '^(?!secret).+$' })), /BLOCKED_CODEX_OUTPUT_SCHEMA_INCOMPATIBLE.*lookaround/);
+});
+test('Codex compatibility rejects positive lookahead', () => {
+  assert.throws(() => validateCodexOutputSchemaCompatibility(objectSchema({ type: 'string', pattern: '^(?=safe).+$' })), /lookaround/);
+});
+test('Codex compatibility rejects lookbehind', () => {
+  assert.throws(() => validateCodexOutputSchemaCompatibility(objectSchema({ type: 'string', pattern: '(?<=safe)value' })), /lookaround/);
+});
+test('Codex compatibility finds unsupported pattern in nested defs', () => {
+  const schema = objectSchema({ $ref: '#/$defs/value' }); schema.$defs = { value: { type: 'string', pattern: '(?!blocked)' } };
+  assert.throws(() => validateCodexOutputSchemaCompatibility(schema), /\$\.\$defs\.value\.pattern/);
+});
+test('Codex compatibility finds unsupported pattern in array items', () => {
+  const schema = objectSchema({ type: 'array', items: { type: 'string', pattern: '(?=value)' } });
+  assert.throws(() => validateCodexOutputSchemaCompatibility(schema), /items\.pattern/);
+});
+test('Codex compatibility recursively checks schema composition containers', () => {
+  const bad = { type: 'string', pattern: '(?!blocked)' };
+  for (const keyword of ['oneOf', 'anyOf', 'allOf']) {
+    const schema = objectSchema({ [keyword]: [bad] });
+    assert.throws(() => validateCodexOutputSchemaCompatibility(schema), new RegExp(`${keyword}\\[0\\]\\.pattern`));
+  }
+  const patterned = objectSchema({ type: 'string' }); patterned.patternProperties = { '(?=bad)': { type: 'string' } };
+  assert.throws(() => validateCodexOutputSchemaCompatibility(patterned), /patternProperties.*lookaround/);
+  const dependent = objectSchema({ type: 'string' }); dependent.dependentSchemas = { value: objectSchema({ type: 'string', pattern: '(?<!bad)' }) };
+  assert.throws(() => validateCodexOutputSchemaCompatibility(dependent), /dependentSchemas\.value.*lookaround/);
+});
+test('Codex compatibility rejects regex backreferences', () => {
+  assert.throws(() => validateCodexOutputSchemaCompatibility(objectSchema({ type: 'string', pattern: '^(a)\\1$' })), /backreferences/);
+});
+test('Codex compatibility rejects remote refs', () => {
+  assert.throws(() => validateCodexOutputSchemaCompatibility(objectSchema({ $ref: 'https://example.com/schema.json' })), /deterministic local reference/);
+});
+test('Codex compatibility rejects unsupported format', () => {
+  assert.throws(() => validateCodexOutputSchemaCompatibility(objectSchema({ type: 'string', format: 'date-time' })), /format is not supported/);
+});
+test('Codex compatibility rejects custom keywords', () => {
+  assert.throws(() => validateCodexOutputSchemaCompatibility(objectSchema({ type: 'string', customRule: true })), /customRule is not supported/);
+});
+test('Codex discussion transport schema is compatible', () => {
+  const schema = json(path.join(REPO_ROOT, '.ai/schemas/codex-discussion-analysis.schema.json'));
+  assert.doesNotThrow(() => validateCodexOutputSchemaCompatibility(schema));
+});
+test('prepare uses the Codex discussion transport schema', () => {
+  const value = plan(); assert.equal(value.outputSchema, '.ai/schemas/codex-discussion-analysis.schema.json');
+  assert.equal(value.argv[value.argv.indexOf('--output-schema') + 1], value.outputSchema);
+  assert.equal(value.canonicalSchema, '.ai/schemas/discussion-analysis.schema.json');
+});
+test('Plan hash binds the transport schema path', () => {
+  const value = plan(); value.outputSchema = value.canonicalSchema; value.argv[value.argv.indexOf('--output-schema') + 1] = value.canonicalSchema;
+  assert.throws(() => validatePlan(value), /planSha256 does not match/);
+});
+test('changed transport schema is blocked before execute', () => {
+  const root = tempRoot(); const value = plan(root); writeFileSync(path.join(root, value.outputSchema), JSON.stringify(objectSchema({ type: 'string' })));
+  assert.throws(() => validateBoundFiles(value, { root }), /output schema hash changed/);
+});
+test('changed canonical schema is blocked before execute', () => {
+  const root = tempRoot(); const value = plan(root); writeFileSync(path.join(root, value.canonicalSchema), '{}');
+  assert.throws(() => validateBoundFiles(value, { root }), /canonical schema hash changed/);
+});
+test('prepare blocks an incompatible transport schema before writing a Plan', () => {
+  const root = tempRoot(); writeFileSync(path.join(root, '.ai/schemas/codex-discussion-analysis.schema.json'), JSON.stringify(objectSchema({ type: 'string', pattern: '(?!blocked)' })));
+  assert.throws(() => prepareLiveRun('codex', 'discuss', PACKET, { root, clock: () => new Date(FIXED) }), /BLOCKED_CODEX_OUTPUT_SCHEMA_INCOMPATIBLE/);
+  assert.equal(existsSync(path.join(root, '.ai/runtime/local/plans')), false);
+});
+test('canonical validator accepts a normal repository-relative evidence path', () => {
+  assert.equal(validateCandidate(candidateWithPath('scripts/ai/agent-runner-lib.mjs'), plan(), json(path.join(REPO_ROOT, PACKET))).valid, true);
+});
+test('canonical validator rejects a Windows absolute evidence path', () => {
+  assert.equal(validateCandidate(candidateWithPath('C:/secret.txt'), plan(), json(path.join(REPO_ROOT, PACKET))).valid, false);
+});
+test('canonical validator rejects a Unix absolute evidence path', () => {
+  assert.equal(validateCandidate(candidateWithPath('/secret.txt'), plan(), json(path.join(REPO_ROOT, PACKET))).valid, false);
+});
+test('canonical validator rejects parent traversal', () => {
+  assert.equal(validateCandidate(candidateWithPath('../secret'), plan(), json(path.join(REPO_ROOT, PACKET))).valid, false);
+});
+test('canonical validator rejects nested parent traversal', () => {
+  assert.equal(validateCandidate(candidateWithPath('folder/../../secret'), plan(), json(path.join(REPO_ROOT, PACKET))).valid, false);
+});
+test('canonical validator rejects an HTTPS URI', () => {
+  assert.equal(validateCandidate(candidateWithPath('https://example.com/file'), plan(), json(path.join(REPO_ROOT, PACKET))).valid, false);
+});
+test('canonical validator rejects a file URI', () => {
+  assert.equal(validateCandidate(candidateWithPath('file:///secret'), plan(), json(path.join(REPO_ROOT, PACKET))).valid, false);
+});
+test('relaxed transport path does not bypass canonical validation', () => {
+  const transport = json(path.join(REPO_ROOT, '.ai/schemas/codex-discussion-analysis.schema.json'));
+  assert.equal(transport.$defs.path.pattern, undefined);
+  assert.equal(validateCandidate(candidateWithPath('../secret'), plan(), json(path.join(REPO_ROOT, PACKET))).valid, false);
+});
+test('retry-2 Plan identity is deterministic and distinct from earlier attempts', () => {
+  const initial = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'initial' });
+  const retry1 = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'retry-1' });
+  const retry2 = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'retry-2' });
+  const repeated = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'retry-2' });
+  assert.equal(retry2.attemptId, 'retry-2'); assert.notEqual(retry2.planId, initial.planId); assert.notEqual(retry2.planId, retry1.planId); assert.equal(retry2.planId, repeated.planId);
 });

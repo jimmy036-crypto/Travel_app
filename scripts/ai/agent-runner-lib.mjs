@@ -26,6 +26,10 @@ const SKILL_CONFIG = Object.freeze({
   understand: { adapter: '.agents/skills/understand/SKILL.md', defaultSchema: '.ai/schemas/understanding-guide.schema.json' },
   'explain-diff': { adapter: '.agents/skills/explain-diff/SKILL.md', defaultSchema: '.ai/schemas/explain-diff.schema.json' },
 });
+const CODEX_TRANSPORT_SCHEMA_BY_CANONICAL = Object.freeze({
+  '.ai/schemas/discussion-analysis.schema.json': '.ai/schemas/codex-discussion-analysis.schema.json',
+});
+const CODEX_OUTPUT_SCHEMA_FILES = Object.freeze([...new Set(Object.values(CODEX_TRANSPORT_SCHEMA_BY_CANONICAL))]);
 const SCHEMA_FILES = Object.freeze({
   'live-run-policy': '.ai/schemas/live-run-policy.schema.json',
   'live-run-plan': '.ai/schemas/live-run-plan.schema.json',
@@ -134,20 +138,100 @@ function validateArgv(argv) {
 }
 
 export function validatePlan(plan, { verifyHash = true } = {}) {
-  exactKeysWithOptional(plan, ['schemaVersion', 'artifactType', 'planId', 'createdAt', 'agent', 'skill', 'mode', 'workingDirectory', 'packetPath', 'packetSha256', 'adapterPath', 'adapterSha256', 'outputSchema', 'outputSchemaSha256', 'argv', 'stdinSource', 'permissions', 'limits', 'execution', 'planSha256'], ['attemptId'], 'plan');
+  exactKeysWithOptional(plan, ['schemaVersion', 'artifactType', 'planId', 'createdAt', 'agent', 'skill', 'mode', 'workingDirectory', 'packetPath', 'packetSha256', 'adapterPath', 'adapterSha256', 'outputSchema', 'outputSchemaSha256', 'argv', 'stdinSource', 'permissions', 'limits', 'execution', 'planSha256'], ['attemptId', 'canonicalSchema', 'canonicalSchemaSha256'], 'plan');
   if (plan.schemaVersion !== '1.0.0' || plan.artifactType !== 'live-run-plan') fail('plan identity is invalid');
   assertId(plan.planId, 'plan.planId'); assertDate(plan.createdAt, 'plan.createdAt');
   if (Object.hasOwn(plan, 'attemptId')) validateAttemptId(plan.attemptId, 'plan.attemptId');
   if (plan.agent !== 'codex' || !SKILLS.includes(plan.skill) || plan.mode !== 'read-only-analysis' || plan.workingDirectory !== '.') fail('plan provider, skill, mode, or working directory is invalid');
-  for (const key of ['packetPath', 'adapterPath', 'outputSchema', 'stdinSource']) assertRepositoryPath(plan[key], `plan.${key}`);
-  for (const key of ['packetSha256', 'adapterSha256', 'outputSchemaSha256', 'planSha256']) assertHash(plan[key], `plan.${key}`);
+  const canonicalCount = ['canonicalSchema', 'canonicalSchemaSha256'].filter((key) => Object.hasOwn(plan, key)).length;
+  if (canonicalCount !== 0 && canonicalCount !== 2) fail('plan canonical schema fields must be provided together');
+  for (const key of ['packetPath', 'adapterPath', 'outputSchema', 'stdinSource', ...(canonicalCount ? ['canonicalSchema'] : [])]) assertRepositoryPath(plan[key], `plan.${key}`);
+  for (const key of ['packetSha256', 'adapterSha256', 'outputSchemaSha256', 'planSha256', ...(canonicalCount ? ['canonicalSchemaSha256'] : [])]) assertHash(plan[key], `plan.${key}`);
   validateArgv(plan.argv); validatePermissions(plan.permissions, 'plan.permissions');
+  const schemaFlag = plan.argv.indexOf('--output-schema');
+  if (schemaFlag !== -1 && plan.argv[schemaFlag + 1] !== plan.outputSchema) fail('plan.argv output schema does not match plan.outputSchema');
   exactKeys(plan.limits, ['maxRuntimeSeconds', 'maxOutputBytes'], 'plan.limits');
   if (!Number.isInteger(plan.limits.maxRuntimeSeconds) || plan.limits.maxRuntimeSeconds < 1 || plan.limits.maxRuntimeSeconds > 600) fail('plan.limits.maxRuntimeSeconds is invalid');
   if (!Number.isInteger(plan.limits.maxOutputBytes) || plan.limits.maxOutputBytes < 1024 || plan.limits.maxOutputBytes > DEFAULT_LIMITS.maxOutputBytes) fail('plan.limits.maxOutputBytes is invalid');
   exactKeys(plan.execution, ['enabled', 'reason'], 'plan.execution'); assertBoolean(plan.execution.enabled, false, 'plan.execution.enabled'); assertString(plan.execution.reason, 'plan.execution.reason');
   if (verifyHash && computePlanHash(plan) !== plan.planSha256) fail('plan.planSha256 does not match plan contents');
   return plan;
+}
+
+const CODEX_SCHEMA_KEYWORDS = new Set([
+  '$schema', '$id', '$defs', '$ref', 'title', 'description', 'type', 'additionalProperties', 'required', 'properties', 'items',
+  'oneOf', 'anyOf', 'allOf', 'patternProperties', 'dependentSchemas', 'pattern', 'const', 'enum', 'minLength', 'maxLength',
+  'minItems', 'maxItems', 'uniqueItems', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
+]);
+
+function schemaPointer(root, reference) {
+  if (!reference.startsWith('#/')) return null;
+  let current = root;
+  for (const raw of reference.slice(2).split('/')) {
+    const key = raw.replace(/~1/g, '/').replace(/~0/g, '~');
+    if (!isObject(current) || !Object.hasOwn(current, key)) return undefined;
+    current = current[key];
+  }
+  return current;
+}
+
+function codexPatternError(pattern) {
+  if (/\(\?(?:[=!]|<[=!])/.test(pattern)) return 'regex lookaround is not supported';
+  if (/\\(?:[1-9]|k<)/.test(pattern) || /\(\?P=/.test(pattern)) return 'regex backreferences are not supported';
+  try { new RegExp(pattern); } catch { return 'regex is invalid'; }
+  return null;
+}
+
+export function validateCodexOutputSchemaCompatibility(schema) {
+  if (!isObject(schema)) fail('BLOCKED_CODEX_OUTPUT_SCHEMA_INCOMPATIBLE: schema root must be an object');
+  const errors = [];
+  if (schema.type !== 'object') errors.push('$ must declare type object');
+  const visit = (node, location) => {
+    if (!isObject(node)) { errors.push(`${location} must be a schema object`); return; }
+    for (const key of Object.keys(node)) if (!CODEX_SCHEMA_KEYWORDS.has(key)) errors.push(`${location}.${key} is not supported by Codex structured output`);
+    if (Object.hasOwn(node, 'format')) errors.push(`${location}.format is not supported by Codex structured output`);
+    if ((Object.hasOwn(node, 'const') || Object.hasOwn(node, 'enum')) && typeof node.type !== 'string') errors.push(`${location} const/enum must declare type`);
+    if (node.type === 'object') {
+      if (node.additionalProperties !== false) errors.push(`${location} must set additionalProperties to false`);
+      if (!isObject(node.properties)) errors.push(`${location}.properties must be an object`);
+      else {
+        const propertyKeys = Object.keys(node.properties).sort();
+        const required = Array.isArray(node.required) ? [...node.required].sort() : [];
+        if (JSON.stringify(propertyKeys) !== JSON.stringify(required)) errors.push(`${location}.required must list every property exactly once`);
+      }
+    }
+    if (Object.hasOwn(node, 'pattern')) {
+      if (typeof node.pattern !== 'string') errors.push(`${location}.pattern must be a string`);
+      else { const reason = codexPatternError(node.pattern); if (reason) errors.push(`${location}.pattern ${reason}`); }
+    }
+    if (Object.hasOwn(node, '$ref')) {
+      if (typeof node.$ref !== 'string' || !node.$ref.startsWith('#/')) errors.push(`${location}.$ref must be a deterministic local reference`);
+      else if (schemaPointer(schema, node.$ref) === undefined) errors.push(`${location}.$ref does not resolve`);
+    }
+    const visitMap = (value, childLocation, validateKeys = false) => {
+      if (!isObject(value)) { errors.push(`${childLocation} must be an object`); return; }
+      for (const [key, child] of Object.entries(value)) {
+        if (validateKeys) { const reason = codexPatternError(key); if (reason) errors.push(`${childLocation}.${key} ${reason}`); }
+        visit(child, `${childLocation}.${key}`);
+      }
+    };
+    if (Object.hasOwn(node, 'properties')) visitMap(node.properties, `${location}.properties`);
+    if (Object.hasOwn(node, '$defs')) visitMap(node.$defs, `${location}.$defs`);
+    if (Object.hasOwn(node, 'patternProperties')) visitMap(node.patternProperties, `${location}.patternProperties`, true);
+    if (Object.hasOwn(node, 'dependentSchemas')) visitMap(node.dependentSchemas, `${location}.dependentSchemas`);
+    if (Object.hasOwn(node, 'items')) {
+      if (Array.isArray(node.items)) node.items.forEach((child, index) => visit(child, `${location}.items[${index}]`));
+      else visit(node.items, `${location}.items`);
+    }
+    for (const key of ['oneOf', 'anyOf', 'allOf']) {
+      if (!Object.hasOwn(node, key)) continue;
+      if (!Array.isArray(node[key])) errors.push(`${location}.${key} must be an array`);
+      else node[key].forEach((child, index) => visit(child, `${location}.${key}[${index}]`));
+    }
+  };
+  visit(schema, '$');
+  if (errors.length) fail(`BLOCKED_CODEX_OUTPUT_SCHEMA_INCOMPATIBLE: ${[...new Set(errors)].join('; ')}`);
+  return schema;
 }
 
 export function validateApproval(approval, { plan, now } = {}) {
@@ -250,6 +334,15 @@ function validateInput(skill, packet, packetPath) {
   return SKILL_CONFIG[skill].defaultSchema;
 }
 
+function codexSchemaBinding(skill, canonicalSchema) {
+  if (skill === 'discuss') {
+    const outputSchema = CODEX_TRANSPORT_SCHEMA_BY_CANONICAL[canonicalSchema];
+    if (!outputSchema) fail(`BLOCKED_CODEX_OUTPUT_SCHEMA_INCOMPATIBLE: no Codex transport schema is registered for ${canonicalSchema}`);
+    return { outputSchema, canonicalSchema };
+  }
+  return { outputSchema: canonicalSchema, canonicalSchema };
+}
+
 export function buildLiveRunPlan(agent, skill, inputPath, { root = REPO_ROOT, clock = () => new Date(), capabilities, attemptId = 'initial' } = {}) {
   if (agent !== 'codex') fail('only codex may be prepared in AI-3B1');
   if (!SKILLS.includes(skill)) fail('skill is not allowed');
@@ -260,21 +353,25 @@ export function buildLiveRunPlan(agent, skill, inputPath, { root = REPO_ROOT, cl
   let packet;
   const text = readFileSync(packetFile, 'utf8');
   try { packet = JSON.parse(text); } catch { packet = { text }; }
-  const outputSchema = validateInput(skill, packet, inputPath);
+  const canonicalSchema = validateInput(skill, packet, inputPath);
+  const { outputSchema } = codexSchemaBinding(skill, canonicalSchema);
   resolveRepositoryFile(root, outputSchema, 'output schema');
+  resolveRepositoryFile(root, canonicalSchema, 'canonical schema');
+  validateCodexOutputSchemaCompatibility(readJsonFile(root, outputSchema));
   const adapterPath = SKILL_CONFIG[skill].adapter;
   resolveRepositoryFile(root, adapterPath, 'adapter path');
   const packetSha256 = sha256(text);
   const adapterSha256 = sha256File(root, adapterPath);
   const outputSchemaSha256 = sha256File(root, outputSchema);
-  const planId = `live-${sha256(stableJson({ agent, skill, attemptId, packetSha256, adapterSha256, outputSchemaSha256 })).slice(0, 20)}`;
+  const canonicalSchemaSha256 = sha256File(root, canonicalSchema);
+  const planId = `live-${sha256(stableJson({ agent, skill, attemptId, packetSha256, adapterSha256, outputSchemaSha256, canonicalSchemaSha256 })).slice(0, 20)}`;
   const supportsOutputSchema = capabilities?.supportedFlags?.includes('--output-schema') ?? false;
   const argv = ['codex', 'exec', '--ephemeral', '--sandbox', 'read-only', '--json'];
   if (supportsOutputSchema) argv.push('--output-schema', outputSchema);
   argv.push('-');
   const plan = {
     schemaVersion: '1.0.0', artifactType: 'live-run-plan', planId, attemptId, createdAt: new Date(clock()).toISOString(), agent, skill, mode: 'read-only-analysis', workingDirectory: '.',
-    packetPath: inputPath.replace(/\\/g, '/'), packetSha256, adapterPath, adapterSha256, outputSchema, outputSchemaSha256, argv, stdinSource: inputPath.replace(/\\/g, '/'),
+    packetPath: inputPath.replace(/\\/g, '/'), packetSha256, adapterPath, adapterSha256, outputSchema, outputSchemaSha256, canonicalSchema, canonicalSchemaSha256, argv, stdinSource: inputPath.replace(/\\/g, '/'),
     permissions: { ...PERMISSIONS }, limits: { maxRuntimeSeconds: policy.maxRuntimeSeconds, maxOutputBytes: policy.maxOutputBytes },
     execution: { enabled: false, reason: 'Preparation only. A hash-bound human approval and enabled local policy are required from an ordinary shell.' }, planSha256: '0'.repeat(64),
   };
@@ -446,6 +543,8 @@ export function validateBoundFiles(plan, { root = REPO_ROOT } = {}) {
   if (sha256File(root, plan.packetPath) !== plan.packetSha256) fail('packet hash changed after plan preparation');
   if (sha256File(root, plan.adapterPath) !== plan.adapterSha256) fail('adapter hash changed after plan preparation');
   if (sha256File(root, plan.outputSchema) !== plan.outputSchemaSha256) fail('output schema hash changed after plan preparation');
+  validateCodexOutputSchemaCompatibility(readJsonFile(root, plan.outputSchema));
+  if (plan.canonicalSchema && sha256File(root, plan.canonicalSchema) !== plan.canonicalSchemaSha256) fail('canonical schema hash changed after plan preparation');
 }
 
 export async function executeLiveRun(planPath, approvalPath, options = {}) {
@@ -539,7 +638,12 @@ export function inspectRun(runDirectory, { root = REPO_ROOT } = {}) {
   const result = validateResult(JSON.parse(readFileSync(path.join(directory, 'result.json'), 'utf8')));
   let candidate = null; try { candidate = JSON.parse(readFileSync(path.join(directory, 'candidate-response.json'), 'utf8')); } catch { /* represented as an invalid candidate below */ }
   let packet; const packetText = readFileSync(resolveRepositoryFile(root, plan.packetPath), 'utf8'); try { packet = JSON.parse(packetText); } catch { packet = { text: packetText }; }
-  const hashStatus = { packet: sha256File(root, plan.packetPath) === plan.packetSha256, adapter: sha256File(root, plan.adapterPath) === plan.adapterSha256, outputSchema: sha256File(root, plan.outputSchema) === plan.outputSchemaSha256 };
+  const hashStatus = {
+    packet: sha256File(root, plan.packetPath) === plan.packetSha256,
+    adapter: sha256File(root, plan.adapterPath) === plan.adapterSha256,
+    outputSchema: sha256File(root, plan.outputSchema) === plan.outputSchemaSha256,
+    canonicalSchema: plan.canonicalSchema ? sha256File(root, plan.canonicalSchema) === plan.canonicalSchemaSha256 : null,
+  };
   const sessionMatch = plan.skill !== 'discuss' || candidate?.sessionId === packet.sessionId;
   const participantMatch = plan.skill !== 'discuss' || candidate?.participant?.participantId === packet.participant?.participantId;
   const roundMatch = plan.skill !== 'discuss' || (packet.round === 'decision' ? candidate?.status === 'proposed' : candidate?.round === (packet.round === 'round-1' ? 'independent-analysis' : 'cross-review'));
@@ -726,6 +830,7 @@ export function validateAllRunnerArtifacts({ root = REPO_ROOT } = {}) {
 
 export function checkRunner({ root = REPO_ROOT } = {}) {
   for (const schema of Object.values(SCHEMA_FILES)) JSON.parse(readFileSync(resolveRepositoryFile(root, schema), 'utf8'));
+  for (const schema of CODEX_OUTPUT_SCHEMA_FILES) validateCodexOutputSchemaCompatibility(readJsonFile(root, schema));
   const files = validateAllRunnerArtifacts({ root });
   const policy = loadRunnerArtifact(POLICY_PATH, { root, committed: true });
   if (policy.executionEnabled !== false) fail('committed policy is enabled');
