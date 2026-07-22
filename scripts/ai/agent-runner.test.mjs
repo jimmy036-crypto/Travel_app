@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
   REPO_ROOT, RunnerValidationError, approveLiveRun, assertLiveWorktreeClean, buildApproval, buildLiveRunPlan,
-  checkRunner, computePlanHash, createApprovalClaim, detectManagedAgentEnvironment, diagnoseRun, doctorAgents, executeLiveRun, inspectRun,
-  loadRunnerArtifact, prepareLiveRun, runChildProcess, sanitizeChildEnvironment, scanSecretPatterns,
+  checkRunner, computePlanHash, createApprovalClaim, detectManagedAgentEnvironment, diagnoseRun, doctorAgents, executeLiveRun, extractCandidateFromCodexJsonl, inspectRun,
+  loadRunnerArtifact, prepareLiveRun, recoverRun, runChildProcess, sanitizeChildEnvironment, scanSecretPatterns, scanTranscriptSecretFindings,
   statusLiveRunPlan, validateAllRunnerArtifacts, validateApproval, validateAttemptId, validateBoundFiles, validateCandidate, validatePlan,
   validateCodexOutputSchemaCompatibility, validatePolicy, validateResult,
 } from './agent-runner-lib.mjs';
@@ -54,6 +54,24 @@ function diagnosticRun({ events, rawLines, stderr = '', candidate = null, result
   writeArtifact(root, `${runDirectory}/plan.json`, livePlan); writeArtifact(root, `${runDirectory}/approval.json`, approval);
   const directory = path.join(root, runDirectory); mkdirSync(directory, { recursive: true }); writeFileSync(path.join(directory, 'stdout.jsonl'), stdout); writeFileSync(path.join(directory, 'stderr.txt'), stderr); writeFileSync(path.join(directory, 'candidate-response.json'), `${JSON.stringify(candidate, null, 2)}\n`); writeFileSync(path.join(directory, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
   return { root, runDirectory, livePlan, result };
+}
+function packet() { return json(path.join(REPO_ROOT, PACKET)); }
+function candidateEvent(candidate, overrides = {}) { return { type: 'item.completed', item: { id: 'item-agent', type: 'agent_message', text: JSON.stringify(candidate), ...overrides } }; }
+function extractionEvents(events, livePlan = plan(), boundPacket = packet()) {
+  return extractCandidateFromCodexJsonl(`${events.map((event) => JSON.stringify(event)).join('\n')}\n`, { plan: livePlan, packet: boundPacket });
+}
+function successfulCodexEvents(candidate = validCandidate(), preceding = []) {
+  return [{ type: 'thread.started', thread_id: 'synthetic' }, { type: 'turn.started' }, ...preceding, candidateEvent(candidate), { type: 'turn.completed', usage: {} }];
+}
+function recoverySetup({ candidate = validCandidate(), preceding = [], stdout, resultOverrides = {} } = {}) {
+  const root = tempRoot(); const livePlan = plan(root); const runDirectory = '.ai/runs/run-recovery-test-001';
+  const approval = buildApproval(livePlan, `I APPROVE LIVE RUN ${livePlan.planId}`, { clock: () => new Date(FIXED) });
+  const rawStdout = stdout ?? `${successfulCodexEvents(candidate, preceding).map((event) => JSON.stringify(event)).join('\n')}\n`;
+  const result = validateResult({ schemaVersion: '1.0.0', artifactType: 'live-run-result', runId: 'run-recovery-test-001', planId: livePlan.planId, planSha256: livePlan.planSha256, attemptId: livePlan.attemptId, agent: 'codex', skill: 'discuss', startedAt: FIXED, completedAt: '2026-07-22T04:00:01.000Z', launchStatus: 'started', childStarted: true, approvalConsumed: true, exitCode: 0, timedOut: false, truncated: false, stdoutFormat: 'jsonl', rawOutputPath: `${runDirectory}/stdout.jsonl`, validatedResponsePath: `${runDirectory}/candidate-response.json`, validation: { valid: false, errors: ['Original parser did not find the nested final Candidate.'] }, security: { reviewRequired: false, findings: [], removedEnvironmentNames: [] }, importStatus: 'not-reviewed', ...resultOverrides });
+  writeArtifact(root, `${runDirectory}/plan.json`, livePlan); writeArtifact(root, `${runDirectory}/approval.json`, approval);
+  writeArtifact(root, `${runDirectory}/attempt.json`, { schemaVersion: '1.0.0', artifactType: 'live-run-attempt', runId: result.runId, planId: livePlan.planId, planSha256: livePlan.planSha256, attemptId: livePlan.attemptId, claimedAt: FIXED, childStarted: true, status: 'completed' });
+  const directory = path.join(root, runDirectory); writeFileSync(path.join(directory, 'stdout.jsonl'), rawStdout); writeFileSync(path.join(directory, 'stderr.txt'), ''); writeFileSync(path.join(directory, 'candidate-response.json'), 'null\n'); writeFileSync(path.join(directory, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
+  return { root, runDirectory, directory, livePlan, result };
 }
 test.after(() => tempRoots.forEach((root) => rmSync(root, { recursive: true, force: true })));
 
@@ -458,4 +476,119 @@ test('retry-2 Plan identity is deterministic and distinct from earlier attempts'
   const retry2 = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'retry-2' });
   const repeated = buildLiveRunPlan('codex', 'discuss', PACKET, { clock: () => new Date(FIXED), attemptId: 'retry-2' });
   assert.equal(retry2.attemptId, 'retry-2'); assert.notEqual(retry2.planId, initial.planId); assert.notEqual(retry2.planId, retry1.planId); assert.equal(retry2.planId, repeated.planId);
+});
+
+test('extracts terminal item.completed agent_message text', () => {
+  const result = extractionEvents(successfulCodexEvents()); assert.equal(result.extractionStatus, 'recovered'); assert.equal(result.sourceEventType, 'item.completed'); assert.equal(result.sourceItemType, 'agent_message');
+});
+test('does not extract command_execution output', () => {
+  const event = { type: 'item.completed', item: { type: 'command_execution', aggregated_output: JSON.stringify(validCandidate()) } };
+  assert.equal(extractionEvents([{ type: 'turn.started' }, event, { type: 'turn.completed' }]).candidate, null);
+});
+test('does not extract tool_output', () => {
+  const event = { type: 'item.completed', item: { type: 'tool_output', output_text: JSON.stringify(validCandidate()) } };
+  assert.equal(extractionEvents([{ type: 'turn.started' }, event, { type: 'turn.completed' }]).candidate, null);
+});
+test('does not extract reasoning', () => {
+  const event = { type: 'item.completed', item: { type: 'reasoning', text: JSON.stringify(validCandidate()) } };
+  assert.equal(extractionEvents([{ type: 'turn.started' }, event, { type: 'turn.completed' }]).candidate, null);
+});
+test('does not extract arbitrary nested JSON', () => {
+  const event = { type: 'item.completed', nested: { response: validCandidate() } };
+  assert.equal(extractionEvents([{ type: 'turn.started' }, event, { type: 'turn.completed' }]).candidate, null);
+});
+test('supports legacy top-level response', () => assert.equal(extractionEvents([{ response: validCandidate() }]).sourceEventType, 'legacy.response'));
+test('supports legacy top-level candidate', () => assert.equal(extractionEvents([{ candidate: validCandidate() }]).sourceEventType, 'legacy.candidate'));
+test('rejects Markdown fenced JSON', () => {
+  const event = candidateEvent(validCandidate(), { text: `\`\`\`json\n${JSON.stringify(validCandidate())}\n\`\`\`` });
+  assert.equal(extractionEvents([{ type: 'turn.started' }, event, { type: 'turn.completed' }]).extractionStatus, 'invalid');
+});
+test('rejects explanatory text around JSON', () => {
+  const event = candidateEvent(validCandidate(), { text: `Result: ${JSON.stringify(validCandidate())}` });
+  assert.equal(extractionEvents([{ type: 'turn.started' }, event, { type: 'turn.completed' }]).extractionStatus, 'invalid');
+});
+test('rejects non-object candidate JSON', () => {
+  const event = candidateEvent(validCandidate(), { text: '[]' });
+  assert.ok(extractionEvents([{ type: 'turn.started' }, event, { type: 'turn.completed' }]).rejectionReasons.includes('non-object'));
+});
+test('rejects incorrect artifactType', () => {
+  const candidate = validCandidate(); candidate.artifactType = 'understanding-guide';
+  assert.ok(extractionEvents(successfulCodexEvents(candidate)).rejectionReasons.includes('unexpected-artifact-type'));
+});
+test('rejects canonically invalid Candidate', () => {
+  const candidate = validCandidate(); candidate.evidence[0].path = '../outside';
+  assert.ok(extractionEvents(successfulCodexEvents(candidate)).rejectionReasons.includes('canonical-validation-failed'));
+});
+test('rejects sessionId mismatch', () => {
+  const candidate = validCandidate(); candidate.sessionId = 'session-wrong-001';
+  assert.ok(extractionEvents(successfulCodexEvents(candidate)).rejectionReasons.includes('identity-validation-failed'));
+});
+test('rejects participant mismatch', () => {
+  const candidate = validCandidate(); candidate.participant.participantId = 'participant-wrong-001';
+  assert.ok(extractionEvents(successfulCodexEvents(candidate)).rejectionReasons.includes('identity-validation-failed'));
+});
+test('rejects round mismatch', () => {
+  const candidate = validCandidate(); candidate.round = 'cross-review';
+  assert.ok(extractionEvents(successfulCodexEvents(candidate)).rejectionReasons.includes('identity-validation-failed'));
+});
+test('selects the last identical valid final message', () => {
+  const candidate = validCandidate(); const result = extractionEvents([{ type: 'turn.started' }, candidateEvent(candidate, { id: 'first' }), candidateEvent(clone(candidate), { id: 'second' }), { type: 'turn.completed' }]);
+  assert.equal(result.extractionStatus, 'recovered'); assert.equal(result.candidateCount, 2); assert.equal(result.sourceEventIndex, 2);
+});
+test('marks conflicting final Candidates ambiguous', () => {
+  const first = validCandidate(); const second = validCandidate(); second.recommendation = `${second.recommendation} Distinct.`;
+  const result = extractionEvents([{ type: 'turn.started' }, candidateEvent(first), candidateEvent(second), { type: 'turn.completed' }]);
+  assert.equal(result.extractionStatus, 'ambiguous'); assert.equal(result.ambiguous, true); assert.equal(result.candidate, null);
+});
+test('ignores valid non-terminal agent messages', () => {
+  const command = { type: 'item.completed', item: { type: 'command_execution', command: 'synthetic', aggregated_output: '', status: 'completed' } };
+  const result = extractionEvents([{ type: 'turn.started' }, candidateEvent(validCandidate()), command, candidateEvent(validCandidate()), { type: 'turn.completed' }]);
+  assert.equal(result.extractionStatus, 'recovered'); assert.ok(result.rejectionReasons.includes('non-terminal-agent-message'));
+});
+test('requires turn.completed for Codex event recovery', () => {
+  assert.equal(extractionEvents([{ type: 'turn.started' }, candidateEvent(validCandidate())]).extractionStatus, 'no-final-candidate');
+});
+test('recover preserves every source Run file byte-for-byte', () => {
+  const setup = recoverySetup(); const before = Object.fromEntries(readdirSync(setup.directory).map((file) => [file, readFileSync(path.join(setup.directory, file))])); recoverRun(setup.runDirectory, { root: setup.root, clock: () => new Date(FIXED) });
+  for (const [file, contents] of Object.entries(before)) assert.deepEqual(readFileSync(path.join(setup.directory, file)), contents);
+});
+test('recover refuses to overwrite an existing recovery', () => {
+  const setup = recoverySetup(); recoverRun(setup.runDirectory, { root: setup.root, clock: () => new Date(FIXED) }); assert.throws(() => recoverRun(setup.runDirectory, { root: setup.root }), /BLOCKED_RECOVERY_ALREADY_EXISTS/);
+});
+test('recover does not copy stdout into recovery directory', () => {
+  const setup = recoverySetup(); const output = recoverRun(setup.runDirectory, { root: setup.root, clock: () => new Date(FIXED) });
+  assert.deepEqual(readdirSync(path.join(setup.root, output.recoveryDirectory)).sort(), ['candidate-response.json', 'recovery-result.json']);
+});
+test('recover creates no Approval or additional Run', () => {
+  const setup = recoverySetup(); const approvalBefore = readFileSync(path.join(setup.directory, 'approval.json')); recoverRun(setup.runDirectory, { root: setup.root, clock: () => new Date(FIXED) });
+  assert.equal(existsSync(path.join(setup.root, '.ai/runtime/local/approvals')), false); assert.equal(readdirSync(path.join(setup.root, '.ai/runs')).length, 1); assert.deepEqual(readFileSync(path.join(setup.directory, 'approval.json')), approvalBefore);
+});
+test('recover never ingests a response', () => {
+  const setup = recoverySetup(); const output = recoverRun(setup.runDirectory, { root: setup.root, clock: () => new Date(FIXED) });
+  assert.equal(output.result.automaticIngest, false); assert.equal(existsSync(path.join(setup.root, '.ai/discussions/examples/demo-persistence-boundary/responses')), false);
+});
+test('Candidate secret finding blocks human-review eligibility', () => {
+  const candidate = validCandidate(); candidate.recommendation = 'api_key=synthetic-candidate-secret'; const setup = recoverySetup({ candidate }); const output = recoverRun(setup.runDirectory, { root: setup.root, clock: () => new Date(FIXED) });
+  assert.deepEqual(output.result.candidateSecretFindings, ['secret-assignment']); assert.equal(output.result.eligibleForHumanReview, false);
+});
+test('Candidate and transcript secret findings remain separate', () => {
+  const command = { type: 'item.completed', item: { type: 'command_execution', command: 'read scripts/ai/agent-runner-lib.mjs', aggregated_output: 'scripts/ai/agent-runner-lib.mjs api_key=synthetic-transcript-secret' } };
+  const setup = recoverySetup({ preceding: [command] }); const output = recoverRun(setup.runDirectory, { root: setup.root, clock: () => new Date(FIXED) });
+  assert.deepEqual(output.result.candidateSecretFindings, []); assert.deepEqual(output.result.transcriptSecretFindingTypes, ['secret-assignment']); assert.equal(output.result.transcriptFindingReview.findings[0].classification, 'likely-code-example');
+});
+test('fixture transcript finding is safely classified without value reproduction', () => {
+  const secret = 'synthetic-fixture-secret'; const stdout = `${JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'read scripts/ai/agent-runner.test.mjs', aggregated_output: `scripts/ai/agent-runner.test.mjs api_key=${secret}` } })}\n`;
+  const findings = scanTranscriptSecretFindings(stdout); assert.equal(findings[0].classification, 'likely-fixture'); assert.equal(JSON.stringify(findings).includes(secret), false);
+});
+test('unknown transcript finding requires security review', () => {
+  const command = { type: 'item.completed', item: { type: 'command_execution', command: 'synthetic', aggregated_output: 'api_key=synthetic-unknown-secret' } };
+  const setup = recoverySetup({ preceding: [command] }); const output = recoverRun(setup.runDirectory, { root: setup.root, clock: () => new Date(FIXED) });
+  assert.equal(output.result.transcriptFindingReview.status, 'security-review-required'); assert.equal(output.result.humanReviewEligibility, 'security-review-required');
+});
+test('diagnose classifies successful completed null Candidate as extraction failure', () => {
+  const setup = diagnosticRun({ events: [{ type: 'thread.started' }, { type: 'turn.started' }, { type: 'turn.completed' }], resultOverrides: { exitCode: 0 } }); const report = diagnoseRun(setup.runDirectory, { root: setup.root });
+  assert.equal(report.rootCauseCategory, 'CANDIDATE_EXTRACTION_FAILED'); assert.equal(report.recommendedNextAction, 'recover-existing-run');
+});
+test('diagnose never labels successful completed extraction failure UNKNOWN_EXIT1', () => {
+  const setup = diagnosticRun({ events: [{ type: 'turn.started' }, { type: 'turn.completed' }], resultOverrides: { exitCode: 0 } }); assert.notEqual(diagnoseRun(setup.runDirectory, { root: setup.root }).rootCauseCategory, 'UNKNOWN_EXIT1');
 });

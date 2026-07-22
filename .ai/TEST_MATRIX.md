@@ -106,6 +106,20 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Exit-1 classification | Runner classification tests | Schema, authentication, quota, provider, repository-trust, and unknown failures map only from explicit evidence to bounded next actions |
 | Codex schema compatibility | Recursive Runner schema tests and `ai:runner:check` | Transport schemas reject lookaround, backreferences, remote/unresolved refs, unsupported formats/keywords, and incomplete strict object declarations before a live run |
 | Transport/canonical boundary | Plan/hash and candidate tests | Plans bind both schema layers; Codex receives the transport schema while every candidate still passes canonical Discussion and repository-path validation |
+| Codex JSONL Candidate recovery | Runner extraction and recovery tests | Only terminal final-agent-message text is eligible; offline recovery preserves the source Run, validates canonical identity, separates secret scopes, never ingests, and refuses overwrite |
+
+## Phase AI-3B2B-R2E Evidence
+
+- `npm run ai:runner:test`: 165 passed; all external Agent subprocess behavior is mocked, terminal JSONL extraction and offline recovery are covered, and no Codex prompt starts.
+- `npm run ai:runner:check` / `npm run ai:runner:validate`: 4 disabled Runner artifacts checked and validated; committed execution policy remains disabled and nested execution guards remain covered.
+- `npm run ai:discussion:test`: 56 passed; check and validate passed for 18 artifacts, 1 synthetic fixture, and 1 active Session.
+- `npm run ai:adapters:test`: 40 passed; adapter check passed and 9 invocation examples validated.
+- `npm run ai:artifacts:test`: 19 passed; 2 rendered artifacts checked and 2 source artifacts validated.
+- `npm run typecheck`, `npm run lint`, `npm run build`, `npm run agent:guardrails`, and `npm run agent:verify`: passed; verify included 43 Vitest files / 652 tests.
+- `git diff --check` passed and `package-lock.json` is unchanged. Playwright was not run, as required.
+- retry-2 completed with exit code `0`, no timeout or truncation. The original parser missed nested terminal `item.completed` / `agent_message` text; offline recovery passed canonical, session, participant, round, and bound-hash validation.
+- Candidate findings were empty. Three Transcript `secret-assignment` findings were classified without matched values as 2 likely code examples and 1 likely fixture. The recovered Candidate is eligible for human review.
+- The source Run remained immutable; no new Agent prompt ran, no Approval was created, no response was ingested, no product behavior changed, and no deployment occurred.
 
 ## Phase AI-3B2B-R2C Evidence
 

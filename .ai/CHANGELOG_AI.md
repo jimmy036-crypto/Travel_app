@@ -2,6 +2,17 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2E — Codex JSONL Candidate Recovery
+
+- Confirmed without printing transcript content that retry-2 contains 45 parseable JSONL events and terminates with `item.completed` / `agent_message` at event index 43 followed by `turn.completed`.
+- Added event-aware extraction that accepts only legacy top-level candidates or terminal final-agent-message text; command, tool, reasoning, arbitrary nested, fenced, and explanatory-text sources are rejected.
+- Added the pure offline `recover` command with immutable source-Run SHA-256 checks, canonical and packet-identity validation, no overwrite, and ignored recovery artifacts containing no copied stdout.
+- Recovered the retry-2 Candidate offline. Canonical validation, session identity, participant identity, round identity, Plan-bound hashes, Approval identity, attempt identity, and result identity all passed.
+- Separated Candidate secret findings from Transcript findings. The Candidate had no findings; three transcript `secret-assignment` findings were classified from event and repository-path metadata as two likely code examples and one likely fixture, without preserving matched values or context.
+- Reclassified exit code `0` plus `turn.completed` plus null original candidate as `CANDIDATE_EXTRACTION_FAILED` with `recover-existing-run`, never `UNKNOWN_EXIT1`.
+- Added 30 mock/offline Runner tests for 165 passing tests total. No new Agent prompt ran, no Approval was created, no response was ingested, no product behavior changed, and no deployment occurred.
+- The source Run and its consumed Approval remain byte-for-byte unchanged. retry-3 was not prepared because recovery succeeded.
+
 ## Phase AI-3B2B-R2C — Codex Schema Compatibility
 
 - Confirmed from the preserved retry-1 Run that Codex started, consumed its Approval, and rejected `$defs.path.pattern` because regex lookaround is unsupported; its candidate remained null.

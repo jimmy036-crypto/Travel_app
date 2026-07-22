@@ -113,6 +113,21 @@ node scripts/ai/agent-runner.mjs status $planInfo.planPath
 
 This creates no Approval and executes no Agent. A human must still review both schema hashes and every disabled permission before using the separate Approval and execute steps in an ordinary PowerShell window.
 
+## E.2 Recover a successful JSONL Run offline
+
+retry-2 later completed with exit code `0`, no timeout, no truncation, and a terminal `turn.completed`, but the original parser left `candidate-response.json` null because the canonical response was nested under terminal `item.completed` / `agent_message` text. Diagnose classifies this state as `CANDIDATE_EXTRACTION_FAILED`, not an Exit-1 failure.
+
+The Runner now supports a one-time, pure offline recovery command:
+
+```powershell
+node scripts/ai/agent-runner.mjs recover `
+  .ai/runs/run-b76a7aa0f8b8599a8f97
+```
+
+Recovery never launches an Agent, creates or reuses an Approval, changes a used marker, modifies the source Run, copies stdout, or ingests a response. It writes only ignored files under `.ai/runtime/local/recoveries/<run-id>/` and refuses to overwrite an existing recovery.
+
+For retry-2, the recovery already exists at `.ai/runtime/local/recoveries/run-b76a7aa0f8b8599a8f97/`. The terminal Candidate passed canonical, session, participant, and round validation. Candidate secret findings were empty; three Transcript findings were safely classified from event and repository-path metadata as two likely code examples and one likely fixture. The recovered Candidate is eligible for separate human review. Do not run retry-3 and do not repeat the recovery command.
+
 ## F. Human Plan review
 
 First verify:
@@ -126,10 +141,10 @@ Then open `$planInfo.planPath` and manually confirm:
 - `execution.enabled` is `false`.
 - `agent` is `codex`, `skill` is `discuss`, and mode is read-only analysis.
 - `packetPath` is the active Session Round 1 packet in this runbook.
-- `outputSchema` is `.ai/schemas/discussion-analysis.schema.json`.
+- `outputSchema` is the transport-only `.ai/schemas/codex-discussion-analysis.schema.json` and `canonicalSchema` is `.ai/schemas/discussion-analysis.schema.json`.
 - `argv` is an array and contains `--sandbox`, `read-only`, `--ephemeral`, and `--json`.
 - `argv` contains no `full-auto`, `workspace-write`, `danger-full-access`, permission bypass, shell string, or packet body.
-- Packet, adapter, output-schema, and Plan SHA-256 values are present.
+- Packet, adapter, transport-schema, canonical-schema, and Plan SHA-256 values are present.
 - Limits and all permission fields match the reviewed local policy.
 
 Stop if any value is unexpected. Approval binds to exactly this Plan hash and does not authorize modifying the repository.

@@ -12,6 +12,7 @@ export const LOCAL_PLANS_DIR = '.ai/runtime/local/plans';
 export const LOCAL_APPROVALS_DIR = '.ai/runtime/local/approvals';
 export const LOCAL_APPROVAL_CLAIMS_DIR = '.ai/runtime/local/approval-claims';
 export const LOCAL_USED_APPROVALS_DIR = '.ai/runtime/local/used-approvals';
+export const LOCAL_RECOVERIES_DIR = '.ai/runtime/local/recoveries';
 export const RUNS_DIR = '.ai/runs';
 export const DEFAULT_LIMITS = Object.freeze({ maxRuntimeSeconds: 600, maxOutputBytes: 5 * 1024 * 1024 });
 
@@ -469,34 +470,263 @@ export function scanSecretPatterns(text) {
   return findings;
 }
 
-export function parseCandidateResponse(stdout) {
-  const lines = stdout.split(/\r?\n/).filter((line) => line.trim());
-  const parsed = [];
-  for (const line of lines) { try { parsed.push(JSON.parse(line)); } catch { /* ignore non-JSON lines; validation will fail if no candidate exists */ } }
+function expectedCandidateArtifactType(plan) {
+  return { discuss: 'discussion-analysis', understand: 'understanding-guide', 'explain-diff': 'explain-diff' }[plan?.skill] ?? null;
+}
+
+export function validateCandidateCanonical(candidate, plan) {
+  const errors = [];
+  if (!isObject(candidate)) return { valid: false, errors: ['Candidate must be a single JSON object.'] };
+  try {
+    if (plan.skill === 'discuss') validateDiscussionArtifact(candidate);
+    else if (!candidate.artifactType) errors.push('Candidate is not a structured artifact.');
+  } catch (error) { errors.push(error.message); }
+  return { valid: errors.length === 0, errors };
+}
+
+export function validateCandidateIdentity(candidate, plan, packet) {
+  if (plan.skill !== 'discuss') return { valid: true, sessionMatch: true, participantMatch: true, roundMatch: true, errors: [] };
+  const sessionMatch = candidate?.sessionId === packet.sessionId;
+  const participantMatch = candidate?.participant?.participantId === packet.participant?.participantId;
+  const expectedRound = { 'round-1': 'independent-analysis', 'round-2': 'cross-review', decision: undefined }[packet.round];
+  const roundMatch = packet.round === 'decision' ? candidate?.status === 'proposed' : candidate?.round === expectedRound;
+  const errors = [];
+  if (!sessionMatch) errors.push('Candidate sessionId does not match the packet.');
+  if (!participantMatch) errors.push('Candidate participant does not match the packet.');
+  if (!roundMatch) errors.push(packet.round === 'decision' ? 'Decision candidate must remain proposed.' : 'Candidate round does not match the packet.');
+  return { valid: errors.length === 0, sessionMatch, participantMatch, roundMatch, errors };
+}
+
+function assessCandidate(candidate, plan, packet) {
+  if (!isObject(candidate)) return { valid: false, reasons: ['non-object'], canonicalValidation: { valid: false, errors: ['Candidate must be a single JSON object.'] }, identityValidation: { valid: false, sessionMatch: false, participantMatch: false, roundMatch: false, errors: ['Candidate identity cannot be checked.'] } };
+  const expectedArtifactType = expectedCandidateArtifactType(plan);
+  if (expectedArtifactType && candidate.artifactType !== expectedArtifactType) return { valid: false, reasons: ['unexpected-artifact-type'], canonicalValidation: { valid: false, errors: ['Candidate artifactType is not the expected canonical artifact.'] }, identityValidation: { valid: false, sessionMatch: false, participantMatch: false, roundMatch: false, errors: ['Candidate identity cannot be checked.'] } };
+  const canonicalValidation = validateCandidateCanonical(candidate, plan);
+  const identityValidation = validateCandidateIdentity(candidate, plan, packet);
+  const reasons = [];
+  if (!canonicalValidation.valid) reasons.push('canonical-validation-failed');
+  if (!identityValidation.valid) reasons.push('identity-validation-failed');
+  return { valid: canonicalValidation.valid && identityValidation.valid, reasons, canonicalValidation, identityValidation };
+}
+
+function parseJsonl(stdout) {
+  return String(stdout ?? '').split(/\r?\n/).filter((line) => line.trim()).map((line, index) => {
+    try { return { index, value: JSON.parse(line), validJson: true }; }
+    catch { return { index, value: null, validJson: false }; }
+  });
+}
+
+function directJsonObject(text) {
+  if (typeof text !== 'string') return { candidate: null, reason: 'candidate-text-not-string' };
+  try {
+    const candidate = JSON.parse(text.trim());
+    return isObject(candidate) ? { candidate, reason: null } : { candidate: null, reason: 'non-object' };
+  } catch { return { candidate: null, reason: 'invalid-json' }; }
+}
+
+export function extractCandidateFromCodexJsonl(stdout, { plan, packet } = {}) {
+  if (!plan || !packet) fail('candidate extraction requires the bound plan and packet');
+  const entries = parseJsonl(stdout);
+  const rejectionReasons = [];
+  const validCandidates = [];
+  let rejectedCandidateCount = entries.filter((entry) => !entry.validJson).length;
+  if (rejectedCandidateCount) rejectionReasons.push('invalid-jsonl-line');
+
+  const completedTurnIndex = entries.filter((entry) => entry.validJson && entry.value?.type === 'turn.completed').at(-1)?.index ?? null;
+  if (completedTurnIndex !== null) {
+    const precedingItems = entries.filter((entry) => entry.validJson && entry.index < completedTurnIndex && entry.value?.item && typeof entry.value.item.type === 'string');
+    const lastNonAgentItemIndex = precedingItems.filter((entry) => entry.value.item.type !== 'agent_message').at(-1)?.index ?? -1;
+    const agentMessages = precedingItems.filter((entry) => entry.value.type === 'item.completed' && entry.value.item.type === 'agent_message');
+    const terminalMessages = agentMessages.filter((entry) => entry.index > lastNonAgentItemIndex);
+    for (const entry of agentMessages.filter((item) => item.index <= lastNonAgentItemIndex)) {
+      void entry; rejectedCandidateCount += 1; rejectionReasons.push('non-terminal-agent-message');
+    }
+    for (const entry of terminalMessages) {
+      const parsed = directJsonObject(entry.value.item.text);
+      if (!parsed.candidate) { rejectedCandidateCount += 1; rejectionReasons.push(parsed.reason); continue; }
+      const assessment = assessCandidate(parsed.candidate, plan, packet);
+      if (!assessment.valid) { rejectedCandidateCount += 1; rejectionReasons.push(...assessment.reasons); continue; }
+      validCandidates.push({ candidate: parsed.candidate, sourceEventType: entry.value.type, sourceItemType: entry.value.item.type, sourceEventIndex: entry.index, sourceField: 'item.text', ...assessment });
+    }
+  }
+
+  if (validCandidates.length === 0) {
+    const legacy = [];
+    for (const entry of entries) {
+      if (!entry.validJson || !isObject(entry.value) || typeof entry.value.type === 'string') continue;
+      if (isObject(entry.value.response)) legacy.push({ candidate: entry.value.response, sourceEventType: 'legacy.response', sourceItemType: null, sourceEventIndex: entry.index, sourceField: 'response' });
+      else if (isObject(entry.value.candidate)) legacy.push({ candidate: entry.value.candidate, sourceEventType: 'legacy.candidate', sourceItemType: null, sourceEventIndex: entry.index, sourceField: 'candidate' });
+      else if (entry.value.artifactType && !String(entry.value.artifactType).startsWith('live-run-')) legacy.push({ candidate: entry.value, sourceEventType: 'legacy.artifact', sourceItemType: null, sourceEventIndex: entry.index, sourceField: null });
+    }
+    for (const item of legacy) {
+      const assessment = assessCandidate(item.candidate, plan, packet);
+      if (!assessment.valid) { rejectedCandidateCount += 1; rejectionReasons.push(...assessment.reasons); continue; }
+      validCandidates.push({ ...item, ...assessment });
+    }
+  }
+
+  if (!validCandidates.length) {
+    const sawCandidateSource = rejectionReasons.some((reason) => reason !== 'invalid-jsonl-line' && reason !== 'non-terminal-agent-message');
+    return { candidate: null, extractionStatus: sawCandidateSource ? 'invalid' : 'no-final-candidate', sourceEventType: null, sourceItemType: null, sourceEventIndex: null, sourceField: null, candidateCount: 0, rejectedCandidateCount, rejectionReasons: [...new Set(rejectionReasons)].sort(), ambiguous: false, canonicalValidation: { valid: false, errors: ['No valid final Candidate was found.'] }, identityValidation: { valid: false, sessionMatch: false, participantMatch: false, roundMatch: false, errors: ['No valid final Candidate was found.'] } };
+  }
+
+  const hashes = new Set(validCandidates.map((item) => sha256(stableJson(item.candidate))));
+  const ambiguous = validCandidates.length > 1 && hashes.size > 1;
+  if (ambiguous) return { candidate: null, extractionStatus: 'ambiguous', sourceEventType: null, sourceItemType: null, sourceEventIndex: null, sourceField: null, candidateCount: validCandidates.length, rejectedCandidateCount, rejectionReasons: [...new Set(rejectionReasons)].sort(), ambiguous: true, canonicalValidation: { valid: false, errors: ['Multiple conflicting final Candidates were found.'] }, identityValidation: { valid: false, sessionMatch: false, participantMatch: false, roundMatch: false, errors: ['Multiple conflicting final Candidates were found.'] } };
+  const selected = validCandidates.at(-1);
+  return { candidate: selected.candidate, extractionStatus: 'recovered', sourceEventType: selected.sourceEventType, sourceItemType: selected.sourceItemType, sourceEventIndex: selected.sourceEventIndex, sourceField: selected.sourceField, candidateCount: validCandidates.length, rejectedCandidateCount, rejectionReasons: [...new Set(rejectionReasons)].sort(), ambiguous: false, canonicalValidation: selected.canonicalValidation, identityValidation: selected.identityValidation };
+}
+
+export function parseCandidateResponse(stdout, options = {}) {
+  if (options.plan && options.packet) return extractCandidateFromCodexJsonl(stdout, options).candidate;
+  const parsed = parseJsonl(stdout).filter((entry) => entry.validJson).map((entry) => entry.value);
   for (const value of parsed.reverse()) {
-    if (isObject(value.response)) return value.response;
-    if (isObject(value.candidate)) return value.candidate;
-    if (value.artifactType && !String(value.artifactType).startsWith('live-run-')) return value;
+    if (isObject(value?.response)) return value.response;
+    if (isObject(value?.candidate)) return value.candidate;
+    if (value?.artifactType && !String(value.artifactType).startsWith('live-run-')) return value;
+    if (value?.type === 'item.completed' && value.item?.type === 'agent_message') {
+      const direct = directJsonObject(value.item.text);
+      if (direct.candidate) return direct.candidate;
+    }
   }
   return null;
 }
 
 export function validateCandidate(candidate, plan, packet) {
-  const errors = [];
-  if (!candidate) errors.push('No structured candidate response was found in stdout.');
-  else {
-    try {
-      if (plan.skill === 'discuss') {
-        validateDiscussionArtifact(candidate);
-        if (candidate.sessionId !== packet.sessionId) errors.push('Candidate sessionId does not match the packet.');
-        if (candidate.participant?.participantId !== packet.participant?.participantId) errors.push('Candidate participant does not match the packet.');
-        const expectedRound = { 'round-1': 'independent-analysis', 'round-2': 'cross-review', decision: undefined }[packet.round];
-        if (expectedRound && candidate.round !== expectedRound) errors.push('Candidate round does not match the packet.');
-        if (packet.round === 'decision' && candidate.status !== 'proposed') errors.push('Decision candidate must remain proposed.');
-      } else if (!isObject(candidate) || !candidate.artifactType) errors.push('Candidate is not a structured artifact.');
-    } catch (error) { errors.push(error.message); }
-  }
+  if (!candidate) return { valid: false, errors: ['No structured candidate response was found in stdout.'] };
+  const canonical = validateCandidateCanonical(candidate, plan);
+  const identity = validateCandidateIdentity(candidate, plan, packet);
+  const errors = [...canonical.errors, ...identity.errors];
   return { valid: errors.length === 0, errors };
+}
+
+function repositoryPathsFromMetadata(text) {
+  const pattern = /(?:^|[^A-Za-z0-9_.-])((?:\.ai|\.agents|scripts|src|e2e|public|firebase|docs?)[\\/][^\s"'|]+?\.(?:mjs|cjs|jsx|js|tsx|ts|json|md|txt))/g;
+  const paths = [];
+  for (const match of String(text ?? '').matchAll(pattern)) {
+    const repositoryPath = match[1].replace(/\\/g, '/');
+    try { assertRepositoryPath(repositoryPath, 'transcript repository path metadata'); }
+    catch { continue; }
+    if (!paths.includes(repositoryPath)) paths.push(repositoryPath);
+  }
+  return paths;
+}
+
+function classifyTranscriptFinding(repositoryPaths) {
+  if (repositoryPaths.some((file) => /(?:^|\/)(?:fixtures?|examples?|__fixtures__)(?:\/|$)|\.(?:test|spec)\.[^/]+$/.test(file))) return 'likely-fixture';
+  if (repositoryPaths.some((file) => /(?:^|\/)(?:docs?|documentation)(?:\/|$)|\.md$/.test(file))) return 'likely-documentation';
+  if (repositoryPaths.some((file) => /\.(?:mjs|cjs|jsx|js|tsx|ts|json)$/.test(file))) return 'likely-code-example';
+  return 'unknown';
+}
+
+function transcriptReview(findings) {
+  const classifications = {};
+  for (const finding of findings) classifications[finding.classification] = (classifications[finding.classification] ?? 0) + 1;
+  return { status: classifications.unknown ? 'security-review-required' : 'classified', classifications, findings };
+}
+
+export function scanTranscriptSecretFindings(stdout, { excludeSourceEventIndex = null, excludeSourceField = null } = {}) {
+  const findings = [];
+  const entries = String(stdout ?? '').split(/\r?\n/).filter((line) => line.trim());
+  const recordText = (text, metadata, fallbackPaths = []) => {
+    for (const logicalLine of String(text ?? '').split(/\r?\n/)) {
+      const secretTypes = [...new Set(scanSecretPatterns(logicalLine).map((finding) => finding.type))];
+      if (!secretTypes.length) continue;
+      const repositoryPaths = repositoryPathsFromMetadata(logicalLine);
+      const effectivePaths = repositoryPaths.length ? repositoryPaths : fallbackPaths;
+      for (const type of secretTypes) findings.push({ type, sourceEventIndex: metadata.sourceEventIndex, sourceEventType: metadata.sourceEventType, sourceItemType: metadata.sourceItemType, sourceField: metadata.sourceField, repositoryPaths: effectivePaths, classification: classifyTranscriptFinding(effectivePaths) });
+    }
+  };
+  entries.forEach((line, sourceEventIndex) => {
+    let event;
+    try { event = JSON.parse(line); }
+    catch { recordText(line, { sourceEventIndex, sourceEventType: '(invalid-json)', sourceItemType: null, sourceField: 'raw-line' }); return; }
+    const commandPaths = event?.item?.type === 'command_execution' ? repositoryPathsFromMetadata(event.item.command) : [];
+    const walk = (value, sourceField) => {
+      if (sourceEventIndex === excludeSourceEventIndex && sourceField === excludeSourceField) return;
+      if (typeof value === 'string') { recordText(value, { sourceEventIndex, sourceEventType: event?.type ?? '(missing)', sourceItemType: event?.item?.type ?? null, sourceField }, commandPaths); return; }
+      if (Array.isArray(value)) { value.forEach((item, index) => walk(item, `${sourceField}[${index}]`)); return; }
+      if (isObject(value)) for (const [key, nested] of Object.entries(value)) walk(nested, sourceField ? `${sourceField}.${key}` : key);
+    };
+    walk(event, '');
+  });
+  return findings;
+}
+
+const SOURCE_RUN_FILES = Object.freeze(['plan.json', 'approval.json', 'attempt.json', 'stdout.jsonl', 'stderr.txt', 'candidate-response.json', 'result.json']);
+
+function sourceRunSha256s(directory) {
+  return Object.fromEntries(SOURCE_RUN_FILES.map((file) => [file, sha256(readFileSync(path.join(directory, file)))]));
+}
+
+function sameHashes(left, right) {
+  return SOURCE_RUN_FILES.every((file) => left[file] === right[file]);
+}
+
+function boundHashStatus(plan, root) {
+  const matches = (repositoryPath, expected) => {
+    try { return sha256File(root, repositoryPath) === expected; }
+    catch { return false; }
+  };
+  return {
+    packet: matches(plan.packetPath, plan.packetSha256),
+    adapter: matches(plan.adapterPath, plan.adapterSha256),
+    outputSchema: matches(plan.outputSchema, plan.outputSchemaSha256),
+    canonicalSchema: plan.canonicalSchema ? matches(plan.canonicalSchema, plan.canonicalSchemaSha256) : null,
+  };
+}
+
+export function recoverRun(runDirectory, { root = REPO_ROOT, clock = () => new Date() } = {}) {
+  const normalizedRunDirectory = String(runDirectory ?? '').replace(/\\/g, '/');
+  assertRepositoryPath(normalizedRunDirectory, 'run directory');
+  if (!normalizedRunDirectory.startsWith(`${RUNS_DIR}/`)) fail('recover may only read .ai/runs directories');
+  const sourceDirectory = path.join(root, normalizedRunDirectory);
+  const sourceRunId = path.posix.basename(normalizedRunDirectory);
+  const recoveryDirectory = `${LOCAL_RECOVERIES_DIR}/${sourceRunId}`;
+  const absoluteRecoveryDirectory = path.join(root, recoveryDirectory);
+  if (existsSync(absoluteRecoveryDirectory)) fail('BLOCKED_RECOVERY_ALREADY_EXISTS');
+
+  const initialSha256s = sourceRunSha256s(sourceDirectory);
+  const plan = validatePlan(JSON.parse(readFileSync(path.join(sourceDirectory, 'plan.json'), 'utf8')));
+  const result = validateResult(JSON.parse(readFileSync(path.join(sourceDirectory, 'result.json'), 'utf8')));
+  const attempt = JSON.parse(readFileSync(path.join(sourceDirectory, 'attempt.json'), 'utf8'));
+  const approval = JSON.parse(readFileSync(path.join(sourceDirectory, 'approval.json'), 'utf8'));
+  const stdout = readFileSync(path.join(sourceDirectory, 'stdout.jsonl'), 'utf8');
+  const packet = JSON.parse(readFileSync(resolveRepositoryFile(root, plan.packetPath), 'utf8'));
+  const extraction = extractCandidateFromCodexJsonl(stdout, { plan, packet });
+  const candidateSecretFindings = extraction.candidate ? [...new Set(scanSecretPatterns(stableJson(extraction.candidate)).map((finding) => finding.type))].sort() : [];
+  const transcriptSecretFindings = scanTranscriptSecretFindings(stdout, { excludeSourceEventIndex: extraction.sourceEventIndex, excludeSourceField: extraction.sourceField });
+  const transcriptFindingReview = transcriptReview(transcriptSecretFindings);
+  const transcriptSecretFindingTypes = [...new Set(transcriptSecretFindings.map((finding) => finding.type))].sort();
+  const hashStatus = boundHashStatus(plan, root);
+  let approvalIdentity = false;
+  try { validateApproval(approval, { plan }); approvalIdentity = true; } catch { /* recorded as ineligible */ }
+  const attemptId = planAttemptId(plan);
+  const resultIdentity = result.runId === sourceRunId && result.planId === plan.planId && result.planSha256 === plan.planSha256 && (result.attemptId ?? attemptId) === attemptId;
+  const attemptIdentity = attempt.runId === sourceRunId && attempt.planId === plan.planId && attempt.planSha256 === plan.planSha256 && (attempt.attemptId ?? attemptId) === attemptId;
+  const turnCompleted = parseJsonl(stdout).some((entry) => entry.validJson && entry.value?.type === 'turn.completed');
+  const boundHashesValid = Object.values(hashStatus).every((value) => value === true || value === null);
+  const securityReviewRequired = transcriptFindingReview.status === 'security-review-required';
+  const eligibleForHumanReview = result.exitCode === 0 && !result.timedOut && !result.truncated && result.childStarted !== false && turnCompleted && boundHashesValid && resultIdentity && attemptIdentity && approvalIdentity && extraction.extractionStatus === 'recovered' && !extraction.ambiguous && extraction.canonicalValidation.valid && extraction.identityValidation.valid && candidateSecretFindings.length === 0 && !securityReviewRequired;
+  const humanReviewEligibility = eligibleForHumanReview ? 'eligible-for-human-review' : securityReviewRequired ? 'security-review-required' : 'ineligible';
+  const finalSha256s = sourceRunSha256s(sourceDirectory);
+  if (!sameHashes(initialSha256s, finalSha256s)) fail('BLOCKED_SOURCE_RUN_MUTATED');
+
+  const recoveryResult = {
+    schemaVersion: '1.0.0', artifactType: 'live-run-recovery-result', sourceRunDirectory: normalizedRunDirectory, sourceRunId, sourcePlanId: plan.planId, attemptId,
+    sourceRunSha256s: initialSha256s, sourceRunImmutable: true, sourceExitCode: result.exitCode, sourceTimedOut: result.timedOut, sourceTruncated: result.truncated, sourceTurnCompleted: turnCompleted,
+    boundFileHashStatus: hashStatus, boundHashesValid, resultIdentity, attemptIdentity, approvalIdentity,
+    extractionStatus: extraction.extractionStatus, sourceEventType: extraction.sourceEventType, sourceItemType: extraction.sourceItemType, sourceEventIndex: extraction.sourceEventIndex,
+    candidateCount: extraction.candidateCount, rejectedCandidateCount: extraction.rejectedCandidateCount, rejectionReasons: extraction.rejectionReasons, ambiguous: extraction.ambiguous,
+    transportShapeValid: extraction.extractionStatus === 'recovered', canonicalValidation: extraction.canonicalValidation, identityValidation: extraction.identityValidation,
+    candidateSecretFindings, transcriptSecretFindingTypes, transcriptFindingReview,
+    eligibleForHumanReview, humanReviewEligibility, automaticIngest: false, recoveredAt: new Date(clock()).toISOString(),
+  };
+  mkdirSync(path.dirname(absoluteRecoveryDirectory), { recursive: true });
+  mkdirSync(absoluteRecoveryDirectory);
+  writeFileSync(path.join(absoluteRecoveryDirectory, 'candidate-response.json'), `${JSON.stringify(extraction.candidate, null, 2)}\n`, 'utf8');
+  writeFileSync(path.join(absoluteRecoveryDirectory, 'recovery-result.json'), `${JSON.stringify(recoveryResult, null, 2)}\n`, 'utf8');
+  return { recoveryDirectory, result: recoveryResult };
 }
 
 export function runChildProcess(argv, stdin, limits, { spawnImpl = spawn, cwd = REPO_ROOT, env = process.env, clock = () => new Date(), onSpawn } = {}) {
@@ -608,9 +838,10 @@ export async function executeLiveRun(planPath, approvalPath, options = {}) {
   const exitCode = childStarted && Number.isInteger(processResult?.exitCode) ? processResult.exitCode : -1;
   const timedOut = childStarted ? Boolean(processResult?.timedOut) : false;
   const truncated = childStarted ? Boolean(processResult?.truncated) : false;
-  const candidate = childStarted ? parseCandidateResponse(stdout) : null;
   let packet;
   try { packet = JSON.parse(packetText); } catch { packet = { text: packetText }; }
+  const extraction = childStarted ? extractCandidateFromCodexJsonl(stdout, { plan, packet }) : null;
+  const candidate = extraction?.candidate ?? null;
   const validation = !childStarted
     ? { valid: false, errors: ['Child process did not start.'] }
     : exitCode === 0 && !timedOut && !truncated
@@ -723,7 +954,7 @@ export function diagnoseRun(runDirectory, { root = REPO_ROOT } = {}) {
   catch { candidate = null; candidateParsed = false; }
   const lines = stdout.split(/\r?\n/).filter((line) => line.trim());
   const eventTypeCounts = new Map(); const errorEventTypes = new Set(); const errorCodes = new Set(); const errorTypes = new Set(); const rawMessages = [];
-  let parsedEventCount = 0; let invalidLineCount = 0; let errorEventCount = 0; let threadOrSessionCreated = false; let turnStarted = false; let turnFailed = false;
+  let parsedEventCount = 0; let invalidLineCount = 0; let errorEventCount = 0; let threadOrSessionCreated = false; let turnStarted = false; let turnCompleted = false; let turnFailed = false;
   for (const line of lines) {
     let event;
     try { event = JSON.parse(line); parsedEventCount += 1; }
@@ -732,6 +963,7 @@ export function diagnoseRun(runDirectory, { root = REPO_ROOT } = {}) {
     eventTypeCounts.set(eventType, (eventTypeCounts.get(eventType) ?? 0) + 1);
     if (/^(?:thread|session)\.started$/.test(eventType)) threadOrSessionCreated = true;
     if (eventType === 'turn.started') turnStarted = true;
+    if (eventType === 'turn.completed') turnCompleted = true;
     if (eventType === 'turn.failed') turnFailed = true;
     if (eventType === 'error' || /(?:error|failed)$/.test(eventType)) {
       errorEventCount += 1; errorEventTypes.add(eventType);
@@ -741,20 +973,26 @@ export function diagnoseRun(runDirectory, { root = REPO_ROOT } = {}) {
       details.types.forEach((type) => errorTypes.add(type));
     }
   }
-  const secretTypes = new Set([...diagnosticSecretTypes(stdout), ...diagnosticSecretTypes(stderr)]);
+  const transcriptSecretFindings = scanTranscriptSecretFindings(stdout);
+  const stderrSecretTypes = diagnosticSecretTypes(stderr);
+  const secretTypes = new Set([...transcriptSecretFindings.map((finding) => finding.type), ...stderrSecretTypes]);
+  const transcriptFindingReview = transcriptReview(transcriptSecretFindings);
   const safeErrorSummaries = [];
   for (const message of rawMessages) {
     const summary = safeDiagnosticSummary(message, secretTypes);
     if (summary && !safeErrorSummaries.includes(summary)) safeErrorSummaries.push(summary);
   }
   const evidenceText = [...errorCodes, ...errorTypes, ...rawMessages].join(' ');
-  const classification = classifyRunFailure(evidenceText);
+  const candidateStatus = !candidateParsed ? 'invalid' : candidate === null ? 'null' : result.validation.valid ? 'valid' : 'invalid';
+  const candidateExtractionFailed = result.exitCode === 0 && turnCompleted && !turnFailed && errorEventCount === 0 && candidateStatus === 'null';
+  const classification = candidateExtractionFailed
+    ? { rootCauseCategory: 'CANDIDATE_EXTRACTION_FAILED', confidence: 'high', retryWithoutCodeChange: false, humanActionRequired: false, recommendedNextAction: 'recover-existing-run' }
+    : classifyRunFailure(evidenceText);
   const attemptId = planAttemptId(plan);
   const childStarted = result.childStarted ?? result.exitCode !== -1;
   const launchStatus = result.launchStatus ?? (childStarted ? 'started' : 'not-started');
-  const candidateStatus = !candidateParsed ? 'invalid' : candidate === null ? 'null' : result.validation.valid ? 'valid' : 'invalid';
   let recommendedNextAction = classification.recommendedNextAction;
-  if (secretTypes.size) recommendedNextAction = 'security-review-required';
+  if (transcriptFindingReview.status === 'security-review-required' || stderrSecretTypes.length) recommendedNextAction = 'security-review-required';
   else if (candidateStatus === 'valid' && childStarted && result.exitCode === 0 && !result.timedOut && !result.truncated && result.validation.valid) recommendedNextAction = 'human-review-existing-candidate';
   const safeFailureSummary = safeErrorSummaries[0] ?? (result.exitCode === 0 ? 'Run completed without a diagnostic error event.' : `Run exited with code ${result.exitCode}; no safe structured error message was available.`);
   return {
@@ -762,7 +1000,8 @@ export function diagnoseRun(runDirectory, { root = REPO_ROOT } = {}) {
     stdoutBytes: Buffer.byteLength(stdout), stderrBytes: Buffer.byteLength(stderr), jsonlLineCount: lines.length, parsedEventCount, invalidLineCount,
     eventTypeCounts: Object.fromEntries([...eventTypeCounts].sort(([left], [right]) => left.localeCompare(right))), errorEventCount,
     supportingEventTypes: [...errorEventTypes].sort(), errorCodes: [...errorCodes].sort(), safeErrorSummaries, safeFailureSummary,
-    secretFindingTypes: [...secretTypes].sort(), threadOrSessionCreated, turnStarted, turnFailed, candidateStatus,
+    secretFindingTypes: [...secretTypes].sort(), transcriptSecretFindingTypes: [...new Set(transcriptSecretFindings.map((finding) => finding.type))].sort(), transcriptFindingReview,
+    threadOrSessionCreated, turnStarted, turnCompleted, turnFailed, candidateStatus,
     rootCauseCategory: classification.rootCauseCategory, confidence: classification.confidence, retryWithoutCodeChange: classification.retryWithoutCodeChange,
     humanActionRequired: classification.humanActionRequired, recommendedNextAction, automaticPrepare: false, automaticApproval: false, automaticExecute: false, automaticIngest: false,
   };
