@@ -212,4 +212,13 @@ test('request-changes cannot produce assignments', () => {
 test('record approval refuses overwrite', () => assert.throws(() => recordApproval(FIXTURE, path.join(FIXTURE, 'decision', 'human-approval.json')), /overwrite/));
 test('assignments require approval and stay disabled', () => assert.ok(assignmentPlans(FIXTURE).every((item) => item.executionEnabled === false)));
 test('status reports approval without execution', () => { const status = sessionStatus(FIXTURE); assert.equal(status.humanApproval, 'approve'); assert.equal(status.executionEnabled, false); });
-test('discussion check finds one synthetic fixture and no active session', () => { const result = checkDiscussions(); assert.equal(result.examples.length, 1); assert.equal(result.active.length, 0); });
+test('discussion check finds the synthetic fixture and validates the active pilot session', () => {
+  const result = checkDiscussions();
+
+  assert.equal(result.examples.length, 1);
+  assert.ok(
+    result.active.some(
+      (directory) => path.basename(directory) === 'clone-demo-architecture-pilot',
+    ),
+  );
+});
