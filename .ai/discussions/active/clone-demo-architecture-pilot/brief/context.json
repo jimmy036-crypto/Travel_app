@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-packet",
+  "fixture": false,
+  "source": "human-brief",
+  "sessionId": "clone-demo-architecture-pilot",
+  "round": "human-brief",
+  "title": "Design an Explicit Demo-to-Real-Trip Clone Flow",
+  "objective": "Prepare an evidence-based architecture analysis only; do not decide or implement the Clone Flow.",
+  "knownFacts": [
+    {
+      "claim": "Built-in Demo identity is local-only and read-only.",
+      "evidence": [
+        { "path": "src/features/onboarding/demoTripData.js", "symbol": "createTokyoDemoTrip / DEMO_TRIP_ID" },
+        { "path": ".ai/DECISIONS.md", "symbol": "ADR-001 and ADR-002" }
+      ]
+    },
+    {
+      "claim": "Opening the Demo uses separate React view state and does not add a trip to myTrips or create Firebase data.",
+      "evidence": [
+        { "path": "src/App.jsx", "symbol": "openBuiltInDemo / demoPreviewState" },
+        { "path": "src/App.guidedDemoIntegration.test.jsx", "symbol": "does not call Firebase, Offline Cache, or myTrips storage while opening the demo" },
+        { "path": "e2e/guided-demo-entry.spec.ts", "symbol": "empty-Lobby Demo entry coverage" }
+      ]
+    },
+    {
+      "claim": "The production Demo Preview hides Clone while preserving a separately tested explicit clone callback contract.",
+      "evidence": [
+        { "path": "src/App.jsx", "symbol": "DemoTripPreview showCloneAction={false}" },
+        { "path": "src/features/onboarding/DemoTripPreview.jsx", "symbol": "canShowCloneAction / onCloneDemo" },
+        { "path": "src/features/onboarding/DemoTripPreview.test.jsx", "symbol": "clone action visibility and explicit click tests" }
+      ]
+    },
+    {
+      "claim": "Current real-trip creation generates a room ID, persists rooms/{roomId}, then adds metadata to myTrips and navigates to the new room.",
+      "evidence": [
+        { "path": "src/App.jsx", "symbol": "handleSaveTripModal" },
+        { "path": "e2e/create-trip.spec.ts", "symbol": "Firebase Emulator create-trip persistence coverage" }
+      ]
+    },
+    {
+      "claim": "Clone Flow is deferred and any future clone requires explicit user action plus canonicalization and failure design.",
+      "evidence": [
+        { "path": ".ai/DECISIONS.md", "symbol": "ADR-003" },
+        { "path": ".ai/ARCHITECTURE.md", "symbol": "Demo" }
+      ]
+    },
+    {
+      "claim": "Offline Preview is a separate local, read-only snapshot boundary and not a source for writable cloning.",
+      "evidence": [
+        { "path": "src/features/offline/offlineTripCache.js", "symbol": "buildOfflineTripSnapshot / writeOfflineTripSnapshot" },
+        { "path": "src/TripDetail.offlineCache.test.jsx", "symbol": "offline cache integration" },
+        { "path": ".ai/DECISIONS.md", "symbol": "ADR-004" }
+      ]
+    }
+  ],
+  "bindingConstraints": [
+    "The Demo must remain immutable.",
+    "Opening the Demo must not write Firebase, myTrips, or Offline Trip Cache.",
+    "Clone and Open Demo must be distinct explicit actions.",
+    "No product change is authorized before a proposed decision and Human Approval.",
+    "Do not access production Firebase or deploy.",
+    "Do not weaken regression protection."
+  ],
+  "questions": [
+    "Where should Clone appear?",
+    "What content and dates should it copy?",
+    "What is the safe Firebase and myTrips write order?",
+    "How should rollback and duplicate prevention work?",
+    "How should Demo IDs, members, tickets, expenses, checklist data, and example-only fields transform?",
+    "How should offline, identity, network, navigation, authorization, and testing boundaries behave?",
+    "Which unknowns need human resolution?"
+  ],
+  "requiredOutput": {
+    "schema": ".ai/schemas/discussion-analysis.schema.json",
+    "fields": ["recommendation", "options (alternatives)", "assumptions", "risks", "testsRequired", "evidence", "unknowns", "confidence"]
+  },
+  "permissions": { "filesystem": "read-only", "network": false, "productionFirebase": false, "gitWrite": false, "deploy": false },
+  "execution": { "enabled": false, "reason": "Human Brief preparation only; no Agent has been executed." }
+}

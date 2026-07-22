@@ -2,6 +2,20 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2A — First Codex Round 1 Pilot Preparation
+
+- Added the first non-synthetic Discussion Session.
+- Added an evidence-based Demo Clone architecture brief.
+- Added a deterministic, execution-disabled Codex Round 1 Packet.
+- Added a human-only PowerShell pilot runbook.
+- Updated the active-session regression contract because the Project OS now intentionally contains its first validated non-synthetic active Discussion Session.
+- The regression still validates the synthetic fixture and now verifies that the named Pilot Session is discovered and validated; no Discussion validation rule was weakened.
+- No live Agent prompt was executed.
+- No Approval was created.
+- No response was ingested.
+- No product behavior changed.
+- No deployment was performed.
+
 ## Phase AI-3B1 — Controlled Live Runner Foundation
 
 - Added the controlled live runner foundation.

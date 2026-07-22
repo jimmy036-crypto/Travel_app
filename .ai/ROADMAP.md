@@ -23,7 +23,8 @@ Statuses describe the product program, while `PROJECT_STATUS.md` records branch-
 - **Phase AI-2B — Agent Adapters and Invocation Workflow:** Connect shared skills to supported agent invocation surfaces without duplicating skill rules. Completed.
 - **Phase AI-3A — Structured Multi-Agent Discussion Protocol:** Add fixed-round, import-only discussion packets, immutable responses, Architect proposals, Human Approval, and execution-disabled assignments. Completed.
 - **Phase AI-3B1 — Controlled Live Runner Foundation:** Add disabled policies, deterministic plans, hash-bound approval, nested execution guards, bounded subprocesses, and manual result review. Completed.
-- **Phase AI-3B2 — Human-launched Codex Round 1 Pilot:** Conduct the first explicitly approved Codex analysis from an ordinary human shell. Next.
+- **Phase AI-3B2A — Prepare Codex Round 1 Pilot:** Add the first evidence-based non-synthetic Session, deterministic disabled Packet, and human-only runbook. Completed.
+- **Phase AI-3B2B — Human-launched Codex Execution:** Execute from an ordinary human shell, inspect output, and separately ingest only after human review. Next.
 - **Phase AI-3B3 — Controlled Runner Expansion:** Evaluate additional providers only after pilot evidence and separate approval. Planned.
 - **Phase AI-4 — Governance Automation:** Add safe local checks for status freshness, decision links, risk ownership, and release evidence without changing CI unless separately authorized. Planned.
 - **Phase AI-5 — Release Intelligence:** Produce evidence-based release readiness summaries and roadmap updates from verified repository state. Planned.
