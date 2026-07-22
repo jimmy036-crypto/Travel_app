@@ -134,6 +134,7 @@ async function openDemoFromSettings(user) {
 describe('App guided demo integration', () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
     window.history.pushState({}, '', '/');
     vi.clearAllMocks();
     offlineMocks.list.mockReturnValue([]);

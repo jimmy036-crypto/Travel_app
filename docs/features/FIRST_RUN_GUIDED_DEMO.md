@@ -113,13 +113,13 @@ Preview 提供總覽、行程、票券、記帳、清單五個分頁。分頁與
 
 「複製這份範例開始修改」目前只呼叫 `onCloneDemo(demo)`。未來流程必須先顯示清楚的確認內容，再建立新的 room 與正式 IDs；不得因開啟 Preview 或首次進入 App 就自動複製。
 
-### 首次啟動 welcome
+### 首次啟動 Welcome
 
-未來沒有真實旅程時，可在 Lobby 顯示示範入口；有真實旅程後，入口移至導覽中心或 Settings。本階段沒有新增首次啟動彈窗，也沒有改變 Lobby。
+Phase 7B-3 已加入僅對真正新使用者顯示的四步 Welcome；Lobby 與 Settings 的示範入口則由 Phase 7B-2 提供。判定、互斥與延後規則見下方 Phase 7B-3 章節。
 
-### Whats New 顯示順序
+### What's New 顯示順序
 
-未來 welcome、Whats New 與 guided demo 不能同時競爭焦點。建議順序是先處理必要的版本訊息，再由使用者主動進入 demo；實際產品決策留待 App integration 階段，本階段不修改現有 Whats New 邏輯。
+First-run Welcome 優先於 What's New；首次 onboarding session 不會連續彈出版本訊息，也不會把 release 標記為 seen。返回使用者仍保留原本的 What's New 行為。
 
 ### 導覽中心與 FeatureTour
 
@@ -130,8 +130,8 @@ Preview 提供總覽、行程、票券、記帳、清單五個分頁。分頁與
 - 不接入正式 App UI、Lobby、Settings 或 routing。
 - 不建立 Firebase room 或雲端資料。
 - 不寫入 myTrips 或 Offline Trip Cache。
-- 不建立首次啟動 modal。
-- 不改變 Whats New 或 FeatureTour。
+- First-run Welcome 只管理導覽狀態，不建立旅程或複製資料。
+- 不修改 FeatureTour chapters。
 - 不建立 production deploy。
 
 ## Phase 7B-2：Lobby 與 Settings 入口
@@ -162,7 +162,28 @@ App 使用獨立的 `demoPreviewState`：
 - 不把 demo 放進 `myTrips`，不寫 `google-travel-my-trips`。
 - 不寫入或修改 Offline Trip Cache。
 - 不建立或讀寫 Firebase demo room。
-- 不實作 First-run Welcome 或 onboarding seen key。
+- First-run Welcome 與 onboarding seen key 由 Phase 7B-3 獨立處理。
 - 不修改 FeatureTour chapters 或 spotlight controller。
 
 Browser Back 的專用 demo history 行為尚未加入；目前開啟與關閉示範都不修改 URL，返回由 Preview 的「返回首頁」按鈕處理。若未來要讓 browser Back 關閉 Preview，必須先定義不產生 Firebase room query、且不干擾既有 TripDetail／Offline Preview history 的路由契約。
+
+## Phase 7B-3：首次使用 Welcome
+
+首次使用流程使用版本化 marker `travel-app-seen-onboarding-v1`，目前版本為 `1`，完成值為字串 `true`。所有 storage 操作都有失敗保護；即使瀏覽器拒絕寫入，本次 session 仍會完成使用者選擇並關閉 Welcome，不會反覆開啟。
+
+「真正的新使用者」會在 App 寫入預設值前，以一次性 snapshot 判斷。非空 `google-travel-my-trips`、任何 release seen 紀錄、非預設外觀色、有效 Offline Trip Cache、active member 或 checklist actor 紀錄都代表已有使用歷史。僅存在內容為 `[]` 的 myTrips key，或外觀色仍為預設 `#d8b4e2`，不會被誤判為 returning user。
+
+Welcome 共四步：
+
+1. 歡迎與集中管理功能概覽。
+2. 東京三日唯讀示範的資料邊界。
+3. 建立正式旅程與旅伴協作。
+4. 即時同步、唯讀離線預覽與支援瀏覽器的主畫面安裝提示。
+
+Welcome 的優先順序高於 What's New，並與 FeatureTour、Demo Preview、Offline Preview、TripDetail、建立／匯入 Modal 互斥。首次 onboarding session 完成後不會立刻接著顯示 What's New，也不會把 current release 標記為 seen；下一次重新載入時，未讀 release 會恢復既有提示流程。
+
+以 `?room=...` 直接進入共享旅程時，Welcome 只延後而不完成 onboarding：TripDetail 先正常載入，本 session 也不顯示 What's New，回到 Lobby 後才顯示 Welcome。
+
+三種完成操作都先記錄 onboarding：查看東京示範只開啟本機 Demo Preview；建立我的第一個旅程只開啟既有空白建立 Modal；略過介紹則留在 Lobby。這些操作都不建立 Firebase room、不寫 Offline Cache、不複製東京資料，也不標記 release seen。
+
+Guided Tour chapters、Clone Flow 與 Tour Center 仍未實作，且本階段沒有修改 FeatureTour chapters。

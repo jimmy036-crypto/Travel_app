@@ -5,14 +5,19 @@ export const CURRENT_RELEASE_SEEN_KEY =
   `travel-app-seen-release-${CURRENT_RELEASE_VERSION}`;
 export const CURRENT_RELEASE_PENDING_TOUR_KEY =
   `travel-app-pending-feature-tour-${CURRENT_RELEASE_VERSION}`;
+const FIRST_RUN_ONBOARDING_SEEN_KEY = 'travel-app-seen-onboarding-v1';
 
 export async function clearCurrentReleaseSeen(page: Page): Promise<void> {
-  await page.addInitScript((key) => {
-    const markerKey = `${key}:cleared-once`;
+  await page.addInitScript(({ releaseKey, onboardingKey }) => {
+    const markerKey = `${releaseKey}:cleared-once`;
     if (window.sessionStorage.getItem(markerKey) === 'true') return;
-    window.localStorage.removeItem(key);
+    window.localStorage.removeItem(releaseKey);
+    window.localStorage.setItem(onboardingKey, 'true');
     window.sessionStorage.setItem(markerKey, 'true');
-  }, CURRENT_RELEASE_SEEN_KEY);
+  }, {
+    releaseKey: CURRENT_RELEASE_SEEN_KEY,
+    onboardingKey: FIRST_RUN_ONBOARDING_SEEN_KEY,
+  });
 }
 
 export async function markCurrentReleaseSeen(page: Page): Promise<void> {

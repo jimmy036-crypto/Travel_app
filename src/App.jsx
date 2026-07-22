@@ -52,6 +52,12 @@ import { listOfflineTripSummaries, removeOfflineTripSnapshot, readOfflineTripSna
 import { OfflineTripPreview } from './features/offline/OfflineTripPreview.jsx';
 import { DemoTripEntryCard } from './features/onboarding/DemoTripEntryCard.jsx';
 import { createTokyoDemoTrip } from './features/onboarding/demoTripData.js';
+import FirstRunWelcomeDialog from './features/onboarding/FirstRunWelcomeDialog.jsx';
+import {
+  markFirstRunOnboardingSeen,
+  readFirstRunEligibilitySnapshot,
+  shouldShowFirstRunOnboarding,
+} from './features/onboarding/onboardingState.js';
 
 const DEMO_TABS = new Set(['overview', 'itinerary', 'tickets', 'expenses', 'checklist']);
 
@@ -99,10 +105,24 @@ export default function TravelApp() {
     lastOnlineState.current = isOnline;
   }, [isOnline, hasBeenOffline, toast]);
 
+  const [firstRunSnapshot] = useState(() => readFirstRunEligibilitySnapshot());
+
   const [myTrips, setMyTrips] = useState(() => {
     const stored = readJsonStorage('google-travel-my-trips', []);
     return Array.isArray(stored) ? stored : [];
   });
+  const [suppressReleasePromptForFirstRunSession] = useState(
+    () => shouldShowFirstRunOnboarding(firstRunSnapshot)
+      && myTrips.length === 0
+      && !hasSeenCurrentRelease(),
+  );
+  const [firstRunResolved, setFirstRunResolved] = useState(
+    () => !suppressReleasePromptForFirstRunSession,
+  );
+  const [showFirstRunWelcome, setShowFirstRunWelcome] = useState(
+    () => suppressReleasePromptForFirstRunSession && !firstRunSnapshot.hasRoomDeepLink,
+  );
+  const firstRunCompletionRef = useRef(false);
   const [customBgColor, setCustomBgColor] = useState(() => readStorage('google-travel-custom-bg', '#d8b4e2'));
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showFeatureTour, setShowFeatureTour] = useState(false);
@@ -213,9 +233,52 @@ export default function TravelApp() {
   }, [customBgColor]);
 
   useEffect(() => {
-    if (releasePromptDeferred || hasSeenCurrentRelease()) return;
+    if (
+      suppressReleasePromptForFirstRunSession
+      || !firstRunResolved
+      || showFirstRunWelcome
+      || releasePromptDeferred
+      || hasSeenCurrentRelease()
+    ) return;
     setShowWhatsNew(true);
-  }, [releasePromptDeferred]);
+  }, [
+    firstRunResolved,
+    releasePromptDeferred,
+    showFirstRunWelcome,
+    suppressReleasePromptForFirstRunSession,
+  ]);
+
+  useEffect(() => {
+    if (
+      !suppressReleasePromptForFirstRunSession
+      || firstRunResolved
+      || showFirstRunWelcome
+      || activeRoomId
+      || offlinePreviewData
+      || demoPreviewState
+      || tripModalMode
+      || showImportModal
+      || showFeatureTour
+      || showTripTourSelection
+    ) return;
+    const isUxFoundationDemo = import.meta.env.DEV
+      && typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
+    if (isUxFoundationDemo) return;
+    setShowWhatsNew(false);
+    setShowFirstRunWelcome(true);
+  }, [
+    activeRoomId,
+    demoPreviewState,
+    firstRunResolved,
+    offlinePreviewData,
+    showFeatureTour,
+    showFirstRunWelcome,
+    showImportModal,
+    showTripTourSelection,
+    suppressReleasePromptForFirstRunSession,
+    tripModalMode,
+  ]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -321,6 +384,17 @@ export default function TravelApp() {
     setDemoPreviewState(null);
     openCreateModal();
   }, [openCreateModal]);
+
+  const completeFirstRunOnboarding = useCallback((action) => {
+    if (firstRunCompletionRef.current) return;
+    firstRunCompletionRef.current = true;
+    markFirstRunOnboardingSeen();
+    setFirstRunResolved(true);
+    setShowFirstRunWelcome(false);
+
+    if (action === 'demo') openBuiltInDemo('overview');
+    if (action === 'create') openCreateModal();
+  }, [openBuiltInDemo, openCreateModal]);
 
   const fillEmulatorRequiredFields = () => {
     const start = new Date();
@@ -621,7 +695,7 @@ export default function TravelApp() {
   const tourCtaMode = activeRoomId
     ? 'trip'
     : (hasTrips ? 'lobby-trips' : 'lobby-empty');
-  const releaseExperience = (
+  const releaseExperience = showFirstRunWelcome ? null : (
     <>
       {showWhatsNew ? (
         <WhatsNewDialog
@@ -684,7 +758,7 @@ export default function TravelApp() {
     );
   }
 
-  if (demoPreviewState) {
+  if (demoPreviewState && !showFirstRunWelcome) {
     return (
       <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入示範旅程...</div>}>
         <DemoTripPreview
@@ -700,7 +774,7 @@ export default function TravelApp() {
     );
   }
 
-  if (offlinePreviewData) return (
+  if (offlinePreviewData && !showFirstRunWelcome) return (
     <>
       <OfflineTripPreview
         summary={offlinePreviewData}
@@ -740,7 +814,7 @@ export default function TravelApp() {
     </>
   );
 
-  if (activeRoomId) return (
+  if (activeRoomId && !showFirstRunWelcome) return (
     <>
     <APIProvider apiKey={API_KEY}>
       <span
@@ -952,7 +1026,7 @@ export default function TravelApp() {
         )}
       </div>
 
-      {showImportModal && (
+      {!showFirstRunWelcome && showImportModal && (
         <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setShowImportModal(false)}>
           <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
             <h2 className={`text-xl font-black mb-2 ${t.mainText}`}>📥 匯入雲端行程</h2>
@@ -962,7 +1036,7 @@ export default function TravelApp() {
         </div>
       )}
 
-      {tripModalMode && (
+      {!showFirstRunWelcome && tripModalMode && (
         <APIProvider apiKey={API_KEY}>
           <div data-testid="trip-modal" style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setTripModalMode(null)}>
             <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto overflow-x-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
@@ -1066,6 +1140,14 @@ export default function TravelApp() {
       )}
     </div>
     <OfflineBanner isOnline={isOnline} />
+    {showFirstRunWelcome ? (
+      <FirstRunWelcomeDialog
+        t={t}
+        onOpenDemo={() => completeFirstRunOnboarding('demo')}
+        onCreateTrip={() => completeFirstRunOnboarding('create')}
+        onSkip={() => completeFirstRunOnboarding('skip')}
+      />
+    ) : null}
     {releaseExperience}
     </>
   );
