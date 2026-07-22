@@ -2,6 +2,16 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2F — Human-reviewed Round 1 Ingest
+
+- Recorded the human decision `APPROVE_FOR_REVIEWED_INGEST`, scoped only to ingesting the reviewed Round 1 contribution and updating Session/audit governance artifacts.
+- Validated and ingested `codex-clone-flow-analysis` from the local recovery into the active `clone-demo-architecture-pilot` Session. Parsed source and target JSON are exactly equal; recommendation, rationale, assumptions, options, risks, tests, evidence, unknowns, and confidence `0.92` were unchanged.
+- Added a reviewed-ingest Markdown record containing source identity, validation results, human scope, UTC review time, and Candidate/Recovery SHA-256 values without Candidate or Transcript content.
+- Advanced the Session only from `round-1-ready` to `round-1-complete`, with one Round 1 contribution and no Round 2 contribution.
+- Regenerated the deterministic audit with only `round-1-recorded` for `codex-clone-flow-analysis`.
+- The source Run remained immutable and the local recovery artifacts remained unchanged and untracked.
+- No Decision proposal, decision-level human approval, Assignment, product code change, Firebase Rules change, live Agent execution, production Firebase access, or deployment occurred.
+
 ## Phase AI-3B2B-R2E — Codex JSONL Candidate Recovery
 
 - Confirmed without printing transcript content that retry-2 contains 45 parseable JSONL events and terminates with `item.completed` / `agent_message` at event index 43 followed by `turn.completed`.

@@ -191,6 +191,8 @@ Inspect reports process, hash, schema, identity, round, and secret-pattern statu
 
 Open `candidate-response.json` inside `$runInfo.runDirectory` and read it completely. Verify repository evidence, assumptions, alternatives, risks, tests, unknowns, confidence, participant/session/round identity, and absence of sensitive data. Reject unsupported or unsafe content. Plan, Approval, stdout, stderr, candidate, and result files remain local and ignored.
 
-## K. Later, separate ingest
+## K. Human-reviewed ingest outcome
 
-This Runner never ingests automatically. Only after a human accepts the candidate should a later, separately authorized task validate a copied response artifact and call the Discussion ingest command. Do not combine review and ingest into this runbook, do not auto-answer prompts, and do not pipe output directly into the active Session.
+The Runner did not ingest automatically. A later human explicitly issued `APPROVE_FOR_REVIEWED_INGEST`, scoped only to the unchanged Round 1 contribution. The validated recovery Candidate was ingested once as `.ai/discussions/active/clone-demo-architecture-pilot/responses/round-1/codex-clone-flow-analysis.json`, with a separate review record under `reviews/round-1/`.
+
+Parsed source and target JSON are exactly equal. The Session advanced only to `round-1-complete`, and deterministic `audit.json` contains only the `round-1-recorded` event. The source Run and recovery artifacts remained unchanged and local. No Decision proposal, decision-level human approval, Assignment, product implementation, Firebase Rules change, production Firebase access, live Agent execution during ingest, or deployment occurred.

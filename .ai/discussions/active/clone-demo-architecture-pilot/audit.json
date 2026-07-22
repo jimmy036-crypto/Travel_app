@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-audit",
+  "fixture": false,
+  "source": "human-brief",
+  "sessionId": "clone-demo-architecture-pilot",
+  "events": [
+    {
+      "sequence": 1,
+      "event": "round-1-recorded",
+      "artifactId": "codex-clone-flow-analysis"
+    }
+  ]
+}

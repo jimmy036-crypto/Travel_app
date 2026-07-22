@@ -85,6 +85,7 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Synthetic fixture labelling | Fixture check | Every fixture JSON declares `fixture: true` and `source: synthetic-test-fixture` |
 | Deterministic packets | Repeated generation tests | Identical session state produces byte-equivalent packet/audit data |
 | Execution-disabled enforcement | Schema, packet, invocation, and assignment tests | External Agent execution and all write/deploy permissions remain false |
+| Human-reviewed ingest | Candidate/source comparison, Session status, and deterministic audit checks | Explicit reviewed-ingest scope records the unchanged contribution, advances only Round 1, and creates no Decision, decision approval, or Assignment |
 
 ## Controlled Live Runner Validation
 
@@ -107,6 +108,20 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Codex schema compatibility | Recursive Runner schema tests and `ai:runner:check` | Transport schemas reject lookaround, backreferences, remote/unresolved refs, unsupported formats/keywords, and incomplete strict object declarations before a live run |
 | Transport/canonical boundary | Plan/hash and candidate tests | Plans bind both schema layers; Codex receives the transport schema while every candidate still passes canonical Discussion and repository-path validation |
 | Codex JSONL Candidate recovery | Runner extraction and recovery tests | Only terminal final-agent-message text is eligible; offline recovery preserves the source Run, validates canonical identity, separates secret scopes, never ingests, and refuses overwrite |
+
+## Phase AI-3B2B-R2F Evidence
+
+- Human explicitly approved `APPROVE_FOR_REVIEWED_INGEST` for contribution ingest only; no product, implementation, Decision, Assignment, Firebase, or deployment approval was granted.
+- The recovered Candidate validated as `discussion-analysis` for `clone-demo-architecture-pilot` / `codex-clone-flow-analysis`. Parsed source and tracked target JSON are exactly equal, all required content collections retain their source lengths, and confidence remains `0.92`.
+- The reviewed-ingest record binds Candidate SHA-256 `96dca94f94139cb99013f039b8bf1a8c68e237e92e47bf3a38a04e8e77db2abc` and Recovery Result SHA-256 `b62da930d1f5afd8cb6042c9ff8b53cacc9d5d60db7ec6cac233d6bcb11ae3d7` without reproducing Candidate or Transcript content.
+- Session validation reports `round-1-complete`, exactly one Round 1 contribution, empty Round 2, `not-proposed` Decision, pending decision-level human approval, empty Assignments, and execution disabled. The deterministic audit contains only `round-1-recorded`.
+- `npm run ai:discussion:test`: 56 passed; check and validate passed for 19 artifacts, 1 synthetic fixture, and 1 active Session.
+- `npm run ai:runner:test`: 165 passed; Runner check and validate passed for 4 disabled artifacts.
+- `npm run ai:adapters:test`: 40 passed; adapter check passed and 9 invocation examples validated.
+- `npm run ai:artifacts:test`: 19 passed; 2 rendered artifacts checked and 2 source artifacts validated.
+- `npm run typecheck`, `npm run lint`, `npm run build`, `npm run agent:guardrails`, and `npm run agent:verify`: passed; verify included 43 Vitest files / 652 tests.
+- `git diff --check` passed and `package-lock.json` is unchanged. Playwright was not run, as required.
+- The source Run and local recovery artifacts remained unchanged. Candidate content was not edited; no live Agent executed, no product code or Firebase Rules changed, no production Firebase was accessed, and no deployment occurred.
 
 ## Phase AI-3B2B-R2E Evidence
 
