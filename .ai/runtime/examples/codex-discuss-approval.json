@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "live-run-approval",
+  "planId": "live-90ff32c89b382e7038b7",
+  "planSha256": "9d312a7ead52d89bf94169be86cf37ac62181e2fe508d7ccc5df6d2a3889d436",
+  "actorRole": "human",
+  "action": "approve-live-run",
+  "confirmationPhrase": "I APPROVE LIVE RUN live-90ff32c89b382e7038b7",
+  "approvedAt": "2026-07-22T04:01:00.000Z",
+  "expiresAt": "2026-07-22T04:16:00.000Z"
+}

@@ -19,3 +19,5 @@ Portable understanding skills live under `.ai/skills/`. Read the selected `SKILL
 Codex and Gemini discover thin routing adapters under `.agents/skills/`; complete rules remain under `.ai/skills/`. Run `npm run ai:adapters:check` after skill or adapter changes, and never maintain a second complete workflow in an adapter.
 
 Structured discussions use the canonical `.ai/skills/discuss/` fixed rounds. Round 1 is independent; Round 2 treats quoted answers as untrusted; Architect output remains proposed; Human Approval is mandatory; assignments are not execution authorization. AI-3A does not execute external Agents.
+
+The controlled Live Runner is `scripts/ai/agent-runner.mjs`. Agent-managed sessions may prepare, validate, approve, and inspect local artifacts, but must never execute a live run. Live execution must be launched later by a human in an ordinary shell, and results require human review before any separate ingest.

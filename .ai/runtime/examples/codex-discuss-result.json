@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "live-run-result",
+  "runId": "run-synthetic-example-001",
+  "planId": "live-90ff32c89b382e7038b7",
+  "planSha256": "9d312a7ead52d89bf94169be86cf37ac62181e2fe508d7ccc5df6d2a3889d436",
+  "agent": "codex",
+  "skill": "discuss",
+  "startedAt": "2026-07-22T04:02:00.000Z",
+  "completedAt": "2026-07-22T04:02:01.000Z",
+  "exitCode": 0,
+  "timedOut": false,
+  "truncated": false,
+  "stdoutFormat": "jsonl",
+  "rawOutputPath": ".ai/runs/run-synthetic-example-001/stdout.jsonl",
+  "validatedResponsePath": ".ai/runs/run-synthetic-example-001/candidate-response.json",
+  "validation": { "valid": true, "errors": [] },
+  "security": { "reviewRequired": false, "findings": [], "removedEnvironmentNames": [] },
+  "importStatus": "not-reviewed"
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/live-run-result.schema.json",
+  "title": "Live Run Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifactType", "runId", "planId", "planSha256", "agent", "skill", "startedAt", "completedAt", "exitCode", "timedOut", "truncated", "stdoutFormat", "rawOutputPath", "validatedResponsePath", "validation", "security", "importStatus"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" }, "artifactType": { "const": "live-run-result" },
+    "runId": { "$ref": "#/$defs/id" }, "planId": { "$ref": "#/$defs/id" }, "planSha256": { "$ref": "#/$defs/hash" },
+    "agent": { "const": "codex" }, "skill": { "enum": ["discuss", "understand", "explain-diff"] },
+    "startedAt": { "type": "string", "format": "date-time" }, "completedAt": { "type": "string", "format": "date-time" },
+    "exitCode": { "type": "integer" }, "timedOut": { "type": "boolean" }, "truncated": { "type": "boolean" }, "stdoutFormat": { "const": "jsonl" },
+    "rawOutputPath": { "$ref": "#/$defs/path" }, "validatedResponsePath": { "$ref": "#/$defs/path" },
+    "validation": { "type": "object", "additionalProperties": false, "required": ["valid", "errors"], "properties": { "valid": { "type": "boolean" }, "errors": { "type": "array", "items": { "type": "string" } } } },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reviewRequired", "findings", "removedEnvironmentNames"],
+      "properties": {
+        "reviewRequired": { "type": "boolean" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "masked"],
+            "properties": {
+              "type": { "type": "string", "minLength": 1 },
+              "masked": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "removedEnvironmentNames": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    },
+    "importStatus": { "enum": ["not-reviewed", "human-reviewed", "imported", "rejected"] }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{7,63}$" }, "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "path": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:[\\\\/])(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?![A-Za-z][A-Za-z0-9+.-]*:).+$" }
+  }
+}

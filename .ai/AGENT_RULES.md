@@ -59,3 +59,10 @@ Phase AI-2B adapters are routing layers only. They must never become competing s
 - Architects may produce only `proposed` decisions. Only a human may approve, reject, or request changes.
 - Human approval permits execution-disabled assignment planning only. An assignment is not execution authorization.
 - Phase AI-3A never invokes an external Agent or grants repository write access to a participant.
+
+## Controlled Live Runner Boundary
+
+- An Agent running inside an Agent-managed environment must never launch a nested live Agent through this runner.
+- Committed policy and prepared plans remain disabled; a short-lived, plan-hash-bound human approval is mandatory.
+- Phase AI-3B1 enables no provider execution from this session. A future Codex run must start in an ordinary human shell.
+- Claude and Gemini live execution remain disabled. Results are never ingested automatically.

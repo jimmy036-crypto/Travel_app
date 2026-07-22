@@ -1,6 +1,6 @@
 # Agent Capability Matrix
 
-Capabilities below describe the checked-in routing design. They do not claim that an external CLI prompt was executed during Phase AI-3A.
+Capabilities below describe the checked-in routing design. They do not claim that an external CLI prompt was executed during Phase AI-3B1.
 
 | Capability | Codex | Claude | Gemini |
 |---|---|---|---|
@@ -14,3 +14,5 @@ Capabilities below describe the checked-in routing design. They do not claim tha
 | Schema-constrained output | schema path supplied | schema path supplied | schema path supplied |
 | Read-only mode | planned sandbox | planned permission mode | planned no-write prompt |
 | Current AI-3A execution status | plan-only | plan-only | plan-only |
+| Runner plan | supported | disabled | disabled |
+| Live execution | human shell only; not yet performed | disabled | disabled |

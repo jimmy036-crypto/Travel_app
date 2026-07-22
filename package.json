@@ -35,7 +35,11 @@
     "ai:invocations:validate": "node scripts/ai/agent-adapter.mjs validate-all",
     "ai:discussion:test": "node --test scripts/ai/discussion.test.mjs",
     "ai:discussion:validate": "node scripts/ai/discussion.mjs validate-all",
-    "ai:discussion:check": "node scripts/ai/discussion.mjs check"
+    "ai:discussion:check": "node scripts/ai/discussion.mjs check",
+    "ai:runner:test": "node --test scripts/ai/agent-runner.test.mjs",
+    "ai:runner:check": "node scripts/ai/agent-runner.mjs check",
+    "ai:runner:doctor": "node scripts/ai/agent-runner.mjs doctor",
+    "ai:runner:validate": "node scripts/ai/agent-runner.mjs validate-all"
   },
   "dependencies": {
     "@capacitor/core": "^8.4.0",

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "live-run-plan",
+  "planId": "live-90ff32c89b382e7038b7",
+  "createdAt": "2026-07-22T04:00:00.000Z",
+  "agent": "codex",
+  "skill": "discuss",
+  "mode": "read-only-analysis",
+  "workingDirectory": ".",
+  "packetPath": ".ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json",
+  "packetSha256": "34732283f0efef968896edbebf00d81cddfe06aaab4e2e140ea1fd2f898bf0df",
+  "adapterPath": ".agents/skills/discuss/SKILL.md",
+  "adapterSha256": "9446bb6a0ae3aa414d1deb552e8fcfb0cb2e98bc3cb3330bf82a43608bdc006b",
+  "outputSchema": ".ai/schemas/discussion-analysis.schema.json",
+  "outputSchemaSha256": "b1e6aa6b0e6120cb77c0ebff3f971050a29ce4f3b4ffd6a0344f0b6334e4019b",
+  "argv": ["codex", "exec", "--ephemeral", "--sandbox", "read-only", "--json", "-"],
+  "stdinSource": ".ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json",
+  "permissions": { "filesystem": "read-only", "network": false, "productionFirebase": false, "gitWrite": false, "deploy": false },
+  "limits": { "maxRuntimeSeconds": 600, "maxOutputBytes": 5242880 },
+  "execution": { "enabled": false, "reason": "Preparation only. A hash-bound human approval and enabled local policy are required from an ordinary shell." },
+  "planSha256": "9d312a7ead52d89bf94169be86cf37ac62181e2fe508d7ccc5df6d2a3889d436"
+}

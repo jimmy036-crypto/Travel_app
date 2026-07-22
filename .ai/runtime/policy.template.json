@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "live-run-policy",
+  "executionEnabled": false,
+  "allowedAgents": ["codex"],
+  "allowedSkills": ["discuss", "understand", "explain-diff"],
+  "allowedModes": ["read-only-analysis"],
+  "allowedUntrackedPaths": [".ai/runtime/local/", ".ai/runs/"],
+  "network": false,
+  "productionFirebase": false,
+  "gitWrite": false,
+  "deploy": false,
+  "nestedExecution": false,
+  "maxRuntimeSeconds": 600,
+  "maxOutputBytes": 5242880,
+  "requireApproval": true,
+  "resultImportMode": "manual"
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/live-run-approval.schema.json",
+  "title": "Live Run Approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifactType", "planId", "planSha256", "actorRole", "action", "confirmationPhrase", "approvedAt", "expiresAt"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" }, "artifactType": { "const": "live-run-approval" },
+    "planId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{7,63}$" }, "planSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "actorRole": { "const": "human" }, "action": { "const": "approve-live-run" },
+    "confirmationPhrase": { "type": "string", "pattern": "^I APPROVE LIVE RUN [a-z0-9][a-z0-9-]{7,63}$" },
+    "approvedAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" }
+  }
+}

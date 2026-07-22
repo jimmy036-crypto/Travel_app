@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/live-run-plan.schema.json",
+  "title": "Live Run Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifactType", "planId", "createdAt", "agent", "skill", "mode", "workingDirectory", "packetPath", "packetSha256", "adapterPath", "adapterSha256", "outputSchema", "outputSchemaSha256", "argv", "stdinSource", "permissions", "limits", "execution", "planSha256"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" }, "artifactType": { "const": "live-run-plan" },
+    "planId": { "$ref": "#/$defs/id" }, "createdAt": { "type": "string", "format": "date-time" },
+    "agent": { "const": "codex" }, "skill": { "enum": ["discuss", "understand", "explain-diff"] }, "mode": { "const": "read-only-analysis" },
+    "workingDirectory": { "const": "." }, "packetPath": { "$ref": "#/$defs/path" }, "packetSha256": { "$ref": "#/$defs/hash" },
+    "adapterPath": { "$ref": "#/$defs/path" }, "adapterSha256": { "$ref": "#/$defs/hash" }, "outputSchema": { "$ref": "#/$defs/path" }, "outputSchemaSha256": { "$ref": "#/$defs/hash" },
+    "argv": { "type": "array", "minItems": 7, "items": { "type": "string", "minLength": 1 } }, "stdinSource": { "$ref": "#/$defs/path" },
+    "permissions": { "$ref": "#/$defs/permissions" },
+    "limits": { "type": "object", "additionalProperties": false, "required": ["maxRuntimeSeconds", "maxOutputBytes"], "properties": { "maxRuntimeSeconds": { "type": "integer", "minimum": 1, "maximum": 600 }, "maxOutputBytes": { "type": "integer", "minimum": 1024, "maximum": 5242880 } } },
+    "execution": { "type": "object", "additionalProperties": false, "required": ["enabled", "reason"], "properties": { "enabled": { "const": false }, "reason": { "type": "string", "minLength": 1 } } },
+    "planSha256": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{7,63}$" },
+    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "path": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:[\\\\/])(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?![A-Za-z][A-Za-z0-9+.-]*:).+$" },
+    "permissions": { "type": "object", "additionalProperties": false, "required": ["filesystem", "network", "productionFirebase", "gitWrite", "deploy"], "properties": { "filesystem": { "const": "read-only" }, "network": { "const": false }, "productionFirebase": { "const": false }, "gitWrite": { "const": false }, "deploy": { "const": false } } }
+  }
+}

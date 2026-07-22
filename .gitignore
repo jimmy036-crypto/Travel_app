@@ -61,6 +61,10 @@ coverage/
 .ai/artifacts/tmp/
 .ai/artifacts/drafts/
 
+# Controlled Agent runner local policy, approvals, plans, and output.
+.ai/runtime/local/
+.ai/runs/
+
 # Active agent handoff is local task state; commit reusable templates instead.
 tasks/active/HANDOFF.md
 

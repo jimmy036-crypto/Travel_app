@@ -2,6 +2,17 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B1 — Controlled Live Runner Foundation
+
+- Added the controlled live runner foundation.
+- Added plan-hash-bound, expiring human approval.
+- Added a non-bypassable nested Agent execution guard.
+- Added CLI capability feature detection, timeout and output limits, and secret environment-name redaction.
+- Added schema-validated results with manual-only import status.
+- No live Agent prompt was executed.
+- No product behavior changed.
+- No deployment was performed.
+
 ## 2026-07-22 — AI Project OS Foundation
 
 - Established `.ai/` as the single source of truth for project status, architecture, roadmap, ADRs, risks, roles, test strategy, active tasks, and machine-readable schemas.

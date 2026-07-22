@@ -85,3 +85,16 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Synthetic fixture labelling | Fixture check | Every fixture JSON declares `fixture: true` and `source: synthetic-test-fixture` |
 | Deterministic packets | Repeated generation tests | Identical session state produces byte-equivalent packet/audit data |
 | Execution-disabled enforcement | Schema, packet, invocation, and assignment tests | External Agent execution and all write/deploy permissions remain false |
+
+## Controlled Live Runner Validation
+
+| Check | Evidence | Required behavior |
+|---|---|---|
+| Disabled policy | Runner schemas, examples, and check | Committed execution stays false; only Codex is allowlisted |
+| Plan and approval binding | Runner Node tests | Stable plan IDs, content hashes, exact phrases, expiry, and single use are enforced |
+| Nested execution guard | Runner Node tests | Known Codex, Claude, and Gemini managed environments block execute without bypass |
+| Capability detection | Injected doctor tests | Required Codex flags are detected; Claude and Gemini remain ineligible |
+| Subprocess boundary | Mock subprocess tests | `spawn`, `shell:false`, separate argv/stdin, timeouts, byte limits, and stdout/stderr isolation |
+| Secret handling | Redaction and output-scan tests | Secret-named environment entries are removed without values; suspicious output blocks import eligibility |
+| Result review | Result and inspect tests | Structured candidates are validated and remain `not-reviewed`; no automatic ingest occurs |
+| Local-only artifacts | Prepare/approval/run tests | Plans, approvals, used markers, and raw output remain under ignored local directories |
