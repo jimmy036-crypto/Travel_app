@@ -1,16 +1,20 @@
 # Project Status
 
 - **Project Name:** Travel App
-- **Current Phase:** Phase AI-1 — AI Project OS Foundation validated. Product work is delivered through Phase 7B-3 on `feature/first-run-guided-demo`; the stable `main` baseline currently includes Phase 7A.
-- **Current Branch:** `chore/ai-project-os-foundation`
+- **Current Phase:** Phase AI-1.1 — AI Project OS aligned with Phase 7B-3
+- **Current Branch:** `chore/ai-project-os-on-guided-demo`
+- **Product Baseline:** `feature/first-run-guided-demo`
+- **Latest Product Commit:** `c847650e6ea2fc58d6bee7b60f72a290e4fc3b21`
 - **Latest Stable Commit:** `000650cd1aba2eeabf08361fed6c9018843fae6b` on `origin/main`
-- **Active Feature:** Repository-local AI governance, shared project context, role boundaries, task records, and exchange schemas.
-- **Roadmap Progress:** Product phases 1–7A are merged to `main`; Phase 7B-1 through 7B-3 are delivered on a feature branch and await merge; AI-1 is complete on its foundation branch.
-- **Current Risks:** Phase 7B branch divergence, large App/TripDetail coordination surfaces, local member identity not being authorization, Emulator-heavy regression cost, and real-device PWA/link behavior pending manual confirmation.
+- **Active Feature:** AI Project OS alignment and preparation for Understanding Skills
+- **Completed Product Work:** Phase 7B-1, Phase 7B-2, and Phase 7B-3
+- **Completed AI Work:** Phase AI-1 and Phase AI-1.1
+- **Roadmap Progress:** Phase 7B-1 through Phase 7B-3 and Phase AI-1 through Phase AI-1.1 are complete on this integration branch.
+- **Current Risks:** Large App/TripDetail coordination surfaces, local member identity not being authorization, Emulator-heavy regression cost, documentation drift, and real-device PWA/link behavior pending manual confirmation.
 - **Current Decisions:** Built-in Demo is local-only and read-only, Demo is excluded from `myTrips`, Clone Flow is deferred, Offline Preview is read-only, and FeatureTour remains unchanged by the Demo phases.
-- **Regression Status:** The latest recorded Phase 7B-3 validation passed 652 Vitest tests and 184 Playwright tests, with 14 existing conditional PWA skips. This evidence belongs to commit `c847650e6ea2fc58d6bee7b60f72a290e4fc3b21`, not the current `main` commit.
-- **Testing Status:** Repository guardrails, typecheck, lint, 536 Vitest tests, production build, schema parsing, scope checks, and `git diff --check` passed. No E2E was required because no product behavior or browser flow changed.
-- **Production Status:** No deploy is part of the active work. Production Firebase access is prohibited for agent validation, and production release state is not inferred from Git history.
-- **Upcoming Milestone:** Complete AI-1, then standardize task lifecycle and machine-readable agent handoffs in Phase AI-2.
+- **Regression Status:** Phase 7B-3 recorded 652 passing Vitest tests and 184 passing Playwright tests, with 14 existing conditional PWA skips. That evidence belongs to product commit `c847650e6ea2fc58d6bee7b60f72a290e4fc3b21`. This AI Project OS alignment changes no product code and does not claim that the complete E2E matrix was rerun for this alignment.
+- **Testing Status:** Schema parsing, typecheck, lint, production build, allowed-path review, and `git diff --check` passed for this alignment. Complete Playwright was not rerun because the alignment changes governance files only.
+- **Production Status:** No deployment performed.
+- **Upcoming Milestone:** Phase AI-2 — Understand and Explain Diff Skills
 
-Update this file whenever the active branch, stable baseline, validation evidence, or milestone changes.
+Update this file whenever the active branch, product baseline, validation evidence, or milestone changes.

@@ -9,3 +9,14 @@ Record important AI-governance changes and decisions. Product release notes rema
 - Recorded the existing Demo, Offline Preview, Clone Flow, and FeatureTour decisions as ADRs.
 - Added shared schemas for agent responses, tasks, and decisions without adding SDKs, MCP configuration, CI, or production code.
 - Kept provider-specific root files as navigation only so they cannot drift into separate project histories.
+
+## Phase AI-1.1 — AI Project OS Alignment
+
+- The original AI Project OS branch was based on `main`.
+- A clean integration worktree was created from `feature/first-run-guided-demo`.
+- The AI Project OS foundation commit was cherry-picked.
+- Existing untracked files in the original worktree were left untouched.
+- No production source code changed.
+- No product behavior changed.
+- No deployment was performed.
+- No branch history was rewritten.
