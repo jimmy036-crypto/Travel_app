@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "work-assignment", "fixture": false, "source": "template",
+  "sessionId": "example-session", "assignmentId": "example-assignment", "title": "Non-executing assignment plan",
+  "ownerAgent": "gemini", "ownerRole": "docs", "mode": "documentation", "objective": "Describe the approved work without executing it",
+  "allowedPaths": ["docs/features"], "forbiddenPaths": ["src", "e2e", "firebase"], "dependencies": [],
+  "acceptanceCriteria": ["Human reviews the plan"], "validation": ["No execution is performed"],
+  "reviewer": "reviewer", "qaOwner": "qa-owner", "executionEnabled": false
+}

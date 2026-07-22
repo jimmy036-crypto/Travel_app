@@ -20,8 +20,11 @@ import {
 const tempRoots = [];
 const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, MANIFEST_PATH), 'utf8'));
 const exampleNames = [
+  'codex-discuss.json',
   'codex-understand.json',
+  'claude-discuss.json',
   'claude-understand.json',
+  'gemini-discuss.json',
   'gemini-understand.json',
   'codex-explain-diff.json',
   'claude-explain-diff.json',
@@ -35,6 +38,7 @@ const requiredPaths = [
     `${path.posix.dirname(skill.canonicalPath)}/OUTPUT_CONTRACT.md`,
     `${path.posix.dirname(skill.canonicalPath)}/EXAMPLE.md`,
     skill.outputSchema,
+    ...(skill.outputSchemas ?? []),
     ...Object.values(skill.adapters),
   ]),
   ...exampleNames.map((name) => `.ai/invocations/examples/${name}`),
@@ -72,11 +76,11 @@ test.after(() => {
 });
 
 test('manifest validates', () => {
-  assert.equal(validateManifest(structuredClone(manifest)).skills.length, 2);
+  assert.equal(validateManifest(structuredClone(manifest)).skills.length, 3);
 });
 
 test('canonical hashes match', () => {
-  assert.equal(checkAdapters().manifest.skills.length, 2);
+  assert.equal(checkAdapters().manifest.skills.length, 3);
 });
 
 test('missing canonical fails', () => {
@@ -262,8 +266,34 @@ test('planner output is deterministic', () => {
 });
 
 test('examples validate', () => {
-  assert.equal(validateAllInvocations().length, 6);
+  assert.equal(validateAllInvocations().length, 9);
   assert.equal(loadInvocation('.ai/invocations/examples/gemini-understand.json').agent, 'gemini');
+});
+
+test('Codex discussion plan is read-only', () => {
+  const plan = buildInvocationPlan('codex', 'discuss', ['.ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json']);
+  assert.equal(plan.permissions.filesystem, 'read-only');
+  assert.equal(plan.execution.enabled, false);
+  assert.deepEqual(plan.execution.headlessArgvPreview.slice(0, 5), ['codex', 'exec', '--sandbox', 'read-only', '--ephemeral']);
+});
+
+test('Claude discussion plan is plan-only', () => {
+  const plan = buildInvocationPlan('claude', 'discuss', ['.ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json']);
+  assert.equal(plan.mode, 'plan-only');
+  assert.deepEqual(plan.execution.headlessArgvPreview.slice(-4), ['--permission-mode', 'plan', '--output-format', 'json']);
+});
+
+test('Gemini discussion plan uses JSON output', () => {
+  const plan = buildInvocationPlan('gemini', 'discuss', ['.ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json']);
+  assert.deepEqual(plan.execution.headlessArgvPreview.slice(-2), ['--output-format', 'json']);
+});
+
+test('no discussion plan enables execution', () => {
+  for (const agent of ['codex', 'claude', 'gemini']) {
+    const plan = buildInvocationPlan(agent, 'discuss', ['.ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json']);
+    assert.equal(plan.execution.enabled, false);
+    assert.equal(plan.permissions.network, false);
+  }
 });
 
 test('check validates regular files', () => {

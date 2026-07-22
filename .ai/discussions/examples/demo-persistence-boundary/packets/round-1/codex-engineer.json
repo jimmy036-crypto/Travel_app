@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-packet",
+  "fixture": true,
+  "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary",
+  "round": "round-1",
+  "participant": { "participantId": "codex-engineer", "agent": "codex", "role": "engineer" },
+  "outputSchema": ".ai/schemas/discussion-analysis.schema.json",
+  "payload": {
+    "brief": {
+      "title": "Should the built-in demo write to Firebase?",
+      "topic": "Built-in Demo persistence boundary",
+      "objective": "Demonstrate the fixed-round protocol using the accepted local-only Demo boundary.",
+      "questions": ["Should the built-in Demo write to Firebase?", "Which boundaries prove that behavior?", "Which regression checks preserve it?"]
+    },
+    "context": {
+      "knownFacts": ["The built-in Demo is local-only and read-only.", "The Demo is not added to myTrips.", "These contributions are synthetic and were not produced by external Agents."],
+      "repositoryPaths": ["src/features/onboarding/demoTripData.js", "src/features/onboarding/DemoTripPreview.jsx", ".ai/DECISIONS.md"],
+      "decisions": ["Demo does not write Firebase.", "Demo does not join myTrips."]
+    },
+    "constraints": ["Do not modify product code.", "Do not access Firebase.", "Do not treat fixture responses as real Agent records."]
+  },
+  "permissions": { "filesystem": "read-only", "network": false, "productionFirebase": false, "gitWrite": false, "deploy": false },
+  "execution": { "enabled": false, "reason": "AI-3A packets are import-only and never execute an external Agent." }
+}

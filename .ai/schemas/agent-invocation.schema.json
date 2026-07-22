@@ -23,7 +23,7 @@
     "schemaVersion": { "const": "1.0.0" },
     "artifactType": { "const": "agent-invocation" },
     "agent": { "enum": ["codex", "claude", "gemini"] },
-    "skill": { "enum": ["understand", "explain-diff"] },
+    "skill": { "enum": ["understand", "explain-diff", "discuss"] },
     "mode": { "const": "plan-only" },
     "workingDirectory": { "$ref": "#/$defs/repositoryPath" },
     "canonicalSkill": { "$ref": "#/$defs/repositoryPath" },
@@ -31,7 +31,8 @@
     "arguments": {
       "oneOf": [
         { "$ref": "#/$defs/understandArguments" },
-        { "$ref": "#/$defs/explainDiffArguments" }
+        { "$ref": "#/$defs/explainDiffArguments" },
+        { "$ref": "#/$defs/discussionArguments" }
       ]
     },
     "permissions": {
@@ -91,6 +92,16 @@
         "baseRef": { "type": "string", "minLength": 1 },
         "headRef": { "type": "string", "minLength": 1 }
       }
+    },
+    "discussionArguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sessionPacket", "participantId", "round"],
+      "properties": {
+        "sessionPacket": { "$ref": "#/$defs/repositoryPath" },
+        "participantId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+        "round": { "enum": ["round-1", "round-2", "decision"] }
+      }
     }
   },
   "allOf": [
@@ -101,6 +112,10 @@
     {
       "if": { "properties": { "skill": { "const": "explain-diff" } } },
       "then": { "properties": { "arguments": { "$ref": "#/$defs/explainDiffArguments" } } }
+    },
+    {
+      "if": { "properties": { "skill": { "const": "discuss" } } },
+      "then": { "properties": { "arguments": { "$ref": "#/$defs/discussionArguments" } } }
     }
   ]
 }

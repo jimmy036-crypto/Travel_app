@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-audit", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary",
+  "events": [
+    { "sequence": 1, "event": "round-1-recorded", "artifactId": "r1-codex-analysis" },
+    { "sequence": 2, "event": "round-1-recorded", "artifactId": "r1-gemini-analysis" },
+    { "sequence": 3, "event": "round-1-recorded", "artifactId": "r1-reviewer-analysis" },
+    { "sequence": 4, "event": "round-2-recorded", "artifactId": "r2-codex-critique" },
+    { "sequence": 5, "event": "round-2-recorded", "artifactId": "r2-gemini-critique" },
+    { "sequence": 6, "event": "round-2-recorded", "artifactId": "r2-reviewer-critique" },
+    { "sequence": 7, "event": "decision-proposed", "artifactId": "demo-no-firebase" },
+    { "sequence": 8, "event": "human-approved", "artifactId": "demo-no-firebase" },
+    { "sequence": 9, "event": "assignment-planned", "artifactId": "docs-boundary" },
+    { "sequence": 10, "event": "assignment-planned", "artifactId": "qa-boundary" }
+  ]
+}

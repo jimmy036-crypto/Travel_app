@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "work-assignment", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "assignmentId": "qa-boundary", "title": "Plan Demo persistence regression checks",
+  "ownerAgent": "human", "ownerRole": "qa", "mode": "qa", "objective": "Plan verification that Demo opening leaves Firebase, myTrips, and Offline Cache unchanged.",
+  "allowedPaths": ["src/App.guidedDemoIntegration.test.jsx"], "forbiddenPaths": ["src/App.jsx", "firebase", "database.rules.json"], "dependencies": [],
+  "acceptanceCriteria": ["All persistence-negative assertions are identified."], "validation": ["QA plan is reviewed independently before execution."],
+  "reviewer": "reviewer", "qaOwner": "qa-owner", "executionEnabled": false
+}

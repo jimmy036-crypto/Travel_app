@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/discussion-decision.schema.json",
+  "title": "Architect Discussion Proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifactType", "fixture", "source", "sessionId", "decisionId", "status", "proposedBy", "selectedOption", "rationale", "acceptedArguments", "rejectedAlternatives", "risks", "mitigations", "requiredTests", "proposedAssignments", "unresolvedQuestions", "evidence", "humanApprovalRequired"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" }, "artifactType": { "const": "discussion-decision" },
+    "fixture": { "type": "boolean" }, "source": { "type": "string", "minLength": 1 },
+    "sessionId": { "$ref": "#/$defs/id" }, "decisionId": { "$ref": "#/$defs/id" }, "status": { "const": "proposed" },
+    "proposedBy": { "$ref": "#/$defs/identity" }, "selectedOption": { "type": "string", "minLength": 1 },
+    "rationale": { "$ref": "#/$defs/strings" }, "acceptedArguments": { "$ref": "#/$defs/strings" }, "rejectedAlternatives": { "$ref": "#/$defs/strings" },
+    "risks": { "$ref": "#/$defs/strings" }, "mitigations": { "$ref": "#/$defs/strings" }, "requiredTests": { "$ref": "#/$defs/strings" },
+    "proposedAssignments": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+    "unresolvedQuestions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/evidence" } },
+    "humanApprovalRequired": { "const": true }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "strings": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "identity": { "type": "object", "additionalProperties": false, "required": ["participantId", "agent", "role"], "properties": { "participantId": { "$ref": "#/$defs/id" }, "agent": { "enum": ["codex", "claude", "gemini", "human"] }, "role": { "const": "architect" } } },
+    "evidence": { "type": "object", "additionalProperties": false, "required": ["claim", "path", "symbol"], "properties": { "claim": { "type": "string", "minLength": 1 }, "path": { "$ref": "#/$defs/path" }, "symbol": { "type": "string", "minLength": 1 } } },
+    "path": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:[\\\\/])(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?![A-Za-z][A-Za-z0-9+.-]*:).+$" }
+  }
+}

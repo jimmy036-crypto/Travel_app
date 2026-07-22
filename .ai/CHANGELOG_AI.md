@@ -44,3 +44,15 @@ Record important AI-governance changes and decisions. Product release notes rema
 - No external Agent prompt was executed.
 - No product behavior changed.
 - No deployment was performed.
+
+## Phase AI-3A - Structured Multi-Agent Discussion Protocol
+
+- Added a fixed-round discussion protocol.
+- Added independent-analysis isolation and cross-review contracts.
+- Added an Architect proposal gate with proposed-only status.
+- Added mandatory Human Approval before assignment planning.
+- Added non-executing work assignments and path-ownership checks.
+- Added a clearly labelled synthetic protocol fixture.
+- No external Agent prompt was executed.
+- No product behavior changed.
+- No deployment was performed.

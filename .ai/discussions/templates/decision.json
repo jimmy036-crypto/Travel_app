@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-decision", "fixture": false, "source": "template",
+  "sessionId": "example-session", "decisionId": "example-decision", "status": "proposed",
+  "proposedBy": { "participantId": "architect", "agent": "codex", "role": "architect" },
+  "selectedOption": "Selected option", "rationale": ["Synthesis rationale"], "acceptedArguments": ["Accepted Round argument"],
+  "rejectedAlternatives": ["Rejected alternative and reason"], "risks": ["Residual risk"], "mitigations": ["Mitigation"],
+  "requiredTests": ["Validation before execution"], "proposedAssignments": ["assignments/example-assignment.json"],
+  "unresolvedQuestions": ["Question retained for human review"],
+  "evidence": [{ "claim": "Proposal claim", "path": ".ai/ARCHITECTURE.md", "symbol": "Relevant boundary" }],
+  "humanApprovalRequired": true
+}

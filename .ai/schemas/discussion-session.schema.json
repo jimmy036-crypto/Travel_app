@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/discussion-session.schema.json",
+  "title": "Discussion Session",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifactType", "fixture", "source", "sessionId", "title", "topic", "objective", "status", "executionMode", "context", "constraints", "questions", "participants", "rounds", "decision", "humanApproval", "assignments", "timestamps"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "artifactType": { "const": "discussion-session" },
+    "fixture": { "type": "boolean" },
+    "source": { "type": "string", "minLength": 1 },
+    "sessionId": { "$ref": "#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 },
+    "topic": { "type": "string", "minLength": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["draft", "round-1-ready", "round-1-complete", "round-2-ready", "round-2-complete", "decision-proposed", "changes-requested", "human-approved", "human-rejected", "assignments-ready", "completed", "blocked"] },
+    "executionMode": { "const": "import-only" },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["knownFacts", "repositoryPaths", "decisions"],
+      "properties": {
+        "knownFacts": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "repositoryPaths": { "type": "array", "items": { "$ref": "#/$defs/path" } },
+        "decisions": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "constraints": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "questions": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "participants": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/participant" } },
+    "rounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["round1ContributionIds", "round2ContributionIds"],
+      "properties": {
+        "round1ContributionIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } },
+        "round2ContributionIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/id" } }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decisionId", "proposalPath"],
+      "properties": {
+        "decisionId": { "$ref": "#/$defs/id" },
+        "proposalPath": { "type": ["string", "null"] }
+      }
+    },
+    "humanApproval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "approverParticipantId", "approvalPath"],
+      "properties": {
+        "required": { "const": true },
+        "approverParticipantId": { "$ref": "#/$defs/id" },
+        "approvalPath": { "type": ["string", "null"] }
+      }
+    },
+    "assignments": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/path" } },
+    "timestamps": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createdAt", "updatedAt"],
+      "properties": { "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" } }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "path": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:[\\\\/])(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?![A-Za-z][A-Za-z0-9+.-]*:).+$" },
+    "participant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["participantId", "agent", "role", "required", "writeAccess", "availability"],
+      "properties": {
+        "participantId": { "$ref": "#/$defs/id" },
+        "agent": { "enum": ["codex", "claude", "gemini", "human"] },
+        "role": { "enum": ["architect", "engineer", "analyst", "reviewer", "qa", "docs", "approver"] },
+        "required": { "type": "boolean" },
+        "writeAccess": { "const": false },
+        "availability": { "enum": ["available", "unavailable", "human-controlled"] }
+      }
+    }
+  }
+}

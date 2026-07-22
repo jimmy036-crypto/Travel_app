@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-decision", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "decisionId": "demo-no-firebase", "status": "proposed",
+  "proposedBy": { "participantId": "architect", "agent": "codex", "role": "architect" },
+  "selectedOption": "Keep the built-in Demo local-only, read-only, outside Firebase, myTrips, and Offline Cache.",
+  "rationale": ["The boundary teaches features without creating user-owned or cloud state.", "All synthetic independent analyses support explicit persistence isolation."],
+  "acceptedArguments": ["Use a distinct built-in identity.", "Protect App integration with persistence-negative tests."],
+  "rejectedAlternatives": ["Automatic Firebase room creation conflicts with the accepted Demo boundary.", "Automatic myTrips insertion misrepresents the preview as a real trip."],
+  "risks": ["Future Clone Flow may blur the boundary.", "Fixture consensus may be mistaken for live Agent output."],
+  "mitigations": ["Require explicit human approval for Clone Flow.", "Enforce synthetic labels and execution-disabled assignments."],
+  "requiredTests": ["Firebase write spies remain untouched.", "myTrips remains unchanged.", "Offline Cache remains unchanged."],
+  "proposedAssignments": ["assignments/docs-assignment.json", "assignments/qa-assignment.json"],
+  "unresolvedQuestions": ["Future Clone Flow design remains outside this fixture."],
+  "evidence": [{ "claim": "Demo persistence boundaries are accepted Project OS decisions.", "path": ".ai/DECISIONS.md", "symbol": "ADR-001 through ADR-003" }],
+  "humanApprovalRequired": true
+}

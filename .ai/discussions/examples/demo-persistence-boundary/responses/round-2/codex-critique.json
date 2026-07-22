@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-critique", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "contributionId": "r2-codex-critique", "round": "cross-review",
+  "participant": { "participantId": "codex-engineer", "agent": "codex", "role": "engineer" },
+  "reviewedContributionIds": ["r1-codex-analysis", "r1-gemini-analysis", "r1-reviewer-analysis"],
+  "agreements": ["All analyses preserve local-only and read-only behavior."], "disagreements": ["The view-model naming alone is insufficient without integration tests."],
+  "unsupportedAssumptions": ["The preview prop boundary will remain unchanged without enforcement."],
+  "missedRisks": ["A create-trip callback could accidentally prefill or persist Demo data."],
+  "questions": ["Which integration test proves the create CTA opens only a blank modal?"],
+  "revisedRecommendation": "Keep the boundary and require both model identity and App integration tests.",
+  "evidence": [{ "claim": "Explicit clone remains deferred.", "path": ".ai/DECISIONS.md", "symbol": "ADR-003" }], "confidence": 0.95
+}

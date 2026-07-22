@@ -23,6 +23,22 @@
         "claude": ".claude/skills/explain-diff/SKILL.md",
         "geminiCommand": ".gemini/commands/explain-diff.toml"
       }
+    },
+    {
+      "name": "discuss",
+      "canonicalPath": ".ai/skills/discuss/SKILL.md",
+      "canonicalSha256": "a46f104b61094a069e15df95751a0b3c25449ebbbbd5de45ce33fc9856b124a8",
+      "outputSchema": ".ai/schemas/discussion-analysis.schema.json",
+      "outputSchemas": [
+        ".ai/schemas/discussion-analysis.schema.json",
+        ".ai/schemas/discussion-critique.schema.json",
+        ".ai/schemas/discussion-decision.schema.json"
+      ],
+      "adapters": {
+        "shared": ".agents/skills/discuss/SKILL.md",
+        "claude": ".claude/skills/discuss/SKILL.md",
+        "geminiCommand": ".gemini/commands/discuss.toml"
+      }
     }
   ]
 }

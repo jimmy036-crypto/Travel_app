@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://travel-app.local/schemas/work-assignment.schema.json",
+  "title": "Execution-disabled Work Assignment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "artifactType", "fixture", "source", "sessionId", "assignmentId", "title", "ownerAgent", "ownerRole", "mode", "objective", "allowedPaths", "forbiddenPaths", "dependencies", "acceptanceCriteria", "validation", "reviewer", "qaOwner", "executionEnabled"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" }, "artifactType": { "const": "work-assignment" },
+    "fixture": { "type": "boolean" }, "source": { "type": "string", "minLength": 1 },
+    "sessionId": { "$ref": "#/$defs/id" }, "assignmentId": { "$ref": "#/$defs/id" },
+    "title": { "type": "string", "minLength": 1 }, "ownerAgent": { "enum": ["codex", "claude", "gemini", "human"] },
+    "ownerRole": { "enum": ["engineer", "analyst", "reviewer", "qa", "docs"] },
+    "mode": { "enum": ["analysis", "implementation", "review", "qa", "documentation"] },
+    "objective": { "type": "string", "minLength": 1 },
+    "allowedPaths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/path" } },
+    "forbiddenPaths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/path" } },
+    "dependencies": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+    "acceptanceCriteria": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "validation": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "reviewer": { "$ref": "#/$defs/id" }, "qaOwner": { "$ref": "#/$defs/id" },
+    "executionEnabled": { "const": false }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "path": { "type": "string", "minLength": 1, "pattern": "^(?![A-Za-z]:[\\\\/])(?![/\\\\])(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?![A-Za-z][A-Za-z0-9+.-]*:).+$" }
+  }
+}

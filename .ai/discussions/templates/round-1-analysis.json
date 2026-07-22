@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-analysis", "fixture": false, "source": "template",
+  "sessionId": "example-session", "contributionId": "example-round-one", "round": "independent-analysis",
+  "participant": { "participantId": "codex-engineer", "agent": "codex", "role": "engineer" },
+  "recommendation": "Independent recommendation", "rationale": ["Evidence-backed reason"], "assumptions": ["Explicit assumption"],
+  "options": ["Option considered"], "risks": ["Risk and mitigation"], "testsRequired": ["Required validation"],
+  "evidence": [{ "claim": "Material claim", "path": ".ai/ARCHITECTURE.md", "symbol": "Relevant section" }],
+  "unknowns": ["Known unknown"], "confidence": 0.5
+}

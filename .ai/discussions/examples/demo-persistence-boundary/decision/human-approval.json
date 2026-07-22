@@ -1,0 +1,6 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "human-approval", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "decisionId": "demo-no-firebase", "actorRole": "human", "action": "approve",
+  "comment": "Synthetic approval used only to test the protocol state machine; it is not a real project approval record.",
+  "approvedAt": "2026-07-22T08:25:00Z"
+}

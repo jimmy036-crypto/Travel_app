@@ -1,0 +1,5 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "human-approval", "fixture": false, "source": "template",
+  "sessionId": "example-session", "decisionId": "example-decision", "actorRole": "human", "action": "request-changes",
+  "comment": "Human approval, rejection, or requested changes", "approvedAt": "2026-07-22T00:00:00Z"
+}

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-analysis", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "contributionId": "r1-gemini-analysis", "round": "independent-analysis",
+  "participant": { "participantId": "gemini-analyst", "agent": "gemini", "role": "analyst" },
+  "recommendation": "Preserve a separately named built-in Demo view model and prohibit all persistence adapters.",
+  "rationale": ["A distinct source marker prevents Demo data from being mistaken for a room.", "Read-only rendering can teach features without creating cloud state."],
+  "assumptions": ["The preview continues to receive the Demo through props."],
+  "options": ["Use the existing built-in source marker.", "Convert the Demo to canonical Firebase room data, which would blur ownership."],
+  "risks": ["Schema similarity can invite accidental save calls; preserve explicit naming and tests."],
+  "testsRequired": ["Validate isBuiltInDemoTrip identity checks.", "Verify no Offline Cache write."],
+  "evidence": [
+    { "claim": "The Demo model carries a built-in source marker.", "path": "src/features/onboarding/demoTripData.js", "symbol": "DEMO_TRIP_ID" },
+    { "claim": "The Preview is a display component.", "path": "src/features/onboarding/DemoTripPreview.jsx", "symbol": "DemoTripPreview" }
+  ],
+  "unknowns": ["A future explicit Clone Flow needs a separately approved contract."], "confidence": 0.92
+}

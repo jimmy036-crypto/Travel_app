@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "work-assignment", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "assignmentId": "docs-boundary", "title": "Document Demo persistence boundaries",
+  "ownerAgent": "gemini", "ownerRole": "docs", "mode": "documentation", "objective": "Plan documentation checks for local-only, read-only Demo behavior.",
+  "allowedPaths": ["docs/features/FIRST_RUN_GUIDED_DEMO.md"], "forbiddenPaths": ["src", "e2e", "firebase"], "dependencies": [],
+  "acceptanceCriteria": ["Documentation states Demo does not persist or sync."], "validation": ["Reviewer compares wording to accepted ADRs."],
+  "reviewer": "reviewer", "qaOwner": "qa-owner", "executionEnabled": false
+}

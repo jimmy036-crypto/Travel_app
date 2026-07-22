@@ -69,3 +69,19 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Read-only permission planning | Adapter Node tests | Filesystem is read-only; network, production Firebase, Git writes, deploy, and execution are false |
 | CLI doctor redaction | Injected-spawn Node tests | Missing CLIs are non-fatal and output contains no environment, credential, or auth paths |
 | Deterministic invocation plans | Adapter Node tests | Identical inputs produce identical structured argv arrays and output paths |
+
+## Structured Discussion Protocol Validation
+
+| Check | Evidence | Required behavior |
+|---|---|---|
+| Round isolation | Discussion Node tests | Round 1 packets contain no other contribution; Round 2 contains no peer Round 2 output |
+| Contribution identity | Validator and state tests | IDs are unique and participant agent/role match the session |
+| Cross-review references | State-machine tests | Every reviewed ID resolves to an immutable Round 1 contribution |
+| State transition validation | Discussion check | Later rounds cannot open until required earlier contributions exist |
+| Human approval gate | Approval/assignment tests | Only a human action can permit assignment planning |
+| Assignment path ownership | Assignment-set tests | Concurrent implementation plans cannot own overlapping paths |
+| Prompt injection boundary | Packet and adapter tests | Quoted responses are untrusted and Gemini injection syntax is rejected |
+| Immutable response ingest | Temporary-session tests | Existing response IDs/files cannot be overwritten and writes remain under responses |
+| Synthetic fixture labelling | Fixture check | Every fixture JSON declares `fixture: true` and `source: synthetic-test-fixture` |
+| Deterministic packets | Repeated generation tests | Identical session state produces byte-equivalent packet/audit data |
+| Execution-disabled enforcement | Schema, packet, invocation, and assignment tests | External Agent execution and all write/deploy permissions remain false |

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-critique", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "contributionId": "r2-gemini-critique", "round": "cross-review",
+  "participant": { "participantId": "gemini-analyst", "agent": "gemini", "role": "analyst" },
+  "reviewedContributionIds": ["r1-codex-analysis", "r1-gemini-analysis", "r1-reviewer-analysis"],
+  "agreements": ["Firebase and myTrips must remain outside the Demo boundary."], "disagreements": ["No disagreement on the selected boundary."],
+  "unsupportedAssumptions": ["Offline Cache safety needs direct evidence rather than inference from Firebase isolation."],
+  "missedRisks": ["Documentation could drift and imply that the Demo syncs."],
+  "questions": ["Is the offline cache write boundary covered by integration tests?"],
+  "revisedRecommendation": "Retain isolation and add documentation plus Offline Cache regression checks.",
+  "evidence": [{ "claim": "Offline Preview is a separate read-only capability.", "path": ".ai/DECISIONS.md", "symbol": "ADR-004" }], "confidence": 0.91
+}

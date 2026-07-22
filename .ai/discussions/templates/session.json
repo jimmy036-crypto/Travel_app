@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-session",
+  "fixture": false,
+  "source": "template",
+  "sessionId": "example-session",
+  "title": "Discussion title",
+  "topic": "Question to discuss",
+  "objective": "Decision outcome required from the discussion",
+  "status": "draft",
+  "executionMode": "import-only",
+  "context": { "knownFacts": ["Replace with verified facts"], "repositoryPaths": [".ai/ARCHITECTURE.md"], "decisions": ["Replace with binding decisions"] },
+  "constraints": ["No external Agent execution"],
+  "questions": ["What should the participants answer?"],
+  "participants": [
+    { "participantId": "architect", "agent": "codex", "role": "architect", "required": false, "writeAccess": false, "availability": "available" },
+    { "participantId": "human-approver", "agent": "human", "role": "approver", "required": false, "writeAccess": false, "availability": "human-controlled" }
+  ],
+  "rounds": { "round1ContributionIds": [], "round2ContributionIds": [] },
+  "decision": { "decisionId": "example-decision", "proposalPath": null },
+  "humanApproval": { "required": true, "approverParticipantId": "human-approver", "approvalPath": null },
+  "assignments": [],
+  "timestamps": { "createdAt": "2026-07-22T00:00:00Z", "updatedAt": "2026-07-22T00:00:00Z" }
+}

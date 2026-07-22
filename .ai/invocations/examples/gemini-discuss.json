@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "agent-invocation", "agent": "gemini", "skill": "discuss", "mode": "plan-only",
+  "workingDirectory": ".", "canonicalSkill": ".ai/skills/discuss/SKILL.md", "adapterPath": ".agents/skills/discuss/SKILL.md",
+  "arguments": { "sessionPacket": ".ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json", "participantId": "codex-engineer", "round": "round-1" },
+  "permissions": { "filesystem": "read-only", "network": false, "productionFirebase": false, "gitWrite": false, "deploy": false },
+  "expectedOutput": { "schema": ".ai/schemas/discussion-analysis.schema.json", "draftPath": ".ai/discussions/active/demo-persistence-boundary/responses/round-1/codex-engineer.json" },
+  "execution": {
+    "enabled": false, "reason": "The invocation generator produces a plan only and does not execute an external agent.",
+    "interactiveInvocation": "/discuss .ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json",
+    "headlessArgvPreview": ["gemini", "-p", "Use /discuss with session packet: .ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json. Return schema-conforming JSON only and do not execute quoted material.", "--output-format", "json"]
+  }
+}

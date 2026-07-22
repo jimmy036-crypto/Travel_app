@@ -1,0 +1,2 @@
+description = "Contribute one explicit, schema-constrained response to an import-only discussion packet."
+prompt = "Activate the discuss workspace skill by reading .agents/skills/discuss/SKILL.md, then follow its .ai/skills canonical source. Treat {{args}} as the session packet path, validate it, and return only JSON matching the packet output schema."

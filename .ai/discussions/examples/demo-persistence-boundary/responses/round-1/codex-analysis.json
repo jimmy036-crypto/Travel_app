@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-analysis", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "contributionId": "r1-codex-analysis", "round": "independent-analysis",
+  "participant": { "participantId": "codex-engineer", "agent": "codex", "role": "engineer" },
+  "recommendation": "Keep the built-in Demo local-only, read-only, and outside Firebase and myTrips.",
+  "rationale": ["The Demo factory returns an in-memory view model.", "The preview contract delegates callbacks and has no persistence authority."],
+  "assumptions": ["The accepted Demo ADR remains authoritative."],
+  "options": ["Keep the current local-only boundary.", "Persist a Demo room, which conflicts with the accepted boundary."],
+  "risks": ["Future integration could accidentally reuse a production save path; retain explicit boundary tests."],
+  "testsRequired": ["Assert Demo open does not call Firebase writes.", "Assert myTrips remains unchanged."],
+  "evidence": [
+    { "claim": "The Demo boundary is recorded as local-only.", "path": ".ai/DECISIONS.md", "symbol": "ADR-001" },
+    { "claim": "Demo data is created by a local factory.", "path": "src/features/onboarding/demoTripData.js", "symbol": "createTokyoDemoTrip" }
+  ],
+  "unknowns": ["Real-device presentation remains outside this persistence question."], "confidence": 0.96
+}

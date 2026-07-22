@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-critique", "fixture": false, "source": "template",
+  "sessionId": "example-session", "contributionId": "example-round-two", "round": "cross-review",
+  "participant": { "participantId": "reviewer", "agent": "human", "role": "reviewer" },
+  "reviewedContributionIds": ["example-round-one"], "agreements": ["Supported agreement"], "disagreements": ["Evidence-backed disagreement"],
+  "unsupportedAssumptions": ["Assumption needing proof"], "missedRisks": ["Risk omitted in Round 1"], "questions": ["Question for resolution"],
+  "revisedRecommendation": "Recommendation after review", "evidence": [{ "claim": "Review claim", "path": ".ai/DECISIONS.md", "symbol": "Relevant ADR" }], "confidence": 0.5
+}

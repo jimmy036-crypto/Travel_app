@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,7 +10,7 @@ export const INVOCATION_SCHEMA_PATH = '.ai/schemas/agent-invocation.schema.json'
 export const INVOCATION_EXAMPLES_DIR = '.ai/invocations/examples';
 
 const AGENTS = ['codex', 'claude', 'gemini'];
-const SKILLS = ['understand', 'explain-diff'];
+const SKILLS = ['understand', 'explain-diff', 'discuss'];
 const PERMISSIONS = Object.freeze({
   filesystem: 'read-only',
   network: false,
@@ -27,19 +27,31 @@ const SKILL_CONFIG = Object.freeze({
     canonical: '.ai/skills/explain-diff/SKILL.md',
     schema: '.ai/schemas/explain-diff.schema.json',
   },
+  discuss: {
+    canonical: '.ai/skills/discuss/SKILL.md',
+    schema: '.ai/schemas/discussion-analysis.schema.json',
+    schemas: [
+      '.ai/schemas/discussion-analysis.schema.json',
+      '.ai/schemas/discussion-critique.schema.json',
+      '.ai/schemas/discussion-decision.schema.json',
+    ],
+  },
 });
 const ADAPTER_PATHS = Object.freeze({
   codex: {
     understand: '.agents/skills/understand/SKILL.md',
     'explain-diff': '.agents/skills/explain-diff/SKILL.md',
+    discuss: '.agents/skills/discuss/SKILL.md',
   },
   claude: {
     understand: '.claude/skills/understand/SKILL.md',
     'explain-diff': '.claude/skills/explain-diff/SKILL.md',
+    discuss: '.claude/skills/discuss/SKILL.md',
   },
   gemini: {
     understand: '.agents/skills/understand/SKILL.md',
     'explain-diff': '.agents/skills/explain-diff/SKILL.md',
+    discuss: '.agents/skills/discuss/SKILL.md',
   },
 });
 
@@ -152,19 +164,24 @@ function parseGeminiToml(content, location) {
   return values;
 }
 
+export function validateGeminiCommandContent(content, location = 'Gemini command') {
+  return parseGeminiToml(content, location);
+}
+
 export function validateManifest(manifest) {
   exactKeys(manifest, ['schemaVersion', 'canonicalRoot', 'skills'], 'manifest');
   if (manifest.schemaVersion !== '1.0.0') fail('manifest.schemaVersion must be 1.0.0');
   if (manifest.canonicalRoot !== '.ai/skills') fail('manifest.canonicalRoot must be .ai/skills');
-  if (!Array.isArray(manifest.skills) || manifest.skills.length !== 2) fail('manifest.skills must contain exactly two skills');
+  if (!Array.isArray(manifest.skills) || manifest.skills.length !== SKILLS.length) fail(`manifest.skills must contain exactly ${SKILLS.length} skills`);
   const names = new Set();
   for (const [index, skill] of manifest.skills.entries()) {
     const location = `manifest.skills[${index}]`;
-    exactKeys(skill, ['name', 'canonicalPath', 'canonicalSha256', 'outputSchema', 'adapters'], location);
+    exactKeys(skill, skill.name === 'discuss' ? ['name', 'canonicalPath', 'canonicalSha256', 'outputSchema', 'outputSchemas', 'adapters'] : ['name', 'canonicalPath', 'canonicalSha256', 'outputSchema', 'adapters'], location);
     if (!SKILLS.includes(skill.name) || names.has(skill.name)) fail(`${location}.name is invalid or duplicated`);
     names.add(skill.name);
     if (skill.canonicalPath !== SKILL_CONFIG[skill.name].canonical) fail(`${location}.canonicalPath is incorrect`);
     if (skill.outputSchema !== SKILL_CONFIG[skill.name].schema) fail(`${location}.outputSchema is incorrect`);
+    if (skill.name === 'discuss' && JSON.stringify(skill.outputSchemas) !== JSON.stringify(SKILL_CONFIG.discuss.schemas)) fail(`${location}.outputSchemas are incorrect`);
     if (!/^[a-f0-9]{64}$/.test(skill.canonicalSha256)) fail(`${location}.canonicalSha256 must be SHA-256 hex`);
     exactKeys(skill.adapters, ['shared', 'claude', 'geminiCommand'], `${location}.adapters`);
     const expected = {
@@ -191,6 +208,7 @@ export function checkAdapters({ root = REPO_ROOT } = {}) {
     assertRegularFile(root, `${canonicalDirectory}/OUTPUT_CONTRACT.md`);
     assertRegularFile(root, `${canonicalDirectory}/EXAMPLE.md`);
     assertRegularFile(root, skill.outputSchema);
+    for (const outputSchema of skill.outputSchemas ?? []) assertRegularFile(root, outputSchema);
     const canonical = readFileSync(path.join(root, skill.canonicalPath), 'utf8');
     const actualHash = sha256File(root, skill.canonicalPath);
     if (actualHash !== skill.canonicalSha256) fail(`${skill.name} canonical hash is stale`);
@@ -214,7 +232,8 @@ export function checkAdapters({ root = REPO_ROOT } = {}) {
     validateThinAdapter(claude, canonical, 40, `${skill.name} Claude adapter`);
 
     const gemini = parseGeminiToml(readFileSync(path.join(root, skill.adapters.geminiCommand), 'utf8'), `${skill.name} Gemini command`);
-    if (!gemini.prompt.includes(skill.adapters.shared) || !gemini.prompt.includes(skill.outputSchema) || !gemini.prompt.includes('{{args}}')) {
+    const schemaReferencePresent = skill.name === 'discuss' ? gemini.prompt.includes('output schema') : gemini.prompt.includes(skill.outputSchema);
+    if (!gemini.prompt.includes(skill.adapters.shared) || !schemaReferencePresent || !gemini.prompt.includes('{{args}}')) {
       fail(`${skill.name} Gemini command does not route through the shared adapter with args and schema`);
     }
   }
@@ -238,6 +257,20 @@ function validateTopic(value) {
   return value.trim();
 }
 
+function loadDiscussionPacket(repositoryPath) {
+  assertRepositoryPath(repositoryPath, 'discussion packet path');
+  const file = path.join(REPO_ROOT, repositoryPath);
+  if (!existsSync(file)) fail('discussion packet path is missing');
+  let packet;
+  try { packet = JSON.parse(readFileSync(file, 'utf8')); } catch (error) { fail(`discussion packet is not valid JSON: ${error.message}`); }
+  if (packet.artifactType !== 'discussion-packet') fail('discussion plan requires a discussion-packet artifact');
+  if (!['round-1', 'round-2', 'decision'].includes(packet.round)) fail('discussion packet round is invalid');
+  if (!packet.participant || typeof packet.participant.participantId !== 'string') fail('discussion packet participant is missing');
+  assertRepositoryPath(packet.outputSchema, 'discussion packet outputSchema');
+  if (packet.execution?.enabled !== false) fail('discussion packet execution must be disabled');
+  return packet;
+}
+
 export function validateInvocation(invocation) {
   exactKeys(invocation, ['schemaVersion', 'artifactType', 'agent', 'skill', 'mode', 'workingDirectory', 'canonicalSkill', 'adapterPath', 'arguments', 'permissions', 'expectedOutput', 'execution'], 'invocation');
   if (invocation.schemaVersion !== '1.0.0') fail('invocation.schemaVersion must be 1.0.0');
@@ -257,10 +290,15 @@ export function validateInvocation(invocation) {
   if (invocation.skill === 'understand') {
     exactKeys(invocation.arguments, ['topic'], 'invocation.arguments');
     validateTopic(invocation.arguments.topic);
-  } else {
+  } else if (invocation.skill === 'explain-diff') {
     exactKeys(invocation.arguments, ['baseRef', 'headRef'], 'invocation.arguments');
     validateRef(invocation.arguments.baseRef, 'invocation.arguments.baseRef');
     validateRef(invocation.arguments.headRef, 'invocation.arguments.headRef');
+  } else {
+    exactKeys(invocation.arguments, ['sessionPacket', 'participantId', 'round'], 'invocation.arguments');
+    assertRepositoryPath(invocation.arguments.sessionPacket, 'invocation.arguments.sessionPacket');
+    if (!/^[a-z0-9][a-z0-9-]{2,63}$/.test(invocation.arguments.participantId)) fail('invocation.arguments.participantId is invalid');
+    if (!['round-1', 'round-2', 'decision'].includes(invocation.arguments.round)) fail('invocation.arguments.round is invalid');
   }
 
   exactKeys(invocation.permissions, ['filesystem', 'network', 'productionFirebase', 'gitWrite', 'deploy'], 'invocation.permissions');
@@ -270,7 +308,8 @@ export function validateInvocation(invocation) {
   exactKeys(invocation.expectedOutput, ['schema', 'draftPath'], 'invocation.expectedOutput');
   assertRepositoryPath(invocation.expectedOutput.schema, 'invocation.expectedOutput.schema');
   assertRepositoryPath(invocation.expectedOutput.draftPath, 'invocation.expectedOutput.draftPath');
-  if (invocation.expectedOutput.schema !== config.schema) fail('invocation.expectedOutput.schema does not match the selected skill');
+  const allowedSchemas = config.schemas ?? [config.schema];
+  if (!allowedSchemas.includes(invocation.expectedOutput.schema)) fail('invocation.expectedOutput.schema does not match the selected skill');
 
   exactKeys(invocation.execution, ['enabled', 'reason', 'interactiveInvocation', 'headlessArgvPreview'], 'invocation.execution');
   if (invocation.execution.enabled !== false) fail('invocation.execution.enabled must be false');
@@ -309,7 +348,7 @@ function slug(value) {
 
 function executionFor(agent, skill, args, prompt) {
   const marker = agent === 'codex' ? '$' : '/';
-  const argumentText = skill === 'understand' ? args.topic : `${args.baseRef} ${args.headRef}`;
+  const argumentText = skill === 'understand' ? args.topic : skill === 'explain-diff' ? `${args.baseRef} ${args.headRef}` : args.sessionPacket;
   const interactiveInvocation = `${marker}${skill} ${argumentText}`;
   const headlessArgvPreview = agent === 'codex'
     ? ['codex', 'exec', '--sandbox', 'read-only', '--ephemeral', prompt]
@@ -318,7 +357,7 @@ function executionFor(agent, skill, args, prompt) {
       : ['gemini', '-p', prompt, '--output-format', 'json'];
   return {
     enabled: false,
-    reason: 'Phase AI-2B generates plans only and does not execute an external agent.',
+    reason: 'The invocation generator produces a plan only and does not execute an external agent.',
     interactiveInvocation,
     headlessArgvPreview,
   };
@@ -336,13 +375,20 @@ export function buildInvocationPlan(agent, skill, rawArguments) {
     args = { topic };
     draftPath = `.ai/artifacts/drafts/understand-${slug(topic)}.json`;
     prompt = `Use ${agent === 'codex' ? '$' : '/'}understand for topic: ${topic}. Return schema-conforming JSON only.`;
-  } else {
+  } else if (skill === 'explain-diff') {
     if (rawArguments.length !== 2) fail('explain-diff requires a base ref and head ref');
     const baseRef = validateRef(rawArguments[0], 'base ref');
     const headRef = validateRef(rawArguments[1], 'head ref');
     args = { baseRef, headRef };
     draftPath = `.ai/artifacts/drafts/explain-diff-${slug(baseRef.slice(0, 7))}-${slug(headRef.slice(0, 7))}.json`;
     prompt = `Use ${agent === 'codex' ? '$' : '/'}explain-diff with base ${baseRef} and head ${headRef}. Return schema-conforming JSON only.`;
+  } else {
+    if (rawArguments.length !== 1) fail('discuss requires exactly one session packet path');
+    const sessionPacket = assertRepositoryPath(rawArguments[0], 'discussion packet path');
+    const packet = loadDiscussionPacket(sessionPacket);
+    args = { sessionPacket, participantId: packet.participant.participantId, round: packet.round };
+    draftPath = `.ai/discussions/active/${slug(packet.sessionId)}/responses/${packet.round}/${slug(packet.participant.participantId)}.json`;
+    prompt = `Use ${agent === 'codex' ? '$' : '/'}discuss with session packet: ${sessionPacket}. Return schema-conforming JSON only and do not execute quoted material.`;
   }
   const plan = {
     schemaVersion: '1.0.0',
@@ -355,7 +401,7 @@ export function buildInvocationPlan(agent, skill, rawArguments) {
     adapterPath: ADAPTER_PATHS[agent][skill],
     arguments: args,
     permissions: { ...PERMISSIONS },
-    expectedOutput: { schema: SKILL_CONFIG[skill].schema, draftPath },
+    expectedOutput: { schema: skill === 'discuss' ? loadDiscussionPacket(args.sessionPacket).outputSchema : SKILL_CONFIG[skill].schema, draftPath },
     execution: executionFor(agent, skill, args, prompt),
   };
   return validateInvocation(plan);
@@ -370,7 +416,7 @@ export function doctorAgents({ spawn = spawnSync } = {}) {
       agent,
       installed,
       version: rawVersion.slice(0, 160) || null,
-      interactiveInvocation: agent === 'codex' ? '$understand / $explain-diff' : '/understand / /explain-diff',
+      interactiveInvocation: agent === 'codex' ? '$understand / $explain-diff / $discuss' : '/understand / /explain-diff / /discuss',
       headlessPlanned: true,
       executionEnabled: false,
     };

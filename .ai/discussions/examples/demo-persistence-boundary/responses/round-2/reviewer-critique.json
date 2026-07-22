@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-critique", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "contributionId": "r2-reviewer-critique", "round": "cross-review",
+  "participant": { "participantId": "reviewer", "agent": "human", "role": "reviewer" },
+  "reviewedContributionIds": ["r1-codex-analysis", "r1-gemini-analysis", "r1-reviewer-analysis"],
+  "agreements": ["All participants reject automatic persistence."], "disagreements": ["Tests must protect Firebase, myTrips, and Offline Cache separately."],
+  "unsupportedAssumptions": ["A local factory alone prevents later callback writes."],
+  "missedRisks": ["Synthetic fixtures could be misreported as real Agent consensus."],
+  "questions": ["Are fixture labels enforced across every file?"],
+  "revisedRecommendation": "Approve the local-only boundary with explicit fixture labeling and three persistence regression areas.",
+  "evidence": [{ "claim": "The Project OS records the Demo boundary.", "path": ".ai/DECISIONS.md", "symbol": "ADR-001" }], "confidence": 0.98
+}

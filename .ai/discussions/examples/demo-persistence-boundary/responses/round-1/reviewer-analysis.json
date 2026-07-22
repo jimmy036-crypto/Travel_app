@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0", "artifactType": "discussion-analysis", "fixture": true, "source": "synthetic-test-fixture",
+  "sessionId": "demo-persistence-boundary", "contributionId": "r1-reviewer-analysis", "round": "independent-analysis",
+  "participant": { "participantId": "reviewer", "agent": "human", "role": "reviewer" },
+  "recommendation": "Reject Firebase persistence for the built-in Demo and keep human confirmation mandatory for future cloning.",
+  "rationale": ["Silent persistence would misrepresent a preview as a real trip.", "A clone is a different user-authorized operation."],
+  "assumptions": ["No later accepted ADR supersedes the Demo boundary."],
+  "options": ["Retain strict isolation.", "Allow automatic persistence, which violates informed user action."],
+  "risks": ["A future callback could bypass the boundary; review App integration changes."],
+  "testsRequired": ["Integration test Firebase set/update are not called.", "Integration test Demo is absent from myTrips."],
+  "evidence": [
+    { "claim": "Demo exclusion from myTrips is an accepted decision.", "path": ".ai/DECISIONS.md", "symbol": "ADR-002" },
+    { "claim": "Clone Flow is deferred and explicit.", "path": ".ai/DECISIONS.md", "symbol": "ADR-003" }
+  ],
+  "unknowns": ["The future Clone Flow requires new approval and regression evidence."], "confidence": 0.97
+}
