@@ -114,6 +114,16 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Transport/canonical boundary | Plan/hash and candidate tests | Plans bind both schema layers; Codex receives the transport schema while every candidate still passes canonical Discussion and repository-path validation |
 | Codex JSONL Candidate recovery | Runner extraction and recovery tests | Only terminal final-agent-message text is eligible; offline recovery preserves the source Run, validates canonical identity, separates secret scopes, never ingests, and refuses overwrite |
 
+## Phase AI-3B2B-R2L Evidence
+
+- Baseline before product changes: 43 Vitest files / 652 tests passed; typecheck, lint, build, guardrails, Agent verification, and `git diff --check` passed.
+- Final Vitest: 51 files / 723 tests passed, 0 failed, 0 skipped.
+- Final Playwright: 192 passed, 0 failed, 14 pre-existing conditional PWA skips across Desktop Chrome and Mobile Safari; the new Editable Demo suite passed 8/8 with no skips.
+- Firebase coverage ran only against Emulator project `demo-travel-e2e` on local Auth, Realtime Database, and Storage Emulator ports. Production Firebase access was false.
+- Demo open/edit/reset zero-write behavior, persistence, reset isolation, source-template immutability, defensive copies, current-Sandbox Clone, forbidden-data exclusion, owner-only output, retry/reload/collision behavior, ambiguous read-back, `myTrips` repair, feature flag default-off, and Feature Introduction/FeatureTour separation passed.
+- Typecheck, lint, production build, guardrails, Agent verification, `git diff --check`, independent Code Review, and QA passed.
+- No test was removed, skipped, marked `only`, or weakened. Database/Storage Rules, dependencies, package lock, migrations, and deployment configuration are unchanged.
+
 ## Phase AI-3B2B-R2K Evidence
 
 - The original `clone-demo-architecture-pilot` directory retains its 26-file SHA-256 digest `0029732165525ce3c4c8286b263c516a17fb83edb791f46442f1f922d261067e`; its Decision, Approval, packets, reviews, responses, Session, audit, Gate summaries, and six Assignments are unchanged.

@@ -73,14 +73,14 @@ Each risk has an owner role, status, and mitigation. Promote or close risks base
 
 ### R-M04 — Demo template mutation or incompatible local Sandbox state
 
-- **Status:** Open; implementation pending
+- **Status:** Mitigated in Phase AI-3B2B-R2L; continue regression coverage
 - **Owner:** Engineer / QA
 - **Risk:** Mutation leakage, corrupt JSON, or schema/template version drift could alter the source Demo or produce unsafe Clone input.
 - **Mitigation:** Generate fresh template objects, use defensive copies, validate schema and template versions, rebuild a safe local copy on corruption or incompatibility, scope Reset only to the Sandbox key, and revalidate before Clone conversion.
 
 ### R-M05 — Feature Introduction replay changes onboarding state or obscures FeatureTour
 
-- **Status:** Open; implementation pending
+- **Status:** Mitigated in Phase AI-3B2B-R2L; continue regression coverage
 - **Owner:** Engineer / QA
 - **Risk:** Replay could incorrectly mark/reset first-run eligibility or conflate high-level product introduction with the trip-contextual spotlight tour.
 - **Mitigation:** Give replay a state-neutral mode, separate labels, accessible names, test IDs, and entry points, and retain the existing FeatureTour action independently.

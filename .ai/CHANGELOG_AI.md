@@ -2,6 +2,15 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2L — Editable Demo Sandbox Implementation, Review, and QA
+
+- Recorded explicit revised Gate 2 approval and executed the nine amended Assignments within their non-overlapping allowed paths.
+- Implemented a defensive, versioned, locally persistent editable Demo Sandbox with safe corruption recovery, memory fallback, and an isolated confirmed reset. Demo open, edit, and reset perform no Firebase, `myTrips`, or Offline Trip Cache writes.
+- Implemented itinerary and Checklist editing, a current-Sandbox owner-only allowlist Clone converter, minimal same-device recovery Journal, confirmation UI, and Emulator-guarded room and `myTrips` verification. The Clone feature flag defaults to disabled.
+- Added replayable Feature Introduction entry points in Lobby and Settings without changing first-run eligibility; the existing trip-contextual FeatureTour remains a distinct action.
+- Independent Code Review passed with no blocking findings. QA passed 51 Vitest files / 723 tests with no failures or skips and 192 Playwright tests with no failures and 14 pre-existing conditional PWA skips on Desktop Chrome and Mobile Safari.
+- Firebase tests used only project `demo-travel-e2e`. Database/Storage Rules, package dependencies, lockfile, migrations, production Firebase, main, and deployment remain unchanged. Conditional Merge is limited to `feat/ai-editable-demo-amendment-plan`.
+
 ## Phase AI-3B2B-R2K — Editable Demo Sandbox Decision Amendment and Revised Gate 2 Plan
 
 - Preserved the complete `clone-demo-architecture-pilot` Session and its six execution-disabled Assignments as immutable Audit History; its unapproved Gate 2 plan is superseded and must not execute.
