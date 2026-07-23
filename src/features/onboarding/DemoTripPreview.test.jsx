@@ -21,17 +21,25 @@ function renderPreview(overrides = {}) {
     onBack: vi.fn(),
     onCreateTrip: vi.fn(),
     onCloneDemo: vi.fn(),
+    onAddPlace: vi.fn(),
+    onUpdatePlace: vi.fn(),
+    onDeletePlace: vi.fn(),
+    onMovePlace: vi.fn(),
+    onAddChecklistItem: vi.fn(),
+    onUpdateChecklistItem: vi.fn(),
+    onDeleteChecklistItem: vi.fn(),
+    onResetDemo: vi.fn(),
     ...overrides,
   };
   return { ...render(<DemoTripPreview {...props} />), demo, props };
 }
 
-describe('DemoTripPreview read-only shell and tabs', () => {
-  it('shows the demo banner, title, read-only state, and no-sync explanation', () => {
+describe('DemoTripPreview editable local shell and tabs', () => {
+  it('shows the demo banner, title, editable local state, and no-sync explanation', () => {
     renderPreview();
     expect(screen.getByTestId('demo-trip-preview')).toBeInTheDocument();
     expect(screen.getByTestId('demo-mode-banner')).toHaveTextContent('示範模式');
-    expect(screen.getByTestId('demo-mode-banner')).toHaveTextContent('唯讀');
+    expect(screen.getByTestId('demo-mode-banner')).toHaveTextContent('本機可編輯副本');
     expect(screen.getByTestId('demo-mode-banner')).toHaveTextContent('不會同步到雲端');
     expect(screen.getByTestId('demo-trip-title')).toHaveTextContent('東京三日示範旅程');
   });
@@ -119,12 +127,14 @@ describe('DemoTripPreview overview and itinerary', () => {
     expect(screen.getByText('築地場外市場（示範）')).toBeVisible();
   });
 
-  it('shows time, place notes, and no edit, delete, drag, or map UI', () => {
+  it('shows time, notes, accessible edit/reorder controls, and no map UI', () => {
     const { container } = renderPreview({ initialTab: 'itinerary' });
     const firstPlace = screen.getAllByTestId('demo-place-card')[0];
     expect(firstPlace).toHaveTextContent('09:00');
     expect(firstPlace).toHaveTextContent('非即時交通建議');
-    expect(screen.queryByRole('button', { name: /編輯|刪除|拖曳/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId('demo-add-place')).toBeInTheDocument();
+    expect(screen.getAllByTestId('demo-editable-place')[0]).toHaveAttribute('draggable', 'true');
+    expect(screen.getAllByRole('button', { name: /刪除景點/ }).length).toBeGreaterThan(0);
     expect(container.querySelector('iframe')).toBeNull();
     expect(container.querySelector('[data-testid*="map"]')).toBeNull();
   });
@@ -202,18 +212,91 @@ describe('DemoTripPreview expenses and checklist', () => {
     expect(screen.getAllByText(/個人項目/).length).toBeGreaterThan(0);
   });
 
-  it('uses disabled checkboxes that cannot appear to persist changes', async () => {
+  it('uses editable checkboxes through the supplied local callback only', async () => {
     const user = userEvent.setup();
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
-    renderPreview({ initialTab: 'checklist' });
+    const { props } = renderPreview({ initialTab: 'checklist' });
     const checkboxes = screen.getAllByRole('checkbox');
     expect(checkboxes).toHaveLength(6);
-    checkboxes.forEach((checkbox) => expect(checkbox).toBeDisabled());
+    checkboxes.forEach((checkbox) => expect(checkbox).toBeEnabled());
     const wasChecked = checkboxes[0].checked;
     await user.click(checkboxes[0]);
-    expect(checkboxes[0].checked).toBe(wasChecked);
+    expect(props.onUpdateChecklistItem).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ completed: !wasChecked }),
+    );
     expect(setItemSpy).not.toHaveBeenCalled();
     setItemSpy.mockRestore();
+  });
+});
+
+describe('DemoTripPreview local editing contract', () => {
+  it('routes itinerary add, edit, delete, and keyboard reorder through callbacks', async () => {
+    const user = userEvent.setup();
+    const { props } = renderPreview({ initialTab: 'itinerary' });
+    await user.click(screen.getByTestId('demo-add-place'));
+    expect(props.onAddPlace).toHaveBeenCalledWith('Day 1');
+
+    const nameInput = screen.getAllByRole('textbox', { name: /景點名稱/ })[0];
+    await user.clear(nameInput);
+    await user.type(nameInput, '編輯後景點');
+    expect(props.onUpdatePlace).toHaveBeenLastCalledWith(
+      'Day 1',
+      expect.any(String),
+      { name: '編輯後景點' },
+    );
+
+    await user.click(screen.getAllByRole('button', { name: /向後移動/ })[0]);
+    expect(props.onMovePlace).toHaveBeenCalledWith('Day 1', expect.any(String), 'down');
+    await user.click(screen.getAllByRole('button', { name: /刪除景點/ })[0]);
+    expect(props.onDeletePlace).toHaveBeenCalledWith('Day 1', expect.any(String));
+  });
+
+  it('routes Checklist add, edit, assignee, toggle, and delete through callbacks', async () => {
+    const user = userEvent.setup();
+    const { props } = renderPreview({ initialTab: 'checklist' });
+    await user.click(screen.getByTestId('demo-add-checklist-item'));
+    expect(props.onAddChecklistItem).toHaveBeenCalledTimes(1);
+
+    const nameInput = screen.getAllByRole('textbox', { name: /項目名稱/ })[0];
+    await user.clear(nameInput);
+    await user.type(nameInput, '新的清單文字');
+    expect(props.onUpdateChecklistItem).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ text: '新的清單文字' }),
+    );
+    await user.selectOptions(screen.getAllByRole('combobox', { name: /負責人/ })[0], '');
+    expect(props.onUpdateChecklistItem).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ assignee: '' }),
+    );
+    await user.click(screen.getAllByRole('button', { name: /刪除清單項目/ })[0]);
+    expect(props.onDeleteChecklistItem).toHaveBeenCalledWith(expect.any(String));
+  });
+
+  it('confirms Reset and reports persistent, memory-only, and save-error states', async () => {
+    const user = userEvent.setup();
+    const { props, unmount } = renderPreview();
+    expect(screen.getByTestId('demo-sandbox-status')).toHaveTextContent('不會寫入 Firebase');
+    await user.click(screen.getByTestId('demo-reset-button'));
+    expect(screen.getByRole('dialog', { name: '重設示範資料？' })).toBeInTheDocument();
+    await user.click(screen.getByTestId('demo-reset-confirm'));
+    expect(props.onResetDemo).toHaveBeenCalledTimes(1);
+    unmount();
+
+    const memory = renderPreview({ persistence: 'memory' });
+    expect(screen.getByTestId('demo-sandbox-status')).toHaveTextContent('重新整理後不會保留');
+    memory.unmount();
+    renderPreview({ saveError: '本機保存失敗' });
+    expect(screen.getByTestId('demo-sandbox-status')).toHaveTextContent('本機保存失敗');
+  });
+
+  it('labels expenses, settlement, tickets, and attachments as preview-only', async () => {
+    const user = userEvent.setup();
+    renderPreview({ initialTab: 'tickets' });
+    expect(screen.getByText(/票券與附件僅供預覽/)).toBeVisible();
+    await user.click(screen.getByTestId('demo-tab-expenses'));
+    expect(screen.getByText(/費用與結算僅供預覽/)).toBeVisible();
   });
 });
 
@@ -284,7 +367,7 @@ describe('DemoTripPreview callbacks and isolation boundaries', () => {
   it('has no persistence, remote-service, route, or cache imports', () => {
     const source = readFileSync(resolve('src/features/onboarding/DemoTripPreview.jsx'), 'utf8');
     expect(source).not.toMatch(/from ['"][^'"]*(firebase|offlineTripCache|ticketsService|placesService|useExpenseActions)/i);
-    expect(source).not.toMatch(/localStorage|sessionStorage|window\.location|history\.|fetch\(|XMLHttpRequest|WebSocket/);
+    expect(source).not.toMatch(/localStorage[.(]|sessionStorage[.(]|window\.location|history\.|fetch\(|XMLHttpRequest|WebSocket/);
   });
 
   it('renders every guidance targetTestId in the preview DOM', () => {
