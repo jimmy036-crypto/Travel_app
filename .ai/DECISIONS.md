@@ -46,3 +46,13 @@ Use the following format for new records: ID, title, status, recorded date, cont
 - **Decision:** Keep FeatureTour chapters and behavior unchanged through Phase 7B-3.
 - **Consequences:** Existing tour regressions remain stable; Demo-specific guided chapters require a later designed integration.
 - **Alternatives:** Reuse current spotlight targets inside Demo Preview. Rejected because the views and target lifecycles differ.
+
+## ADR-006 — Clone Flow Architecture Decision approved for Gate 2 planning
+
+- **Status:** Accepted at Gate 1; implementation remains pending Gate 2
+- **Recorded:** 2026-07-23
+- **Context:** Reviewed Round 1 analysis and independent Round 2 critique produced `clone-demo-architecture-proposal`, which defines a bounded owner-only Demo Clone MVP and separates technical development from production enablement.
+- **Decision:** Approve the architecture direction in `.ai/discussions/active/clone-demo-architecture-pilot/decision/proposal.json`. Prepare six execution-disabled Assignments for a pure allowlist converter, same-device Journal/state machine, explicit Demo-only confirmation UI, Emulator-only integration, independent code review, and QA. The approval artifact is `.ai/discussions/active/clone-demo-architecture-pilot/decision/human-approval.json`.
+- **Consequences:** Gate 2 may now review the implementation and conditional-Merge plan. No Assignment may execute until Gate 2 is separately approved. Product code, Firebase Rules, production Firebase, dependency changes, migrations, Merge, and deployment remain unauthorized.
+- **Alternatives:** Deep-copying Demo data, mapping fictional members, claiming cross-device idempotency from localStorage, copying tickets/expenses/attachments, treating Demo places as verified, or enabling production before Auth and Rules approval remain rejected by the approved Proposal.
+- **Links:** `decision/gate-1-result.md`, `assignments/gate-2-summary.md`, and the six tracked Assignment artifacts under the active Session.

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-decision-plan",
+  "sessionId": "clone-demo-architecture-pilot",
+  "assignmentId": "clone-demo-emulator-integration",
+  "title": "Integrate Clone orchestration with Firebase Emulator and myTrips verification",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Integrate the approved Clone operation with Firebase Emulator create-only room semantics, ambiguous-outcome recovery, and verified myTrips ordering behind a disabled feature flag.",
+  "allowedPaths": [
+    "src/features/onboarding/cloneDemoRepository.js",
+    "src/features/onboarding/cloneDemoRepository.test.js",
+    "src/features/onboarding/cloneDemoFeatureFlag.js",
+    "src/App.jsx",
+    "src/App.cloneDemoIntegration.test.jsx"
+  ],
+  "forbiddenPaths": [
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "src/firebase.js",
+    "package.json",
+    "package-lock.json",
+    ".env.local",
+    "src/features/tickets",
+    "src/features/expenses",
+    "src/features/offline/offlineTripCache.js"
+  ],
+  "dependencies": [
+    "clone-demo-converter",
+    "clone-demo-journal",
+    "clone-demo-confirmation-ui"
+  ],
+  "acceptanceCriteria": [
+    "Keep the Clone feature flag disabled by default.",
+    "Connect Clone writes only to Firebase Emulator and reject production Firebase configuration or access.",
+    "Assemble and validate the complete payload before beginning a room write.",
+    "Use create-only room semantics with an operation marker and payload fingerprint.",
+    "Resolve timeout or ambiguous results by reading back and validating the expected operation and fingerprint.",
+    "Never automatically delete a room that may have succeeded.",
+    "Write myTrips only after the Firebase room is verified.",
+    "Navigate to real TripDetail only after myTrips is synchronously written and read back successfully.",
+    "Retain the Journal and provide repair or open-link state if the myTrips reference fails.",
+    "Never insert the Demo ID into myTrips or write Demo-derived state to Offline Cache.",
+    "Do not upload attachments or copy ticket and expense domains.",
+    "Do not access production Firebase."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/cloneDemoRepository.test.js src/App.cloneDemoIntegration.test.jsx",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

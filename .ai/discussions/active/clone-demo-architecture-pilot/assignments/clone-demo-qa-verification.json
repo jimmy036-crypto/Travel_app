@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-decision-plan",
+  "sessionId": "clone-demo-architecture-pilot",
+  "assignmentId": "clone-demo-qa-verification",
+  "title": "Verify the Clone MVP with Emulator, regression, and Playwright evidence",
+  "ownerAgent": "codex",
+  "ownerRole": "qa",
+  "mode": "qa",
+  "objective": "Produce independent Emulator, Vitest, Playwright, accessibility, regression, and residual-risk evidence for the reviewed Clone MVP before conditional Merge eligibility.",
+  "allowedPaths": [
+    "e2e/clone-demo.spec.ts",
+    "e2e/support/emulator.ts",
+    ".ai/qa/clone-demo-mvp-report.md"
+  ],
+  "forbiddenPaths": [
+    "src",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "src/firebase.js",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "clone-demo-code-review"
+  ],
+  "acceptanceCriteria": [
+    "Verify the feature flag is disabled by default and existing behavior has no Clone regression.",
+    "Verify CTA placement, owner-only conversion, and complete forbidden-data exclusion.",
+    "Verify double-click, multi-tab, retry, and reload recovery behavior.",
+    "Verify storage-unavailable, Journal expiry, invalid version, and tampering behavior.",
+    "Verify ambiguous Firebase success read-back and myTrips failure and repair behavior against Emulator state.",
+    "Verify Built-in Demo immutability and Offline Preview isolation.",
+    "Run the approved flow on Desktop Chrome and Mobile Safari Playwright projects.",
+    "Record complete Vitest and Playwright results, including conditional skips and all failures.",
+    "Record the tested commit, test counts, skips, failures, and remaining risks in the QA report.",
+    "Do not use production Firebase or modify Rules, packages, dependencies, migrations, or product source."
+  ],
+  "validation": [
+    "npm run test:run",
+    "npm run test:e2e",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "npm run agent:guardrails",
+    "npm run agent:verify",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

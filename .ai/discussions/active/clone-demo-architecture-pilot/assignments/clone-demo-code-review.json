@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-decision-plan",
+  "sessionId": "clone-demo-architecture-pilot",
+  "assignmentId": "clone-demo-code-review",
+  "title": "Review the Clone MVP implementation against the approved Decision",
+  "ownerAgent": "codex",
+  "ownerRole": "reviewer",
+  "mode": "review",
+  "objective": "Independently review the completed Clone MVP diff against the approved Decision, Assignment path boundaries, security gates, and regression evidence before QA.",
+  "allowedPaths": [
+    ".ai/reviews/clone-demo-mvp-code-review.md"
+  ],
+  "forbiddenPaths": [
+    "src",
+    "e2e",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "src/firebase.js",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "clone-demo-converter",
+    "clone-demo-journal",
+    "clone-demo-confirmation-ui",
+    "clone-demo-emulator-integration"
+  ],
+  "acceptanceCriteria": [
+    "Verify every implementation diff against the approved Decision and each Assignment acceptance criterion.",
+    "Verify all changed files remain within allowed paths and no forbidden path changed.",
+    "Verify Built-in Demo immutability and separation from myTrips and Offline Cache.",
+    "Verify the owner-only member model and rejection of fictional authorization identities.",
+    "Verify all recovery claims remain limited to same-device and same-browser behavior.",
+    "Verify production Firebase is isolated and the feature flag remains disabled by default.",
+    "Verify no Firebase Rules, dependency, package, or migration change exists.",
+    "List all blocking and non-blocking findings with file evidence.",
+    "Allow QA to proceed only when no blocking finding remains."
+  ],
+  "validation": [
+    "git diff --check",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "npm run agent:guardrails",
+    "npm run agent:verify"
+  ],
+  "reviewer": "human-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

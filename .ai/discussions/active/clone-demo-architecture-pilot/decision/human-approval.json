@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "human-approval",
+  "fixture": false,
+  "source": "human-gate-1",
+  "sessionId": "clone-demo-architecture-pilot",
+  "decisionId": "clone-demo-architecture-proposal",
+  "actorRole": "human",
+  "action": "approve",
+  "comment": "Human approved the Clone Flow Architecture Decision. This approval authorizes preparation of execution-disabled implementation assignments and a Gate 2 implementation and conditional-merge plan only. It does not authorize product implementation, Firebase Rules changes, production Firebase access, merge, or deployment.",
+  "approvedAt": "2026-07-23T02:54:29.4905825Z"
+}

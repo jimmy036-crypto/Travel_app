@@ -89,6 +89,7 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Round-specific participation | Session validation, state-machine, ingest, packet, and status tests | Optional per-round participant sets remain backward compatible, isolate Round completion, exclude the final approver, and preserve disabled execution |
 | Human Round 2 reviewed ingest | Critique source/target comparison, Session status, immutable Round 1/packet hashes, and deterministic audit checks | Explicit approval records the unchanged critique, advances only Round 2, and creates no Decision, decision-level action, or Assignment |
 | Architect Decision proposal | Proposal/schema validation, deterministic packet/audit checks, exact Session tests, and immutable reviewed-round hashes | Proposed-only synthesis quotes both rounds as untrusted, remains pending Human Approval, creates no Assignment, and keeps execution disabled |
+| Gate 1 approval and Assignment planning | Semantic Approval comparison, six Assignment validations, path/dependency checks, exact Session/audit tests, and immutable Proposal hashes | Human Approval enables only execution-disabled plans; implementation paths do not overlap, dependencies are acyclic, and no execution or production permission is granted |
 
 ## Controlled Live Runner Validation
 
@@ -111,6 +112,22 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Codex schema compatibility | Recursive Runner schema tests and `ai:runner:check` | Transport schemas reject lookaround, backreferences, remote/unresolved refs, unsupported formats/keywords, and incomplete strict object declarations before a live run |
 | Transport/canonical boundary | Plan/hash and candidate tests | Plans bind both schema layers; Codex receives the transport schema while every candidate still passes canonical Discussion and repository-path validation |
 | Codex JSONL Candidate recovery | Runner extraction and recovery tests | Only terminal final-agent-message text is eligible; offline recovery preserves the source Run, validates canonical identity, separates secret scopes, never ingests, and refuses overwrite |
+
+## Phase AI-3B2B-R2J Evidence
+
+- Human explicitly approved `clone-demo-architecture-proposal` at Gate 1. The ignored source and tracked `decision/human-approval.json` parse to exactly equal JSON with action `approve`.
+- The active Session is `assignments-ready`; both rounds remain complete, Decision remains `proposed`, Human Approval reports `approve`, exactly six Assignments are indexed, and execution remains disabled.
+- All six Assignments validate as `work-assignment`, use `source=human-approved-decision-plan`, and set `executionEnabled=false`. Four implementation allowed-path sets are non-overlapping and the dependency graph is acyclic.
+- Assignment inspection confirms no allowed path authorizes Database/Storage Rules, production Firebase configuration, package or dependency changes, migrations, or deployment.
+- Repeated `buildAudit` output is deterministic and matches `audit.json` with both rounds, Decision proposal, human approval, and six lexically sorted `assignment-planned` events; there is no implementation, Merge, or deployment event.
+- Three exact active-Session expectations were updated for Approval, six disabled Assignments, approval path, unchanged Proposal identity, and ten-event audit; no test was skipped or weakened.
+- `npm run ai:discussion:test`: 77 passed; check and validate passed for 28 artifacts, 1 synthetic fixture, and 1 active Session.
+- `npm run ai:runner:test`: 165 passed; Runner check and validate passed for 4 disabled artifacts.
+- `npm run ai:adapters:test`: 40 passed; adapter check passed and 9 invocation examples validated.
+- `npm run ai:artifacts:test`: 19 passed; 2 rendered artifacts checked and 2 source artifacts validated.
+- `npm run typecheck`, `npm run lint`, `npm run build`, `npm run agent:guardrails`, and `npm run agent:verify`: passed; verify included 43 Vitest files / 652 tests.
+- `git diff --check` passed and `package-lock.json` is unchanged. Playwright, Firebase Emulator, live Agents, and Assignments were not run, as required.
+- Round 1, Round 2, the Decision Proposal, Gate 1 Summary, all review records, and both packets remained unchanged. No product or E2E code, Firebase Rules, production Firebase, PR, Merge, or deployment was created.
 
 ## Phase AI-3B2B-R2I Evidence
 

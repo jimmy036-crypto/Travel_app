@@ -224,3 +224,13 @@ The proposed-only synthesis is tracked as `.ai/discussions/active/clone-demo-arc
 The Session advanced only to `decision-proposed`, and deterministic `audit.json` now records Round 1, Round 2, and the Decision proposal in order. Human Approval remains pending and Assignments remain empty. Round 1, Round 2, every reviewed-ingest record, reviewer selection, and the Human Round 2 packet are unchanged. No product code or Firebase Rules changed, no production Firebase was accessed, and no deployment occurred.
 
 Gate 1 now requires a human to choose exactly one outcome: approve the Decision, request changes, or reject the Decision. Until that separate decision-level action is recorded, the Proposal grants no implementation authority and cannot produce an Assignment.
+
+## O. Gate 1 Human Approval and Gate 2 Assignment plan
+
+A human explicitly replied `批准 Decision`. The immutable tracked approval at `.ai/discussions/active/clone-demo-architecture-pilot/decision/human-approval.json` approves the architecture direction only and authorizes preparation of execution-disabled implementation assignments and a Gate 2 implementation and conditional-Merge plan. It does not authorize product implementation, Assignment execution, Firebase Rules changes, production Firebase, PR creation, Merge, or deployment.
+
+Six canonical Assignment plans are tracked under the active Session: converter, same-device Journal/state machine, Demo-only confirmation UI, Emulator-only integration, independent code review, and QA. Every Assignment sets `executionEnabled=false`; implementation path sets do not overlap, dependencies are acyclic, and package, Rules, production, migration, secret, and deploy scopes remain forbidden. No Assignment command in these plans was executed during R2J.
+
+The Session advanced only to `assignments-ready`. Its deterministic audit records both reviewed rounds, the Decision proposal, Human Approval, and six lexically sorted Assignment plans. Round 1, Round 2, the Decision Proposal, Gate 1 Summary, review records, Human Round 2 packet, and Architect packet remain unchanged.
+
+The Gate 2 summary is `.ai/discussions/active/clone-demo-architecture-pilot/assignments/gate-2-summary.md`. Gate 2 remains pending and offers only: approve the implementation plan, request scope adjustment, or reject implementation. Until a human separately approves Gate 2, no Assignment may execute and no product/E2E change, Emulator run, PR, conditional Merge, or deployment is authorized.

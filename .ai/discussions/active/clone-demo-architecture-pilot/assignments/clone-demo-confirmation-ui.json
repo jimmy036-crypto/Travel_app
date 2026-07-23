@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-decision-plan",
+  "sessionId": "clone-demo-architecture-pilot",
+  "assignmentId": "clone-demo-confirmation-ui",
+  "title": "Add the explicit Demo-only Clone confirmation interface",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Add an accessible, feature-flagged Clone confirmation flow only within Built-in Demo Preview while keeping Open Demo and Blank Create distinct.",
+  "allowedPaths": [
+    "src/features/onboarding/CloneDemoDialog.jsx",
+    "src/features/onboarding/CloneDemoDialog.test.jsx",
+    "src/features/onboarding/DemoTripPreview.jsx",
+    "src/features/onboarding/DemoTripPreview.test.jsx"
+  ],
+  "forbiddenPaths": [
+    "src/App.jsx",
+    "src/features/offline/offlineTripCache.js",
+    "src/features/tickets",
+    "src/features/expenses",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "src/firebase.js",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "clone-demo-converter",
+    "clone-demo-journal"
+  ],
+  "acceptanceCriteria": [
+    "Expose the Clone CTA only inside Built-in Demo Preview; do not expose it in Lobby cards, Settings, real TripDetail, or Offline Preview.",
+    "Keep Open Demo, Blank Create, and Clone as clearly distinct operations.",
+    "Explain the owner-only result, included itinerary and checklist data, and excluded members, tickets, expenses, and attachments.",
+    "Explain that copied text-only places are unverified and may later be reselected.",
+    "Disable Confirm when storage preflight is unavailable or fails.",
+    "Prevent duplicate Confirm actions while one operation is in flight.",
+    "Expose accessible loading, success, error, and repair states.",
+    "Support keyboard interaction, focus management, and accessible names.",
+    "Remain usable on Mobile and Desktop layouts.",
+    "Keep the Clone feature flag disabled by default."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/CloneDemoDialog.test.jsx src/features/onboarding/DemoTripPreview.test.jsx",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

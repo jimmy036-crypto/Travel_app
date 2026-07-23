@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-decision-plan",
+  "sessionId": "clone-demo-architecture-pilot",
+  "assignmentId": "clone-demo-converter",
+  "title": "Build the pure Demo Clone allowlist converter",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Implement a pure, deterministic allowlist converter for the approved owner-only Demo Clone data contract without mutating the Built-in Demo.",
+  "allowedPaths": [
+    "src/features/onboarding/cloneDemoTrip.js",
+    "src/features/onboarding/cloneDemoTrip.test.js",
+    "src/features/onboarding/cloneDemoConstants.js"
+  ],
+  "forbiddenPaths": [
+    "src/App.jsx",
+    "src/features/onboarding/DemoTripPreview.jsx",
+    "src/features/offline/offlineTripCache.js",
+    "src/features/tickets",
+    "src/features/expenses",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "src/firebase.js",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [],
+  "acceptanceCriteria": [
+    "Build a fresh object graph using an explicit allowlist; do not mutate or deep-copy the Demo.",
+    "Produce an owner-only trip containing the complete versioned three-day itinerary.",
+    "Reset every Checklist item to incomplete and clear its assignee or assign it to the current owner.",
+    "Generate a new room ID and new place and checklist IDs; the Demo room ID must never become the real trip ID.",
+    "Derive retry-stable IDs deterministically from operationId and the template source key.",
+    "Exclude fictional members, expenses, settlements, tickets, attachments, Storage paths, Demo IDs, Demo-only root fields, guidance, example URLs, DEMO order numbers, old timestamps, audit or completion state, and credential-like data.",
+    "Preserve Built-in Demo immutability and never add the Demo to myTrips or Offline Cache.",
+    "Represent copied places as cleaned text-only entries explicitly marked unverified, without trusted place_id or verified routing metadata."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/cloneDemoTrip.test.js",
+    "npm run typecheck",
+    "npm run lint",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

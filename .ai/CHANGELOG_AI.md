@@ -2,6 +2,16 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2J — Human Decision Approval and Gate 2 Assignment Plan
+
+- Recorded the explicit human statement `批准 Decision` as an immutable `human-approval` artifact for `clone-demo-architecture-proposal`; the ignored source and tracked target are semantically identical.
+- Added a Gate 1 result that limits the approval to architecture direction and execution-disabled Assignment planning. Product implementation, conditional Merge, Firebase Rules, production Firebase, and deployment remain unauthorized.
+- Added `codex-reviewer` and `codex-qa` as optional, read-only participants without changing either Round requirement.
+- Prepared six canonical execution-disabled Assignments for converter, Journal/state, confirmation UI, Emulator integration, independent review, and QA. Four implementation path sets do not overlap, dependencies are acyclic, and no Assignment authorizes Rules, production Firebase, packages, dependencies, migrations, or deployment.
+- Added the Traditional Chinese Gate 2 implementation and conditional-Merge plan with explicit approval choices, eligibility conditions, and mandatory human re-escalation triggers.
+- Advanced the Session only to `assignments-ready` and regenerated the deterministic ten-event audit: both rounds, Decision proposal, human approval, and six sorted Assignment plans.
+- Updated ADR-006 and exact active-Session tests. Gate 2 remains unapproved; no Assignment executed, no product/E2E/Firebase/package file changed, no PR or Merge occurred, and no deployment occurred.
+
 ## Phase AI-3B2B-R2I — Clone Flow Architecture Decision Proposal
 
 - Added `codex-architect` as a non-round, read-only Architect participant without changing either Round requirement.

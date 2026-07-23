@@ -7,7 +7,7 @@
   "title": "Design an Explicit Demo-to-Real-Trip Clone Flow",
   "topic": "How should a user explicitly clone the built-in Tokyo Demo into a real trip while preserving the Demo local-only, read-only, and not-in-myTrips boundaries?",
   "objective": "Produce an evidence-based architecture recommendation for the future Clone Flow covering product flow, write boundaries, Firebase creation ordering, failure recovery, duplicate-operation prevention, data transformation, authorization review, and regression strategy. This session makes no product decision and performs no implementation.",
-  "status": "decision-proposed",
+  "status": "assignments-ready",
   "executionMode": "import-only",
   "context": {
     "knownFacts": [
@@ -19,7 +19,10 @@
       "The human-reviewed Codex Round 1 contribution codex-clone-flow-analysis has been ingested. No product decision, implementation approval, assignment, production Firebase access, or deployment exists.",
       "Round 2 is assigned to the independent human-reviewer participant. The human-approver remains separate and no Decision or decision-level approval exists.",
       "The human-approved Round 2 critique human-clone-flow-critique has been ingested. It requests changes before any Decision and does not approve product behavior, implementation, Assignment, Firebase access, or deployment.",
-      "The Architect Decision proposal clone-demo-architecture-proposal has been prepared from the reviewed Round 1 and Round 2 evidence. It remains pending Human Approval and creates no implementation authorization."
+      "The Architect Decision proposal clone-demo-architecture-proposal has been prepared from the reviewed Round 1 and Round 2 evidence. It remains pending Human Approval and creates no implementation authorization.",
+      "Human approved clone-demo-architecture-proposal at Gate 1.",
+      "The approval authorizes execution-disabled Assignment planning only and does not authorize implementation, merge, production Firebase, Firebase Rules changes, or deployment.",
+      "Six execution-disabled Assignments have been prepared for Gate 2 review."
     ],
     "repositoryPaths": [
       "src/App.jsx",
@@ -73,7 +76,9 @@
     { "participantId": "codex-engineer", "agent": "codex", "role": "engineer", "required": true, "writeAccess": false, "availability": "available" },
     { "participantId": "human-reviewer", "agent": "human", "role": "reviewer", "required": true, "writeAccess": false, "availability": "human-controlled" },
     { "participantId": "human-approver", "agent": "human", "role": "approver", "required": false, "writeAccess": false, "availability": "human-controlled" },
-    { "participantId": "codex-architect", "agent": "codex", "role": "architect", "required": false, "writeAccess": false, "availability": "available" }
+    { "participantId": "codex-architect", "agent": "codex", "role": "architect", "required": false, "writeAccess": false, "availability": "available" },
+    { "participantId": "codex-reviewer", "agent": "codex", "role": "reviewer", "required": false, "writeAccess": false, "availability": "available" },
+    { "participantId": "codex-qa", "agent": "codex", "role": "qa", "required": false, "writeAccess": false, "availability": "available" }
   ],
   "roundRequirements": {
     "round1ParticipantIds": ["codex-engineer"],
@@ -81,7 +86,14 @@
   },
   "rounds": { "round1ContributionIds": ["codex-clone-flow-analysis"], "round2ContributionIds": ["human-clone-flow-critique"] },
   "decision": { "decisionId": "clone-demo-architecture-proposal", "proposalPath": "decision/proposal.json" },
-  "humanApproval": { "required": true, "approverParticipantId": "human-approver", "approvalPath": null },
-  "assignments": [],
-  "timestamps": { "createdAt": "2026-07-22T06:00:00Z", "updatedAt": "2026-07-23T01:07:22.1954247Z" }
+  "humanApproval": { "required": true, "approverParticipantId": "human-approver", "approvalPath": "decision/human-approval.json" },
+  "assignments": [
+    "assignments/clone-demo-converter.json",
+    "assignments/clone-demo-journal.json",
+    "assignments/clone-demo-confirmation-ui.json",
+    "assignments/clone-demo-emulator-integration.json",
+    "assignments/clone-demo-code-review.json",
+    "assignments/clone-demo-qa-verification.json"
+  ],
+  "timestamps": { "createdAt": "2026-07-22T06:00:00Z", "updatedAt": "2026-07-23T02:55:36.0587094Z" }
 }

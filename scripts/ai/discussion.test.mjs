@@ -306,9 +306,9 @@ test('status reports required participants for each Round', () => {
   assert.deepEqual(status.round2.requiredParticipants, ['human-reviewer']);
 });
 test('active Session keeps Round 1 complete', () => assert.equal(sessionStatus(ACTIVE).round1.complete, true));
-test('active Session is decision-proposed after architect synthesis', () => {
+test('active Session is assignments-ready after Gate 1 approval', () => {
   const status = sessionStatus(ACTIVE);
-  assert.equal(status.status, 'decision-proposed');
+  assert.equal(status.status, 'assignments-ready');
   assert.deepEqual(status.round1.requiredParticipants, ['codex-engineer']);
   assert.deepEqual(status.round2.requiredParticipants, ['human-reviewer']);
   assert.equal(status.round1.complete, true);
@@ -316,8 +316,15 @@ test('active Session is decision-proposed after architect synthesis', () => {
   assert.deepEqual(status.round1.contributions, ['codex-clone-flow-analysis']);
   assert.deepEqual(status.round2.contributions, ['human-clone-flow-critique']);
   assert.equal(status.decision, 'proposed');
-  assert.equal(status.humanApproval, 'pending');
-  assert.deepEqual(status.assignments, []);
+  assert.equal(status.humanApproval, 'approve');
+  assert.deepEqual(status.assignments, [
+    'clone-demo-converter',
+    'clone-demo-journal',
+    'clone-demo-confirmation-ui',
+    'clone-demo-emulator-integration',
+    'clone-demo-code-review',
+    'clone-demo-qa-verification',
+  ]);
   assert.equal(status.executionEnabled, false);
 });
 test('Human Round 2 packet keeps execution disabled', () => assert.equal(buildPacket(ACTIVE, 'round-2', 'human-reviewer').execution.enabled, false));
@@ -329,23 +336,33 @@ test('Human Round 2 packet disables network Firebase Git writes and deploy', () 
   const permissions = buildPacket(ACTIVE, 'round-2', 'human-reviewer').permissions;
   assert.deepEqual(permissions, { filesystem: 'read-only', network: false, productionFirebase: false, gitWrite: false, deploy: false });
 });
-test('active audit records both completed review rounds and the Decision proposal', () => {
+test('active audit records Gate 1 approval and six deterministic Assignment plans', () => {
   const events = buildAudit(ACTIVE).events;
   assert.deepEqual(events, [
     { sequence: 1, event: 'round-1-recorded', artifactId: 'codex-clone-flow-analysis' },
     { sequence: 2, event: 'round-2-recorded', artifactId: 'human-clone-flow-critique' },
     { sequence: 3, event: 'decision-proposed', artifactId: 'clone-demo-architecture-proposal' },
+    { sequence: 4, event: 'human-approved', artifactId: 'clone-demo-architecture-proposal' },
+    { sequence: 5, event: 'assignment-planned', artifactId: 'clone-demo-code-review' },
+    { sequence: 6, event: 'assignment-planned', artifactId: 'clone-demo-confirmation-ui' },
+    { sequence: 7, event: 'assignment-planned', artifactId: 'clone-demo-converter' },
+    { sequence: 8, event: 'assignment-planned', artifactId: 'clone-demo-emulator-integration' },
+    { sequence: 9, event: 'assignment-planned', artifactId: 'clone-demo-journal' },
+    { sequence: 10, event: 'assignment-planned', artifactId: 'clone-demo-qa-verification' },
   ]);
 });
-test('Decision proposal creates no Human Approval or Assignment', () => {
+test('Gate 1 approval records the immutable proposal and only execution-disabled Assignments', () => {
   const status = sessionStatus(ACTIVE);
   const session = json(path.join(ACTIVE, 'session.json'));
   const proposal = json(path.join(ACTIVE, 'decision', 'proposal.json'));
+  const assignments = assignmentPlans(ACTIVE);
   assert.equal(status.decision, 'proposed');
-  assert.equal(status.humanApproval, 'pending');
-  assert.deepEqual(status.assignments, []);
+  assert.equal(status.humanApproval, 'approve');
   assert.equal(status.executionEnabled, false);
   assert.equal(session.decision.proposalPath, 'decision/proposal.json');
+  assert.equal(session.humanApproval.approvalPath, 'decision/human-approval.json');
   assert.deepEqual(proposal.proposedBy, { participantId: 'codex-architect', agent: 'codex', role: 'architect' });
   assert.deepEqual(proposal.proposedAssignments, []);
+  assert.equal(assignments.length, 6);
+  assert.ok(assignments.every((assignment) => assignment.executionEnabled === false));
 });
