@@ -74,6 +74,7 @@ import {
 } from './features/onboarding/cloneOperationState.js';
 import {
   createCloneDemoRepository,
+  ensureCloneDemoEmulatorConnection,
   writeAndVerifyMyTrips,
 } from './features/onboarding/cloneDemoRepository.js';
 import {
@@ -624,7 +625,15 @@ export default function TravelApp() {
         }
 
         if (journal.state === 'writing-room') {
-          const { runTransaction } = await import('firebase/database');
+          const {
+            connectDatabaseEmulator,
+            runTransaction,
+          } = await import('firebase/database');
+          ensureCloneDemoEmulatorConnection({
+            database: db,
+            emulatorAuthorized: isCloneDemoEmulatorRuntime(),
+            connectDatabaseEmulator,
+          });
           const repository = createCloneDemoRepository({
             database: db,
             emulatorAuthorized: isCloneDemoEmulatorRuntime(),

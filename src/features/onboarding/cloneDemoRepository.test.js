@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createCloneDemoRepository,
+  ensureCloneDemoEmulatorConnection,
   writeAndVerifyMyTrips,
 } from './cloneDemoRepository.js';
+import {
+  isCloneDemoEmulatorRuntime,
+  isEditableDemoCloneEnabled,
+} from './cloneDemoFeatureFlag.js';
 
 function payload(overrides = {}) {
   return {
@@ -36,6 +41,45 @@ function dependencies(initialRoom = null) {
 }
 
 describe('Clone Demo Emulator repository', () => {
+  it('keeps the feature disabled by default and authorizes only local emulator mode', () => {
+    expect(isEditableDemoCloneEnabled({ env: {} })).toBe(false);
+    expect(isCloneDemoEmulatorRuntime({
+      env: { MODE: 'emulator' },
+      location: { hostname: '127.0.0.1' },
+    })).toBe(true);
+    expect(isCloneDemoEmulatorRuntime({
+      env: { MODE: 'production' },
+      location: { hostname: '127.0.0.1' },
+    })).toBe(false);
+    expect(isCloneDemoEmulatorRuntime({
+      env: { MODE: 'emulator' },
+      location: { hostname: 'travel.example.com' },
+    })).toBe(false);
+  });
+
+  it('connects only a demo-* Firebase project to the local Database Emulator', () => {
+    delete globalThis.__TRAVEL_CLONE_DATABASE_EMULATOR_CONNECTED__;
+    delete globalThis.__TRAVEL_FIREBASE_EMULATORS_CONNECTED__;
+    const connectDatabaseEmulator = vi.fn();
+    const database = { app: { options: { projectId: 'demo-travel-e2e' } } };
+    expect(ensureCloneDemoEmulatorConnection({
+      database,
+      emulatorAuthorized: true,
+      connectDatabaseEmulator,
+    })).toEqual({
+      connected: true,
+      projectId: 'demo-travel-e2e',
+      reused: false,
+    });
+    expect(connectDatabaseEmulator).toHaveBeenCalledWith(database, '127.0.0.1', 9000);
+    expect(() => ensureCloneDemoEmulatorConnection({
+      database: { app: { options: { projectId: 'travel-production' } } },
+      emulatorAuthorized: true,
+      connectDatabaseEmulator,
+    })).toThrow(/demo-\*/);
+    delete globalThis.__TRAVEL_CLONE_DATABASE_EMULATOR_CONNECTED__;
+  });
+
   it('rejects every write outside an explicitly authorized Emulator runtime', async () => {
     const deps = dependencies();
     const repository = createCloneDemoRepository({ ...deps, emulatorAuthorized: false });

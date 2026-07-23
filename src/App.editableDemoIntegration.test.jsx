@@ -11,6 +11,7 @@ const firebaseMocks = vi.hoisted(() => ({
   set: vi.fn(),
   update: vi.fn(),
   runTransaction: vi.fn(),
+  connectDatabaseEmulator: vi.fn(),
   rooms: new Map(),
 }));
 
@@ -33,7 +34,10 @@ const featureMocks = vi.hoisted(() => ({
   emulator: true,
 }));
 
-vi.mock('./firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('./firebase.js', () => ({
+  db: { app: { options: { projectId: 'demo-travel-e2e' } } },
+  storage: {},
+}));
 
 vi.mock('firebase/database', () => ({
   ref: firebaseMocks.ref,
@@ -41,6 +45,7 @@ vi.mock('firebase/database', () => ({
   set: firebaseMocks.set,
   update: firebaseMocks.update,
   runTransaction: firebaseMocks.runTransaction,
+  connectDatabaseEmulator: firebaseMocks.connectDatabaseEmulator,
 }));
 
 vi.mock('./features/onboarding/cloneDemoFeatureFlag.js', () => ({
@@ -129,6 +134,8 @@ async function openDemo(user) {
 
 describe('editable Demo Sandbox App integration', () => {
   beforeEach(() => {
+    delete globalThis.__TRAVEL_CLONE_DATABASE_EMULATOR_CONNECTED__;
+    delete globalThis.__TRAVEL_FIREBASE_EMULATORS_CONNECTED__;
     localStorage.clear();
     window.history.pushState({}, '', '/');
     seedLobby();

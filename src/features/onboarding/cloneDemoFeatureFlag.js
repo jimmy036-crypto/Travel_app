@@ -24,7 +24,6 @@ export function isCloneDemoEmulatorRuntime(options = {}) {
   const localHost = hostname === 'localhost'
     || hostname === '127.0.0.1'
     || hostname === '[::1]';
-  return env?.VITE_USE_FIREBASE_EMULATOR === 'true'
-    && env?.PROD !== true
+  return env?.MODE === 'emulator'
     && localHost;
 }

@@ -29,6 +29,40 @@ function assertPayload(payload) {
   }
 }
 
+export function ensureCloneDemoEmulatorConnection(options = {}) {
+  const {
+    database,
+    emulatorAuthorized,
+    connectDatabaseEmulator,
+    host = '127.0.0.1',
+    port = 9000,
+  } = options;
+  if (!emulatorAuthorized) {
+    const error = new Error('Clone writes are restricted to the local Firebase Emulator.');
+    error.code = 'CLONE_EMULATOR_REQUIRED';
+    throw error;
+  }
+  const projectId = String(database?.app?.options?.projectId || '');
+  if (!/^demo-[a-z0-9-]+$/i.test(projectId)) {
+    const error = new Error('Clone Emulator project must use a demo-* project ID.');
+    error.code = 'CLONE_DEMO_PROJECT_REQUIRED';
+    throw error;
+  }
+  if (globalThis.__TRAVEL_FIREBASE_EMULATORS_CONNECTED__
+    || globalThis.__TRAVEL_CLONE_DATABASE_EMULATOR_CONNECTED__) {
+    return { connected: true, projectId, reused: true };
+  }
+  if (typeof connectDatabaseEmulator !== 'function') {
+    throw new Error('Database Emulator connector is unavailable.');
+  }
+  connectDatabaseEmulator(database, host, port);
+  globalThis.__TRAVEL_CLONE_DATABASE_EMULATOR_CONNECTED__ = true;
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.firebaseEmulator = 'true';
+  }
+  return { connected: true, projectId, reused: false };
+}
+
 export function createCloneDemoRepository(options = {}) {
   const {
     database,
