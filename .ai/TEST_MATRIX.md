@@ -87,6 +87,7 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Execution-disabled enforcement | Schema, packet, invocation, and assignment tests | External Agent execution and all write/deploy permissions remain false |
 | Human-reviewed ingest | Candidate/source comparison, Session status, and deterministic audit checks | Explicit reviewed-ingest scope records the unchanged contribution, advances only Round 1, and creates no Decision, decision approval, or Assignment |
 | Round-specific participation | Session validation, state-machine, ingest, packet, and status tests | Optional per-round participant sets remain backward compatible, isolate Round completion, exclude the final approver, and preserve disabled execution |
+| Human Round 2 reviewed ingest | Critique source/target comparison, Session status, immutable Round 1/packet hashes, and deterministic audit checks | Explicit approval records the unchanged critique, advances only Round 2, and creates no Decision, decision-level action, or Assignment |
 
 ## Controlled Live Runner Validation
 
@@ -109,6 +110,22 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Codex schema compatibility | Recursive Runner schema tests and `ai:runner:check` | Transport schemas reject lookaround, backreferences, remote/unresolved refs, unsupported formats/keywords, and incomplete strict object declarations before a live run |
 | Transport/canonical boundary | Plan/hash and candidate tests | Plans bind both schema layers; Codex receives the transport schema while every candidate still passes canonical Discussion and repository-path validation |
 | Codex JSONL Candidate recovery | Runner extraction and recovery tests | Only terminal final-agent-message text is eligible; offline recovery preserves the source Run, validates canonical identity, separates secret scopes, never ingests, and refuses overwrite |
+
+## Phase AI-3B2B-R2H Evidence
+
+- Human explicitly approved `批准 Round 2 critique` for `human-clone-flow-critique` ingest only; no product, implementation, Decision, decision-level action, Assignment, Firebase, or deployment approval was granted.
+- The local source validated as `discussion-critique` for `clone-demo-architecture-pilot` / `human-reviewer`, reviewing only `codex-clone-flow-analysis`, with confidence `0.9`.
+- Source and tracked target SHA-256 are `be8f454f53da948fdee5ba9b2dc765b40c1d526c0f92c1de0c9acd1c44edf9b9`. Parsed JSON and all required Critique collections are exactly equal.
+- Session validation reports `round-2-complete`, exactly one contribution in each Round, `not-proposed` Decision, pending decision-level human approval, empty Assignments, and execution disabled.
+- Repeated `buildAudit` output is deterministic and matches `audit.json` with only `round-1-recorded` followed by `round-2-recorded`.
+- Exactly two legacy active-Session assertions were updated from `round-2-ready`/single-event expectations to the exact R2H state; no test logic was skipped or weakened.
+- `npm run ai:discussion:test`: 77 passed; check and validate passed for 20 artifacts, 1 synthetic fixture, and 1 active Session.
+- `npm run ai:runner:test`: 165 passed; Runner check and validate passed for 4 disabled artifacts.
+- `npm run ai:adapters:test`: 40 passed; adapter check passed and 9 invocation examples validated.
+- `npm run ai:artifacts:test`: 19 passed; 2 rendered artifacts checked and 2 source artifacts validated.
+- `npm run typecheck`, `npm run lint`, `npm run build`, `npm run agent:guardrails`, and `npm run agent:verify`: passed; verify included 43 Vitest files / 652 tests.
+- `git diff --check` passed and `package-lock.json` is unchanged. Playwright was not run, as required.
+- Round 1, its review record, the Round 2 reviewer-selection record, and Round 2 packet hashes remained unchanged. No live Agent executed, no product code or Firebase Rules changed, no production Firebase was accessed, and no deployment occurred.
 
 ## Phase AI-3B2B-R2G Evidence
 

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-critique",
+  "fixture": false,
+  "source": "human-approved-cross-review",
+  "sessionId": "clone-demo-architecture-pilot",
+  "contributionId": "human-clone-flow-critique",
+  "round": "cross-review",
+  "participant": {
+    "participantId": "human-reviewer",
+    "agent": "human",
+    "role": "reviewer"
+  },
+  "reviewedContributionIds": [
+    "codex-clone-flow-analysis"
+  ],
+  "agreements": [
+    "The Clone action should appear only inside the built-in Demo Preview and remain absent from the Lobby entry card, Settings, real TripDetail, and Offline Preview.",
+    "The conversion must use an allowlist-based converter that builds a fresh object graph rather than deep-copying or mutating the Demo.",
+    "The first version must exclude tickets, expenses, attachments, Demo record IDs, example order numbers, old audit timestamps, and all Demo-only root fields.",
+    "A real trip should be created as one whole-room Firebase operation, and ambiguous commit outcomes must be verified by reading back rather than automatically deleting a possibly successful room.",
+    "The built-in Demo must remain local-only, read-only, outside myTrips, outside Offline Cache writes, and distinct from the newly created real trip.",
+    "Production enablement requires a separately approved authentication, ownership, collaboration, and Firebase Rules contract."
+  ],
+  "disagreements": [
+    "The initial MVP should not require mapping all three fictional Demo members to real people. It should instead create an owner-only trip and reset fictional assignees to unassigned or the current owner.",
+    "Pure converter and confirmation-flow implementation should not be completely blocked by the unresolved production authorization model. Development and production-release gates should be separated.",
+    "A device-local journal must not be described as providing general idempotency. Without a backend operation ledger, its guarantee is limited to the same browser or device while the journal remains available.",
+    "The recommendation does not yet define a sufficiently strict minimal-data contract, trust model, retention period, and migration policy for the durable operation journal.",
+    "The recommendation leaves the cloned-place data contract unresolved. The Decision must choose between cleaned text-only unverified places and mandatory reselection through Google Places."
+  ],
+  "unsupportedAssumptions": [
+    "That fictional display-member mappings are required for the first useful Clone release.",
+    "That a local durable journal alone can guarantee idempotency across devices, browsers, cleared storage, or lost journals.",
+    "That a payload fingerprint provides authorization or tamper resistance rather than only consistency checking.",
+    "That copied Demo place text and addresses are automatically suitable as verified real-trip navigation data.",
+    "That all implementation work must wait for the final production Firebase authorization design, rather than allowing an Emulator-only feature-flagged technical phase."
+  ],
+  "missedRisks": [
+    "Persisting a complete trip payload in a local recovery journal may unnecessarily retain itinerary and member information; the journal should store only the minimum recovery metadata needed.",
+    "A manually modified or stale journal must be treated as untrusted input and revalidated against the supported template version and canonical payload rules.",
+    "Schema or application-version upgrades can strand pending operations unless journal migration, rejection, and recovery behavior are explicit.",
+    "Mapping fictional display names directly into real collaboration state can blur UI labels, Firebase UIDs, authorization identities, and future expense or ticket actor references.",
+    "Allowing unverified copied place text to appear as a real navigable place may create incorrect directions or misleading addresses.",
+    "A client-only same-device idempotency guarantee may be insufficient if the product later advertises cross-device recovery or users repeat the operation after local data loss."
+  ],
+  "questions": [
+    "Should the first product release create an owner-only trip with all fictional checklist assignees cleared or assigned to the owner?",
+    "Is same-device retry and refresh recovery sufficient, or must the architecture guarantee cross-device idempotency through a backend per-UID operation ledger?",
+    "Will the operation journal use localStorage or IndexedDB, and which exact fields, retention period, version, migration rules, and user-dismissal behavior are approved?",
+    "Should the journal store only operationId, roomId, templateVersion, payload fingerprint, and state rather than the complete transformed payload?",
+    "Must cloned places be reselected through Google Places, or may the product create clearly labelled unverified text-only itinerary entries?",
+    "Which implementation may proceed behind an Emulator-only or disabled feature flag before authentication, ownership, and Firebase Rules are ready?",
+    "What exact event moves Clone from technical validation to production enablement, and which Emulator rule tests are mandatory for that release gate?"
+  ],
+  "revisedRecommendation": "Implement the first Clone Flow as an explicit action only within Demo Preview, but reduce the MVP to an owner-only template. Copy a version-controlled, allowlist-cleaned three-day itinerary and reset checklist whose fictional assignees become unassigned or the current owner; exclude tickets, expenses, attachments, fictional members, Demo IDs, Demo-only fields, audit state, and example credentials or order data. First build and test the pure converter, confirmation interface, operation state machine, and Emulator integration behind a disabled feature flag. Production enablement remains blocked until authentication, ownership, collaboration, and Firebase Rules are separately approved. Define idempotency honestly: a client journal provides only same-device recovery, while cross-device idempotency requires a trusted backend per-UID operation ledger. Store only minimal versioned recovery metadata, treat journals as untrusted, and define retention and migration behavior. Before a Decision, choose whether cloned places are clearly labelled text-only unverified entries or must be reselected through Google Places. Only after the Firebase room is verified and the local myTrips reference is synchronously confirmed should the app navigate to the normal real TripDetail; the Demo and Offline Preview must remain outside the Clone write path.",
+  "evidence": [
+    {
+      "claim": "The existing blank-trip creation flow defaults to the member display name 自己 and does not establish authenticated collaboration identities.",
+      "path": "src/App.jsx",
+      "symbol": "tripModalData / handleSaveTripModal"
+    },
+    {
+      "claim": "The Demo contains fictional member display names and example budgets that should not automatically become real collaboration identities.",
+      "path": "src/features/onboarding/demoTripData.js",
+      "symbol": "createTokyoDemoTrip members and budgets"
+    },
+    {
+      "claim": "The current Firebase Rules are broad time-based grants and do not provide authenticated owner or member authorization.",
+      "path": "database.rules.json",
+      "symbol": "rules[.read] / rules[.write]"
+    },
+    {
+      "claim": "The risk register distinguishes device or display identity from authorization and requires Firebase Auth binding and Rules review.",
+      "path": ".ai/RISKS.md",
+      "symbol": "R-H01 Device identity mistaken for authorization"
+    },
+    {
+      "claim": "The Round 1 analysis itself lists the client transaction versus backend per-UID ledger choice, local-storage recovery policy, and place-verification policy as unresolved questions.",
+      "path": ".ai/discussions/active/clone-demo-architecture-pilot/responses/round-1/codex-clone-flow-analysis.json",
+      "symbol": "unknowns"
+    },
+    {
+      "claim": "Offline Preview is a separate read-only path and therefore must not become a Clone source or a destination for Demo-derived cache writes.",
+      "path": "src/features/offline/offlineTripCache.js",
+      "symbol": "buildOfflineTripSnapshot / writeOfflineTripSnapshot"
+    }
+  ],
+  "confidence": 0.9
+}

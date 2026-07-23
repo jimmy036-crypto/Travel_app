@@ -2,6 +2,18 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2H — Human Round 2 Cross-review Ingest
+
+- Recorded the explicit human authorization `批准 Round 2 critique`, scoped only to the fixed `human-clone-flow-critique` cross-review and Session/audit governance updates.
+- Validated the local reviewed source as `discussion-critique` for `clone-demo-architecture-pilot`, `human-reviewer`, and the sole reviewed contribution `codex-clone-flow-analysis`, with confidence `0.9`.
+- Ingested the Critique once. Source and tracked target SHA-256 and parsed JSON are exactly equal; agreements, disagreements, unsupported assumptions, missed risks, questions, revised recommendation, evidence, and confidence were unchanged.
+- Added a reviewed-ingest record binding the Critique SHA-256 and the human-only scope without reproducing Round 1, transcript, credential, or personal content.
+- Advanced the active Session only to `round-2-complete` and regenerated the deterministic audit with exactly `round-1-recorded` followed by `round-2-recorded`.
+- Updated exactly two legacy active-Session tests to assert the new `round-2-complete` state and two-event audit; assertions remain exact, with no skip, only, swallowed failure, or weakened Decision/Assignment gate.
+- The Critique requests changes before any Decision. No Decision proposal or decision-level request-changes/approval artifact was created, and no Assignment exists.
+- Round 1, the Round 1 review record, the Round 2 reviewer-selection record, and the execution-disabled Round 2 packet remained unchanged.
+- No live Agent executed, no product code or Firebase Rules changed, no production Firebase was accessed, and no deployment occurred.
+
 ## Phase AI-3B2B-R2G — Round 2 Human Reviewer Packet
 
 - Added optional `roundRequirements` to Discussion Sessions while preserving the legacy fallback where both rounds use `participants[].required`.

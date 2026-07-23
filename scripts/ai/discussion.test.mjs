@@ -306,11 +306,19 @@ test('status reports required participants for each Round', () => {
   assert.deepEqual(status.round2.requiredParticipants, ['human-reviewer']);
 });
 test('active Session keeps Round 1 complete', () => assert.equal(sessionStatus(ACTIVE).round1.complete, true));
-test('active Session is ready for Round 2 with no Round 2 response', () => {
+test('active Session is complete after reviewed Round 2 ingest', () => {
   const status = sessionStatus(ACTIVE);
-  assert.equal(status.status, 'round-2-ready');
-  assert.equal(status.round2.complete, false);
-  assert.deepEqual(status.round2.contributions, []);
+  assert.equal(status.status, 'round-2-complete');
+  assert.deepEqual(status.round1.requiredParticipants, ['codex-engineer']);
+  assert.deepEqual(status.round2.requiredParticipants, ['human-reviewer']);
+  assert.equal(status.round1.complete, true);
+  assert.equal(status.round2.complete, true);
+  assert.deepEqual(status.round1.contributions, ['codex-clone-flow-analysis']);
+  assert.deepEqual(status.round2.contributions, ['human-clone-flow-critique']);
+  assert.equal(status.decision, 'not-proposed');
+  assert.equal(status.humanApproval, 'pending');
+  assert.deepEqual(status.assignments, []);
+  assert.equal(status.executionEnabled, false);
 });
 test('Human Round 2 packet keeps execution disabled', () => assert.equal(buildPacket(ACTIVE, 'round-2', 'human-reviewer').execution.enabled, false));
 test('checked-in Human Round 2 packet matches deterministic output', () => {
@@ -321,9 +329,12 @@ test('Human Round 2 packet disables network Firebase Git writes and deploy', () 
   const permissions = buildPacket(ACTIVE, 'round-2', 'human-reviewer').permissions;
   assert.deepEqual(permissions, { filesystem: 'read-only', network: false, productionFirebase: false, gitWrite: false, deploy: false });
 });
-test('active audit contains no Round 2 event', () => {
+test('active audit records only the completed review rounds', () => {
   const events = buildAudit(ACTIVE).events;
-  assert.deepEqual(events, [{ sequence: 1, event: 'round-1-recorded', artifactId: 'codex-clone-flow-analysis' }]);
+  assert.deepEqual(events, [
+    { sequence: 1, event: 'round-1-recorded', artifactId: 'codex-clone-flow-analysis' },
+    { sequence: 2, event: 'round-2-recorded', artifactId: 'human-clone-flow-critique' },
+  ]);
 });
 test('Round 2 preparation creates no Decision Approval or Assignment', () => {
   const status = sessionStatus(ACTIVE);

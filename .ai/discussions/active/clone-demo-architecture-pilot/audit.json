@@ -9,6 +9,11 @@
       "sequence": 1,
       "event": "round-1-recorded",
       "artifactId": "codex-clone-flow-analysis"
+    },
+    {
+      "sequence": 2,
+      "event": "round-2-recorded",
+      "artifactId": "human-clone-flow-critique"
     }
   ]
 }

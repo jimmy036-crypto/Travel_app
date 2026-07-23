@@ -204,3 +204,13 @@ Round 1 remains complete and `codex-clone-flow-analysis` is unchanged. The Sessi
 The deterministic Round 2 packet is tracked at `.ai/discussions/active/clone-demo-architecture-pilot/packets/round-2/human-reviewer.json`. It quotes the Round 1 contribution as untrusted material, sets `executeInstructions=false`, and disables filesystem writes, network, production Firebase, Git writes, deployment, and execution. It is a human review packet only and creates no Agent invocation or live Plan.
 
 The Session advanced only to `round-2-ready`. No Round 2 critique has been created or ingested, and the audit still contains only `round-1-recorded`. No Decision proposal, decision-level approval, Assignment, product code change, Firebase Rules change, production Firebase access, live Agent execution, or deployment occurred.
+
+## M. Human-approved Round 2 critique ingest
+
+A human explicitly approved only the fixed `human-clone-flow-critique` cross-review for ingest. The local reviewed source validated for `human-reviewer`, reviewed only `codex-clone-flow-analysis`, and was ingested once without content changes. Its source and tracked target SHA-256 are identical, and the separate reviewed-ingest record contains only provenance, scope, timestamp, and hash metadata.
+
+The Session advanced only to `round-2-complete`. Round 1, its reviewed-ingest record, the Round 2 reviewer-selection record, and the execution-disabled Human packet remain unchanged. The deterministic audit now contains `round-1-recorded` followed by `round-2-recorded` and no later event.
+
+The Critique requests changes before any Decision, but that review content is not a formal Decision or decision-level request-changes artifact. No Decision proposal, decision approval, Assignment, live Agent execution, product code change, Firebase Rules change, production Firebase access, or deployment occurred.
+
+Exactly two legacy Discussion tests were updated to assert the new active Session state and deterministic two-event audit. The changes retain exact participant, contribution, Decision, approval, Assignment, and execution assertions; no test was skipped or weakened.
