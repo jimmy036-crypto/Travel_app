@@ -46,6 +46,192 @@ function calculateBalances(expenses, members) {
   return balances;
 }
 
+function EditableItineraryControls({
+  dayId,
+  places,
+  theme,
+  onAddPlace,
+  onUpdatePlace,
+  onDeletePlace,
+  onMovePlace,
+}) {
+  return (
+    <section data-testid="demo-itinerary-editor" className={`rounded-3xl border p-4 sm:p-5 ${theme.card} ${theme.border}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className={`font-black ${theme.main}`}>編輯目前行程</h3>
+        <button
+          type="button"
+          data-testid="demo-add-place"
+          onClick={() => onAddPlace?.(dayId)}
+          className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-black text-white"
+        >
+          新增景點
+        </button>
+      </div>
+      <div className="mt-4 space-y-3">
+        {places.map((place, index) => (
+          <article
+            key={place.id}
+            data-testid="demo-editable-place"
+            draggable
+            onDragStart={(event) => event.dataTransfer?.setData('text/plain', place.id)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const sourceId = event.dataTransfer?.getData('text/plain');
+              if (sourceId && sourceId !== place.id) onMovePlace?.(dayId, sourceId, { beforeId: place.id });
+            }}
+            className={`grid gap-3 rounded-2xl p-4 ${theme.soft}`}
+          >
+            <div className="grid gap-3 sm:grid-cols-[7rem_1fr]">
+              <label className={`text-xs font-bold ${theme.sub}`}>
+                抵達時間
+                <input
+                  type="time"
+                  defaultValue={place.time || ''}
+                  aria-label={`${place.name} 抵達時間`}
+                  onChange={(event) => onUpdatePlace?.(dayId, place.id, { time: event.target.value })}
+                  className={`mt-1 min-h-11 w-full rounded-lg border px-2 ${theme.card} ${theme.border} ${theme.main}`}
+                />
+              </label>
+              <div className="space-y-2">
+                <label className={`block text-xs font-bold ${theme.sub}`}>
+                  景點名稱
+                  <input
+                    type="text"
+                    defaultValue={place.name}
+                    aria-label={`${place.name} 景點名稱`}
+                    onChange={(event) => onUpdatePlace?.(dayId, place.id, { name: event.target.value })}
+                    className={`mt-1 min-h-11 w-full rounded-lg border px-3 ${theme.card} ${theme.border} ${theme.main}`}
+                  />
+                </label>
+                <label className={`block text-xs font-bold ${theme.sub}`}>
+                  備註
+                  <textarea
+                    defaultValue={place.notes || ''}
+                    aria-label={`${place.name} 備註`}
+                    onChange={(event) => onUpdatePlace?.(dayId, place.id, {
+                      notes: event.target.value,
+                      memo: event.target.value,
+                    })}
+                    className={`mt-1 min-h-20 w-full rounded-lg border p-3 ${theme.card} ${theme.border} ${theme.main}`}
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                aria-label={`向前移動 ${place.name}`}
+                disabled={index === 0}
+                onClick={() => onMovePlace?.(dayId, place.id, 'up')}
+                className={`min-h-11 rounded-lg border px-3 text-sm font-bold disabled:opacity-40 ${theme.card} ${theme.border} ${theme.main}`}
+              >
+                向前
+              </button>
+              <button
+                type="button"
+                aria-label={`向後移動 ${place.name}`}
+                disabled={index === places.length - 1}
+                onClick={() => onMovePlace?.(dayId, place.id, 'down')}
+                className={`min-h-11 rounded-lg border px-3 text-sm font-bold disabled:opacity-40 ${theme.card} ${theme.border} ${theme.main}`}
+              >
+                向後
+              </button>
+              <button
+                type="button"
+                aria-label={`刪除景點 ${place.name}`}
+                onClick={() => onDeletePlace?.(dayId, place.id)}
+                className="min-h-11 rounded-lg bg-rose-600 px-3 text-sm font-bold text-white"
+              >
+                刪除
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EditableChecklistControls({
+  demo,
+  theme,
+  onAddChecklistItem,
+  onUpdateChecklistItem,
+  onDeleteChecklistItem,
+}) {
+  const owner = demo.meta.members?.[0] || 'owner';
+  return (
+    <section data-testid="demo-checklist-editor" className={`rounded-3xl border p-4 sm:p-5 ${theme.card} ${theme.border}`}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className={`font-black ${theme.main}`}>編輯 Checklist</h3>
+        <button
+          type="button"
+          data-testid="demo-add-checklist-item"
+          onClick={() => onAddChecklistItem?.()}
+          className="min-h-11 rounded-xl bg-blue-600 px-4 text-sm font-black text-white"
+        >
+          新增清單項目
+        </button>
+      </div>
+      <div className="mt-4 space-y-3">
+        {demo.checklist.map((item) => (
+          <div key={item.id} data-testid="demo-editable-checklist-item" className={`grid gap-3 rounded-xl p-3 sm:grid-cols-[auto_1fr_auto] ${theme.soft}`}>
+            <input
+              type="checkbox"
+              checked={Boolean(item.completed)}
+              aria-label={`切換 ${item.text}`}
+              onChange={(event) => onUpdateChecklistItem?.(item.id, {
+                completed: event.target.checked,
+                completedAt: event.target.checked ? Date.now() : null,
+                completedBy: event.target.checked ? owner : '',
+              })}
+              className="mt-3 h-5 w-5"
+            />
+            <div className="space-y-2">
+              <label className={`block text-xs font-bold ${theme.sub}`}>
+                項目名稱
+                <input
+                  type="text"
+                  defaultValue={item.text}
+                  aria-label={`${item.text} 項目名稱`}
+                  onChange={(event) => onUpdateChecklistItem?.(item.id, { text: event.target.value })}
+                  className={`mt-1 min-h-11 w-full rounded-lg border px-3 ${theme.card} ${theme.border} ${theme.main}`}
+                />
+              </label>
+              <label className={`block text-xs font-bold ${theme.sub}`}>
+                負責人
+                <select
+                  value={item.assignee === owner ? owner : ''}
+                  aria-label={`${item.text} 負責人`}
+                  onChange={(event) => onUpdateChecklistItem?.(item.id, {
+                    assignee: event.target.value,
+                    owner: event.target.value,
+                    scope: event.target.value ? 'personal' : 'shared',
+                  })}
+                  className={`mt-1 min-h-11 w-full rounded-lg border px-3 ${theme.card} ${theme.border} ${theme.main}`}
+                >
+                  <option value="">未指派</option>
+                  <option value={owner}>{owner}</option>
+                </select>
+              </label>
+            </div>
+            <button
+              type="button"
+              aria-label={`刪除清單項目 ${item.text}`}
+              onClick={() => onDeleteChecklistItem?.(item.id)}
+              className="min-h-11 rounded-lg bg-rose-600 px-3 text-sm font-bold text-white"
+            >
+              刪除
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function OverviewPanel({ demo, hidden, theme }) {
   const places = Object.values(demo.itinerary || {}).flat();
   const completed = demo.checklist.filter((item) => item.completed).length;
@@ -100,7 +286,15 @@ function OverviewPanel({ demo, hidden, theme }) {
   );
 }
 
-function ItineraryPanel({ demo, hidden, theme }) {
+function ItineraryPanel({
+  demo,
+  hidden,
+  theme,
+  onAddPlace,
+  onUpdatePlace,
+  onDeletePlace,
+  onMovePlace,
+}) {
   const dayIds = Object.keys(demo.itinerary || {});
   const [activeDay, setActiveDay] = useState(dayIds[0] || 'Day 1');
   const places = demo.itinerary?.[activeDay] || [];
@@ -128,8 +322,18 @@ function ItineraryPanel({ demo, hidden, theme }) {
         ))}
       </div>
 
+      <EditableItineraryControls
+        dayId={activeDay}
+        places={places}
+        theme={theme}
+        onAddPlace={onAddPlace}
+        onUpdatePlace={onUpdatePlace}
+        onDeletePlace={onDeletePlace}
+        onMovePlace={onMovePlace}
+      />
+
       <div data-testid="demo-day-card" className={`rounded-3xl border p-4 sm:p-5 ${theme.card} ${theme.border}`}>
-        <h2 className={`text-lg font-black ${theme.main}`}>{activeDay}・唯讀行程</h2>
+        <h2 className={`text-lg font-black ${theme.main}`}>{activeDay}・目前行程</h2>
         <div className="mt-4 space-y-3">
           {places.map((place) => (
             <article key={place.id} data-testid="demo-place-card" className={`min-w-0 rounded-2xl p-4 ${theme.soft}`}>
@@ -167,6 +371,9 @@ function TicketsPanel({ demo, hidden, theme }) {
       hidden={hidden}
       className="space-y-4"
     >
+      <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-black text-amber-800 dark:text-amber-200">
+        票券與附件僅供預覽，不能在示範副本中編輯，也不會上傳或寫入雲端。
+      </p>
       <div data-testid="demo-ticket-identity-example" className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm leading-6 text-blue-800 dark:text-blue-200">
         <strong>「我是誰」功能範例：</strong>裝置身分可協助篩選個人票券，但不是權限驗證。
       </div>
@@ -238,6 +445,9 @@ function ExpensesPanel({ demo, hidden, theme }) {
       hidden={hidden}
       className="space-y-4"
     >
+      <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-black text-amber-800 dark:text-amber-200">
+        費用與結算僅供預覽，不能在示範副本中編輯，也不會寫入雲端。
+      </p>
       <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm font-black text-amber-800 dark:text-amber-200">以下金額為示範資料。</p>
       <div data-testid="demo-expense-summary" className={`rounded-3xl border p-5 ${theme.card} ${theme.border}`}>
         <p className={`text-sm font-bold ${theme.sub}`}>總支出</p>
@@ -274,7 +484,14 @@ function ExpensesPanel({ demo, hidden, theme }) {
   );
 }
 
-function ChecklistPanel({ demo, hidden, theme }) {
+function ChecklistPanel({
+  demo,
+  hidden,
+  theme,
+  onAddChecklistItem,
+  onUpdateChecklistItem,
+  onDeleteChecklistItem,
+}) {
   const completed = demo.checklist.filter((item) => item.completed).length;
   const sections = [
     { id: 'packing', title: '行李', items: demo.checklist.filter((item) => PACKING_CATEGORIES.has(item.category)) },
@@ -290,9 +507,16 @@ function ChecklistPanel({ demo, hidden, theme }) {
       hidden={hidden}
       className="space-y-4"
     >
+      <EditableChecklistControls
+        demo={demo}
+        theme={theme}
+        onAddChecklistItem={onAddChecklistItem}
+        onUpdateChecklistItem={onUpdateChecklistItem}
+        onDeleteChecklistItem={onDeleteChecklistItem}
+      />
       <div data-testid="demo-checklist-progress" className={`rounded-2xl border p-4 ${theme.card} ${theme.border}`}>
         <p className={`font-black ${theme.main}`}>完成度：{completed}/{demo.checklist.length}</p>
-        <p className={`mt-1 text-sm ${theme.sub}`}>清單為唯讀範例；勾選狀態不會保存。</p>
+        <p className={`mt-1 text-sm ${theme.sub}`}>可在上方編輯；所有變更只屬於本機示範副本。</p>
       </div>
       {sections.map((section) => (
         <div key={section.id} data-testid="demo-checklist-section" className={`rounded-3xl border p-5 ${theme.card} ${theme.border}`}>
@@ -300,7 +524,7 @@ function ChecklistPanel({ demo, hidden, theme }) {
           <div className="mt-3 space-y-2">
             {section.items.map((item) => (
               <label key={item.id} data-testid="demo-checklist-item" className={`flex min-w-0 items-start gap-3 rounded-xl p-3 ${theme.soft}`}>
-                <input type="checkbox" checked={item.completed} disabled readOnly aria-label={`${item.text}（唯讀）`} className="mt-1 h-5 w-5 shrink-0" />
+                <span aria-hidden="true" className="mt-1 h-5 w-5 shrink-0 text-center">{item.completed ? '✓' : '○'}</span>
                 <span className="min-w-0">
                   <span className={`block break-words font-bold ${theme.main}`}>{item.text}</span>
                   <span className={`mt-1 block break-words text-xs ${theme.sub}`}>{item.scope === 'shared' ? `共同項目・負責：${item.assignee}` : `個人項目・${item.owner}`}</span>
@@ -321,10 +545,22 @@ export function DemoTripPreview({
   onBack,
   onCreateTrip,
   onCloneDemo,
+  onAddPlace,
+  onUpdatePlace,
+  onDeletePlace,
+  onMovePlace,
+  onAddChecklistItem,
+  onUpdateChecklistItem,
+  onDeleteChecklistItem,
+  onResetDemo,
+  persistence = 'localStorage',
+  saveError = '',
+  isSaving = false,
   createActionLabel = '建立我的第一個旅程',
   showCloneAction = true,
 }) {
   const [activeTab, setActiveTab] = useState(() => normalizeInitialTab(initialTab));
+  const [showResetConfirmation, setShowResetConfirmation] = useState(false);
   const canShowCloneAction = showCloneAction === true && typeof onCloneDemo === 'function';
   const theme = useMemo(() => ({
     page: t?.pageBg || 'bg-slate-50 dark:bg-slate-950',
@@ -342,20 +578,80 @@ export function DemoTripPreview({
           <div data-testid="demo-mode-banner" className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-black text-white">示範模式</span>
-              <span className="rounded-full bg-slate-700 px-3 py-1 text-xs font-black text-white">唯讀</span>
+              <span className="rounded-full bg-emerald-700 px-3 py-1 text-xs font-black text-white">本機可編輯副本</span>
               <strong className={`break-words ${theme.main}`}>範例資料・不會同步</strong>
             </div>
             <p className={`mt-2 break-words text-sm leading-6 ${theme.sub}`}>這是內建範例，不會同步到雲端，也不會修改你的旅程。</p>
           </div>
+          <div
+            data-testid="demo-sandbox-status"
+            aria-live="polite"
+            className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-3 ${theme.card} ${theme.border}`}
+          >
+            <div>
+              <p className={`font-black ${theme.main}`}>本機可編輯示範副本</p>
+              <p className={`text-sm ${saveError ? 'text-rose-700 dark:text-rose-300' : theme.sub}`}>
+                {saveError || (persistence === 'memory'
+                  ? '記憶體模式：重新整理後不會保留，目前變更不會寫入雲端。'
+                  : isSaving ? '正在保存到本機裝置…' : '變更只保存在這個瀏覽器，不會寫入 Firebase。')}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="demo-reset-button"
+              onClick={() => setShowResetConfirmation(true)}
+              className="min-h-11 rounded-xl border border-rose-300 px-4 text-sm font-black text-rose-700 dark:border-rose-700 dark:text-rose-300"
+            >
+              重設示範資料
+            </button>
+          </div>
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className={`text-xs font-bold ${theme.sub}`}>本機內建・唯讀預覽</p>
+              <p className={`text-xs font-bold ${theme.sub}`}>本機內建・可編輯 Sandbox</p>
               <h1 data-testid="demo-trip-title" className={`break-words text-xl font-black sm:text-2xl ${theme.main}`}>{demo.meta.title}</h1>
             </div>
             <button type="button" data-testid="demo-back-button" onClick={() => onBack?.()} className={`min-h-11 rounded-xl border px-4 text-sm font-black ${theme.card} ${theme.border} ${theme.main}`}>返回首頁</button>
           </div>
         </div>
       </header>
+
+      {showResetConfirmation ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="demo-reset-title"
+          data-testid="demo-reset-confirmation"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+        >
+          <section className={`w-full max-w-md rounded-3xl border p-5 shadow-2xl ${theme.card} ${theme.border}`}>
+            <h2 id="demo-reset-title" className={`text-xl font-black ${theme.main}`}>重設示範資料？</h2>
+            <p className={`mt-3 text-sm leading-6 ${theme.sub}`}>
+              這只會清除本裝置的示範副本，並從最新版範本重建；不會影響真正旅程、myTrips 或離線快取。
+            </p>
+            <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                data-testid="demo-reset-cancel"
+                onClick={() => setShowResetConfirmation(false)}
+                className={`min-h-11 rounded-xl border px-4 font-black ${theme.border} ${theme.main}`}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                data-testid="demo-reset-confirm"
+                onClick={() => {
+                  setShowResetConfirmation(false);
+                  onResetDemo?.();
+                }}
+                className="min-h-11 rounded-xl bg-rose-600 px-4 font-black text-white"
+              >
+                確認重設
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <main className="mx-auto w-full max-w-6xl px-4 py-5">
         <div role="tablist" aria-label="示範旅程內容" className="mb-5 flex max-w-full gap-2 overflow-x-auto pb-2">
@@ -377,10 +673,25 @@ export function DemoTripPreview({
         </div>
 
         <OverviewPanel demo={demo} hidden={activeTab !== 'overview'} theme={theme} />
-        <ItineraryPanel demo={demo} hidden={activeTab !== 'itinerary'} theme={theme} />
+        <ItineraryPanel
+          demo={demo}
+          hidden={activeTab !== 'itinerary'}
+          theme={theme}
+          onAddPlace={onAddPlace}
+          onUpdatePlace={onUpdatePlace}
+          onDeletePlace={onDeletePlace}
+          onMovePlace={onMovePlace}
+        />
         <TicketsPanel demo={demo} hidden={activeTab !== 'tickets'} theme={theme} />
         <ExpensesPanel demo={demo} hidden={activeTab !== 'expenses'} theme={theme} />
-        <ChecklistPanel demo={demo} hidden={activeTab !== 'checklist'} theme={theme} />
+        <ChecklistPanel
+          demo={demo}
+          hidden={activeTab !== 'checklist'}
+          theme={theme}
+          onAddChecklistItem={onAddChecklistItem}
+          onUpdateChecklistItem={onUpdateChecklistItem}
+          onDeleteChecklistItem={onDeleteChecklistItem}
+        />
       </main>
 
       <footer className={`border-t px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 ${theme.card} ${theme.border}`}>
