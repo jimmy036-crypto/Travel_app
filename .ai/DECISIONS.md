@@ -56,3 +56,13 @@ Use the following format for new records: ID, title, status, recorded date, cont
 - **Consequences:** Gate 2 may now review the implementation and conditional-Merge plan. No Assignment may execute until Gate 2 is separately approved. Product code, Firebase Rules, production Firebase, dependency changes, migrations, Merge, and deployment remain unauthorized.
 - **Alternatives:** Deep-copying Demo data, mapping fictional members, claiming cross-device idempotency from localStorage, copying tickets/expenses/attachments, treating Demo places as verified, or enabling production before Auth and Rules approval remain rejected by the approved Proposal.
 - **Links:** `decision/gate-1-result.md`, `assignments/gate-2-summary.md`, and the six tracked Assignment artifacts under the active Session.
+
+## ADR-007 — Editable local Demo Sandbox and replayable Feature Introduction amend Gate 2 planning
+
+- **Status:** Accepted amendment; implementation remains pending Revised Gate 2
+- **Recorded:** 2026-07-23
+- **Context:** During Gate 2 review, the human requested that Demo interactions be editable and persist locally after refresh, with an explicit reset, plus a visible high-level Feature Introduction replay entry. The human then explicitly confirmed adoption of the bounded amended behavior.
+- **Decision:** Use a versioned local Demo Sandbox derived defensively from immutable `createTokyoDemoTrip` output. Sandbox edits and reset remain local and never write Firebase, `myTrips`, or Offline Trip Cache. Clone consumes the current validated Sandbox snapshot through the existing allowlist and owner-only safety model. Add replayable high-level Feature Introduction entries in Lobby and Settings without changing first-run eligibility, while retaining the existing trip-contextual FeatureTour as a separate action.
+- **Consequences:** The independent `clone-demo-editable-sandbox-amendment` Session supersedes only the original six-Assignment Gate 2 plan. Those six Assignments remain immutable Audit History and must not execute. Nine revised Assignments exist with `executionEnabled=false`; Revised Gate 2 remains pending. No product implementation, Firebase Rules or dependency change, migration, production Firebase access, PR, Merge, or deployment is authorized.
+- **Alternatives:** Keep Demo read-only; mutate the source template; persist Demo as a cloud trip; merge Feature Introduction with FeatureTour; or execute the original Gate 2 plan. These were rejected because they conflict with the confirmed product behavior, local-only boundaries, onboarding-state isolation, or audit history.
+- **Links:** `.ai/discussions/active/clone-demo-editable-sandbox-amendment/decision/proposal.json`, `decision/human-approval.json`, and `assignments/gate-2-summary.md`.

@@ -2,6 +2,15 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2K — Editable Demo Sandbox Decision Amendment and Revised Gate 2 Plan
+
+- Preserved the complete `clone-demo-architecture-pilot` Session and its six execution-disabled Assignments as immutable Audit History; its unapproved Gate 2 plan is superseded and must not execute.
+- Created the independent `clone-demo-editable-sandbox-amendment` Session with the human-confirmed Round 1 requirement, independent Round 2 cross-review, Architect Amendment proposal, and immutable Human Approval for assignment planning only.
+- Accepted a versioned, persistent, editable local Demo Sandbox derived from an immutable template, with explicit reset and no Firebase, `myTrips`, or Offline Trip Cache writes. Clone will consume the current validated Sandbox snapshot through the retained allowlist and owner-only safety boundaries.
+- Accepted replayable high-level Feature Introduction entries in Lobby and Settings while preserving the trip-contextual FeatureTour as a separate action and keeping replay neutral to first-run eligibility.
+- Added nine revised, canonical Assignments with `executionEnabled=false`, globally non-overlapping allowed paths, and an acyclic dependency graph, plus a Traditional Chinese Revised Gate 2 summary.
+- Added exact two-active-Session, original-digest, supersession, Assignment, and thirteen-event deterministic audit tests. No product/E2E/Firebase/package file changed, and no Assignment, external Agent, Emulator, Playwright, production Firebase, PR, Merge, or deployment occurred.
+
 ## Phase AI-3B2B-R2J — Human Decision Approval and Gate 2 Assignment Plan
 
 - Recorded the explicit human statement `批准 Decision` as an immutable `human-approval` artifact for `clone-demo-architecture-proposal`; the ignored source and tracked target are semantically identical.

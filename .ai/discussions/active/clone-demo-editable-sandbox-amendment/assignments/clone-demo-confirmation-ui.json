@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-amendment-plan",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "assignmentId": "clone-demo-confirmation-ui",
+  "title": "Confirm Clone from the current editable Demo copy",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Present an accessible Clone confirmation that clearly uses the current validated Demo copy and remains separate from Reset.",
+  "allowedPaths": [
+    "src/features/onboarding/CloneDemoDialog.jsx",
+    "src/features/onboarding/CloneDemoDialog.test.jsx"
+  ],
+  "forbiddenPaths": [
+    "src/App.jsx",
+    "src/features/onboarding/DemoTripPreview.jsx",
+    "src/features/onboarding/demoSandboxStore.js",
+    "src/features/offline/offlineTripCache.js",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "clone-demo-converter",
+    "clone-demo-journal",
+    "editable-demo-preview"
+  ],
+  "acceptanceCriteria": [
+    "Label the Clone source as 目前示範副本 and summarize included edited itinerary and Checklist content.",
+    "Explain excluded expenses, settlements, tickets, attachments, fictional members, and Demo-only data.",
+    "Explain owner-only output and unverified text-only places.",
+    "Keep Clone and Reset as distinct actions, confirmations, accessible names, and state machines.",
+    "Disable duplicate confirmation and expose accessible loading, error, success, and repair states.",
+    "Do not read or write Firebase, myTrips, Offline Cache, Storage, or production configuration."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/CloneDemoDialog.test.jsx",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

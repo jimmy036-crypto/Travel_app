@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-amendment-plan",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "assignmentId": "editable-demo-preview",
+  "title": "Make Demo Preview an accessible editable local Sandbox",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Add bounded itinerary and Checklist editing, Reset confirmation, and local-only status to DemoTripPreview without cloud side effects.",
+  "allowedPaths": [
+    "src/features/onboarding/DemoTripPreview.jsx",
+    "src/features/onboarding/DemoTripPreview.test.jsx"
+  ],
+  "forbiddenPaths": [
+    "src/App.jsx",
+    "src/features/onboarding/demoSandboxStore.js",
+    "src/features/onboarding/FirstRunWelcomeDialog.jsx",
+    "src/components/AppSettingsMenu.jsx",
+    "src/features/offline/offlineTripCache.js",
+    "src/features/tickets",
+    "src/features/expenses",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "editable-demo-sandbox-store"
+  ],
+  "acceptanceCriteria": [
+    "Support itinerary add, edit, delete, drag reorder, arrival-time changes, and note changes through supplied local callbacks.",
+    "Support Checklist add, edit, toggle, delete, and assignee selection limited to owner or unassigned.",
+    "Add an explicit Reset button with confirmation and keep Reset visually and behaviorally separate from Clone.",
+    "Show persistent-versus-memory-only and local-only Sandbox status accessibly.",
+    "Remove read-only labels where no longer true while labelling expenses, settlements, tickets, and attachments preview-only where retained.",
+    "Do not expose expense, settlement, ticket, attachment, Storage, or collaboration editing.",
+    "Provide keyboard, focus, accessible-name, Desktop, and Mobile behavior.",
+    "Do not call Firebase, myTrips, Offline Cache, Storage, or production services."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/DemoTripPreview.test.jsx",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-amendment-plan",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "assignmentId": "editable-demo-sandbox-store",
+  "title": "Build the versioned local editable Demo Sandbox store",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Implement a defensive, versioned localStorage Demo Sandbox store with safe validation, persistence, reset, memory fallback, and immutable template protection.",
+  "allowedPaths": [
+    "src/features/onboarding/demoSandboxStore.js",
+    "src/features/onboarding/demoSandboxStore.test.js",
+    "src/features/onboarding/demoSandboxConstants.js"
+  ],
+  "forbiddenPaths": [
+    "src/App.jsx",
+    "src/features/onboarding/DemoTripPreview.jsx",
+    "src/features/onboarding/FirstRunWelcomeDialog.jsx",
+    "src/components/AppSettingsMenu.jsx",
+    "src/features/offline/offlineTripCache.js",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "src/firebase.js",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [],
+  "acceptanceCriteria": [
+    "Use travel-app-demo-sandbox-v1 and persist schemaVersion, templateVersion, sandboxId, trip, createdAt, and updatedAt.",
+    "Use local-demo-sandbox only as local identity and never as a Firebase room ID or myTrips identity.",
+    "Run localStorage write/read/remove availability preflight and return defensive copies from every read.",
+    "Validate parse, schema, template version, IDs, and trip content as untrusted input before use or write.",
+    "Rebuild a safe Sandbox from a fresh immutable template for missing, corrupted, expired, stale, or incompatible data without Firebase access.",
+    "Provide explicit write errors and a clearly reported memory-only fallback when storage is unavailable.",
+    "Reset only the local Sandbox key and rebuild from the current templateVersion.",
+    "Prove Sandbox edits and Reset cannot mutate createTokyoDemoTrip source objects.",
+    "Never write Firebase, Storage, myTrips, or Offline Trip Cache."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/demoSandboxStore.test.js",
+    "npm run typecheck",
+    "npm run lint",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

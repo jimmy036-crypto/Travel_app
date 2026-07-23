@@ -234,3 +234,13 @@ Six canonical Assignment plans are tracked under the active Session: converter, 
 The Session advanced only to `assignments-ready`. Its deterministic audit records both reviewed rounds, the Decision proposal, Human Approval, and six lexically sorted Assignment plans. Round 1, Round 2, the Decision Proposal, Gate 1 Summary, review records, Human Round 2 packet, and Architect packet remain unchanged.
 
 The Gate 2 summary is `.ai/discussions/active/clone-demo-architecture-pilot/assignments/gate-2-summary.md`. Gate 2 remains pending and offers only: approve the implementation plan, request scope adjustment, or reject implementation. Until a human separately approves Gate 2, no Assignment may execute and no product/E2E change, Emulator run, PR, conditional Merge, or deployment is authorized.
+
+## P. Editable Demo Sandbox Amendment and Revised Gate 2 plan
+
+During Gate 2 review, the human requested an editable Demo and a new high-level Feature Introduction entry, then explicitly replied `確認採用`. The original `clone-demo-architecture-pilot` Session and all six original Assignments remain byte-for-byte immutable Audit History. Their unapproved Gate 2 plan is superseded and must not execute; the original owner-only, allowlist conversion, feature-flag, Emulator-only, and Production Gate safety requirements remain in force.
+
+The independent Session `.ai/discussions/active/clone-demo-editable-sandbox-amendment` records a human Round 1 requirement, an independent human Round 2 critique, the proposed `editable-demo-sandbox-amendment`, and its immutable Human Approval. The approved direction uses a versioned editable local Sandbox derived from an immutable Demo template, persists and resets only local Sandbox state, never writes Firebase, `myTrips`, or Offline Trip Cache, and makes Clone consume the current validated Sandbox snapshot.
+
+The Amendment also separates replayable high-level `功能介紹` entries in Lobby and Settings from the existing trip-contextual `功能導覽`; replay must not change first-run onboarding eligibility. Nine revised Assignments are tracked with `executionEnabled=false`, and the revised Gate 2 summary is `.ai/discussions/active/clone-demo-editable-sandbox-amendment/assignments/gate-2-summary.md`.
+
+Revised Gate 2 remains pending. No Assignment executed, and no product/E2E code, Firebase Rules, production Firebase, PR, Merge, dependency, migration, or deployment was authorized or changed.

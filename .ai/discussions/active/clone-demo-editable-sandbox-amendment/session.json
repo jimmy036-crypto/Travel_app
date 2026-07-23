@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-session",
+  "fixture": false,
+  "source": "human-confirmed-amendment-brief",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "title": "Amend Clone Flow with an Editable Local Demo Sandbox and Feature Introduction Replay",
+  "topic": "How should the approved Clone Flow be amended so users can edit a persistent local Demo sandbox and reopen the high-level feature introduction without weakening Firebase, myTrips, Offline Cache, or production safety boundaries?",
+  "objective": "Create a human-approved Decision Amendment and execution-disabled revised Assignment plan. This phase performs no product implementation.",
+  "status": "assignments-ready",
+  "executionMode": "import-only",
+  "context": {
+    "knownFacts": [
+      "Original Session clone-demo-architecture-pilot remains immutable.",
+      "Original Gate 1 approved an owner-only Clone MVP.",
+      "Original six-Assignment Gate 2 plan was never approved for execution.",
+      "Human requested an editable local Demo sandbox and a feature-introduction replay entry.",
+      "Human confirmed the proposed amended behavior.",
+      "Existing AppSettingsMenu already exposes a trip-contextual 功能導覽 action.",
+      "Existing FeatureTour targets TripDetail controls and is not the same as the high-level feature introduction.",
+      "No product implementation, production Firebase access, Merge, or Deploy is authorized.",
+      "This Amendment Session supersedes the original clone-demo-architecture-pilot Gate 2 Assignment Plan without changing the original Session.",
+      "This Amendment does not revoke the original Clone Flow owner-only, allowlist, feature-flag, Emulator-only, no-Rules, no-production, no-dependency, no-migration, or no-deploy safety requirements.",
+      "The original six Assignments remain immutable audit history and must not execute.",
+      "Only the nine revised execution-disabled Assignments in this Session are eligible for future Revised Gate 2 review."
+    ],
+    "repositoryPaths": [
+      "src/App.jsx",
+      "src/components/AppSettingsMenu.jsx",
+      "src/features/onboarding/createTokyoDemoTrip.js",
+      "src/features/onboarding/demoTripData.js",
+      "src/features/onboarding/DemoTripPreview.jsx",
+      "src/features/onboarding/FirstRunWelcomeDialog.jsx",
+      "src/features/offline/offlineTripCache.js",
+      ".ai/discussions/active/clone-demo-architecture-pilot",
+      ".ai/DECISIONS.md",
+      ".ai/RISKS.md"
+    ],
+    "decisions": [
+      "ADR-001: Built-in Demo does not write Firebase.",
+      "ADR-002: Built-in Demo is excluded from myTrips.",
+      "ADR-004: Offline Preview is read-only.",
+      "ADR-006: Original owner-only Clone architecture is approved; its first six-Assignment Gate 2 plan was never approved for execution.",
+      "Human amendment confirmation: use an editable persistent local Demo Sandbox and add replayable high-level Feature Introduction entries.",
+      "The editable-demo-sandbox-amendment Decision was approved for revised execution-disabled Assignment planning only."
+    ]
+  },
+  "constraints": [
+    "The original clone-demo-architecture-pilot Session and its six Assignments are immutable audit history and must not execute.",
+    "The source Demo template remains immutable; editing applies only to a defensive local Sandbox copy.",
+    "Demo open, edit, persistence, and reset must not write Firebase, myTrips, Offline Trip Cache, or Storage.",
+    "Clone retains owner-only, allowlist, disabled-by-default feature flag, Emulator-only technical development, and separate Production Gate requirements.",
+    "Feature Introduction replay must remain distinct from the existing trip-contextual Feature Tour and must not change onboarding eligibility.",
+    "All revised Assignments remain execution-disabled until a separate Revised Gate 2 approval.",
+    "Do not modify product code, E2E, Firebase Rules, packages, dependencies, migrations, production Firebase, or deployment state in this phase."
+  ],
+  "questions": [
+    "How should the immutable Demo template produce and reset a persistent editable Sandbox without mutation leakage?",
+    "Which itinerary and Checklist edits are supported while expenses, settlements, tickets, attachments, and Storage stay preview-only?",
+    "How should versioned localStorage validation, corruption recovery, memory fallback, and reset confirmation behave?",
+    "How must Clone validate and transform the current Sandbox snapshot while preserving every approved Clone safety boundary?",
+    "How should Lobby and Settings replay the high-level Feature Introduction without changing first-run state or merging it with the trip-contextual Feature Tour?",
+    "Which revised non-overlapping Assignments and regression evidence are required before conditional Merge can be considered?"
+  ],
+  "participants": [
+    { "participantId": "human-product-owner", "agent": "human", "role": "analyst", "required": true, "writeAccess": false, "availability": "human-controlled" },
+    { "participantId": "human-reviewer", "agent": "human", "role": "reviewer", "required": true, "writeAccess": false, "availability": "human-controlled" },
+    { "participantId": "codex-architect", "agent": "codex", "role": "architect", "required": false, "writeAccess": false, "availability": "available" },
+    { "participantId": "human-approver", "agent": "human", "role": "approver", "required": false, "writeAccess": false, "availability": "human-controlled" },
+    { "participantId": "codex-engineer", "agent": "codex", "role": "engineer", "required": false, "writeAccess": false, "availability": "available" },
+    { "participantId": "codex-reviewer", "agent": "codex", "role": "reviewer", "required": false, "writeAccess": false, "availability": "available" },
+    { "participantId": "codex-qa", "agent": "codex", "role": "qa", "required": false, "writeAccess": false, "availability": "available" }
+  ],
+  "roundRequirements": {
+    "round1ParticipantIds": ["human-product-owner"],
+    "round2ParticipantIds": ["human-reviewer"]
+  },
+  "rounds": {
+    "round1ContributionIds": ["human-editable-demo-requirement"],
+    "round2ContributionIds": ["human-editable-demo-cross-review"]
+  },
+  "decision": {
+    "decisionId": "editable-demo-sandbox-amendment",
+    "proposalPath": "decision/proposal.json"
+  },
+  "humanApproval": {
+    "required": true,
+    "approverParticipantId": "human-approver",
+    "approvalPath": "decision/human-approval.json"
+  },
+  "assignments": [
+    "assignments/editable-demo-sandbox-store.json",
+    "assignments/editable-demo-preview.json",
+    "assignments/clone-demo-converter.json",
+    "assignments/clone-demo-journal.json",
+    "assignments/clone-demo-confirmation-ui.json",
+    "assignments/feature-introduction-replay.json",
+    "assignments/editable-demo-app-integration.json",
+    "assignments/editable-demo-code-review.json",
+    "assignments/editable-demo-qa-verification.json"
+  ],
+  "timestamps": {
+    "createdAt": "2026-07-23T03:29:09.7619560Z",
+    "updatedAt": "2026-07-23T03:36:08.9415684Z"
+  }
+}

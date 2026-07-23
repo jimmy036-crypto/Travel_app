@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-analysis",
+  "fixture": false,
+  "source": "human-confirmed-product-amendment",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "contributionId": "human-editable-demo-requirement",
+  "round": "independent-analysis",
+  "participant": {
+    "participantId": "human-product-owner",
+    "agent": "human",
+    "role": "analyst"
+  },
+  "recommendation": "Replace the read-only Demo Preview contract with a local editable sandbox copy while keeping the source template immutable and preserving all no-Firebase, no-myTrips, and no-Offline-Cache boundaries. Add a replayable high-level Feature Introduction entry in the Lobby and Settings while preserving the existing trip-contextual Feature Tour.",
+  "rationale": [
+    "Create the Sandbox from a fresh immutable createTokyoDemoTrip template object, persist only a versioned defensive local copy, and ensure Sandbox edits cannot mutate the source template.",
+    "Support itinerary place add, edit, delete, drag reorder, arrival-time editing, and note editing inside the local Sandbox.",
+    "Support Checklist add, toggle, edit, delete, and assignee selection limited to the owner or unassigned.",
+    "Do not require expense, settlement, ticket, attachment, or Storage-upload editing; those areas may retain clearly labelled demonstration or preview content without Firebase or Storage side effects.",
+    "Persist the Demo Sandbox in versioned localStorage so edits survive refresh, and provide an explicit reset action with confirmation that clears only this device's Sandbox and rebuilds it from the immutable template.",
+    "The Sandbox uses no real room ID, never enters myTrips, never enters Offline Trip Cache, and never writes Firebase or Storage.",
+    "Clone must use the current validated Sandbox snapshot rather than the fixed original template, while still passing through the approved allowlist converter and every existing excluded-data rule.",
+    "Add a visible Lobby toolbar button and a Settings entry named 功能介紹 that replay the high-level FirstRunWelcomeDialog content.",
+    "Replay mode must not read, write, mark, clear, or reset first-run eligibility or completion state; replay may still let the user open Demo or create a trip.",
+    "Keep the existing Settings 功能導覽 action as the separate TripDetail contextual spotlight tour, with distinct names, purposes, accessible names, and test IDs."
+  ],
+  "assumptions": [
+    "The Built-in Demo template can continue producing a fresh deterministic object through createTokyoDemoTrip.",
+    "The editable Sandbox remains device-local demonstration data and is not an authenticated collaborative trip.",
+    "Existing FirstRunWelcomeDialog high-level content can support a replay mode without changing onboarding state.",
+    "The original owner-only Clone safety, feature flag, Emulator-only development, and Production Gate remain mandatory."
+  ],
+  "options": [
+    "Adopt a versioned persistent local editable Sandbox with explicit reset and separate Feature Introduction replay entries; selected by the human.",
+    "Use an in-memory editable Demo that loses changes on refresh; rejected because the human required persistence.",
+    "Keep the Demo read-only and only add Feature Introduction replay; rejected by the human amendment.",
+    "Turn the Demo into a Firebase room; rejected because it violates the local-only, no-myTrips, and no-production boundaries."
+  ],
+  "risks": [
+    "Mutation leakage could alter the source template or contaminate future resets.",
+    "Corrupted, stale, or incompatible localStorage data could render unsafe or invalid Demo state.",
+    "Users could confuse device-local Sandbox edits with cloud collaboration or a real trip.",
+    "Reset could accidentally affect myTrips, Offline Cache, or real Firebase rooms if boundaries are not explicit.",
+    "Clone could bypass validation by deep-copying the current Sandbox.",
+    "Feature Introduction replay could incorrectly modify onboarding eligibility or be confused with Feature Tour.",
+    "Preview-only expense, ticket, or attachment UI could accidentally expose cloud write actions."
+  ],
+  "testsRequired": [
+    "Template immutability, defensive-copy, schemaVersion, templateVersion, corrupted-data, incompatible-data, memory-fallback, persistence, and reset store tests.",
+    "Itinerary add/edit/delete/reorder, time/note editing, Checklist add/edit/toggle/delete, and owner/unassigned assignee tests.",
+    "No Firebase, myTrips, Offline Cache, Storage, or real-room-ID tests for Demo open, edit, reload, and reset.",
+    "Clone tests proving the current validated Sandbox snapshot is used, allowlist conversion remains enforced, forbidden data remains excluded, and successful Clone does not reset the Sandbox.",
+    "Lobby and Settings Feature Introduction tests plus regression proving existing Settings Feature Tour remains separate.",
+    "Replay tests proving first-run seen and eligibility state are neither read for gating nor modified on open or close.",
+    "Desktop Chrome, Mobile Safari, complete Vitest, Playwright, accessibility, and feature-flag-disabled regression in the later authorized QA phase."
+  ],
+  "evidence": [
+    {
+      "claim": "The original approved Clone architecture and six disabled Assignments remain immutable audit history.",
+      "path": ".ai/discussions/active/clone-demo-architecture-pilot/session.json",
+      "symbol": "decision / humanApproval / assignments"
+    },
+    {
+      "claim": "The Demo template is defined by the onboarding Demo data factory and must remain immutable.",
+      "path": "src/features/onboarding/demoTripData.js",
+      "symbol": "createTokyoDemoTrip"
+    },
+    {
+      "claim": "Demo presentation and future editable interactions are bounded by DemoTripPreview.",
+      "path": "src/features/onboarding/DemoTripPreview.jsx",
+      "symbol": "DemoTripPreview"
+    },
+    {
+      "claim": "The high-level first-run experience is presented by FirstRunWelcomeDialog and is distinct from the contextual tour.",
+      "path": "src/features/onboarding/FirstRunWelcomeDialog.jsx",
+      "symbol": "FirstRunWelcomeDialog"
+    },
+    {
+      "claim": "Settings currently exposes the separate trip-contextual Feature Tour action.",
+      "path": "src/components/AppSettingsMenu.jsx",
+      "symbol": "功能導覽"
+    },
+    {
+      "claim": "Offline Trip Cache is a separate real-trip snapshot boundary that the Sandbox must never write.",
+      "path": "src/features/offline/offlineTripCache.js",
+      "symbol": "writeOfflineTripSnapshot"
+    }
+  ],
+  "unknowns": [
+    "The production Auth, ownership, membership, invitation, Rules, migration, and rollout questions from the original Production Gate remain unresolved and outside this Amendment."
+  ],
+  "confidence": 1
+}

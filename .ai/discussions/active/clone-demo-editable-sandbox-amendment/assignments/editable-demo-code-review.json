@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-amendment-plan",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "assignmentId": "editable-demo-code-review",
+  "title": "Review Editable Demo and Clone implementation against the Amendment",
+  "ownerAgent": "codex",
+  "ownerRole": "reviewer",
+  "mode": "review",
+  "objective": "Independently review the seven implementation Assignments for Amendment compliance, path ownership, local-only safety, Feature Introduction separation, and blocking findings.",
+  "allowedPaths": [
+    ".ai/reviews/editable-demo-clone-code-review.md"
+  ],
+  "forbiddenPaths": [
+    "src",
+    "e2e",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "editable-demo-sandbox-store",
+    "editable-demo-preview",
+    "clone-demo-converter",
+    "clone-demo-journal",
+    "clone-demo-confirmation-ui",
+    "feature-introduction-replay",
+    "editable-demo-app-integration"
+  ],
+  "acceptanceCriteria": [
+    "Verify source template immutability and absence of nested mutation leakage.",
+    "Verify Sandbox versioning, untrusted validation, persistence, memory fallback, Reset, and local-only boundaries.",
+    "Verify Clone uses the current validated snapshot and preserves every approved owner-only and excluded-data rule.",
+    "Verify 功能介紹 replay and 功能導覽 remain separate in state, copy, accessibility, tests, and behavior.",
+    "Verify all diffs remain within Assignment allowed paths and do not modify Rules, packages, dependencies, migrations, or production configuration.",
+    "Verify no Demo action writes Firebase, Storage, myTrips, or Offline Cache and technical Clone remains Emulator-only.",
+    "List blocking and non-blocking findings with evidence and permit QA only when no blocking finding remains."
+  ],
+  "validation": [
+    "git diff --check",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "npm run agent:guardrails",
+    "npm run agent:verify"
+  ],
+  "reviewer": "human-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

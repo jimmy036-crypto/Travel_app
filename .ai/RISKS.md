@@ -34,6 +34,20 @@ Each risk has an owner role, status, and mitigation. Promote or close risks base
 - **Risk:** Documentation or follow-up branches may assume guided-demo capabilities that are still isolated on a feature branch.
 - **Mitigation:** Keep stable and feature-line status explicit in `PROJECT_STATUS.md`; do not stack dependent product work without authorization.
 
+### R-H04 — Local Demo Sandbox mistaken for trusted or cloud data
+
+- **Status:** Controlled by design; implementation pending
+- **Owner:** Architect / Reviewer
+- **Risk:** Editable Sandbox state could be mistaken for a Firebase room, inserted into `myTrips` or Offline Trip Cache, or trusted without validation.
+- **Mitigation:** Use an explicit local Sandbox identity and versioned schema, validate every read as untrusted input, keep all Firebase and cache boundaries negative by construction, and require dedicated regression evidence before any implementation may merge.
+
+### R-H05 — Superseded Clone Assignments execute accidentally
+
+- **Status:** Controlled
+- **Owner:** Human Approver / Reviewer
+- **Risk:** The original six-Assignment plan remains tracked and could be mistaken for the current Gate 2 plan.
+- **Mitigation:** Preserve it as immutable Audit History, mark it superseded and non-executable in the Amendment Session and Project OS, and permit only the nine revised Assignments to become a future Gate 2 approval target.
+
 ## Medium
 
 ### R-M01 — Emulator E2E cost and flakiness
@@ -56,6 +70,20 @@ Each risk has an owner role, status, and mitigation. Promote or close risks base
 - **Owner:** Documentation
 - **Risk:** Branch, test counts, decisions, and risks can become stale as features merge.
 - **Mitigation:** Update `PROJECT_STATUS.md`, relevant ADRs, and `CHANGELOG_AI.md` in every milestone handoff.
+
+### R-M04 — Demo template mutation or incompatible local Sandbox state
+
+- **Status:** Open; implementation pending
+- **Owner:** Engineer / QA
+- **Risk:** Mutation leakage, corrupt JSON, or schema/template version drift could alter the source Demo or produce unsafe Clone input.
+- **Mitigation:** Generate fresh template objects, use defensive copies, validate schema and template versions, rebuild a safe local copy on corruption or incompatibility, scope Reset only to the Sandbox key, and revalidate before Clone conversion.
+
+### R-M05 — Feature Introduction replay changes onboarding state or obscures FeatureTour
+
+- **Status:** Open; implementation pending
+- **Owner:** Engineer / QA
+- **Risk:** Replay could incorrectly mark/reset first-run eligibility or conflate high-level product introduction with the trip-contextual spotlight tour.
+- **Mitigation:** Give replay a state-neutral mode, separate labels, accessible names, test IDs, and entry points, and retain the existing FeatureTour action independently.
 
 ## Low
 

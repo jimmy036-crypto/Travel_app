@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-amendment-plan",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "assignmentId": "feature-introduction-replay",
+  "title": "Add replayable high-level Feature Introduction entries",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Add Lobby and Settings 功能介紹 entry points and a side-effect-free FirstRunWelcomeDialog replay mode while preserving the separate trip-contextual 功能導覽.",
+  "allowedPaths": [
+    "src/features/onboarding/FeatureIntroductionButton.jsx",
+    "src/features/onboarding/FeatureIntroductionButton.test.jsx",
+    "src/features/onboarding/FirstRunWelcomeDialog.jsx",
+    "src/features/onboarding/FirstRunWelcomeDialog.test.jsx",
+    "src/components/AppSettingsMenu.jsx",
+    "src/components/AppSettingsMenu.test.jsx"
+  ],
+  "forbiddenPaths": [
+    "src/App.jsx",
+    "src/features/onboarding/DemoTripPreview.jsx",
+    "src/features/onboarding/demoSandboxStore.js",
+    "src/features/offline/offlineTripCache.js",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [],
+  "acceptanceCriteria": [
+    "Provide a reusable Lobby 功能介紹 button component and a Settings 功能介紹 item.",
+    "Add explicit FirstRunWelcomeDialog replay mode that presents high-level content and allows Open Demo or Create Trip.",
+    "Replay must not gate on, write, mark, clear, or reset first-run eligibility, completion, seen, or dismissal state.",
+    "Preserve the existing Settings 功能導覽 item and TripDetail contextual spotlight behavior.",
+    "Use distinct copy, test IDs, accessible names, callbacks, and tests for 功能介紹 versus 功能導覽.",
+    "Do not merge the two features or route high-level replay into contextual tour state.",
+    "Do not access Firebase, myTrips, Offline Cache, Storage, or production services."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/FeatureIntroductionButton.test.jsx src/features/onboarding/FirstRunWelcomeDialog.test.jsx src/components/AppSettingsMenu.test.jsx",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-amendment-plan",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "assignmentId": "clone-demo-journal",
+  "title": "Build the same-device Clone operation journal and state machine",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Implement the original approved minimal Clone Journal and operation state machine without mixing it with Demo Sandbox persistence.",
+  "allowedPaths": [
+    "src/features/onboarding/cloneOperationJournal.js",
+    "src/features/onboarding/cloneOperationJournal.test.js",
+    "src/features/onboarding/cloneOperationState.js",
+    "src/features/onboarding/cloneOperationState.test.js"
+  ],
+  "forbiddenPaths": [
+    "src/App.jsx",
+    "src/features/onboarding/demoSandboxStore.js",
+    "src/features/onboarding/DemoTripPreview.jsx",
+    "src/features/offline/offlineTripCache.js",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "clone-demo-converter"
+  ],
+  "acceptanceCriteria": [
+    "Retain same-device and same-browser recovery only, with no cross-device claim.",
+    "Persist only the approved minimal fields and never the transformed trip or Sandbox payload.",
+    "Apply seven-day expiry, schema/template validation, ID validation, fingerprint validation, and untrusted-input handling.",
+    "Share one in-flight operation for double-click and reuse operation identity across retry and reload.",
+    "Never automatically write from an expired, corrupted, stale, or incompatible Journal.",
+    "Use fingerprint only for consistency, never authorization.",
+    "Keep Clone Journal storage keys and behavior separate from Demo Sandbox storage and Reset."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/cloneOperationJournal.test.js src/features/onboarding/cloneOperationState.test.js",
+    "npm run typecheck",
+    "npm run lint",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

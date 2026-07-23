@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "human-approval",
+  "fixture": false,
+  "source": "human-amendment-confirmation",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "decisionId": "editable-demo-sandbox-amendment",
+  "actorRole": "human",
+  "action": "approve",
+  "comment": "Human confirmed adoption of the editable local Demo Sandbox, reset behavior, and replayable Feature Introduction. This approval authorizes preparation of revised execution-disabled Assignments only. It does not authorize product implementation, Merge, production Firebase, Firebase Rules changes, or deployment.",
+  "approvedAt": "2026-07-23T03:32:45.6016648Z"
+}

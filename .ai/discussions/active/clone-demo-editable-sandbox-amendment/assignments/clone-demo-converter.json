@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-amendment-plan",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "assignmentId": "clone-demo-converter",
+  "title": "Convert the validated current Demo Sandbox snapshot",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Amend the approved owner-only allowlist converter to accept the current validated Sandbox snapshot while preserving deterministic retry IDs and every excluded-data boundary.",
+  "allowedPaths": [
+    "src/features/onboarding/cloneDemoTrip.js",
+    "src/features/onboarding/cloneDemoTrip.test.js",
+    "src/features/onboarding/cloneDemoConstants.js"
+  ],
+  "forbiddenPaths": [
+    "src/App.jsx",
+    "src/features/onboarding/DemoTripPreview.jsx",
+    "src/features/onboarding/demoSandboxStore.js",
+    "src/features/offline/offlineTripCache.js",
+    "src/features/tickets",
+    "src/features/expenses",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "editable-demo-sandbox-store"
+  ],
+  "acceptanceCriteria": [
+    "Accept only a current Sandbox snapshot that already passed the Sandbox validator.",
+    "Build a fresh owner-only object graph through the approved explicit allowlist; never deep-copy Sandbox or source template state.",
+    "Preserve complete edited itinerary and Checklist values within the allowed Clone contract.",
+    "Generate new room, place, and Checklist IDs and derive retry IDs deterministically from operationId and source keys.",
+    "Exclude fictional members, expenses, settlements, tickets, attachments, Storage paths, Demo/Sandbox IDs, Demo-only fields, guidance, example URLs, order numbers, old timestamps, audit state, and credential-like data.",
+    "Mark copied text-only places unverified and preserve owner-or-unassigned Checklist assignees.",
+    "Prove conversion mutates neither the current Sandbox snapshot nor the immutable source template.",
+    "Do not Reset Sandbox after conversion or successful Clone."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/cloneDemoTrip.test.js",
+    "npm run typecheck",
+    "npm run lint",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

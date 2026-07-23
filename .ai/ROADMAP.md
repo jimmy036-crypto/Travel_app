@@ -35,7 +35,9 @@ Statuses describe the product program, while `PROJECT_STATUS.md` records branch-
 - **Phase AI-3B2B-R2I — Clone Flow Architecture Decision Proposal:** Prepare a proposed-only architecture Decision from both unchanged reviewed rounds, an execution-disabled Architect packet, and a Gate 1 owner summary without granting implementation authority. Completed.
 - **Gate 1 — Clone Flow Decision review:** Human approved `clone-demo-architecture-proposal`; the approval grants execution-disabled Assignment planning only. Completed.
 - **Phase AI-3B2B-R2J — Human Decision Approval and Gate 2 Assignment Plan:** Record the immutable Gate 1 Approval, prepare six execution-disabled Assignments, and publish the bounded implementation and conditional-Merge plan without executing product work. Completed.
-- **Gate 2 — Clone Flow implementation plan review:** Human approval, adjustment, or rejection of the implementation and conditional-Merge plan. Next.
+- **Gate 2 — Clone Flow implementation plan review:** Superseded before approval by the human-requested editable Demo Amendment; the original six Assignments remain immutable and must not execute.
+- **Phase AI-3B2B-R2K — Editable Demo Sandbox Decision Amendment and Revised Gate 2 Plan:** Preserve the original Session as Audit History, record the human-confirmed editable local Sandbox and Feature Introduction replay Amendment in an independent Session, and prepare nine revised execution-disabled Assignments. Completed.
+- **Revised Gate 2 — Editable Demo Sandbox implementation plan review:** Human approval, adjustment, or rejection of the amended implementation and conditional-Merge plan. Next.
 - **Phase AI-3B3 — Controlled Runner Expansion:** Evaluate additional providers only after pilot evidence and separate approval. Planned.
 - **Phase AI-4 — Governance Automation:** Add safe local checks for status freshness, decision links, risk ownership, and release evidence without changing CI unless separately authorized. Planned.
 - **Phase AI-5 — Release Intelligence:** Produce evidence-based release readiness summaries and roadmap updates from verified repository state. Planned.

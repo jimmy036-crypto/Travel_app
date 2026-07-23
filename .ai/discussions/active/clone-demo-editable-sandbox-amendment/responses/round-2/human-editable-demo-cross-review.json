@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-critique",
+  "fixture": false,
+  "source": "human-confirmed-amendment-cross-review",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "contributionId": "human-editable-demo-cross-review",
+  "round": "cross-review",
+  "participant": {
+    "participantId": "human-reviewer",
+    "agent": "human",
+    "role": "reviewer"
+  },
+  "reviewedContributionIds": [
+    "human-editable-demo-requirement"
+  ],
+  "agreements": [
+    "Editable Demo means editing a defensive local Sandbox copy and must never mean modifying the source template.",
+    "The localStorage Sandbox is device-local user demonstration data, not a cloud trip, collaboration room, authorization identity, or myTrips entry.",
+    "Every persisted Sandbox record requires explicit schemaVersion and templateVersion fields.",
+    "Every Sandbox record and current snapshot must be treated as untrusted input and validated before rendering, saving, reset recovery, or Clone.",
+    "Expired, corrupted, stale, or incompatible persisted data must rebuild a safe local copy from the immutable template and must never trigger a Firebase write.",
+    "Reset must be explicit, confirmed, deterministic, and limited to the local Sandbox key without affecting myTrips, Offline Cache, or a real Firebase room.",
+    "The Clone converter must validate the current Sandbox snapshot and then apply the approved allowlist transformation rather than deep-copying Sandbox state.",
+    "Feature Introduction replay must not alter first-run eligibility, completion, seen, or dismissal records.",
+    "功能介紹 and 功能導覽 require distinct buttons, language, accessible names, test IDs, and flows because one is high-level app introduction and the other is a TripDetail contextual tour.",
+    "Demonstration expenses, tickets, settlements, and attachments may remain preview-only but must never create Firebase or Storage side effects.",
+    "The original Clone owner-only model, Demo-only CTA, disabled-by-default feature flag, Emulator-only technical development, no-production boundary, and separate Production Gate all remain mandatory."
+  ],
+  "disagreements": [
+    "Reject any interpretation that editable Demo state permits mutation or persistence of the source template object.",
+    "Reject combining 功能介紹 and 功能導覽 into one action or one state machine.",
+    "Reject any implementation that uses Firebase, Storage, myTrips, or Offline Cache to persist Demo Sandbox edits.",
+    "Reject any Clone path that trusts or deep-copies the Sandbox without validator and allowlist boundaries."
+  ],
+  "unsupportedAssumptions": [
+    "That data stored in localStorage is trusted merely because it was previously written by the application.",
+    "That the local-demo-sandbox identity can be handled as a real Firebase room ID.",
+    "That replaying FirstRunWelcomeDialog can reuse first-run completion side effects.",
+    "That editable itinerary and Checklist scope implicitly authorizes expense, ticket, attachment, settlement, collaboration, or Storage editing.",
+    "That the original six Assignments remain executable after this revised Amendment plan supersedes them."
+  ],
+  "missedRisks": [
+    "Mutation leakage can occur through nested references unless every template read and Sandbox read returns a defensive copy.",
+    "A templateVersion upgrade can invalidate stored records and requires deterministic safe rebuild behavior.",
+    "Memory fallback can surprise users after refresh and therefore needs an explicit non-persistent status message.",
+    "Reset confirmation and Clone confirmation can be confused unless they remain visibly distinct actions with separate state.",
+    "Persisted Sandbox content can be manually tampered with and must not bypass place, Checklist, ID, member, or excluded-domain validation.",
+    "Preview-only expense, ticket, or attachment controls could accidentally expose write affordances even when the underlying persistence is disabled.",
+    "Feature Introduction replay could accidentally mark onboarding complete if event handlers are shared without a replay-specific contract."
+  ],
+  "questions": [
+    "What exact schemaVersion and templateVersion compatibility policy will trigger migration rejection and safe reset?",
+    "How will memory-fallback status remain visible and accessible without blocking local Demo exploration?",
+    "Which explicit UI labels will distinguish reset, Clone, 功能介紹, and 功能導覽 on Desktop and Mobile?",
+    "Which tests prove zero Firebase, myTrips, Offline Cache, and Storage writes for every Demo edit and reset action?",
+    "How will the implementation prove that current Sandbox snapshot validation precedes Clone allowlist conversion?"
+  ],
+  "revisedRecommendation": "Adopt the human-confirmed editable Demo Amendment with strict defensive-copy and validation boundaries: derive a versioned persistent local Sandbox from an immutable template; support only itinerary and Checklist editing; provide confirmed local reset and a clearly disclosed memory fallback; keep all Demo actions outside Firebase, Storage, myTrips, and Offline Cache; validate the current Sandbox snapshot before the existing owner-only Clone allowlist converter; add separate Lobby and Settings Feature Introduction replay entries that never change onboarding state; preserve the existing trip-contextual Feature Tour as a distinct action; and retain every original feature-flag, Emulator-only, Production Gate, Rules, dependency, migration, and deploy restriction.",
+  "evidence": [
+    {
+      "claim": "The Round 1 amendment explicitly defines the human-confirmed editable Sandbox and Feature Introduction replay behavior.",
+      "path": ".ai/discussions/active/clone-demo-editable-sandbox-amendment/responses/round-1/human-editable-demo-requirement.json",
+      "symbol": "recommendation / rationale / risks / testsRequired"
+    },
+    {
+      "claim": "The original approved Session and disabled Assignments remain the immutable safety and audit baseline.",
+      "path": ".ai/discussions/active/clone-demo-architecture-pilot/session.json",
+      "symbol": "decision / humanApproval / assignments"
+    },
+    {
+      "claim": "The Demo factory remains the source-template boundary that must return fresh immutable source objects.",
+      "path": "src/features/onboarding/demoTripData.js",
+      "symbol": "createTokyoDemoTrip"
+    },
+    {
+      "claim": "The high-level FirstRunWelcomeDialog and trip-contextual Settings Feature Tour are distinct existing surfaces.",
+      "path": "src/features/onboarding/FirstRunWelcomeDialog.jsx",
+      "symbol": "FirstRunWelcomeDialog"
+    },
+    {
+      "claim": "The Settings menu contains the existing 功能導覽 action that must remain independent.",
+      "path": "src/components/AppSettingsMenu.jsx",
+      "symbol": "功能導覽"
+    }
+  ],
+  "confidence": 0.95
+}

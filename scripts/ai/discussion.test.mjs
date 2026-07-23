@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -29,6 +30,8 @@ import {
 
 const FIXTURE = path.join(REPO_ROOT, '.ai', 'discussions', 'examples', 'demo-persistence-boundary');
 const ACTIVE = path.join(REPO_ROOT, '.ai', 'discussions', 'active', 'clone-demo-architecture-pilot');
+const AMENDMENT = path.join(REPO_ROOT, '.ai', 'discussions', 'active', 'clone-demo-editable-sandbox-amendment');
+const ORIGINAL_SESSION_DIGEST = '0029732165525ce3c4c8286b263c516a17fb83edb791f46442f1f922d261067e';
 const PACKET = '.ai/discussions/examples/demo-persistence-boundary/packets/round-1/codex-engineer.json';
 const tempRoots = [];
 
@@ -56,6 +59,22 @@ function artifact(relativePath) { return json(path.join(FIXTURE, relativePath));
 function mutateCopy(value, change) { const copy = structuredClone(value); change(copy); return copy; }
 function listJson(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? listJson(path.join(directory, entry.name)) : entry.name.endsWith('.json') ? [path.join(directory, entry.name)] : []);
+}
+function wholeDirectoryDigest(directory) {
+  const files = [];
+  const visit = (current) => readdirSync(current, { withFileTypes: true }).forEach((entry) => {
+    const file = path.join(current, entry.name);
+    if (entry.isDirectory()) visit(file); else files.push(file);
+  });
+  visit(directory);
+  const hash = createHash('sha256');
+  files.sort((left, right) => left.localeCompare(right)).forEach((file) => {
+    hash.update(path.relative(directory, file));
+    hash.update(Buffer.from([0]));
+    hash.update(readFileSync(file));
+    hash.update(Buffer.from([0]));
+  });
+  return hash.digest('hex');
 }
 function makeRound1Ready() {
   const session = fixture();
@@ -365,4 +384,86 @@ test('Gate 1 approval records the immutable proposal and only execution-disabled
   assert.deepEqual(proposal.proposedAssignments, []);
   assert.equal(assignments.length, 6);
   assert.ok(assignments.every((assignment) => assignment.executionEnabled === false));
+});
+
+test('both active Sessions validate and the original Session digest is unchanged', () => {
+  const checked = checkDiscussions();
+  assert.deepEqual(checked.active.map((directory) => path.basename(directory)), [
+    'clone-demo-architecture-pilot',
+    'clone-demo-editable-sandbox-amendment',
+  ]);
+  assert.equal(wholeDirectoryDigest(ACTIVE), ORIGINAL_SESSION_DIGEST);
+});
+
+test('Amendment Session is approved assignments-ready with both human Rounds complete', () => {
+  const status = sessionStatus(AMENDMENT);
+  const session = sessionJson(AMENDMENT);
+  assert.equal(status.status, 'assignments-ready');
+  assert.deepEqual(status.round1.requiredParticipants, ['human-product-owner']);
+  assert.deepEqual(status.round2.requiredParticipants, ['human-reviewer']);
+  assert.equal(status.round1.complete, true);
+  assert.equal(status.round2.complete, true);
+  assert.deepEqual(status.round1.contributions, ['human-editable-demo-requirement']);
+  assert.deepEqual(status.round2.contributions, ['human-editable-demo-cross-review']);
+  assert.equal(status.decision, 'proposed');
+  assert.equal(status.humanApproval, 'approve');
+  assert.equal(session.humanApproval.approvalPath, 'decision/human-approval.json');
+  assert.equal(status.executionEnabled, false);
+});
+
+test('Amendment indexes exactly nine revised execution-disabled Assignments', () => {
+  const status = sessionStatus(AMENDMENT);
+  const assignments = assignmentPlans(AMENDMENT);
+  assert.deepEqual(status.assignments, [
+    'editable-demo-sandbox-store',
+    'editable-demo-preview',
+    'clone-demo-converter',
+    'clone-demo-journal',
+    'clone-demo-confirmation-ui',
+    'feature-introduction-replay',
+    'editable-demo-app-integration',
+    'editable-demo-code-review',
+    'editable-demo-qa-verification',
+  ]);
+  assert.equal(assignments.length, 9);
+  assert.ok(assignments.every((assignment) => assignment.executionEnabled === false));
+});
+
+test('Amendment audit is exact and contains no product execution event', () => {
+  const events = buildAudit(AMENDMENT).events;
+  assert.deepEqual(events, [
+    { sequence: 1, event: 'round-1-recorded', artifactId: 'human-editable-demo-requirement' },
+    { sequence: 2, event: 'round-2-recorded', artifactId: 'human-editable-demo-cross-review' },
+    { sequence: 3, event: 'decision-proposed', artifactId: 'editable-demo-sandbox-amendment' },
+    { sequence: 4, event: 'human-approved', artifactId: 'editable-demo-sandbox-amendment' },
+    { sequence: 5, event: 'assignment-planned', artifactId: 'clone-demo-confirmation-ui' },
+    { sequence: 6, event: 'assignment-planned', artifactId: 'clone-demo-converter' },
+    { sequence: 7, event: 'assignment-planned', artifactId: 'clone-demo-journal' },
+    { sequence: 8, event: 'assignment-planned', artifactId: 'editable-demo-app-integration' },
+    { sequence: 9, event: 'assignment-planned', artifactId: 'editable-demo-code-review' },
+    { sequence: 10, event: 'assignment-planned', artifactId: 'editable-demo-preview' },
+    { sequence: 11, event: 'assignment-planned', artifactId: 'editable-demo-qa-verification' },
+    { sequence: 12, event: 'assignment-planned', artifactId: 'editable-demo-sandbox-store' },
+    { sequence: 13, event: 'assignment-planned', artifactId: 'feature-introduction-replay' },
+  ]);
+  assert.ok(events.every(({ event }) => ['round-1-recorded', 'round-2-recorded', 'decision-proposed', 'human-approved', 'assignment-planned'].includes(event)));
+});
+
+test('Amendment supersedes the immutable original six-Assignment plan', () => {
+  const originalStatus = sessionStatus(ACTIVE);
+  const amendmentSession = sessionJson(AMENDMENT);
+  const gate2 = readFileSync(path.join(AMENDMENT, 'assignments', 'gate-2-summary.md'), 'utf8');
+  assert.deepEqual(originalStatus.assignments, [
+    'clone-demo-converter',
+    'clone-demo-journal',
+    'clone-demo-confirmation-ui',
+    'clone-demo-emulator-integration',
+    'clone-demo-code-review',
+    'clone-demo-qa-verification',
+  ]);
+  assert.equal(assignmentPlans(ACTIVE).length, 6);
+  assert.ok(assignmentPlans(ACTIVE).every((assignment) => assignment.executionEnabled === false));
+  assert.ok(amendmentSession.context.knownFacts.includes('The original six Assignments remain immutable audit history and must not execute.'));
+  assert.match(gate2, /原六份 Assignment Plan 已被此 Amendment supersede/);
+  assert.match(gate2, /Revised Gate 2 尚未批准，不得開始產品實作/);
 });

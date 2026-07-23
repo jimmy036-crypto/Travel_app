@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-amendment-plan",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "assignmentId": "editable-demo-app-integration",
+  "title": "Integrate editable Demo, Clone, and Feature Introduction in App",
+  "ownerAgent": "codex",
+  "ownerRole": "engineer",
+  "mode": "implementation",
+  "objective": "Wire Sandbox load/save/reset, edited-snapshot Clone, Feature Introduction replay, and Emulator-only Clone repository behavior through App without weakening production boundaries.",
+  "allowedPaths": [
+    "src/features/onboarding/cloneDemoRepository.js",
+    "src/features/onboarding/cloneDemoRepository.test.js",
+    "src/features/onboarding/cloneDemoFeatureFlag.js",
+    "src/App.jsx",
+    "src/App.editableDemoIntegration.test.jsx"
+  ],
+  "forbiddenPaths": [
+    "src/features/onboarding/DemoTripPreview.jsx",
+    "src/features/onboarding/FirstRunWelcomeDialog.jsx",
+    "src/components/AppSettingsMenu.jsx",
+    "src/features/offline/offlineTripCache.js",
+    "src/features/tickets",
+    "src/features/expenses",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "src/firebase.js",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "editable-demo-sandbox-store",
+    "editable-demo-preview",
+    "clone-demo-converter",
+    "clone-demo-journal",
+    "clone-demo-confirmation-ui",
+    "feature-introduction-replay"
+  ],
+  "acceptanceCriteria": [
+    "Load, save, update, and Reset Demo Sandbox through the assigned store and Preview callbacks.",
+    "Pass the current validated Sandbox snapshot into Clone without mutating or resetting it.",
+    "Wire a visible Lobby 功能介紹 entry and Settings replay callback without changing onboarding state.",
+    "Keep existing Settings 功能導覽 contextual behavior unchanged and separate.",
+    "Keep Clone feature flag disabled by default and repository writes limited to Firebase Emulator.",
+    "Preserve create-only room semantics, ambiguous-result read-back, myTrips verification, repair state, and owner-only conversion.",
+    "Never write Demo Sandbox to myTrips or Offline Cache and never upload preview attachments.",
+    "Do not access production Firebase or modify Rules, dependencies, packages, or migrations."
+  ],
+  "validation": [
+    "npm run test:run -- src/features/onboarding/cloneDemoRepository.test.js src/App.editableDemoIntegration.test.jsx",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}

@@ -90,6 +90,7 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Human Round 2 reviewed ingest | Critique source/target comparison, Session status, immutable Round 1/packet hashes, and deterministic audit checks | Explicit approval records the unchanged critique, advances only Round 2, and creates no Decision, decision-level action, or Assignment |
 | Architect Decision proposal | Proposal/schema validation, deterministic packet/audit checks, exact Session tests, and immutable reviewed-round hashes | Proposed-only synthesis quotes both rounds as untrusted, remains pending Human Approval, creates no Assignment, and keeps execution disabled |
 | Gate 1 approval and Assignment planning | Semantic Approval comparison, six Assignment validations, path/dependency checks, exact Session/audit tests, and immutable Proposal hashes | Human Approval enables only execution-disabled plans; implementation paths do not overlap, dependencies are acyclic, and no execution or production permission is granted |
+| Decision Amendment and plan supersession | Two active-Session validation, whole-directory digest, semantic Approval, nine Assignment validations, path/dependency checks, exact audit, and supersession assertions | Original Audit History remains immutable; only the revised execution-disabled plan is eligible for later Gate 2 review; no product execution permission is granted |
 
 ## Controlled Live Runner Validation
 
@@ -112,6 +113,22 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 | Codex schema compatibility | Recursive Runner schema tests and `ai:runner:check` | Transport schemas reject lookaround, backreferences, remote/unresolved refs, unsupported formats/keywords, and incomplete strict object declarations before a live run |
 | Transport/canonical boundary | Plan/hash and candidate tests | Plans bind both schema layers; Codex receives the transport schema while every candidate still passes canonical Discussion and repository-path validation |
 | Codex JSONL Candidate recovery | Runner extraction and recovery tests | Only terminal final-agent-message text is eligible; offline recovery preserves the source Run, validates canonical identity, separates secret scopes, never ingests, and refuses overwrite |
+
+## Phase AI-3B2B-R2K Evidence
+
+- The original `clone-demo-architecture-pilot` directory retains its 26-file SHA-256 digest `0029732165525ce3c4c8286b263c516a17fb83edb791f46442f1f922d261067e`; its Decision, Approval, packets, reviews, responses, Session, audit, Gate summaries, and six Assignments are unchanged.
+- Both active Sessions validate. The Amendment Session is `assignments-ready`, both rounds are complete, `editable-demo-sandbox-amendment` remains `proposed`, Human Approval is `approve`, exactly nine revised Assignments are indexed, and execution is disabled.
+- The ignored Human Round 1 and Approval sources are semantically identical to their tracked immutable targets. The human-confirmed scope keeps the editable Sandbox local, resets only local Sandbox state, and preserves the Firebase, `myTrips`, Offline Cache, owner-only Clone, feature-flag, Emulator-only, and Production Gate boundaries.
+- All nine Assignments validate as `work-assignment`, use `source=human-approved-amendment-plan`, and set `executionEnabled=false`. Seven implementation allowed-path sets are globally non-overlapping, the review/QA paths do not conflict, and the dependency graph is acyclic.
+- Repeated `buildAudit` output is deterministic and matches the exact thirteen-event audit: two rounds, Decision proposal, Human Approval, and nine lexically sorted Assignment plans. No implementation, PR, Merge, or deployment event exists.
+- Five exact tests cover both active Sessions, original whole-directory digest, Amendment status and approval, the nine disabled Assignments, precise audit order, original six-Assignment immutability, and plan supersession; no test was skipped or weakened.
+- `npm run ai:discussion:test`: 82 passed; check and validate passed for 42 artifacts, 1 synthetic fixture, and 2 active Sessions.
+- `npm run ai:runner:test`: 165 passed; Runner check and validate passed for 4 disabled artifacts.
+- `npm run ai:adapters:test`: 40 passed; adapter check passed and 9 invocation examples validated.
+- `npm run ai:artifacts:test`: 19 passed; 2 rendered artifacts checked and 2 source artifacts validated.
+- `npm run typecheck`, `npm run lint`, `npm run build`, `npm run agent:guardrails`, and `npm run agent:verify`: passed; verify included 43 Vitest files / 652 tests.
+- `git diff --check` passed and `package-lock.json` is unchanged. Assignments, Playwright, Firebase Emulator, live Agents, production Firebase, PR creation, Merge, and deployment were not run.
+- Only the independent Amendment Session, Project OS records, and exact Discussion tests changed. Product and E2E code, Firebase Rules, packages, schemas, Discussion implementation, and the original Session remain unchanged.
 
 ## Phase AI-3B2B-R2J Evidence
 

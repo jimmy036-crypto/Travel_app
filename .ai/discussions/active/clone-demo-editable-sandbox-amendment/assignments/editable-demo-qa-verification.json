@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "work-assignment",
+  "fixture": false,
+  "source": "human-approved-amendment-plan",
+  "sessionId": "clone-demo-editable-sandbox-amendment",
+  "assignmentId": "editable-demo-qa-verification",
+  "title": "Verify Editable Demo Sandbox, Clone, and Feature Introduction",
+  "ownerAgent": "codex",
+  "ownerRole": "qa",
+  "mode": "qa",
+  "objective": "Produce complete Emulator, Vitest, Playwright, accessibility, persistence, isolation, and residual-risk evidence for the reviewed Amendment implementation.",
+  "allowedPaths": [
+    "e2e/editable-demo-clone.spec.ts",
+    "e2e/support/emulator.ts",
+    ".ai/qa/editable-demo-clone-report.md"
+  ],
+  "forbiddenPaths": [
+    "src",
+    "database.rules.json",
+    "storage.rules",
+    "firebase.json",
+    "package.json",
+    "package-lock.json",
+    ".env.local"
+  ],
+  "dependencies": [
+    "editable-demo-code-review"
+  ],
+  "acceptanceCriteria": [
+    "Verify Demo edits persist after reload and Reset restores the immutable current source template.",
+    "Verify Reset does not affect myTrips, Offline Cache, onboarding state, or real Firebase trips.",
+    "Verify itinerary add/edit/delete/reorder, time/note changes, and all approved Checklist actions.",
+    "Verify source template remains unchanged across edit, reload, Reset, and Clone.",
+    "Verify zero Firebase, Storage, myTrips, and Offline Cache writes on Demo open, edit, persistence, and Reset.",
+    "Verify Clone uses the edited validated snapshot and every forbidden-data exclusion remains effective.",
+    "Verify Clone feature flag is disabled by default and technical writes use only Firebase Emulator.",
+    "Verify Lobby 功能介紹, Settings 功能介紹, and the existing Settings 功能導覽 all exist with distinct behavior.",
+    "Verify replay does not change onboarding eligibility or completion state.",
+    "Run Desktop Chrome, Mobile Safari, complete Vitest, and complete Playwright regression and report commit, counts, skips, failures, and remaining risks."
+  ],
+  "validation": [
+    "npm run test:run",
+    "npm run test:e2e",
+    "npm run typecheck",
+    "npm run lint",
+    "npm run build",
+    "npm run agent:guardrails",
+    "npm run agent:verify",
+    "git diff --check"
+  ],
+  "reviewer": "codex-reviewer",
+  "qaOwner": "codex-qa",
+  "executionEnabled": false
+}
