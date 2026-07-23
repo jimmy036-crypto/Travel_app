@@ -160,4 +160,35 @@ describe('FirstRunWelcomeDialog', () => {
     storageGet.mockRestore();
     storageSet.mockRestore();
   });
+
+  it('uses a distinct state-neutral replay contract', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const storageGet = vi.spyOn(Storage.prototype, 'getItem');
+    const storageSet = vi.spyOn(Storage.prototype, 'setItem');
+    renderDialog({ mode: 'replay', onClose });
+    const dialog = screen.getByTestId('feature-introduction-dialog');
+    expect(dialog).toHaveAttribute('data-mode', 'replay');
+    expect(dialog).toHaveAccessibleName();
+    expect(screen.queryByTestId('first-run-welcome-dialog')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('feature-introduction-close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(storageGet).not.toHaveBeenCalled();
+    expect(storageSet).not.toHaveBeenCalled();
+    storageGet.mockRestore();
+    storageSet.mockRestore();
+  });
+
+  it.each([
+    ['feature-introduction-open-demo', 'onOpenDemo'],
+    ['feature-introduction-create-trip', 'onCreateTrip'],
+  ])('keeps replay completion action %s available without touching onboarding storage', async (testId, callback) => {
+    const user = userEvent.setup();
+    const storageSet = vi.spyOn(Storage.prototype, 'setItem');
+    const view = renderDialog({ mode: 'replay', initialStep: 3 });
+    await user.click(screen.getByTestId(testId));
+    expect(view.callbacks[callback]).toHaveBeenCalledTimes(1);
+    expect(storageSet).not.toHaveBeenCalled();
+    storageSet.mockRestore();
+  });
 });

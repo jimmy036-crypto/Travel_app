@@ -38,6 +38,7 @@ export const AppSettingsMenu = ({
   version,
   onOpenAppearance,
   onOpenReleaseNotes,
+  onOpenFeatureIntroduction,
   onStartFeatureTour,
   onOpenDemo,
   showDemoEntry = false,
@@ -255,11 +256,24 @@ export const AppSettingsMenu = ({
           >
             更新內容
           </button>
+          {typeof onOpenFeatureIntroduction === 'function' ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="app-settings-feature-introduction"
+              onClick={() => runAction(onOpenFeatureIntroduction)}
+              aria-label="重新開啟功能介紹"
+              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
+            >
+              功能介紹
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
             data-testid="app-settings-feature-tour"
             onClick={() => runAction(onStartFeatureTour)}
+            aria-label="開啟旅程功能導覽"
             className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
           >
             功能導覽

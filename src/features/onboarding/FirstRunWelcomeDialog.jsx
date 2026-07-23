@@ -26,18 +26,22 @@ const getInitialStep = (value) => (
 export default function FirstRunWelcomeDialog({
   t,
   initialStep = 0,
+  mode = 'first-run',
   onOpenDemo,
   onCreateTrip,
   onSkip,
+  onClose,
 }) {
+  const isReplay = mode === 'replay';
   const [step, setStep] = useState(() => getInitialStep(initialStep));
   const dialogRef = useRef(null);
   const completedRef = useRef(false);
-  const callbacksRef = useRef({ onOpenDemo, onCreateTrip, onSkip });
+  const closeCallback = isReplay ? (onClose || onSkip) : onSkip;
+  const callbacksRef = useRef({ onOpenDemo, onCreateTrip, onClose: closeCallback });
 
   useEffect(() => {
-    callbacksRef.current = { onOpenDemo, onCreateTrip, onSkip };
-  }, [onCreateTrip, onOpenDemo, onSkip]);
+    callbacksRef.current = { onOpenDemo, onCreateTrip, onClose: closeCallback };
+  }, [closeCallback, onCreateTrip, onOpenDemo]);
 
   const finishOnce = (callback) => {
     if (completedRef.current) return;
@@ -57,7 +61,7 @@ export default function FirstRunWelcomeDialog({
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        finishOnce(callbacksRef.current.onSkip);
+        finishOnce(callbacksRef.current.onClose);
         return;
       }
       if (event.key !== 'Tab') return;
@@ -87,6 +91,9 @@ export default function FirstRunWelcomeDialog({
   const current = STEPS[step];
   const finalStep = step === STEPS.length - 1;
   const translate = typeof t === 'function' ? t : (value) => value;
+  const testIdPrefix = isReplay ? 'feature-introduction' : 'first-run';
+  const titleId = `${testIdPrefix}-title`;
+  const descriptionId = `${testIdPrefix}-description`;
 
   return (
     <div
@@ -95,11 +102,12 @@ export default function FirstRunWelcomeDialog({
         paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
         paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))',
       }}
-      data-testid="first-run-welcome-dialog"
+      data-testid={isReplay ? 'feature-introduction-dialog' : 'first-run-welcome-dialog'}
+      data-mode={isReplay ? 'replay' : 'first-run'}
       role="dialog"
       aria-modal="true"
-      aria-labelledby="first-run-title"
-      aria-describedby="first-run-description"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
     >
       <section
         ref={dialogRef}
@@ -107,7 +115,7 @@ export default function FirstRunWelcomeDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-5 py-6 sm:px-8 sm:py-8">
-          <div className="mb-6" data-testid="first-run-progress">
+          <div className="mb-6" data-testid={`${testIdPrefix}-progress`}>
             <p className="mb-2 text-sm font-semibold text-violet-700 dark:text-violet-300">
               第 {step + 1} / {STEPS.length} 步
             </p>
@@ -126,14 +134,14 @@ export default function FirstRunWelcomeDialog({
             </div>
           </div>
 
-          <div className="min-w-0 break-words" data-testid="first-run-step">
+          <div className="min-w-0 break-words" data-testid={`${testIdPrefix}-step`}>
             <p className="mb-3 text-sm font-bold uppercase tracking-wide text-violet-700 dark:text-violet-300">
               {translate('首次使用介紹')}
             </p>
-            <h2 id="first-run-title" className="break-words text-2xl font-black sm:text-3xl">
+            <h2 id={titleId} className="break-words text-2xl font-black sm:text-3xl">
               {translate(current.title)}
             </h2>
-            <p id="first-run-description" className="mt-4 break-words text-base leading-7 text-slate-600 dark:text-slate-300">
+            <p id={descriptionId} className="mt-4 break-words text-base leading-7 text-slate-600 dark:text-slate-300">
               {translate(current.description)}
             </p>
           </div>
@@ -146,7 +154,7 @@ export default function FirstRunWelcomeDialog({
           {step > 0 ? (
             <button
               type="button"
-              data-testid="first-run-back"
+              data-testid={`${testIdPrefix}-back`}
               onClick={() => setStep((value) => Math.max(0, value - 1))}
               className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 font-bold dark:border-slate-600"
             >
@@ -157,7 +165,7 @@ export default function FirstRunWelcomeDialog({
           {!finalStep ? (
             <button
               type="button"
-              data-testid="first-run-next"
+              data-testid={`${testIdPrefix}-next`}
               onClick={() => setStep((value) => Math.min(STEPS.length - 1, value + 1))}
               className="min-h-11 rounded-xl bg-violet-600 px-4 py-2 font-bold text-white hover:bg-violet-700"
             >
@@ -167,7 +175,7 @@ export default function FirstRunWelcomeDialog({
             <>
               <button
                 type="button"
-                data-testid="first-run-open-demo"
+                data-testid={`${testIdPrefix}-open-demo`}
                 onClick={() => finishOnce(onOpenDemo)}
                 className="min-h-11 rounded-xl bg-violet-600 px-4 py-2 font-bold text-white hover:bg-violet-700"
               >
@@ -175,7 +183,7 @@ export default function FirstRunWelcomeDialog({
               </button>
               <button
                 type="button"
-                data-testid="first-run-create-trip"
+                data-testid={`${testIdPrefix}-create-trip`}
                 onClick={() => finishOnce(onCreateTrip)}
                 className="min-h-11 rounded-xl border border-violet-300 px-4 py-2 font-bold text-violet-800 dark:border-violet-700 dark:text-violet-200"
               >
@@ -186,8 +194,9 @@ export default function FirstRunWelcomeDialog({
 
           <button
             type="button"
-            data-testid="first-run-skip"
-            onClick={() => finishOnce(onSkip)}
+            data-testid={isReplay ? 'feature-introduction-close' : 'first-run-skip'}
+            aria-label={isReplay ? '關閉功能介紹' : undefined}
+            onClick={() => finishOnce(closeCallback)}
             className="min-h-11 rounded-xl px-4 py-2 font-bold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             {translate('略過介紹')}

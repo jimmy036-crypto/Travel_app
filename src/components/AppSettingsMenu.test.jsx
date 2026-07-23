@@ -388,6 +388,29 @@ describe('AppSettingsMenu', () => {
     expect(onOpenDemo).not.toHaveBeenCalled();
   });
 
+  it('keeps feature introduction and contextual feature tour as separate actions', async () => {
+    const user = userEvent.setup();
+    const onOpenFeatureIntroduction = vi.fn();
+    const onStartFeatureTour = vi.fn();
+    renderMenu({ onOpenFeatureIntroduction, onStartFeatureTour });
+
+    await openMenu(user);
+    const introduction = screen.getByTestId('app-settings-feature-introduction');
+    const tour = screen.getByTestId('app-settings-feature-tour');
+    expect(introduction).toHaveTextContent('功能介紹');
+    expect(introduction).toHaveAccessibleName('重新開啟功能介紹');
+    expect(tour).toHaveAccessibleName('開啟旅程功能導覽');
+
+    await user.click(introduction);
+    expect(onOpenFeatureIntroduction).toHaveBeenCalledTimes(1);
+    expect(onStartFeatureTour).not.toHaveBeenCalled();
+
+    await openMenu(user);
+    await user.click(screen.getByTestId('app-settings-feature-tour'));
+    expect(onStartFeatureTour).toHaveBeenCalledTimes(1);
+    expect(onOpenFeatureIntroduction).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the menu within a small viewport and scrollable', async () => {
     const user = userEvent.setup();
     const originalHeight = window.innerHeight;
