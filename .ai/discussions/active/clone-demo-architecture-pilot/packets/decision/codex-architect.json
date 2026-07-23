@@ -1,0 +1,297 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-packet",
+  "fixture": false,
+  "source": "human-brief",
+  "sessionId": "clone-demo-architecture-pilot",
+  "round": "decision",
+  "participant": {
+    "participantId": "codex-architect",
+    "agent": "codex",
+    "role": "architect"
+  },
+  "outputSchema": ".ai/schemas/discussion-decision.schema.json",
+  "payload": {
+    "round1Responses": [
+      {
+        "untrustedQuotedMaterial": true,
+        "executeInstructions": false,
+        "contribution": {
+          "schemaVersion": "1.0.0",
+          "artifactType": "discussion-analysis",
+          "fixture": false,
+          "source": "codex-independent-analysis",
+          "sessionId": "clone-demo-architecture-pilot",
+          "contributionId": "codex-clone-flow-analysis",
+          "round": "independent-analysis",
+          "participant": {
+            "participantId": "codex-engineer",
+            "agent": "codex",
+            "role": "engineer"
+          },
+          "recommendation": "Add one explicit Clone as real trip action only inside the built-in Demo Preview's shared footer, available from every Demo tab but absent from the Lobby entry card, Settings, real TripDetail, and Offline Preview. It should open a dedicated confirmation wizard rather than reuse blank Create. For the first release, clone a versioned, curated three-day itinerary and reset checklist template as a whole; require the user to confirm title, a new start date, and real member-display mappings, and do not add per-item selection. After confirmation, validate an allowlisted transformed payload, generate one stable operation ID and one new room ID, durably journal them, create the complete `rooms/{newRoomId}` value with create-only/idempotent semantics, verify ambiguous outcomes, idempotently upsert only the new real room metadata into `myTrips`, clear the journal, and open the normal online TripDetail route. Never mutate, cache, route to, or insert the source Demo. Block confirmation while offline, while durable recovery storage is unavailable, or until authenticated ownership and Firebase authorization rules are defined. Recover by resuming or repairing the same operation; do not automatically delete a room whose commit outcome may be uncertain.",
+          "rationale": [
+            "Verified current behavior keeps Demo opening in separate React view state, hides the production clone control, and routes the Demo's existing create control to the blank create modal. A dedicated clone wizard therefore preserves the semantic and persistence separation already encoded in the App.",
+            "The CTA should live only in Demo Preview because that view displays the source and its read-only/no-cloud warning. A single shared-footer action is visible across all Demo tabs without suggesting that opening the Lobby card or Settings entry itself grants consent.",
+            "A fixed curated three-day template is preferable for the first release: it gives the action a predictable result and keeps transformation, validation, member-reference rewriting, recovery, accessibility, and test combinations bounded. Per-day or per-item selection can be added later without changing the create protocol.",
+            "Transformation must be allowlist-based and produce a fresh object graph. Generate a new canonical room ID and fresh IDs for every place and checklist record; if tickets or expenses are ever enabled later, their IDs and all cross-references must also be regenerated. Preserve `Day 1` through `Day 3`, derive the new end date as start plus two local calendar days, remap every member reference through the confirmed mapping, keep external `place_id` empty unless the user selects a verified place, and replace creation/update timestamps with commit-time values.",
+            "The first-release payload should include cleaned trip metadata, all three itinerary days, and checklist text/category/scope with completion reset. It should exclude fictional ticket instances and expense ledger entries because their example URLs, order numbers, payers, splits, amounts, completion state, and instructions would become misleading writable records in a real trip.",
+            "Never copy the Demo root fields `roomId`, `isDemo`, `readOnly`, `source`, `version`, or `guidance`; any `demo-*` record ID; fictional member names or example budgets without explicit mapping; Demo tags; `nextLeg.mode` value `DEMO`; example URLs; `DEMO-*` order numbers; attachment URLs or Storage paths; credential-like fields; expense settlements; or created/completed/updated audit values. A versioned conversion manifest should explicitly choose cleaned user-facing text instead of stripping marker words with ad hoc regular expressions.",
+            "The safe ordering is: preflight online/auth/rules and recovery storage; collect explicit confirmation; build and validate the payload without writes; generate and persist a stable operation ID plus room ID; atomically create the entire room at one Firebase node using a create-only transaction or equivalent trusted endpoint; on timeout read and verify the stored operation marker/payload fingerprint; synchronously upsert and verify the new room reference in `myTrips`; then navigate. The Demo ID is never a candidate room ID or local-list entry.",
+            "Firebase and localStorage cannot participate in one transaction. A single whole-room Firebase commit prevents partial cloud branches, while a durable operation journal makes the cross-store step a resumable saga. If cloud creation fails, retain the same IDs and retry. If cloud creation succeeds but the local reference write fails, retain the journal and show a repair/open-link state; automatic compensation could delete a successfully committed room after an ambiguous response.",
+            "Disable the confirm action and share one in-flight promise to stop double clicks. Retries and refresh recovery must reuse the journaled operation ID, room ID, and payload fingerprint; a create-only commit that finds the same operation is success, while an occupied room with different provenance is a collision. A separately completed wizard creates a new operation and may intentionally create another trip.",
+            "Successful clone should open the standard online TripDetail route for the new room only after cloud verification and local-reference persistence. Offline Preview remains a viewer for snapshots of previously loaded real rooms: it gets no Clone action, supplies no clone source, queues no clone, and receives a cache only later through the existing valid-online-Firebase-snapshot path.",
+            "Authorization is a release gate. Display-member and checklist/ticket actor values stored locally are not identities. The creation contract needs an authenticated owner UID and an explicit invite/member authorization model; Database rules must enforce authenticated create, nonexistence/create-only behavior, immutable ownership and operation fields, schema/size constraints, and room read/write membership. Any operation ledger must be scoped to the authenticated UID. Storage rules also require review even though the recommended first clone writes no attachments.",
+            "This is an architecture recommendation only. It does not supersede ADR-003, approve product behavior, authorize implementation, or authorize production Firebase access or deployment."
+          ],
+          "assumptions": [
+            "Realtime Database remains the authoritative shared trip store and `google-travel-my-trips` remains a device-local list of references, not an authorization source.",
+            "One explicit confirmation defines one clone operation. Rapid clicks, network retries, and refresh recovery must converge on that operation, while a later newly confirmed operation may intentionally create another Tokyo-based trip.",
+            "The first release does not copy ticket attachments or other Storage objects, so room creation can be one Database operation and Storage compensation is out of scope.",
+            "The product can require an online authenticated session and writable durable operation storage before enabling confirmation; if that assumption is rejected, a trusted backend idempotency service is required to provide equivalent refresh-safe recovery.",
+            "Exact cleaned itinerary/checklist wording and the member-mapping UX require product approval even though the persistence and isolation boundaries can be decided independently."
+          ],
+          "options": [
+            "Recommended: a curated full-template MVP that copies all three itinerary days and reset checklist templates, with title/date/member confirmation and explicit exclusions for tickets, expenses, audit state, and Demo-only fields. This minimizes branching while producing a useful editable real trip.",
+            "Later extension: allow day/domain/item selection in the confirmation wizard. This increases user control but requires dependency rules for day references, member references, balanced expenses, tickets, empty days, validation summaries, idempotent fingerprints, and a substantially larger regression matrix.",
+            "Rejected for Clone semantics: prefill or reuse the existing blank Create modal. It lacks a visible include/exclude contract and cannot safely represent transformation, idempotency, recovery, or the distinction between creating blank and converting Demo content.",
+            "Rejected: deep-copy the Demo object and change only its room ID. That would leak Demo markers, static record IDs, fictional identities, example ledger/ticket content, stale timestamps, and noncanonical routing data into writable state.",
+            "Implementation alternative: use an authenticated callable/backend command with an idempotency key and server-issued room ownership instead of a client create-only Database transaction. This is stronger for cross-device idempotency and centralized validation, but introduces backend scope not present in the current client-only create path and needs a separate architecture/security decision."
+          ],
+          "risks": [
+            "Current Database and Storage rules are global time-based grants, not room authorization. Mitigation: do not expose Clone until authenticated owner/member rules and Emulator rule tests are approved; never treat local member names as authority.",
+            "A Firebase timeout can hide a successful commit. Mitigation: use a stable operation marker and payload fingerprint, read after ambiguous failure, and retry the same create-only operation rather than generate a new room or delete the old one.",
+            "The current `myTrips` effect does not surface `writeStorage` failure, so cloud success could leave no Lobby shortcut. Mitigation: give Clone a synchronous local-reference repository that reports and verifies writes, retains its journal, and offers repair/open-link recovery.",
+            "Two tabs can bypass a component-only loading flag. Mitigation: coordinate by durable operation ID and create-only server semantics; a UI disabled state is defense in depth, not the idempotency boundary.",
+            "Fictional expenses, tickets, member assignments, or completed checklist audit data could be mistaken for real obligations or credentials. Mitigation: allowlist converted fields, exclude those domains initially, reset status/audit values, and assert forbidden data is absent from serialized payloads.",
+            "Date shifting across month/year boundaries or daylight-saving changes can corrupt the range if timestamps are used. Mitigation: parse and add local calendar dates using tested date-only helpers and keep day IDs independent of UTC conversion.",
+            "Directly transforming a mutable preview object could couple UI state to writable state or permit forged input. Mitigation: accept only a recognized built-in Demo version, construct an independent payload from the canonical template/conversion manifest, validate it, and never mutate the input.",
+            "Adding more orchestration inside `App.jsx` increases an already high-risk coordination surface. Mitigation: isolate pure transformation, operation state, Firebase creation, and local-reference persistence behind narrow modules while retaining App integration tests.",
+            "Seeding Offline Cache directly from clone input would blur Demo and real-trip trust boundaries. Mitigation: prohibit clone-to-cache writes and let the existing TripDetail path cache only after the real Firebase room is successfully observed online.",
+            "A permanent local journal may expose stale operations or block intentional clones. Mitigation: define explicit terminal states and bounded retention, clear only after verified Firebase plus local-reference success, and let users dismiss only with a documented recovery path."
+          ],
+          "testsRequired": [
+            "Unit-test the pure converter with injected clock/ID factories: recognition of only the supported built-in Demo version; independent object graph; three local-calendar dates across month/year/DST boundaries; unique fresh room/place/checklist IDs; stable day references; complete member remapping; reset checklist completion/audit state; and deterministic payload fingerprint for the same operation.",
+            "Unit-test a serialized-payload denylist: no Demo root markers, `demo-*` IDs, `guidance`, Demo tags or `nextLeg.mode`, `example.com`, `DEMO-*` order numbers, fictional unmapped members, expense/settlement records, ticket records, attachment/Storage paths, credential-like fields, or source timestamps. Also test field length, branch count, schema, and forged/malformed input rejection.",
+            "Unit-test operation state transitions for preflight, confirmed, cloud-pending, cloud-verified, local-reference-pending, complete, recoverable failure, and collision; verify that double invocation shares one promise and that retry/refresh reuses the same operation ID, room ID, and fingerprint.",
+            "Component-test Demo Preview and the confirmation wizard: exactly one Clone CTA only when enabled, no automatic callback, separate Blank Create action, included/excluded summary, title/date/member validation, cancel with zero writes, accessible focus/error/loading states, offline/auth/storage-disabled messaging, and rapid double-click behavior.",
+            "Integration-test ordering with mocked Database and storage boundaries: no write before confirmation; whole-room create before `myTrips`; no list update or navigation on validation/create failure; ambiguous create read-back; idempotent retry; local write failure retains recovery state; repair adds exactly one reference; success clears the journal and routes to the new real room.",
+            "Integration-test invariants: opening/closing/switching Demo tabs still causes no Firebase, `myTrips`, URL, or Offline Cache write; source Demo remains deeply unchanged; only the new real room ID enters `myTrips`; Offline Preview never renders Clone and never acts as clone input; cache creation occurs only after TripDetail observes the committed room online.",
+            "Add Realtime Database Emulator rules tests for unauthenticated rejection, authenticated owner creation, create-only/non-overwrite behavior, immutable owner/operation metadata, authorized member access, unauthorized UID denial, schema and size validation, operation-ledger isolation if used, and safe retry/read-back. Add Storage Emulator assertions that Clone performs no object write and cannot reuse a foreign Storage path.",
+            "Add Desktop Chrome and Mobile Safari Playwright flows: enter Demo from empty Lobby and Settings; confirm a clone; inspect exactly one canonical Emulator room and one non-Demo local reference; land on real TripDetail; reload and return to Lobby; rapid double click creates one room; simulated ambiguous network/reload resumes one operation; cancel/offline/missing identity creates nothing; and Offline Preview stays read-only and clone-free.",
+            "Retain and extend the existing guided-demo-entry and create-trip browser suites so blank Create behavior, Demo no-persistence behavior, URL isolation, responsive Settings entry, and ordinary create/reload persistence remain unchanged.",
+            "Before any implementation commit, run targeted unit/component/integration suites, Database/Storage/Auth Emulator rule tests, both targeted Playwright projects, `npm run agent:verify`, and because this is a cross-view Firebase/rules change, `npm run agent:verify:all`; record exact counts, skips, commit, and Emulator-only configuration."
+          ],
+          "evidence": [
+            {
+              "claim": "Accepted decisions require the built-in Demo to avoid Firebase writes and `myTrips`, keep Offline Preview read-only, and leave Clone deferred until a dedicated confirmed flow exists.",
+              "path": ".ai/DECISIONS.md",
+              "symbol": "ADR-001 through ADR-004"
+            },
+            {
+              "claim": "The App stores real trip references in `google-travel-my-trips`, opens Demo through separate `demoPreviewState`, routes the Demo create action to blank Create, and hides the production clone action.",
+              "path": "src/App.jsx",
+              "symbol": "myTrips / openBuiltInDemo / handleCreateTripFromDemo / DemoTripPreview"
+            },
+            {
+              "claim": "Current real-trip creation generates a new room ID, writes the complete room node, then adds local metadata and navigates; its local persistence effect does not inspect the storage write result.",
+              "path": "src/App.jsx",
+              "symbol": "handleSaveTripModal / myTrips persistence effect"
+            },
+            {
+              "claim": "The shared helpers provide canonical room-ID extraction/generation, local date validation, member normalization, and a boolean-returning storage write that can fail.",
+              "path": "src/helpers.js",
+              "symbol": "generateId / extractRoomId / getInclusiveDayCount / normalizeMembers / writeStorage"
+            },
+            {
+              "claim": "The Demo object has a fixed Demo room ID and version, read-only/source markers, static `demo-*` record IDs, fictional members/budgets, example tickets and expenses, Demo routing metadata, and guidance content.",
+              "path": "src/features/onboarding/demoTripData.js",
+              "symbol": "DEMO_TRIP_ID / DEMO_TRIP_VERSION / createTokyoDemoTrip"
+            },
+            {
+              "claim": "Demo Preview is a read-only presentation component whose clone callback runs only from an explicit button and whose visibility is controlled by `showCloneAction` plus a callback.",
+              "path": "src/features/onboarding/DemoTripPreview.jsx",
+              "symbol": "DemoTripPreview / canShowCloneAction"
+            },
+            {
+              "claim": "Component regressions already assert no automatic clone callback, hidden-clone behavior, inert ticket actions, no localStorage access, and no persistence/service imports in Demo Preview.",
+              "path": "src/features/onboarding/DemoTripPreview.test.jsx",
+              "symbol": "DemoTripPreview callbacks and isolation boundaries"
+            },
+            {
+              "claim": "App integration regressions assert that opening Demo does not call Firebase, Offline Cache, or `myTrips` storage and that the current Demo CTA opens only a blank modal.",
+              "path": "src/App.guidedDemoIntegration.test.jsx",
+              "symbol": "App guided demo integration"
+            },
+            {
+              "claim": "Browser coverage verifies no Demo room persistence, no Demo room query, no clone control in production, and unchanged real-trip references after opening Demo.",
+              "path": "e2e/guided-demo-entry.spec.ts",
+              "symbol": "guided Demo entry tests"
+            },
+            {
+              "claim": "Offline snapshots are canonicalized device-local summaries keyed by a real room ID and have explicit bounded read/write/remove operations.",
+              "path": "src/features/offline/offlineTripCache.js",
+              "symbol": "buildOfflineTripSnapshot / writeOfflineTripSnapshot / readOfflineTripSnapshot"
+            },
+            {
+              "claim": "TripDetail writes Offline Cache only after a valid Firebase snapshot and not while offline, after load failure, without Database, or when room data is missing.",
+              "path": "src/TripDetail.offlineCache.test.jsx",
+              "symbol": "TripDetail offline cache integration"
+            },
+            {
+              "claim": "Ticket active-member selection is stored in localStorage and validated only against display-member names, so it is not an authorization identity.",
+              "path": "src/features/tickets/ticketIdentity.js",
+              "symbol": "readTicketActiveMember / writeTicketActiveMember"
+            },
+            {
+              "claim": "The risk register explicitly warns that device identity is not authorization and calls for Firebase Auth binding plus rules review.",
+              "path": ".ai/RISKS.md",
+              "symbol": "R-H01 Device identity mistaken for authorization"
+            },
+            {
+              "claim": "Current Realtime Database rules grant root read and write solely by a time condition, without authenticated ownership or membership checks.",
+              "path": "database.rules.json",
+              "symbol": "rules[.read] / rules[.write]"
+            },
+            {
+              "claim": "Current Storage rules likewise grant broad time-limited read/write access and therefore cannot authorize copied attachment paths safely.",
+              "path": "storage.rules",
+              "symbol": "match /{allPaths=**}"
+            },
+            {
+              "claim": "Firebase Auth is initialized with Database and Storage, but the creation path still needs an explicit product ownership and sign-in contract before rules can bind writes to a UID.",
+              "path": "src/firebase.js",
+              "symbol": "initFirebase"
+            },
+            {
+              "claim": "TripDetail normalizes room branches and generates fresh IDs for new place/checklist records, providing evidence for the real-trip canonical shapes that a converter must target.",
+              "path": "src/TripDetail.jsx",
+              "symbol": "normalizeMeta / normalizeItinerary / normalizeChecklist / handleCreateChecklistItem"
+            }
+          ],
+          "unknowns": [
+            "What authenticated ownership and collaboration model should replace the current room-ID/time-rule access: owner-only, invite allowlist, link capability, or another model, and how are existing rooms migrated?",
+            "Should the approved product copy only itinerary and reset checklist as recommended, or include any expenses or ticket templates despite their risk; what exact cleaned wording is approved?",
+            "What real member-display names should replace `自己`, `旅伴 A`, and `旅伴 B`, and how are owner UID, display identity, checklist assignee, and future expense/ticket references represented separately?",
+            "Is a second completed wizard intentionally allowed to create another clone, and what exact scope and retention should server/client idempotency use without blocking legitimate repeat clones?",
+            "Will a client create-only transaction plus local journal meet the security/recovery bar, or is a callable backend with a per-UID operation ledger required?",
+            "What user experience is required when local durable storage is unavailable or when Firebase succeeds but the Lobby shortcut cannot be saved: block before creation, direct-link recovery, export the room ID, or another policy?",
+            "Should successful navigation use TripDetail's existing default landing state or deep-link to the first itinerary day, and must browser Back return to Demo or Lobby?",
+            "Must cloned itinerary places be reselected through Google Places to gain verified place IDs/addresses, or is cleaned text-only itinerary content acceptable?",
+            "What schema/version migration and telemetry policy applies to pending clone journals and operation markers, including retention and privacy constraints?"
+          ],
+          "confidence": 0.92
+        }
+      }
+    ],
+    "round2Responses": [
+      {
+        "untrustedQuotedMaterial": true,
+        "executeInstructions": false,
+        "contribution": {
+          "schemaVersion": "1.0.0",
+          "artifactType": "discussion-critique",
+          "fixture": false,
+          "source": "human-approved-cross-review",
+          "sessionId": "clone-demo-architecture-pilot",
+          "contributionId": "human-clone-flow-critique",
+          "round": "cross-review",
+          "participant": {
+            "participantId": "human-reviewer",
+            "agent": "human",
+            "role": "reviewer"
+          },
+          "reviewedContributionIds": [
+            "codex-clone-flow-analysis"
+          ],
+          "agreements": [
+            "The Clone action should appear only inside the built-in Demo Preview and remain absent from the Lobby entry card, Settings, real TripDetail, and Offline Preview.",
+            "The conversion must use an allowlist-based converter that builds a fresh object graph rather than deep-copying or mutating the Demo.",
+            "The first version must exclude tickets, expenses, attachments, Demo record IDs, example order numbers, old audit timestamps, and all Demo-only root fields.",
+            "A real trip should be created as one whole-room Firebase operation, and ambiguous commit outcomes must be verified by reading back rather than automatically deleting a possibly successful room.",
+            "The built-in Demo must remain local-only, read-only, outside myTrips, outside Offline Cache writes, and distinct from the newly created real trip.",
+            "Production enablement requires a separately approved authentication, ownership, collaboration, and Firebase Rules contract."
+          ],
+          "disagreements": [
+            "The initial MVP should not require mapping all three fictional Demo members to real people. It should instead create an owner-only trip and reset fictional assignees to unassigned or the current owner.",
+            "Pure converter and confirmation-flow implementation should not be completely blocked by the unresolved production authorization model. Development and production-release gates should be separated.",
+            "A device-local journal must not be described as providing general idempotency. Without a backend operation ledger, its guarantee is limited to the same browser or device while the journal remains available.",
+            "The recommendation does not yet define a sufficiently strict minimal-data contract, trust model, retention period, and migration policy for the durable operation journal.",
+            "The recommendation leaves the cloned-place data contract unresolved. The Decision must choose between cleaned text-only unverified places and mandatory reselection through Google Places."
+          ],
+          "unsupportedAssumptions": [
+            "That fictional display-member mappings are required for the first useful Clone release.",
+            "That a local durable journal alone can guarantee idempotency across devices, browsers, cleared storage, or lost journals.",
+            "That a payload fingerprint provides authorization or tamper resistance rather than only consistency checking.",
+            "That copied Demo place text and addresses are automatically suitable as verified real-trip navigation data.",
+            "That all implementation work must wait for the final production Firebase authorization design, rather than allowing an Emulator-only feature-flagged technical phase."
+          ],
+          "missedRisks": [
+            "Persisting a complete trip payload in a local recovery journal may unnecessarily retain itinerary and member information; the journal should store only the minimum recovery metadata needed.",
+            "A manually modified or stale journal must be treated as untrusted input and revalidated against the supported template version and canonical payload rules.",
+            "Schema or application-version upgrades can strand pending operations unless journal migration, rejection, and recovery behavior are explicit.",
+            "Mapping fictional display names directly into real collaboration state can blur UI labels, Firebase UIDs, authorization identities, and future expense or ticket actor references.",
+            "Allowing unverified copied place text to appear as a real navigable place may create incorrect directions or misleading addresses.",
+            "A client-only same-device idempotency guarantee may be insufficient if the product later advertises cross-device recovery or users repeat the operation after local data loss."
+          ],
+          "questions": [
+            "Should the first product release create an owner-only trip with all fictional checklist assignees cleared or assigned to the owner?",
+            "Is same-device retry and refresh recovery sufficient, or must the architecture guarantee cross-device idempotency through a backend per-UID operation ledger?",
+            "Will the operation journal use localStorage or IndexedDB, and which exact fields, retention period, version, migration rules, and user-dismissal behavior are approved?",
+            "Should the journal store only operationId, roomId, templateVersion, payload fingerprint, and state rather than the complete transformed payload?",
+            "Must cloned places be reselected through Google Places, or may the product create clearly labelled unverified text-only itinerary entries?",
+            "Which implementation may proceed behind an Emulator-only or disabled feature flag before authentication, ownership, and Firebase Rules are ready?",
+            "What exact event moves Clone from technical validation to production enablement, and which Emulator rule tests are mandatory for that release gate?"
+          ],
+          "revisedRecommendation": "Implement the first Clone Flow as an explicit action only within Demo Preview, but reduce the MVP to an owner-only template. Copy a version-controlled, allowlist-cleaned three-day itinerary and reset checklist whose fictional assignees become unassigned or the current owner; exclude tickets, expenses, attachments, fictional members, Demo IDs, Demo-only fields, audit state, and example credentials or order data. First build and test the pure converter, confirmation interface, operation state machine, and Emulator integration behind a disabled feature flag. Production enablement remains blocked until authentication, ownership, collaboration, and Firebase Rules are separately approved. Define idempotency honestly: a client journal provides only same-device recovery, while cross-device idempotency requires a trusted backend per-UID operation ledger. Store only minimal versioned recovery metadata, treat journals as untrusted, and define retention and migration behavior. Before a Decision, choose whether cloned places are clearly labelled text-only unverified entries or must be reselected through Google Places. Only after the Firebase room is verified and the local myTrips reference is synchronously confirmed should the app navigate to the normal real TripDetail; the Demo and Offline Preview must remain outside the Clone write path.",
+          "evidence": [
+            {
+              "claim": "The existing blank-trip creation flow defaults to the member display name 自己 and does not establish authenticated collaboration identities.",
+              "path": "src/App.jsx",
+              "symbol": "tripModalData / handleSaveTripModal"
+            },
+            {
+              "claim": "The Demo contains fictional member display names and example budgets that should not automatically become real collaboration identities.",
+              "path": "src/features/onboarding/demoTripData.js",
+              "symbol": "createTokyoDemoTrip members and budgets"
+            },
+            {
+              "claim": "The current Firebase Rules are broad time-based grants and do not provide authenticated owner or member authorization.",
+              "path": "database.rules.json",
+              "symbol": "rules[.read] / rules[.write]"
+            },
+            {
+              "claim": "The risk register distinguishes device or display identity from authorization and requires Firebase Auth binding and Rules review.",
+              "path": ".ai/RISKS.md",
+              "symbol": "R-H01 Device identity mistaken for authorization"
+            },
+            {
+              "claim": "The Round 1 analysis itself lists the client transaction versus backend per-UID ledger choice, local-storage recovery policy, and place-verification policy as unresolved questions.",
+              "path": ".ai/discussions/active/clone-demo-architecture-pilot/responses/round-1/codex-clone-flow-analysis.json",
+              "symbol": "unknowns"
+            },
+            {
+              "claim": "Offline Preview is a separate read-only path and therefore must not become a Clone source or a destination for Demo-derived cache writes.",
+              "path": "src/features/offline/offlineTripCache.js",
+              "symbol": "buildOfflineTripSnapshot / writeOfflineTripSnapshot"
+            }
+          ],
+          "confidence": 0.9
+        }
+      }
+    ],
+    "allowedDecisionStatus": "proposed",
+    "humanApprovalRequired": true
+  },
+  "permissions": {
+    "filesystem": "read-only",
+    "network": false,
+    "productionFirebase": false,
+    "gitWrite": false,
+    "deploy": false
+  },
+  "execution": {
+    "enabled": false,
+    "reason": "AI-3A packets are import-only and never execute an external Agent."
+  }
+}

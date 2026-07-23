@@ -306,16 +306,16 @@ test('status reports required participants for each Round', () => {
   assert.deepEqual(status.round2.requiredParticipants, ['human-reviewer']);
 });
 test('active Session keeps Round 1 complete', () => assert.equal(sessionStatus(ACTIVE).round1.complete, true));
-test('active Session is complete after reviewed Round 2 ingest', () => {
+test('active Session is decision-proposed after architect synthesis', () => {
   const status = sessionStatus(ACTIVE);
-  assert.equal(status.status, 'round-2-complete');
+  assert.equal(status.status, 'decision-proposed');
   assert.deepEqual(status.round1.requiredParticipants, ['codex-engineer']);
   assert.deepEqual(status.round2.requiredParticipants, ['human-reviewer']);
   assert.equal(status.round1.complete, true);
   assert.equal(status.round2.complete, true);
   assert.deepEqual(status.round1.contributions, ['codex-clone-flow-analysis']);
   assert.deepEqual(status.round2.contributions, ['human-clone-flow-critique']);
-  assert.equal(status.decision, 'not-proposed');
+  assert.equal(status.decision, 'proposed');
   assert.equal(status.humanApproval, 'pending');
   assert.deepEqual(status.assignments, []);
   assert.equal(status.executionEnabled, false);
@@ -329,17 +329,23 @@ test('Human Round 2 packet disables network Firebase Git writes and deploy', () 
   const permissions = buildPacket(ACTIVE, 'round-2', 'human-reviewer').permissions;
   assert.deepEqual(permissions, { filesystem: 'read-only', network: false, productionFirebase: false, gitWrite: false, deploy: false });
 });
-test('active audit records only the completed review rounds', () => {
+test('active audit records both completed review rounds and the Decision proposal', () => {
   const events = buildAudit(ACTIVE).events;
   assert.deepEqual(events, [
     { sequence: 1, event: 'round-1-recorded', artifactId: 'codex-clone-flow-analysis' },
     { sequence: 2, event: 'round-2-recorded', artifactId: 'human-clone-flow-critique' },
+    { sequence: 3, event: 'decision-proposed', artifactId: 'clone-demo-architecture-proposal' },
   ]);
 });
-test('Round 2 preparation creates no Decision Approval or Assignment', () => {
+test('Decision proposal creates no Human Approval or Assignment', () => {
   const status = sessionStatus(ACTIVE);
-  assert.equal(status.decision, 'not-proposed');
+  const session = json(path.join(ACTIVE, 'session.json'));
+  const proposal = json(path.join(ACTIVE, 'decision', 'proposal.json'));
+  assert.equal(status.decision, 'proposed');
   assert.equal(status.humanApproval, 'pending');
   assert.deepEqual(status.assignments, []);
   assert.equal(status.executionEnabled, false);
+  assert.equal(session.decision.proposalPath, 'decision/proposal.json');
+  assert.deepEqual(proposal.proposedBy, { participantId: 'codex-architect', agent: 'codex', role: 'architect' });
+  assert.deepEqual(proposal.proposedAssignments, []);
 });

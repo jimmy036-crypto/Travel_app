@@ -2,6 +2,16 @@
 
 Record important AI-governance changes and decisions. Product release notes remain in the product release system.
 
+## Phase AI-3B2B-R2I — Clone Flow Architecture Decision Proposal
+
+- Added `codex-architect` as a non-round, read-only Architect participant without changing either Round requirement.
+- Generated a deterministic Decision packet containing the unchanged Round 1 and Round 2 contributions as untrusted, non-executable quoted material with filesystem, network, production Firebase, Git-write, deploy, and execution permissions disabled.
+- Prepared proposed-only Decision `clone-demo-architecture-proposal` and a Traditional Chinese Gate 1 summary. The selected option is an owner-only, disabled-by-default Clone MVP with an allowlist converter, same-device recovery, a minimal versioned journal, unverified text-only places, Emulator-only development, and a separate Production Gate.
+- Advanced the active Session only to `decision-proposed` and regenerated the deterministic audit with Round 1, Round 2, and Decision-proposed events in order.
+- Updated three exact active-Session test expectations for the Proposal state, proposal path, Architect identity, empty proposed assignments, and three-event audit; no test was skipped or weakened.
+- The Proposal remains pending Human Approval. No approval artifact, Assignment, product code or Firebase Rules change, production Firebase access, live Agent execution, or deployment occurred.
+- Round 1, Round 2, all reviewed-ingest records, the reviewer-selection record, and the Human Round 2 packet remained unchanged.
+
 ## Phase AI-3B2B-R2H — Human Round 2 Cross-review Ingest
 
 - Recorded the explicit human authorization `批准 Round 2 critique`, scoped only to the fixed `human-clone-flow-critique` cross-review and Session/audit governance updates.

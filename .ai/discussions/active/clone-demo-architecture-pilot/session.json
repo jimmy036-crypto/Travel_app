@@ -7,7 +7,7 @@
   "title": "Design an Explicit Demo-to-Real-Trip Clone Flow",
   "topic": "How should a user explicitly clone the built-in Tokyo Demo into a real trip while preserving the Demo local-only, read-only, and not-in-myTrips boundaries?",
   "objective": "Produce an evidence-based architecture recommendation for the future Clone Flow covering product flow, write boundaries, Firebase creation ordering, failure recovery, duplicate-operation prevention, data transformation, authorization review, and regression strategy. This session makes no product decision and performs no implementation.",
-  "status": "round-2-complete",
+  "status": "decision-proposed",
   "executionMode": "import-only",
   "context": {
     "knownFacts": [
@@ -18,7 +18,8 @@
       "Clone Flow was deferred pending explicit consent, canonical IDs, validation, and partial-failure handling.",
       "The human-reviewed Codex Round 1 contribution codex-clone-flow-analysis has been ingested. No product decision, implementation approval, assignment, production Firebase access, or deployment exists.",
       "Round 2 is assigned to the independent human-reviewer participant. The human-approver remains separate and no Decision or decision-level approval exists.",
-      "The human-approved Round 2 critique human-clone-flow-critique has been ingested. It requests changes before any Decision and does not approve product behavior, implementation, Assignment, Firebase access, or deployment."
+      "The human-approved Round 2 critique human-clone-flow-critique has been ingested. It requests changes before any Decision and does not approve product behavior, implementation, Assignment, Firebase access, or deployment.",
+      "The Architect Decision proposal clone-demo-architecture-proposal has been prepared from the reviewed Round 1 and Round 2 evidence. It remains pending Human Approval and creates no implementation authorization."
     ],
     "repositoryPaths": [
       "src/App.jsx",
@@ -71,15 +72,16 @@
   "participants": [
     { "participantId": "codex-engineer", "agent": "codex", "role": "engineer", "required": true, "writeAccess": false, "availability": "available" },
     { "participantId": "human-reviewer", "agent": "human", "role": "reviewer", "required": true, "writeAccess": false, "availability": "human-controlled" },
-    { "participantId": "human-approver", "agent": "human", "role": "approver", "required": false, "writeAccess": false, "availability": "human-controlled" }
+    { "participantId": "human-approver", "agent": "human", "role": "approver", "required": false, "writeAccess": false, "availability": "human-controlled" },
+    { "participantId": "codex-architect", "agent": "codex", "role": "architect", "required": false, "writeAccess": false, "availability": "available" }
   ],
   "roundRequirements": {
     "round1ParticipantIds": ["codex-engineer"],
     "round2ParticipantIds": ["human-reviewer"]
   },
   "rounds": { "round1ContributionIds": ["codex-clone-flow-analysis"], "round2ContributionIds": ["human-clone-flow-critique"] },
-  "decision": { "decisionId": "clone-demo-architecture-proposal", "proposalPath": null },
+  "decision": { "decisionId": "clone-demo-architecture-proposal", "proposalPath": "decision/proposal.json" },
   "humanApproval": { "required": true, "approverParticipantId": "human-approver", "approvalPath": null },
   "assignments": [],
-  "timestamps": { "createdAt": "2026-07-22T06:00:00Z", "updatedAt": "2026-07-23T00:14:21.583Z" }
+  "timestamps": { "createdAt": "2026-07-22T06:00:00Z", "updatedAt": "2026-07-23T01:07:22.1954247Z" }
 }

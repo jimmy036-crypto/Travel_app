@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "discussion-decision",
+  "fixture": false,
+  "source": "architect-synthesis",
+  "sessionId": "clone-demo-architecture-pilot",
+  "decisionId": "clone-demo-architecture-proposal",
+  "status": "proposed",
+  "proposedBy": {
+    "participantId": "codex-architect",
+    "agent": "codex",
+    "role": "architect"
+  },
+  "selectedOption": "Adopt an owner-only, disabled-by-default feature-flagged Demo Clone MVP with an allowlist converter, same-device and same-browser recovery through a minimal versioned localStorage journal, and cleaned text-only places explicitly labelled as unverified. Technical development is Emulator-only after Human Approval of this Decision; production enablement requires separate approval of Firebase Auth, ownership and membership, Database and Storage Rules, migration compatibility, rule tests, rollout, and rollback.",
+  "rationale": [
+    "The Clone CTA is a distinct, explicit operation available only inside Built-in Demo Preview. It is absent from the Lobby entry card, Settings, real TripDetail, and Offline Preview; Open Demo, Blank Create, and Clone remain three different actions.",
+    "The owner-only MVP avoids converting fictional display members into authorization identities. The versioned three-day itinerary is copied, checklist completion is reset, and checklist assignees are either unassigned or the current owner; real collaborators wait for a separately approved invitation and membership model.",
+    "Tickets, expenses, settlement data, attachments, Storage paths, Demo IDs, Demo-only root fields, guidance, example URLs, DEMO order numbers, historical timestamps, audit or completion state, and credential-like data are excluded because they are unnecessary for a safe itinerary template and may carry stale, sensitive, or identity-bound state.",
+    "An allowlist converter constructs a fresh object graph instead of mutating or deep-copying the Demo. It creates a new room ID and regenerates place and checklist IDs; retry-stable IDs derive deterministically from a stable operation ID and template source key. The Demo room ID can never become the new trip ID, and the Demo never enters myTrips or Offline Cache.",
+    "Cleaned text-only places are explicitly labelled as unverified because copied Demo text, coordinates, place IDs, and routing metadata are not proof of a verified navigable location. The MVP copies no trusted place_id, and users may later reselect a place through Google Places.",
+    "The versioned localStorage journal promises only same-device, same-browser recovery because browser-local state cannot provide cross-device idempotency. It stores only schemaVersion, operationId, roomId, templateVersion, title, startDate, payloadFingerprint, state, createdAt, and updatedAt—not the transformed trip payload.",
+    "The journal is untrusted input. Recovery revalidates its schema, template version, identifiers, and fingerprint; availability is checked by write/read/remove before confirmation; unavailable storage blocks confirmation; retention is seven days; expired or incompatible entries never write automatically; and the fingerprint is only a consistency check, not authorization or a signature.",
+    "Technical development and production enablement are separate gates so the pure converter, confirmation UI, operation state machine, local journal, and Emulator integration can be validated behind a disabled-by-default flag without implying that production identity or authorization is approved.",
+    "The technical MVP assembles the complete payload before an Emulator-only create-only transaction, or equivalent semantics, writes an operation marker and payload fingerprint, and resolves timeout or ambiguous outcomes by read-back without automatically deleting a possibly successful room.",
+    "After the Firebase room is verified, myTrips must be written synchronously and read back before navigation to real TripDetail. A local-reference failure retains the journal and exposes repair or open-link state so a successful room is not lost or falsely reported as fully linked.",
+    "Confirm double-clicks share one in-flight operation; retry and refresh reuse the operationId, roomId, and fingerprint; the same successful operation remains successful; a room collision with a different operation or fingerprint is rejected; and only a newly completed Wizard may intentionally create another trip.",
+    "Production remains disabled until separate approval covers Firebase Auth identity, owner/member/invitation semantics, Database Rules, Storage Rules, legacy-room migration and compatibility, production rule tests, and rollout and rollback plans. This Proposal does not approve Firebase Rules changes, production enablement, or deployment."
+  ],
+  "acceptedArguments": [
+    "Round 1 correctly requires an explicit Demo-only Clone action, a fresh allowlist-built object graph, strict exclusion of Demo-only and identity-bound data, whole-room Firebase creation, ambiguous-outcome read-back, Demo immutability, and separation from Offline Preview.",
+    "Round 1 correctly identifies stable operation identity, deterministic derived IDs, operation fingerprints, and ordered Firebase then myTrips verification as necessary duplicate and partial-failure controls.",
+    "Round 2 correctly narrows the first release to an owner-only trip, separates technical development from production authorization, and rejects any claim that a device-local journal provides general or cross-device idempotency.",
+    "Round 2 correctly requires a minimal journal data contract, seven-day retention and compatibility handling, untrusted-input validation, and a clear distinction between fingerprint consistency and authorization.",
+    "Round 2 correctly requires a product contract for copied place data; this Proposal selects cleaned text-only entries labelled as unverified while leaving a future production requirement for mandatory Google Places reselection open.",
+    "Both rounds support keeping the Built-in Demo local-only, read-only, outside myTrips and Offline Cache writes, and distinct from the newly created real trip."
+  ],
+  "rejectedAlternatives": [
+    "Deep-copying or mutating the Demo, because it can carry forbidden identifiers, stale state, and Demo-only fields into a real trip.",
+    "Reusing the Blank Create Modal as Clone, because Open Demo, Blank Create, and Clone require distinct consent, transformation, and recovery semantics.",
+    "Mapping all three fictional Demo members in the first release, because display labels are not authenticated authorization identities.",
+    "Claiming localStorage supplies cross-device idempotency, because its state is limited to one browser or device and may be cleared or unavailable.",
+    "Copying tickets, expenses, settlements, or attachments in the first release, because these objects carry higher identity, privacy, storage, and reconciliation risk and are not required for an itinerary-template MVP.",
+    "Presenting copied Demo place data as a verified location without an unverified label, because Demo text and coordinates are not trusted Google Places verification.",
+    "Enabling production Clone before Firebase Auth, ownership, membership, invitations, Database Rules, and Storage Rules are approved and tested."
+  ],
+  "risks": [
+    "The localStorage journal may be lost, expired, unavailable, stale, or tampered with.",
+    "A Firebase timeout or interrupted response may leave an ambiguously successful room.",
+    "The Firebase room may succeed while the myTrips reference write or verification fails.",
+    "Multiple tabs or rapid confirmation may start duplicate operations.",
+    "Text-only unverified places may mislead users about navigation accuracy.",
+    "Adding Clone orchestration to App.jsx may increase coupling and state-management complexity.",
+    "A disabled-by-default feature flag may be accidentally enabled in an unauthorized environment.",
+    "The current broad time-based Database and Storage Rules do not establish authenticated owner or member authorization."
+  ],
+  "mitigations": [
+    "For journal loss or tampering, store only minimal versioned metadata, run write/read/remove availability preflight, apply a seven-day expiry, treat every record as untrusted, and reject invalid versions, IDs, states, or fingerprints without automatic writes.",
+    "For ambiguous Firebase success, use create-only semantics with an operation marker and fingerprint, read back the expected room, accept only the matching operation, and never auto-delete on ambiguity.",
+    "For myTrips failure, verify the local reference synchronously before navigation, retain the journal, and expose repair or open-link recovery for an already verified room.",
+    "For multi-tab or rapid duplicates, share one in-flight operation in the active flow and use stable operationId, roomId, deterministic derived IDs, and fingerprint collision checks across retry and reload.",
+    "For place accuracy, strip trusted place_id and routing claims, label copied entries as unverified text-only places, and allow later Google Places reselection.",
+    "For App.jsx complexity, isolate the pure converter, journal adapter, and operation state machine behind narrow interfaces and test them independently before UI integration.",
+    "For accidental flag enablement, default the feature flag to disabled, verify the disabled state in regression tests, and require a separately reviewed production configuration and rollout plan.",
+    "For broad current Rules, restrict technical work to Firebase Emulator and block production enablement until Auth, ownership, Database Rules, Storage Rules, and production rule tests receive separate approval."
+  ],
+  "requiredTests": [
+    "Pure allowlist converter unit tests covering the complete versioned three-day itinerary and reset checklist.",
+    "Denylist serialization tests proving tickets, expenses, settlements, attachments, Storage paths, Demo IDs, Demo-only fields, guidance, example URLs, DEMO order numbers, old timestamps, audit state, and credential-like data are absent.",
+    "Deterministic ID tests for operationId, roomId, place IDs, and checklist IDs across retry and reload, including collision rejection.",
+    "Date boundary tests across month, year, daylight-saving, locale, and invalid start-date cases.",
+    "Owner-only member tests proving fictional members are excluded and checklist assignees become unassigned or the current owner.",
+    "Journal schema, minimal-field, availability, seven-day expiry, version incompatibility, migration rejection, and tampering tests.",
+    "Operation state-machine tests for confirmation, Firebase write, read-back, myTrips write, verification, repair, success, and terminal failure states.",
+    "Double-click, multi-tab, retry, and reload tests proving one operation is reused and a newly completed Wizard can intentionally create another trip.",
+    "Ambiguous Firebase timeout and read-back tests proving matching success is recovered and mismatched operation or fingerprint is rejected without room deletion.",
+    "myTrips failure and repair tests proving navigation waits for verification and the journal remains available for recovery.",
+    "Demo immutability tests proving Clone never mutates Demo data or uses its room ID.",
+    "Offline Preview isolation tests proving neither the Demo nor Clone source writes to Offline Cache and Offline Preview exposes no Clone CTA.",
+    "Database and Storage Emulator tests for create-only behavior, ownership boundaries, forbidden writes, and attachment exclusion before any production gate.",
+    "Desktop Chrome and Mobile Safari Playwright coverage for CTA placement, confirmation, failure recovery, retry, and post-success navigation, to run only in the later authorized implementation phase.",
+    "Feature-flag-disabled regression tests proving Clone is unavailable by default and no Firebase, myTrips, or Offline Cache writes occur."
+  ],
+  "proposedAssignments": [],
+  "unresolvedQuestions": [
+    "What authenticated owner, member, and invitation authorization model will govern production rooms and collaboration?",
+    "Will a future release require cross-device idempotency through a trusted backend per-UID operation ledger?",
+    "Must production require every cloned place to be reselected through Google Places instead of retaining labelled unverified text-only entries?",
+    "What migration and compatibility policy applies to legacy rooms when production ownership and Rules are introduced?"
+  ],
+  "evidence": [
+    {
+      "claim": "Round 1 defines the explicit Demo-only Clone boundary, allowlist conversion, operation identity, Firebase read-back, and ordered myTrips verification.",
+      "path": ".ai/discussions/active/clone-demo-architecture-pilot/responses/round-1/codex-clone-flow-analysis.json",
+      "symbol": "recommendation / rationale / risks / unknowns"
+    },
+    {
+      "claim": "Round 2 narrows the MVP to owner-only, separates development and production gates, limits the journal guarantee, and requires an explicit place-data contract.",
+      "path": ".ai/discussions/active/clone-demo-architecture-pilot/responses/round-2/human-clone-flow-critique.json",
+      "symbol": "disagreements / missedRisks / revisedRecommendation"
+    },
+    {
+      "claim": "The current application coordinates blank-trip creation, rooms writes, myTrips references, and navigation.",
+      "path": "src/App.jsx",
+      "symbol": "tripModalData / handleSaveTripModal"
+    },
+    {
+      "claim": "The Demo fixture contains fictional members, itinerary data, checklist data, budgets, and example-only values that require allowlist conversion.",
+      "path": "src/features/onboarding/demoTripData.js",
+      "symbol": "createTokyoDemoTrip"
+    },
+    {
+      "claim": "The Built-in Demo Preview is the bounded UI surface selected for the explicit Clone CTA.",
+      "path": "src/features/onboarding/DemoTripPreview.jsx",
+      "symbol": "DemoTripPreview"
+    },
+    {
+      "claim": "Offline Preview uses a separate read-only cache path that must remain outside Demo Clone writes.",
+      "path": "src/features/offline/offlineTripCache.js",
+      "symbol": "buildOfflineTripSnapshot / writeOfflineTripSnapshot"
+    },
+    {
+      "claim": "Current Database Rules are broad time-based grants and do not define authenticated owner or member authorization.",
+      "path": "database.rules.json",
+      "symbol": "rules[.read] / rules[.write]"
+    },
+    {
+      "claim": "Current Storage Rules require separate review before any attachment-capable production flow.",
+      "path": "storage.rules",
+      "symbol": "rules_version / service firebase.storage"
+    },
+    {
+      "claim": "The project risk register distinguishes display or device identity from authorization and requires Auth and Rules review.",
+      "path": ".ai/RISKS.md",
+      "symbol": "R-H01 Device identity mistaken for authorization"
+    }
+  ],
+  "humanApprovalRequired": true
+}

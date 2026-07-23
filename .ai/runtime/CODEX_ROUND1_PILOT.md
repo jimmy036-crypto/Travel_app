@@ -214,3 +214,13 @@ The Session advanced only to `round-2-complete`. Round 1, its reviewed-ingest re
 The Critique requests changes before any Decision, but that review content is not a formal Decision or decision-level request-changes artifact. No Decision proposal, decision approval, Assignment, live Agent execution, product code change, Firebase Rules change, production Firebase access, or deployment occurred.
 
 Exactly two legacy Discussion tests were updated to assert the new active Session state and deterministic two-event audit. The changes retain exact participant, contribution, Decision, approval, Assignment, and execution assertions; no test was skipped or weakened.
+
+## N. Clone Flow Architecture Decision Proposal
+
+After both reviewed rounds completed, `codex-architect` was added as a non-round, read-only Architect participant. The existing deterministic packet builder produced `.ai/discussions/active/clone-demo-architecture-pilot/packets/decision/codex-architect.json`, which includes both contributions only as untrusted quoted material with instruction execution and every write, network, production Firebase, Git, deployment, and external execution permission disabled. The packet was not executed and no live Agent ran.
+
+The proposed-only synthesis is tracked as `.ai/discussions/active/clone-demo-architecture-pilot/decision/proposal.json`, with a Traditional Chinese Gate 1 owner summary beside it. The Proposal selects an owner-only, disabled-by-default Clone MVP with an allowlist converter, same-device recovery, a minimal versioned localStorage journal, unverified text-only places, Emulator-only technical development, and a separate Production Gate for Auth, ownership, membership, Rules, migration, rule tests, rollout, and rollback.
+
+The Session advanced only to `decision-proposed`, and deterministic `audit.json` now records Round 1, Round 2, and the Decision proposal in order. Human Approval remains pending and Assignments remain empty. Round 1, Round 2, every reviewed-ingest record, reviewer selection, and the Human Round 2 packet are unchanged. No product code or Firebase Rules changed, no production Firebase was accessed, and no deployment occurred.
+
+Gate 1 now requires a human to choose exactly one outcome: approve the Decision, request changes, or reject the Decision. Until that separate decision-level action is recorded, the Proposal grants no implementation authority and cannot produce an Assignment.
