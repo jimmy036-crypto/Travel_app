@@ -28,4 +28,3 @@ export function isCloneDemoEmulatorRuntime(options = {}) {
     && env?.PROD !== true
     && localHost;
 }
-

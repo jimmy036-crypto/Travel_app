@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearCloneOperationLocks,
   hasCloneCollision,
+  runCloneBrowserLock,
   runCloneOperationOnce,
   sameCloneOperation,
   transitionCloneOperation,
@@ -63,5 +64,40 @@ describe('Clone operation state machine', () => {
     await expect(first).resolves.toBe('done');
     await expect(runCloneOperationOnce(JOURNAL.operationId, executor)).resolves.toBe('done');
     expect(executor).toHaveBeenCalledTimes(2);
+  });
+
+  it('serializes different initial operations through one browser-wide lock', async () => {
+    let chain = Promise.resolve();
+    let active = 0;
+    let maxActive = 0;
+    const locks = {
+      request: vi.fn((_name, _options, executor) => {
+        const result = chain.then(async () => {
+          active += 1;
+          maxActive = Math.max(maxActive, active);
+          await Promise.resolve();
+          try {
+            return await executor();
+          } finally {
+            active -= 1;
+          }
+        });
+        chain = result.catch(() => {});
+        return result;
+      }),
+    };
+    const order = [];
+    await Promise.all([
+      runCloneBrowserLock(() => order.push('first'), { locks }),
+      runCloneBrowserLock(() => order.push('second'), { locks }),
+    ]);
+    expect(order).toEqual(['first', 'second']);
+    expect(maxActive).toBe(1);
+    expect(locks.request).toHaveBeenNthCalledWith(
+      1,
+      'travel-app-demo-clone-operation',
+      { mode: 'exclusive' },
+      expect.any(Function),
+    );
   });
 });

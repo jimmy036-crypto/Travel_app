@@ -25,6 +25,7 @@ const TRANSITIONS = Object.freeze({
 });
 
 const inFlight = new Map();
+const CLONE_BROWSER_LOCK = 'travel-app-demo-clone-operation';
 
 export function transitionCloneOperation(journal, event) {
   const nextState = TRANSITIONS[journal?.state]?.[event];
@@ -56,6 +57,13 @@ export function runCloneOperationOnce(operationId, executor) {
   });
   inFlight.set(operationId, promise);
   return promise;
+}
+
+export function runCloneBrowserLock(executor, options = {}) {
+  if (typeof executor !== 'function') return Promise.reject(new Error('Invalid Clone execution.'));
+  const locks = options.locks ?? globalThis.navigator?.locks;
+  if (!locks || typeof locks.request !== 'function') return Promise.resolve().then(executor);
+  return locks.request(CLONE_BROWSER_LOCK, { mode: 'exclusive' }, executor);
 }
 
 export function clearCloneOperationLocks() {

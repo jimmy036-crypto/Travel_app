@@ -22,6 +22,10 @@ export function CloneDemoDialog({
   }, [onCancel]);
 
   useEffect(() => {
+    if (status !== 'loading') confirmStartedRef.current = false;
+  }, [status]);
+
+  useEffect(() => {
     if (!open) {
       confirmStartedRef.current = false;
       return undefined;
@@ -136,7 +140,6 @@ export function CloneDemoDialog({
               type="button"
               data-testid="clone-demo-confirm"
               onClick={confirm}
-              disabled={status === 'ambiguous'}
               className="min-h-11 rounded-xl bg-emerald-600 px-4 font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               確認 Clone

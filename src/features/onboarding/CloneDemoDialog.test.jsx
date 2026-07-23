@@ -38,6 +38,24 @@ describe('CloneDemoDialog', () => {
     expect(callbacks.onConfirm).toHaveBeenCalledTimes(1);
   });
 
+  it('allows an explicit retry after an error or ambiguous result', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    const view = render(
+      <CloneDemoDialog open status="idle" onConfirm={onConfirm} onCancel={vi.fn()} />,
+    );
+    await user.click(screen.getByTestId('clone-demo-confirm'));
+    view.rerender(
+      <CloneDemoDialog open status="error" onConfirm={onConfirm} onCancel={vi.fn()} />,
+    );
+    await user.click(screen.getByTestId('clone-demo-confirm'));
+    view.rerender(
+      <CloneDemoDialog open status="ambiguous" onConfirm={onConfirm} onCancel={vi.fn()} />,
+    );
+    await user.click(screen.getByTestId('clone-demo-confirm'));
+    expect(onConfirm).toHaveBeenCalledTimes(3);
+  });
+
   it('supports cancel and Escape while idle', async () => {
     const user = userEvent.setup();
     const first = renderDialog();

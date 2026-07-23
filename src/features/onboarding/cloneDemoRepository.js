@@ -133,4 +133,3 @@ export function writeAndVerifyMyTrips(myTrips, tripReference) {
   if (!verified) throw new Error('myTrips read-back failed.');
   return { trips: clone(next), reference: clone(verified) };
 }
-

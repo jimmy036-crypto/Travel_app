@@ -64,9 +64,11 @@ import { convertDemoSandboxToTrip } from './features/onboarding/cloneDemoTrip.js
 import {
   createCloneJournal,
   readCloneJournal,
+  removeCloneJournal,
   writeCloneJournal,
 } from './features/onboarding/cloneOperationJournal.js';
 import {
+  runCloneBrowserLock,
   runCloneOperationOnce,
   transitionCloneOperation,
 } from './features/onboarding/cloneOperationState.js';
@@ -532,6 +534,10 @@ export default function TravelApp() {
   }, []);
 
   const openCloneDialog = useCallback(() => {
+    const existing = readCloneJournal();
+    if (existing.status === 'ready' && existing.journal.state === 'completed') {
+      removeCloneJournal();
+    }
     setCloneStatus('idle');
     setCloneError('');
     setClonedRoomId(null);
@@ -563,6 +569,7 @@ export default function TravelApp() {
     setCloneStatus('loading');
     setCloneError('');
     try {
+      await runCloneBrowserLock(async () => {
       const currentSandbox = demoSandboxState.sandbox;
       const sandboxValidation = validateDemoSandbox(currentSandbox);
       if (!sandboxValidation.valid) throw new Error('目前示範副本無法通過驗證。');
@@ -642,7 +649,11 @@ export default function TravelApp() {
           ...payload.meta,
           roomId: payload.roomId,
         };
-        const linked = writeAndVerifyMyTrips(myTrips, tripReference);
+        const latestTrips = readJsonStorage('google-travel-my-trips', myTrips);
+        const linked = writeAndVerifyMyTrips(
+          Array.isArray(latestTrips) ? latestTrips : myTrips,
+          tripReference,
+        );
         if (!writeStorage('google-travel-my-trips', JSON.stringify(linked.trips))) {
           throw new Error('myTrips 寫入失敗。');
         }
@@ -656,6 +667,7 @@ export default function TravelApp() {
         if (!completed.ok) throw new Error('無法保存 Clone 完成狀態。');
         journal = completed.journal;
         setClonedRoomId(payload.roomId);
+      });
       });
       setCloneStatus('success');
     } catch (error) {
