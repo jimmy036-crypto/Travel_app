@@ -4,12 +4,13 @@ Record important AI-governance changes and decisions. Product release notes rema
 
 ## Phase AI-3B2B-R2L — Editable Demo Sandbox Implementation, Review, and QA
 
+- Conditionally merged PR #37 only into `feat/ai-editable-demo-amendment-plan` at `276276b69ffe074ffc50246d4f2b081e5671df73` after GitHub Quality Gate run 102 passed on source commit `65b6283ccbc96126dc18fd6982b238933293530f`.
 - Recorded explicit revised Gate 2 approval and executed the nine amended Assignments within their non-overlapping allowed paths.
 - Implemented a defensive, versioned, locally persistent editable Demo Sandbox with safe corruption recovery, memory fallback, and an isolated confirmed reset. Demo open, edit, and reset perform no Firebase, `myTrips`, or Offline Trip Cache writes.
 - Implemented itinerary and Checklist editing, a current-Sandbox owner-only allowlist Clone converter, minimal same-device recovery Journal, confirmation UI, and Emulator-guarded room and `myTrips` verification. The Clone feature flag defaults to disabled.
 - Added replayable Feature Introduction entry points in Lobby and Settings without changing first-run eligibility; the existing trip-contextual FeatureTour remains a distinct action.
 - Independent Code Review passed with no blocking findings. QA passed 51 Vitest files / 723 tests with no failures or skips and 192 Playwright tests with no failures and 14 pre-existing conditional PWA skips on Desktop Chrome and Mobile Safari.
-- Firebase tests used only project `demo-travel-e2e`. Database/Storage Rules, package dependencies, lockfile, migrations, production Firebase, main, and deployment remain unchanged. Conditional Merge is limited to `feat/ai-editable-demo-amendment-plan`.
+- Firebase tests used only project `demo-travel-e2e`. Database/Storage Rules, package dependencies, lockfile, migrations, production Firebase, and main remain unchanged. GitHub reports successful Vercel status checks for the PR head and merge commit, but no agent-initiated deployment or Gate 3 approval exists.
 
 ## Phase AI-3B2B-R2K — Editable Demo Sandbox Decision Amendment and Revised Gate 2 Plan
 

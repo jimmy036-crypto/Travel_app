@@ -116,6 +116,8 @@ Smoke tests prove that the App loads, uses the Emulator namespace, opens the key
 
 ## Phase AI-3B2B-R2L Evidence
 
+- PR #37 conditionally merged source commit `65b6283ccbc96126dc18fd6982b238933293530f` only to `feat/ai-editable-demo-amendment-plan` at merge commit `276276b69ffe074ffc50246d4f2b081e5671df73`.
+- GitHub Quality Gate run 102 completed successfully on the source commit. GitHub also reports successful Vercel status checks for the source and merge commits; this evidence does not authorize Gate 3 deployment or production Firebase access.
 - Baseline before product changes: 43 Vitest files / 652 tests passed; typecheck, lint, build, guardrails, Agent verification, and `git diff --check` passed.
 - Final Vitest: 51 files / 723 tests passed, 0 failed, 0 skipped.
 - Final Playwright: 192 passed, 0 failed, 14 pre-existing conditional PWA skips across Desktop Chrome and Mobile Safari; the new Editable Demo suite passed 8/8 with no skips.
