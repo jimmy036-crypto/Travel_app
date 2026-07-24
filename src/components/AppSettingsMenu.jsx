@@ -19,7 +19,7 @@ function getMenuPosition(trigger) {
   const rect = trigger.getBoundingClientRect();
   const viewportWidth = window.innerWidth || 390;
   const viewportHeight = window.innerHeight || 844;
-  const estimatedHeight = 376;
+  const estimatedHeight = 428;
   const hasRoomBelow = rect.bottom + MENU_MARGIN + estimatedHeight <= viewportHeight;
   const top = hasRoomBelow
     ? rect.bottom + 8
@@ -38,7 +38,10 @@ export const AppSettingsMenu = ({
   version,
   onOpenAppearance,
   onOpenReleaseNotes,
+  onOpenFeatureIntroduction,
   onStartFeatureTour,
+  onOpenDemo,
+  showDemoEntry = false,
   onCheckUpdates,
   isCheckingUpdates = false,
 }) => {
@@ -194,6 +197,7 @@ export const AppSettingsMenu = ({
     top: `${position.top}px`,
     left: `${position.left}px`,
     width: `${MENU_WIDTH}px`,
+    maxHeight: `calc(100dvh - ${MENU_MARGIN * 2}px)`,
     zIndex: 10060,
   }), [position.left, position.top]);
 
@@ -230,7 +234,7 @@ export const AppSettingsMenu = ({
           role="menu"
           aria-label="設定"
           data-testid="app-settings-menu"
-          className={`fixed grid gap-1.5 rounded-2xl border p-2 shadow-2xl backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}
+          className={`fixed grid gap-1.5 overflow-y-auto rounded-2xl border p-2 shadow-2xl backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}
           style={menuStyle}
           onClick={(event) => event.stopPropagation()}
         >
@@ -252,15 +256,39 @@ export const AppSettingsMenu = ({
           >
             更新內容
           </button>
+          {typeof onOpenFeatureIntroduction === 'function' ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="app-settings-feature-introduction"
+              onClick={() => runAction(onOpenFeatureIntroduction)}
+              aria-label="重新開啟功能介紹"
+              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
+            >
+              功能介紹
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
             data-testid="app-settings-feature-tour"
             onClick={() => runAction(onStartFeatureTour)}
+            aria-label="開啟旅程功能導覽"
             className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
           >
             功能導覽
           </button>
+          {showDemoEntry && typeof onOpenDemo === 'function' ? (
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="app-settings-demo-trip"
+              onClick={() => runAction(onOpenDemo)}
+              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
+            >
+              查看示範旅程
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"

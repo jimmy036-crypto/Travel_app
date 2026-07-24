@@ -30,6 +30,7 @@ import {
 
 // 引入拆分出去的核心元件與 UI
 const TripDetail = lazy(() => import('./TripDetail.jsx'));
+const DemoTripPreview = lazy(() => import('./features/onboarding/DemoTripPreview.jsx'));
 const UXFoundationDemo = import.meta.env.DEV
   ? lazy(() => import('./components/ui/UXFoundationDemo.jsx'))
   : null;
@@ -49,6 +50,48 @@ import { useOnlineStatus } from './hooks/useOnlineStatus.js';
 import { OfflineBanner } from './components/OfflineBanner.jsx';
 import { listOfflineTripSummaries, removeOfflineTripSnapshot, readOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
 import { OfflineTripPreview } from './features/offline/OfflineTripPreview.jsx';
+import { DemoTripEntryCard } from './features/onboarding/DemoTripEntryCard.jsx';
+import { FeatureIntroductionButton } from './features/onboarding/FeatureIntroductionButton.jsx';
+import FirstRunWelcomeDialog from './features/onboarding/FirstRunWelcomeDialog.jsx';
+import { CloneDemoDialog } from './features/onboarding/CloneDemoDialog.jsx';
+import {
+  readDemoSandbox,
+  resetDemoSandbox,
+  validateDemoSandbox,
+  writeDemoSandbox,
+} from './features/onboarding/demoSandboxStore.js';
+import { convertDemoSandboxToTrip } from './features/onboarding/cloneDemoTrip.js';
+import {
+  createCloneJournal,
+  readCloneJournal,
+  removeCloneJournal,
+  writeCloneJournal,
+} from './features/onboarding/cloneOperationJournal.js';
+import {
+  runCloneBrowserLock,
+  runCloneOperationOnce,
+  transitionCloneOperation,
+} from './features/onboarding/cloneOperationState.js';
+import {
+  createCloneDemoRepository,
+  ensureCloneDemoEmulatorConnection,
+  writeAndVerifyMyTrips,
+} from './features/onboarding/cloneDemoRepository.js';
+import {
+  isCloneDemoEmulatorRuntime,
+  isEditableDemoCloneEnabled,
+} from './features/onboarding/cloneDemoFeatureFlag.js';
+import {
+  markFirstRunOnboardingSeen,
+  readFirstRunEligibilitySnapshot,
+  shouldShowFirstRunOnboarding,
+} from './features/onboarding/onboardingState.js';
+
+const DEMO_TABS = new Set(['overview', 'itinerary', 'tickets', 'expenses', 'checklist']);
+
+const normalizeBuiltInDemoTab = (value) => (
+  DEMO_TABS.has(value) ? value : 'overview'
+);
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -90,10 +133,24 @@ export default function TravelApp() {
     lastOnlineState.current = isOnline;
   }, [isOnline, hasBeenOffline, toast]);
 
+  const [firstRunSnapshot] = useState(() => readFirstRunEligibilitySnapshot());
+
   const [myTrips, setMyTrips] = useState(() => {
     const stored = readJsonStorage('google-travel-my-trips', []);
     return Array.isArray(stored) ? stored : [];
   });
+  const [suppressReleasePromptForFirstRunSession] = useState(
+    () => shouldShowFirstRunOnboarding(firstRunSnapshot)
+      && myTrips.length === 0
+      && !hasSeenCurrentRelease(),
+  );
+  const [firstRunResolved, setFirstRunResolved] = useState(
+    () => !suppressReleasePromptForFirstRunSession,
+  );
+  const [showFirstRunWelcome, setShowFirstRunWelcome] = useState(
+    () => suppressReleasePromptForFirstRunSession && !firstRunSnapshot.hasRoomDeepLink,
+  );
+  const firstRunCompletionRef = useRef(false);
   const [customBgColor, setCustomBgColor] = useState(() => readStorage('google-travel-custom-bg', '#d8b4e2'));
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showFeatureTour, setShowFeatureTour] = useState(false);
@@ -140,6 +197,13 @@ export default function TravelApp() {
 
   const [offlinePreviewData, setOfflinePreviewData] = useState(null);
   const [offlineCacheSummaries, setOfflineCacheSummaries] = useState([]);
+  const [demoPreviewState, setDemoPreviewState] = useState(null);
+  const [demoSandboxState, setDemoSandboxState] = useState(() => readDemoSandbox());
+  const [showFeatureIntroduction, setShowFeatureIntroduction] = useState(false);
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
+  const [cloneStatus, setCloneStatus] = useState('idle');
+  const [cloneError, setCloneError] = useState('');
+  const [clonedRoomId, setClonedRoomId] = useState(null);
 
   const refreshOfflineCacheSummaries = useCallback(() => {
     setOfflineCacheSummaries(listOfflineTripSummaries());
@@ -203,9 +267,52 @@ export default function TravelApp() {
   }, [customBgColor]);
 
   useEffect(() => {
-    if (releasePromptDeferred || hasSeenCurrentRelease()) return;
+    if (
+      suppressReleasePromptForFirstRunSession
+      || !firstRunResolved
+      || showFirstRunWelcome
+      || releasePromptDeferred
+      || hasSeenCurrentRelease()
+    ) return;
     setShowWhatsNew(true);
-  }, [releasePromptDeferred]);
+  }, [
+    firstRunResolved,
+    releasePromptDeferred,
+    showFirstRunWelcome,
+    suppressReleasePromptForFirstRunSession,
+  ]);
+
+  useEffect(() => {
+    if (
+      !suppressReleasePromptForFirstRunSession
+      || firstRunResolved
+      || showFirstRunWelcome
+      || activeRoomId
+      || offlinePreviewData
+      || demoPreviewState
+      || tripModalMode
+      || showImportModal
+      || showFeatureTour
+      || showTripTourSelection
+    ) return;
+    const isUxFoundationDemo = import.meta.env.DEV
+      && typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
+    if (isUxFoundationDemo) return;
+    setShowWhatsNew(false);
+    setShowFirstRunWelcome(true);
+  }, [
+    activeRoomId,
+    demoPreviewState,
+    firstRunResolved,
+    offlinePreviewData,
+    showFeatureTour,
+    showFirstRunWelcome,
+    showImportModal,
+    showTripTourSelection,
+    suppressReleasePromptForFirstRunSession,
+    tripModalMode,
+  ]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -293,6 +400,326 @@ export default function TravelApp() {
     setNewTransport("汽車 🚗"); setNewThemeColor("#3b82f6");
     setTripModalMode('create');
   }, []);
+
+  const persistDemoMutation = useCallback((mutateTrip) => {
+    const current = demoSandboxState?.sandbox;
+    if (!current || !validateDemoSandbox(current).valid) return false;
+    const next = structuredClone(current);
+    mutateTrip(next.trip);
+    const result = writeDemoSandbox(next);
+    const sandbox = result.sandbox || next;
+    setDemoSandboxState({
+      sandbox,
+      persistence: result.persistence,
+      recovered: false,
+      reason: result.reason,
+      error: result.error || null,
+    });
+    setDemoPreviewState((previous) => previous
+      ? { ...previous, demo: structuredClone(sandbox.trip) }
+      : previous);
+    return result.ok;
+  }, [demoSandboxState]);
+
+  const handleAddDemoPlace = useCallback((dayId) => {
+    persistDemoMutation((trip) => {
+      if (!Array.isArray(trip.itinerary?.[dayId])) return;
+      trip.itinerary[dayId].push({
+        id: `sandbox-place-${crypto.randomUUID?.() || Date.now()}`,
+        dayId,
+        name: '新增景點',
+        time: '',
+        address: '',
+        notes: '',
+        memo: '',
+        category: 'other',
+      });
+    });
+  }, [persistDemoMutation]);
+
+  const handleUpdateDemoPlace = useCallback((dayId, placeId, updates) => {
+    persistDemoMutation((trip) => {
+      const place = trip.itinerary?.[dayId]?.find((item) => item.id === placeId);
+      if (place) Object.assign(place, updates);
+    });
+  }, [persistDemoMutation]);
+
+  const handleDeleteDemoPlace = useCallback((dayId, placeId) => {
+    persistDemoMutation((trip) => {
+      if (!Array.isArray(trip.itinerary?.[dayId])) return;
+      trip.itinerary[dayId] = trip.itinerary[dayId].filter((item) => item.id !== placeId);
+    });
+  }, [persistDemoMutation]);
+
+  const handleMoveDemoPlace = useCallback((dayId, placeId, target) => {
+    persistDemoMutation((trip) => {
+      const places = trip.itinerary?.[dayId];
+      if (!Array.isArray(places)) return;
+      const sourceIndex = places.findIndex((item) => item.id === placeId);
+      if (sourceIndex < 0) return;
+      let destinationIndex = sourceIndex;
+      if (target === 'up') destinationIndex = Math.max(0, sourceIndex - 1);
+      if (target === 'down') destinationIndex = Math.min(places.length - 1, sourceIndex + 1);
+      if (target?.beforeId) destinationIndex = places.findIndex((item) => item.id === target.beforeId);
+      if (destinationIndex < 0 || destinationIndex === sourceIndex) return;
+      const [place] = places.splice(sourceIndex, 1);
+      if (sourceIndex < destinationIndex && target?.beforeId) destinationIndex -= 1;
+      places.splice(destinationIndex, 0, place);
+    });
+  }, [persistDemoMutation]);
+
+  const handleAddDemoChecklistItem = useCallback(() => {
+    persistDemoMutation((trip) => {
+      trip.checklist.push({
+        id: `sandbox-check-${crypto.randomUUID?.() || Date.now()}`,
+        text: '新增待辦',
+        scope: 'shared',
+        owner: '',
+        assignee: '',
+        category: 'todo',
+        important: false,
+        completed: false,
+        completedAt: null,
+        completedBy: '',
+      });
+    });
+  }, [persistDemoMutation]);
+
+  const handleUpdateDemoChecklistItem = useCallback((itemId, updates) => {
+    persistDemoMutation((trip) => {
+      const item = trip.checklist.find((entry) => entry.id === itemId);
+      if (item) Object.assign(item, updates);
+    });
+  }, [persistDemoMutation]);
+
+  const handleDeleteDemoChecklistItem = useCallback((itemId) => {
+    persistDemoMutation((trip) => {
+      trip.checklist = trip.checklist.filter((item) => item.id !== itemId);
+    });
+  }, [persistDemoMutation]);
+
+  const handleResetBuiltInDemo = useCallback(() => {
+    const result = resetDemoSandbox();
+    setDemoSandboxState(result);
+    setDemoPreviewState((previous) => previous
+      ? { ...previous, demo: structuredClone(result.sandbox.trip) }
+      : previous);
+  }, []);
+
+  const openBuiltInDemo = useCallback((initialTab = 'overview') => {
+    const safeInitialTab = normalizeBuiltInDemoTab(initialTab);
+    setShowWhatsNew(false);
+    setShowFeatureIntroduction(false);
+    setDemoPreviewState({
+      demo: structuredClone(demoSandboxState.sandbox.trip),
+      initialTab: safeInitialTab,
+    });
+  }, [demoSandboxState]);
+
+  const closeBuiltInDemo = useCallback(() => {
+    setDemoPreviewState(null);
+  }, []);
+
+  const handleCreateTripFromDemo = useCallback(() => {
+    setDemoPreviewState(null);
+    openCreateModal();
+  }, [openCreateModal]);
+
+  const openFeatureIntroduction = useCallback(() => {
+    setShowWhatsNew(false);
+    setShowFeatureIntroduction(true);
+  }, []);
+
+  const closeFeatureIntroduction = useCallback(() => {
+    setShowFeatureIntroduction(false);
+  }, []);
+
+  const openCloneDialog = useCallback(() => {
+    const existing = readCloneJournal();
+    if (existing.status === 'ready' && existing.journal.state === 'completed') {
+      removeCloneJournal();
+    }
+    setCloneStatus('idle');
+    setCloneError('');
+    setClonedRoomId(null);
+    setCloneDialogOpen(true);
+  }, []);
+
+  const closeCloneDialog = useCallback(() => {
+    if (cloneStatus === 'loading') return;
+    setCloneDialogOpen(false);
+  }, [cloneStatus]);
+
+  const handleCloneDemo = useCallback(async () => {
+    if (!isEditableDemoCloneEnabled()) {
+      setCloneStatus('error');
+      setCloneError('Clone 功能目前未啟用。');
+      return;
+    }
+    if (!isCloneDemoEmulatorRuntime()) {
+      setCloneStatus('error');
+      setCloneError('Clone 僅能在本機 Firebase Emulator 環境執行。');
+      return;
+    }
+    if (!db) {
+      setCloneStatus('error');
+      setCloneError('Firebase Emulator 尚未就緒。');
+      return;
+    }
+
+    setCloneStatus('loading');
+    setCloneError('');
+    try {
+      await runCloneBrowserLock(async () => {
+      const currentSandbox = demoSandboxState.sandbox;
+      const sandboxValidation = validateDemoSandbox(currentSandbox);
+      if (!sandboxValidation.valid) throw new Error('目前示範副本無法通過驗證。');
+
+      const existing = readCloneJournal();
+      const operationId = existing.status === 'ready'
+        ? existing.journal.operationId
+        : `clone-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+      const payload = convertDemoSandboxToTrip(currentSandbox, {
+        operationId,
+        roomId: existing.status === 'ready' ? existing.journal.roomId : undefined,
+      });
+      if (
+        existing.status === 'ready'
+        && existing.journal.payloadFingerprint !== payload.cloneOperation.payloadFingerprint
+      ) {
+        const collision = new Error('目前示範副本與待恢復 Clone 不一致。');
+        collision.code = 'CLONE_PAYLOAD_COLLISION';
+        throw collision;
+      }
+
+      let journal = existing.status === 'ready'
+        ? existing.journal
+        : createCloneJournal({
+          operationId,
+          roomId: payload.roomId,
+          templateVersion: currentSandbox.templateVersion,
+          title: payload.meta.title,
+          startDate: payload.meta.startDate,
+          payloadFingerprint: payload.cloneOperation.payloadFingerprint,
+        });
+      const prepared = writeCloneJournal(journal);
+      if (!prepared.ok) throw new Error('無法建立本機 Clone recovery journal。');
+      journal = prepared.journal;
+
+      await runCloneOperationOnce(operationId, async () => {
+        if (journal.state === 'completed') {
+          setClonedRoomId(payload.roomId);
+          return;
+        }
+        if (journal.state === 'repair-required') {
+          journal = transitionCloneOperation(journal, 'RETRY_MYTRIPS');
+          const retrying = writeCloneJournal(journal);
+          if (!retrying.ok) throw new Error('無法保存 myTrips repair 狀態。');
+          journal = retrying.journal;
+        }
+        if (journal.state === 'prepared') {
+          journal = transitionCloneOperation(journal, 'BEGIN_ROOM_WRITE');
+          const writing = writeCloneJournal(journal);
+          if (!writing.ok) throw new Error('無法保存 Clone 寫入狀態。');
+          journal = writing.journal;
+        }
+
+        if (journal.state === 'writing-room') {
+          const {
+            connectDatabaseEmulator,
+            runTransaction,
+          } = await import('firebase/database');
+          ensureCloneDemoEmulatorConnection({
+            database: db,
+            emulatorAuthorized: isCloneDemoEmulatorRuntime(),
+            connectDatabaseEmulator,
+          });
+          const repository = createCloneDemoRepository({
+            database: db,
+            emulatorAuthorized: isCloneDemoEmulatorRuntime(),
+            ref: dbRef,
+            get,
+            runTransaction,
+          });
+          await repository.createRoom(payload);
+          journal = transitionCloneOperation(journal, 'ROOM_VERIFIED');
+          const verified = writeCloneJournal(journal);
+          if (!verified.ok) throw new Error('無法保存 room 驗證狀態。');
+          journal = verified.journal;
+        }
+        if (journal.state === 'room-verified') {
+          journal = transitionCloneOperation(journal, 'BEGIN_MYTRIPS_WRITE');
+          const linking = writeCloneJournal(journal);
+          if (!linking.ok) throw new Error('無法保存 myTrips 寫入狀態。');
+          journal = linking.journal;
+        }
+
+        const tripReference = {
+          ...payload.meta,
+          roomId: payload.roomId,
+        };
+        const latestTrips = readJsonStorage('google-travel-my-trips', myTrips);
+        const linked = writeAndVerifyMyTrips(
+          Array.isArray(latestTrips) ? latestTrips : myTrips,
+          tripReference,
+        );
+        if (!writeStorage('google-travel-my-trips', JSON.stringify(linked.trips))) {
+          throw new Error('myTrips 寫入失敗。');
+        }
+        const readBack = readJsonStorage('google-travel-my-trips', []);
+        if (!readBack.some((trip) => trip?.roomId === payload.roomId)) {
+          throw new Error('myTrips read-back 驗證失敗。');
+        }
+        setMyTrips(linked.trips);
+        journal = transitionCloneOperation(journal, 'MYTRIPS_VERIFIED');
+        const completed = writeCloneJournal(journal);
+        if (!completed.ok) throw new Error('無法保存 Clone 完成狀態。');
+        journal = completed.journal;
+        setClonedRoomId(payload.roomId);
+      });
+      });
+      setCloneStatus('success');
+    } catch (error) {
+      if (error?.code === 'CLONE_ROOM_AMBIGUOUS') {
+        setCloneStatus('ambiguous');
+      } else if (error?.message?.includes('myTrips')) {
+        if (error && typeof error === 'object') {
+          const current = readCloneJournal();
+          if (current.status === 'ready' && current.journal.state === 'linking-mytrips') {
+            const repair = transitionCloneOperation(current.journal, 'MYTRIPS_FAILED');
+            writeCloneJournal(repair);
+            setClonedRoomId(repair.roomId);
+          }
+        }
+        setCloneStatus('repair-required');
+      } else {
+        setCloneStatus('error');
+      }
+      setCloneError(error instanceof Error ? error.message : 'Clone 失敗。');
+    }
+  }, [demoSandboxState, myTrips]);
+
+  const handleOpenClonedTrip = useCallback(() => {
+    if (!clonedRoomId) return;
+    setCloneDialogOpen(false);
+    setDemoPreviewState(null);
+    openTripRoom(clonedRoomId);
+  }, [clonedRoomId, openTripRoom]);
+
+  const handleRepairClonedTrip = useCallback(() => {
+    void handleCloneDemo();
+  }, [handleCloneDemo]);
+
+  const completeFirstRunOnboarding = useCallback((action) => {
+    if (firstRunCompletionRef.current) return;
+    firstRunCompletionRef.current = true;
+    markFirstRunOnboardingSeen();
+    setFirstRunResolved(true);
+    setShowFirstRunWelcome(false);
+
+    if (action === 'demo') openBuiltInDemo('overview');
+    if (action === 'create') openCreateModal();
+  }, [openBuiltInDemo, openCreateModal]);
 
   const fillEmulatorRequiredFields = () => {
     const start = new Date();
@@ -593,7 +1020,7 @@ export default function TravelApp() {
   const tourCtaMode = activeRoomId
     ? 'trip'
     : (hasTrips ? 'lobby-trips' : 'lobby-empty');
-  const releaseExperience = (
+  const releaseExperience = showFirstRunWelcome ? null : (
     <>
       {showWhatsNew ? (
         <WhatsNewDialog
@@ -656,7 +1083,45 @@ export default function TravelApp() {
     );
   }
 
-  if (offlinePreviewData) return (
+  if (demoPreviewState && !showFirstRunWelcome) {
+    return (
+      <>
+        <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入示範旅程...</div>}>
+          <DemoTripPreview
+            demo={demoPreviewState.demo}
+            initialTab={demoPreviewState.initialTab}
+            t={t}
+            onBack={closeBuiltInDemo}
+            onCreateTrip={handleCreateTripFromDemo}
+            onCloneDemo={openCloneDialog}
+            onAddPlace={handleAddDemoPlace}
+            onUpdatePlace={handleUpdateDemoPlace}
+            onDeletePlace={handleDeleteDemoPlace}
+            onMovePlace={handleMoveDemoPlace}
+            onAddChecklistItem={handleAddDemoChecklistItem}
+            onUpdateChecklistItem={handleUpdateDemoChecklistItem}
+            onDeleteChecklistItem={handleDeleteDemoChecklistItem}
+            onResetDemo={handleResetBuiltInDemo}
+            persistence={demoSandboxState.persistence}
+            saveError={demoSandboxState.error ? '示範副本保存失敗，已切換為記憶體模式。' : ''}
+            showCloneAction={isEditableDemoCloneEnabled()}
+            createActionLabel={hasTrips ? '建立另一個旅程' : '建立我的第一個旅程'}
+          />
+        </Suspense>
+        <CloneDemoDialog
+          open={cloneDialogOpen}
+          status={cloneStatus}
+          errorMessage={cloneError}
+          onConfirm={handleCloneDemo}
+          onCancel={closeCloneDialog}
+          onRepair={handleRepairClonedTrip}
+          onOpenTrip={handleOpenClonedTrip}
+        />
+      </>
+    );
+  }
+
+  if (offlinePreviewData && !showFirstRunWelcome) return (
     <>
       <OfflineTripPreview
         summary={offlinePreviewData}
@@ -696,7 +1161,7 @@ export default function TravelApp() {
     </>
   );
 
-  if (activeRoomId) return (
+  if (activeRoomId && !showFirstRunWelcome) return (
     <>
     <APIProvider apiKey={API_KEY}>
       <span
@@ -757,7 +1222,10 @@ export default function TravelApp() {
               version={CURRENT_RELEASE_NOTES.version}
               onOpenAppearance={() => lobbyAppearanceInputRef.current?.click?.()}
               onOpenReleaseNotes={openReleaseNotes}
+              onOpenFeatureIntroduction={openFeatureIntroduction}
               onStartFeatureTour={startFeatureTour}
+              showDemoEntry={hasTrips}
+              onOpenDemo={() => openBuiltInDemo('overview')}
               onCheckUpdates={handleCheckAppUpdate}
               isCheckingUpdates={isCheckingAppUpdate}
             />
@@ -765,6 +1233,10 @@ export default function TravelApp() {
 
           {hasTrips ? (
           <div className="grid w-full gap-3 md:flex md:items-center md:justify-end">
+            <FeatureIntroductionButton
+              onOpen={openFeatureIntroduction}
+              className="w-full md:w-auto"
+            />
             <button
               type="button"
               data-testid="create-trip-button"
@@ -846,30 +1318,37 @@ export default function TravelApp() {
         ) : null}
 
         {!hasTrips ? (
-          <EmptyState
-            testId="lobby-empty-state"
-            className={`${t.cardBg} ${t.cardBorder} mt-16 md:mt-24`}
-            icon={(
+          <div className="mt-16 space-y-6 md:mt-24">
+            <EmptyState
+              testId="lobby-empty-state"
+              className={`${t.cardBg} ${t.cardBorder}`}
+              icon={(
               <svg viewBox="0 0 48 48" className="h-14 w-14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M8 34c7-4 13-4 20 0s13 4 20 0" />
                 <path d="M12 30V12l10 5 10-5 10 5v18" />
                 <path d="M22 17v18" />
                 <path d="M32 12v23" />
               </svg>
-            )}
-            title="建立你的第一個旅程"
-            description="集中管理每日行程、景點、費用與旅伴協作，從第一個旅程開始規劃。"
-            primaryAction={{
-              label: '建立新旅程',
-              testId: 'lobby-empty-create-trip',
-              onClick: openCreateModal,
-            }}
-            secondaryAction={{
-              label: '匯入旅程',
-              testId: 'lobby-empty-import-trip',
-              onClick: () => setShowImportModal(true),
-            }}
-          />
+              )}
+              title="建立你的第一個旅程"
+              description="集中管理每日行程、景點、費用與旅伴協作，從第一個旅程開始規劃。"
+              primaryAction={{
+                label: '建立新旅程',
+                testId: 'lobby-empty-create-trip',
+                onClick: openCreateModal,
+              }}
+              secondaryAction={{
+                label: '匯入旅程',
+                testId: 'lobby-empty-import-trip',
+                onClick: () => setShowImportModal(true),
+              }}
+            />
+            <DemoTripEntryCard t={t} onOpenDemo={() => openBuiltInDemo('overview')} />
+            <FeatureIntroductionButton
+              onOpen={openFeatureIntroduction}
+              className="w-full"
+            />
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {myTrips.map(trip => {
@@ -903,7 +1382,7 @@ export default function TravelApp() {
         )}
       </div>
 
-      {showImportModal && (
+      {!showFirstRunWelcome && showImportModal && (
         <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setShowImportModal(false)}>
           <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
             <h2 className={`text-xl font-black mb-2 ${t.mainText}`}>📥 匯入雲端行程</h2>
@@ -913,7 +1392,7 @@ export default function TravelApp() {
         </div>
       )}
 
-      {tripModalMode && (
+      {!showFirstRunWelcome && tripModalMode && (
         <APIProvider apiKey={API_KEY}>
           <div data-testid="trip-modal" style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setTripModalMode(null)}>
             <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto overflow-x-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
@@ -1017,6 +1496,26 @@ export default function TravelApp() {
       )}
     </div>
     <OfflineBanner isOnline={isOnline} />
+    {showFirstRunWelcome ? (
+      <FirstRunWelcomeDialog
+        t={t}
+        onOpenDemo={() => completeFirstRunOnboarding('demo')}
+        onCreateTrip={() => completeFirstRunOnboarding('create')}
+        onSkip={() => completeFirstRunOnboarding('skip')}
+      />
+    ) : null}
+    {showFeatureIntroduction ? (
+      <FirstRunWelcomeDialog
+        mode="replay"
+        t={t}
+        onOpenDemo={() => openBuiltInDemo('overview')}
+        onCreateTrip={() => {
+          closeFeatureIntroduction();
+          openCreateModal();
+        }}
+        onClose={closeFeatureIntroduction}
+      />
+    ) : null}
     {releaseExperience}
     </>
   );
