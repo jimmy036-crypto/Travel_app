@@ -1,100 +1,90 @@
-import React from 'react';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import React, { useState } from 'react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App.jsx';
+import { isEditableDemoCloneEnabled } from './features/onboarding/cloneDemoFeatureFlag.js';
 
 const firebaseMocks = vi.hoisted(() => ({
-  ref: vi.fn((_database, path) => path),
+  ref: vi.fn((_db, path) => path),
   get: vi.fn(),
   set: vi.fn(),
   update: vi.fn(),
-  runTransaction: vi.fn(),
-  connectDatabaseEmulator: vi.fn(),
-  rooms: new Map(),
 }));
 
-const offlineMocks = vi.hoisted(() => ({
-  list: vi.fn(() => []),
-  read: vi.fn(),
-  remove: vi.fn(),
-}));
-
-const releaseMocks = vi.hoisted(() => ({
-  hasSeen: vi.fn(() => true),
-  hasPending: vi.fn(() => false),
-  markSeen: vi.fn(),
-  markPending: vi.fn(),
-  clearPending: vi.fn(),
-}));
-
-const featureMocks = vi.hoisted(() => ({
-  enabled: false,
-  emulator: true,
-}));
-
-vi.mock('./firebase.js', () => ({
-  db: { app: { options: { projectId: 'demo-travel-e2e' } } },
-  storage: {},
-}));
-
+vi.mock('./firebase.js', () => ({ db: {}, storage: {} }));
 vi.mock('firebase/database', () => ({
   ref: firebaseMocks.ref,
   get: firebaseMocks.get,
   set: firebaseMocks.set,
   update: firebaseMocks.update,
-  runTransaction: firebaseMocks.runTransaction,
-  connectDatabaseEmulator: firebaseMocks.connectDatabaseEmulator,
+  onValue: vi.fn(),
 }));
-
-vi.mock('./features/onboarding/cloneDemoFeatureFlag.js', () => ({
-  isEditableDemoCloneEnabled: () => featureMocks.enabled,
-  isCloneDemoEmulatorRuntime: () => featureMocks.emulator,
-}));
-
 vi.mock('@vis.gl/react-google-maps', () => ({
   APIProvider: ({ children }) => <div>{children}</div>,
   useMapsLibrary: vi.fn(),
   useMap: vi.fn(),
 }));
-
 vi.mock('./TripDetail.jsx', () => ({
-  default: ({ roomId }) => <div data-testid="mock-trip-detail">{roomId}</div>,
+  default: function MockTripDetail({ tripId, repository, onBack }) {
+    const [status, setStatus] = useState('');
+    return (
+      <div data-testid="shared-trip-detail" data-trip-id={tripId}>
+        <button type="button" data-testid="trip-back" onClick={onBack}>Back</button>
+        <button
+          type="button"
+          data-testid="local-expense-write"
+          onClick={async () => {
+            await repository.updateExpenses([{ id: 'expense-1', cost: 100 }]);
+            setStatus('saved');
+          }}
+        >
+          Save expense
+        </button>
+        <button
+          type="button"
+          data-testid="local-attachment-write"
+          onClick={async () => {
+            await repository.uploadAttachment({
+              scope: 'ticket',
+              ownerId: 'ticket-1',
+              file: new File(['pdf'], 'ticket.pdf', { type: 'application/pdf' }),
+            });
+            setStatus('attached');
+          }}
+        >
+          Save attachment
+        </button>
+        <output data-testid="local-write-status">{status}</output>
+      </div>
+    );
+  },
 }));
-
 vi.mock('./features/offline/OfflineTripPreview.jsx', () => ({
-  OfflineTripPreview: () => <div data-testid="mock-offline-trip-preview" />,
+  OfflineTripPreview: () => null,
 }));
-
 vi.mock('./features/offline/offlineTripCache.js', () => ({
-  listOfflineTripSummaries: offlineMocks.list,
-  readOfflineTripSnapshot: offlineMocks.read,
-  removeOfflineTripSnapshot: offlineMocks.remove,
+  listOfflineTripSummaries: () => [],
+  readOfflineTripSnapshot: vi.fn(),
+  removeOfflineTripSnapshot: vi.fn(),
 }));
-
 vi.mock('./components/UIComponents.jsx', () => ({
-  DestinationSearch: ({ value }) => <input data-testid="mock-destination-input" value={value} readOnly />,
-  DateRangePickerModal: () => <div data-testid="mock-date-picker" />,
+  DestinationSearch: ({ value }) => <input value={value} readOnly />,
+  DateRangePickerModal: () => null,
 }));
-
-vi.mock('./components/FeatureTour.jsx', () => ({
-  FeatureTour: () => <div data-testid="mock-feature-tour" />,
-}));
-
+vi.mock('./components/FeatureTour.jsx', () => ({ FeatureTour: () => null }));
 vi.mock('./config/releaseNotes.js', () => ({
-  CURRENT_RELEASE_NOTES: { version: 'editable-demo-test', title: 'Test', items: [] },
-  clearCurrentReleaseTourPending: releaseMocks.clearPending,
-  hasPendingCurrentReleaseTour: releaseMocks.hasPending,
-  hasSeenCurrentRelease: releaseMocks.hasSeen,
-  markCurrentReleaseTourPending: releaseMocks.markPending,
-  markCurrentReleaseSeen: releaseMocks.markSeen,
+  CURRENT_RELEASE_NOTES: { version: 'editable-test', title: 'Test', items: [] },
+  clearCurrentReleaseTourPending: vi.fn(),
+  hasPendingCurrentReleaseTour: () => false,
+  hasSeenCurrentRelease: () => true,
+  markCurrentReleaseTourPending: vi.fn(),
+  markCurrentReleaseSeen: vi.fn(),
 }));
-
 vi.mock('./hooks/useOnlineStatus.js', () => ({
   useOnlineStatus: () => ({ isOnline: true, hasBeenOffline: false }),
 }));
-
 vi.mock('./hooks/usePwaInstall.js', () => ({
   usePwaInstall: () => ({
     initialized: true,
@@ -106,141 +96,80 @@ vi.mock('./hooks/usePwaInstall.js', () => ({
     requestInstall: vi.fn(),
   }),
 }));
-
 vi.mock('./components/ui/useToast.js', () => ({
   useToast: () => ({ info: vi.fn(), error: vi.fn(), success: vi.fn() }),
 }));
-
 vi.mock('./components/ui/useConfirm.js', () => ({
   useConfirm: () => vi.fn(async () => true),
 }));
 
-function seedLobby() {
-  localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
-  localStorage.setItem('google-travel-my-trips', '[]');
-}
+const REAL_TRIP = {
+  roomId: 'real-trip',
+  title: '京都旅行',
+  destination: '京都',
+  transport: '電車',
+  startDate: '2026-10-01',
+  endDate: '2026-10-03',
+  members: ['自己'],
+};
 
-async function renderLobby() {
+const renderLobby = async (trips = []) => {
+  localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
+  localStorage.setItem('google-travel-my-trips', JSON.stringify(trips));
   const user = userEvent.setup();
   render(<App />);
   await waitFor(() => expect(screen.getByTestId('travel-lobby')).toBeInTheDocument());
   return user;
-}
+};
 
-async function openDemo(user) {
-  await user.click(screen.getByTestId('demo-trip-entry-open'));
-  await waitFor(() => expect(screen.getByTestId('demo-trip-preview')).toBeInTheDocument());
-}
+const openExample = async (user) => {
+  await user.click(
+    within(screen.getByTestId('demo-trip-entry-card')).getByTestId('example-trip-card-title'),
+  );
+  await waitFor(() => expect(screen.getByTestId('shared-trip-detail')).toBeInTheDocument());
+};
 
-describe('editable Demo Sandbox App integration', () => {
+describe('editable local example App integration', () => {
   beforeEach(() => {
-    delete globalThis.__TRAVEL_CLONE_DATABASE_EMULATOR_CONNECTED__;
-    delete globalThis.__TRAVEL_FIREBASE_EMULATORS_CONNECTED__;
     localStorage.clear();
     window.history.pushState({}, '', '/');
-    seedLobby();
-    featureMocks.enabled = false;
-    featureMocks.emulator = true;
-    firebaseMocks.rooms.clear();
-    firebaseMocks.get.mockImplementation(async (path) => ({
-      val: () => firebaseMocks.rooms.get(path) ?? null,
-    }));
-    firebaseMocks.runTransaction.mockImplementation(async (path, updateValue) => {
-      const current = firebaseMocks.rooms.get(path) ?? null;
-      const next = updateValue(current);
-      if (next !== undefined) firebaseMocks.rooms.set(path, next);
-      return {
-        committed: next !== undefined,
-        snapshot: { val: () => firebaseMocks.rooms.get(path) ?? null },
-      };
-    });
+    vi.clearAllMocks();
   });
 
-  afterEach(() => {
-    cleanup();
+  it('keeps the production Clone feature flag disabled by default', () => {
+    expect(isEditableDemoCloneEnabled()).toBe(false);
   });
 
-  it('keeps the Clone feature flag disabled by default', async () => {
+  it('does not render a Clone action', async () => {
+    await renderLobby();
+    expect(screen.queryByText(/Clone/i)).not.toBeInTheDocument();
+  });
+
+  it('saves structured edits without Firebase or myTrips writes', async () => {
+    const user = await renderLobby([REAL_TRIP]);
+    await openExample(user);
+    await user.click(screen.getByTestId('local-expense-write'));
+    await waitFor(() => expect(screen.getByTestId('local-write-status')).toHaveTextContent('saved'));
+    expect(firebaseMocks.set).not.toHaveBeenCalled();
+    expect(firebaseMocks.update).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('google-travel-my-trips'))).toEqual([REAL_TRIP]);
+  });
+
+  it('stores a PDF attachment locally without Storage or Database calls', async () => {
     const user = await renderLobby();
-    await openDemo(user);
-    expect(screen.queryByTestId('demo-clone-trip-button')).not.toBeInTheDocument();
+    await openExample(user);
+    await user.click(screen.getByTestId('local-attachment-write'));
+    await waitFor(() => expect(screen.getByTestId('local-write-status')).toHaveTextContent('attached'));
+    expect(firebaseMocks.set).not.toHaveBeenCalled();
+    expect(firebaseMocks.update).not.toHaveBeenCalled();
   });
 
-  it('persists local Demo edits across reload and resets only the Sandbox', async () => {
-    const user = await renderLobby();
-    await openDemo(user);
-    await user.click(screen.getByTestId('demo-tab-itinerary'));
-    const originalCount = screen.getAllByTestId('demo-editable-place').length;
-    await user.click(screen.getByTestId('demo-add-place'));
-    expect(screen.getAllByTestId('demo-editable-place')).toHaveLength(originalCount + 1);
-    expect(firebaseMocks.runTransaction).not.toHaveBeenCalled();
-    expect(offlineMocks.read).not.toHaveBeenCalled();
-
-    cleanup();
-    const reloadUser = await renderLobby();
-    await openDemo(reloadUser);
-    await reloadUser.click(screen.getByTestId('demo-tab-itinerary'));
-    expect(screen.getAllByTestId('demo-editable-place')).toHaveLength(originalCount + 1);
-
-    await reloadUser.click(screen.getByTestId('demo-reset-button'));
-    await reloadUser.click(screen.getByTestId('demo-reset-confirm'));
-    expect(screen.getAllByTestId('demo-editable-place')).toHaveLength(originalCount);
-    expect(JSON.parse(localStorage.getItem('google-travel-my-trips'))).toEqual([]);
-    expect(firebaseMocks.runTransaction).not.toHaveBeenCalled();
-    expect(offlineMocks.read).not.toHaveBeenCalled();
-  });
-
-  it('keeps Feature Introduction replay separate from the trip Feature Tour', async () => {
-    const onboardingBefore = localStorage.getItem('travel-app-seen-onboarding-v1');
-    const user = await renderLobby();
-    expect(screen.getByTestId('feature-introduction-button')).toHaveAccessibleName('開啟功能介紹');
-    await user.click(screen.getByTestId('feature-introduction-button'));
-    expect(screen.getByTestId('feature-introduction-dialog')).toHaveAttribute('data-mode', 'replay');
-    await user.click(screen.getByTestId('feature-introduction-close'));
-    expect(localStorage.getItem('travel-app-seen-onboarding-v1')).toBe(onboardingBefore);
-
-    await user.click(screen.getByTestId('app-settings-trigger'));
-    const menu = screen.getByTestId('app-settings-menu');
-    expect(within(menu).getByTestId('app-settings-feature-introduction')).toHaveAccessibleName('重新開啟功能介紹');
-    expect(within(menu).getByTestId('app-settings-feature-tour')).toHaveAccessibleName('開啟旅程功能導覽');
-  });
-
-  it('rejects Clone before any database write outside an Emulator runtime', async () => {
-    featureMocks.enabled = true;
-    featureMocks.emulator = false;
-    const user = await renderLobby();
-    await openDemo(user);
-    await user.click(screen.getByTestId('demo-clone-trip-button'));
-    await user.click(screen.getByTestId('clone-demo-confirm'));
-    expect(await screen.findByText('Clone 僅能在本機 Firebase Emulator 環境執行。')).toBeInTheDocument();
-    expect(firebaseMocks.runTransaction).not.toHaveBeenCalled();
-  });
-
-  it('clones the edited validated Sandbox, verifies myTrips, and then opens TripDetail', async () => {
-    featureMocks.enabled = true;
-    const user = await renderLobby();
-    await openDemo(user);
-    await user.click(screen.getByTestId('demo-tab-itinerary'));
-    await user.click(screen.getByTestId('demo-add-place'));
-    const places = screen.getAllByTestId('demo-editable-place');
-    const added = places.at(-1);
-    const nameInput = within(added).getByRole('textbox', { name: /新增景點.*名稱/ });
-    await user.clear(nameInput);
-    await user.type(nameInput, '已編輯 Sandbox 景點');
-
-    await user.click(screen.getByTestId('demo-clone-trip-button'));
-    await user.click(screen.getByTestId('clone-demo-confirm'));
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('myTrips'));
-    expect(firebaseMocks.runTransaction).toHaveBeenCalledTimes(1);
-    const roomPayload = [...firebaseMocks.rooms.values()][0];
-    expect(Object.values(roomPayload.itinerary).flat().some((place) => place.name === '已編輯 Sandbox 景點')).toBe(true);
-    expect(roomPayload.meta.members).toHaveLength(1);
-    expect(roomPayload).not.toHaveProperty('expenses');
-    expect(roomPayload).not.toHaveProperty('tickets');
-    expect(roomPayload).not.toHaveProperty('attachments');
-    expect(JSON.parse(localStorage.getItem('google-travel-my-trips'))).toHaveLength(1);
-
-    await user.click(screen.getByTestId('clone-demo-open-trip'));
-    expect(await screen.findByTestId('mock-trip-detail')).toHaveTextContent(roomPayload.roomId);
+  it('reset remains isolated from regular trips', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = await renderLobby([REAL_TRIP]);
+    await user.click(screen.getByRole('button', { name: '恢復原始內容' }));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('google-travel-my-trips'))).toEqual([REAL_TRIP]));
+    expect(firebaseMocks.update).not.toHaveBeenCalled();
+    confirm.mockRestore();
   });
 });

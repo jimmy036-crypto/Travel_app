@@ -5,7 +5,7 @@ import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRe
 import { APIProvider } from '@vis.gl/react-google-maps';
 
 // 引入 Firebase 與 Helper
-import { db } from "./firebase";
+import { db, storage } from "./firebase";
 import { get, ref as dbRef, set, update } from "firebase/database";
 import { API_KEY } from "./constants";
 import {
@@ -30,7 +30,6 @@ import {
 
 // 引入拆分出去的核心元件與 UI
 const TripDetail = lazy(() => import('./TripDetail.jsx'));
-const DemoTripPreview = lazy(() => import('./features/onboarding/DemoTripPreview.jsx'));
 const UXFoundationDemo = import.meta.env.DEV
   ? lazy(() => import('./components/ui/UXFoundationDemo.jsx'))
   : null;
@@ -51,47 +50,23 @@ import { OfflineBanner } from './components/OfflineBanner.jsx';
 import { listOfflineTripSummaries, removeOfflineTripSnapshot, readOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
 import { OfflineTripPreview } from './features/offline/OfflineTripPreview.jsx';
 import { DemoTripEntryCard } from './features/onboarding/DemoTripEntryCard.jsx';
+import { TripCard } from './components/TripCard.jsx';
 import { FeatureIntroductionButton } from './features/onboarding/FeatureIntroductionButton.jsx';
 import FirstRunWelcomeDialog from './features/onboarding/FirstRunWelcomeDialog.jsx';
-import { CloneDemoDialog } from './features/onboarding/CloneDemoDialog.jsx';
+import { createFirebaseTripRepository } from './features/trip-data/firebaseTripRepository.js';
 import {
-  readDemoSandbox,
-  resetDemoSandbox,
-  validateDemoSandbox,
-  writeDemoSandbox,
-} from './features/onboarding/demoSandboxStore.js';
-import { convertDemoSandboxToTrip } from './features/onboarding/cloneDemoTrip.js';
+  createLocalExampleTemplateSnapshot,
+  createLocalExampleTripRepository,
+} from './features/trip-data/localExampleTripRepository.js';
 import {
-  createCloneJournal,
-  readCloneJournal,
-  removeCloneJournal,
-  writeCloneJournal,
-} from './features/onboarding/cloneOperationJournal.js';
-import {
-  runCloneBrowserLock,
-  runCloneOperationOnce,
-  transitionCloneOperation,
-} from './features/onboarding/cloneOperationState.js';
-import {
-  createCloneDemoRepository,
-  ensureCloneDemoEmulatorConnection,
-  writeAndVerifyMyTrips,
-} from './features/onboarding/cloneDemoRepository.js';
-import {
-  isCloneDemoEmulatorRuntime,
-  isEditableDemoCloneEnabled,
-} from './features/onboarding/cloneDemoFeatureFlag.js';
+  LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE,
+  LOCAL_EXAMPLE_TRIP_ID,
+} from './features/trip-data/exampleTripConstants.js';
 import {
   markFirstRunOnboardingSeen,
   readFirstRunEligibilitySnapshot,
   shouldShowFirstRunOnboarding,
 } from './features/onboarding/onboardingState.js';
-
-const DEMO_TABS = new Set(['overview', 'itinerary', 'tickets', 'expenses', 'checklist']);
-
-const normalizeBuiltInDemoTab = (value) => (
-  DEMO_TABS.has(value) ? value : 'overview'
-);
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -107,6 +82,8 @@ const FIREBASE_DATABASE_NAMESPACE = (() => {
   }
 })();
 
+const BUILT_IN_EXAMPLE_TRIP = createLocalExampleTemplateSnapshot();
+
 const formatDateForInput = (date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -121,6 +98,8 @@ export default function TravelApp() {
   const { isOnline, hasBeenOffline } = useOnlineStatus();
   const toast = useToast();
   const confirm = useConfirm();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   
   const lastOnlineState = useRef(isOnline);
   useEffect(() => {
@@ -194,16 +173,34 @@ export default function TravelApp() {
     if (typeof window === 'undefined') return null;
     return extractRoomId(new URLSearchParams(window.location.search).get('room')) || null;
   });
+  const [activeTripSource, setActiveTripSource] = useState(() => (
+    typeof window !== 'undefined'
+    && extractRoomId(new URLSearchParams(window.location.search).get('room'))
+      ? 'firebase'
+      : null
+  ));
 
   const [offlinePreviewData, setOfflinePreviewData] = useState(null);
   const [offlineCacheSummaries, setOfflineCacheSummaries] = useState([]);
-  const [demoPreviewState, setDemoPreviewState] = useState(null);
-  const [demoSandboxState, setDemoSandboxState] = useState(() => readDemoSandbox());
   const [showFeatureIntroduction, setShowFeatureIntroduction] = useState(false);
-  const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
-  const [cloneStatus, setCloneStatus] = useState('idle');
-  const [cloneError, setCloneError] = useState('');
-  const [clonedRoomId, setClonedRoomId] = useState(null);
+  const exampleRepository = useMemo(() => createLocalExampleTripRepository({
+    onPersistenceError: () => toastRef.current.error({
+      title: LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE,
+    }),
+  }), []);
+  useEffect(() => () => {
+    exampleRepository.dispose();
+  }, [exampleRepository]);
+  const activeRepository = useMemo(() => {
+    if (!activeRoomId) return null;
+    if (activeTripSource === 'example') return exampleRepository;
+    if (!db || !storage) return null;
+    return createFirebaseTripRepository({
+      db,
+      storage,
+      tripId: activeRoomId,
+    });
+  }, [activeRoomId, activeTripSource, exampleRepository]);
 
   const refreshOfflineCacheSummaries = useCallback(() => {
     setOfflineCacheSummaries(listOfflineTripSummaries());
@@ -248,12 +245,14 @@ export default function TravelApp() {
       }
 
       setActiveRoomId(null);
+      setActiveTripSource(null);
       setOfflinePreviewData(fullSnap);
       return true;
     }
 
     setOfflinePreviewData(null);
     window.history.pushState(null, '', `?room=${encodeURIComponent(safeRoomId)}`);
+    setActiveTripSource('firebase');
     setActiveRoomId(safeRoomId);
     return true;
   }, [isOnline, offlineCacheSummaries, refreshOfflineCacheSummaries, toast]);
@@ -289,7 +288,6 @@ export default function TravelApp() {
       || showFirstRunWelcome
       || activeRoomId
       || offlinePreviewData
-      || demoPreviewState
       || tripModalMode
       || showImportModal
       || showFeatureTour
@@ -303,7 +301,6 @@ export default function TravelApp() {
     setShowFirstRunWelcome(true);
   }, [
     activeRoomId,
-    demoPreviewState,
     firstRunResolved,
     offlinePreviewData,
     showFeatureTour,
@@ -330,6 +327,7 @@ export default function TravelApp() {
         setPendingFeatureTour(false);
       }
       setActiveRoomId(roomId || null);
+      setActiveTripSource(roomId ? 'firebase' : null);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -337,6 +335,7 @@ export default function TravelApp() {
 
   const handleUpdateTripMeta = useCallback((roomId, meta) => {
     if (!roomId || !meta) return;
+    if (roomId === LOCAL_EXAMPLE_TRIP_ID) return;
     setMyTrips((previousTrips) => {
       const nextTrip = { ...meta, roomId };
       const index = previousTrips.findIndex((trip) => trip.roomId === roomId);
@@ -401,129 +400,25 @@ export default function TravelApp() {
     setTripModalMode('create');
   }, []);
 
-  const persistDemoMutation = useCallback((mutateTrip) => {
-    const current = demoSandboxState?.sandbox;
-    if (!current || !validateDemoSandbox(current).valid) return false;
-    const next = structuredClone(current);
-    mutateTrip(next.trip);
-    const result = writeDemoSandbox(next);
-    const sandbox = result.sandbox || next;
-    setDemoSandboxState({
-      sandbox,
-      persistence: result.persistence,
-      recovered: false,
-      reason: result.reason,
-      error: result.error || null,
-    });
-    setDemoPreviewState((previous) => previous
-      ? { ...previous, demo: structuredClone(sandbox.trip) }
-      : previous);
-    return result.ok;
-  }, [demoSandboxState]);
-
-  const handleAddDemoPlace = useCallback((dayId) => {
-    persistDemoMutation((trip) => {
-      if (!Array.isArray(trip.itinerary?.[dayId])) return;
-      trip.itinerary[dayId].push({
-        id: `sandbox-place-${crypto.randomUUID?.() || Date.now()}`,
-        dayId,
-        name: '新增景點',
-        time: '',
-        address: '',
-        notes: '',
-        memo: '',
-        category: 'other',
-      });
-    });
-  }, [persistDemoMutation]);
-
-  const handleUpdateDemoPlace = useCallback((dayId, placeId, updates) => {
-    persistDemoMutation((trip) => {
-      const place = trip.itinerary?.[dayId]?.find((item) => item.id === placeId);
-      if (place) Object.assign(place, updates);
-    });
-  }, [persistDemoMutation]);
-
-  const handleDeleteDemoPlace = useCallback((dayId, placeId) => {
-    persistDemoMutation((trip) => {
-      if (!Array.isArray(trip.itinerary?.[dayId])) return;
-      trip.itinerary[dayId] = trip.itinerary[dayId].filter((item) => item.id !== placeId);
-    });
-  }, [persistDemoMutation]);
-
-  const handleMoveDemoPlace = useCallback((dayId, placeId, target) => {
-    persistDemoMutation((trip) => {
-      const places = trip.itinerary?.[dayId];
-      if (!Array.isArray(places)) return;
-      const sourceIndex = places.findIndex((item) => item.id === placeId);
-      if (sourceIndex < 0) return;
-      let destinationIndex = sourceIndex;
-      if (target === 'up') destinationIndex = Math.max(0, sourceIndex - 1);
-      if (target === 'down') destinationIndex = Math.min(places.length - 1, sourceIndex + 1);
-      if (target?.beforeId) destinationIndex = places.findIndex((item) => item.id === target.beforeId);
-      if (destinationIndex < 0 || destinationIndex === sourceIndex) return;
-      const [place] = places.splice(sourceIndex, 1);
-      if (sourceIndex < destinationIndex && target?.beforeId) destinationIndex -= 1;
-      places.splice(destinationIndex, 0, place);
-    });
-  }, [persistDemoMutation]);
-
-  const handleAddDemoChecklistItem = useCallback(() => {
-    persistDemoMutation((trip) => {
-      trip.checklist.push({
-        id: `sandbox-check-${crypto.randomUUID?.() || Date.now()}`,
-        text: '新增待辦',
-        scope: 'shared',
-        owner: '',
-        assignee: '',
-        category: 'todo',
-        important: false,
-        completed: false,
-        completedAt: null,
-        completedBy: '',
-      });
-    });
-  }, [persistDemoMutation]);
-
-  const handleUpdateDemoChecklistItem = useCallback((itemId, updates) => {
-    persistDemoMutation((trip) => {
-      const item = trip.checklist.find((entry) => entry.id === itemId);
-      if (item) Object.assign(item, updates);
-    });
-  }, [persistDemoMutation]);
-
-  const handleDeleteDemoChecklistItem = useCallback((itemId) => {
-    persistDemoMutation((trip) => {
-      trip.checklist = trip.checklist.filter((item) => item.id !== itemId);
-    });
-  }, [persistDemoMutation]);
-
-  const handleResetBuiltInDemo = useCallback(() => {
-    const result = resetDemoSandbox();
-    setDemoSandboxState(result);
-    setDemoPreviewState((previous) => previous
-      ? { ...previous, demo: structuredClone(result.sandbox.trip) }
-      : previous);
-  }, []);
-
-  const openBuiltInDemo = useCallback((initialTab = 'overview') => {
-    const safeInitialTab = normalizeBuiltInDemoTab(initialTab);
+  const openBuiltInDemo = useCallback(() => {
     setShowWhatsNew(false);
     setShowFeatureIntroduction(false);
-    setDemoPreviewState({
-      demo: structuredClone(demoSandboxState.sandbox.trip),
-      initialTab: safeInitialTab,
-    });
-  }, [demoSandboxState]);
-
-  const closeBuiltInDemo = useCallback(() => {
-    setDemoPreviewState(null);
+    setOfflinePreviewData(null);
+    window.history.pushState(null, '', window.location.pathname);
+    setActiveTripSource('example');
+    setActiveRoomId(LOCAL_EXAMPLE_TRIP_ID);
   }, []);
 
-  const handleCreateTripFromDemo = useCallback(() => {
-    setDemoPreviewState(null);
-    openCreateModal();
-  }, [openCreateModal]);
+  const handleResetBuiltInDemo = useCallback(async () => {
+    if (!window.confirm('確定要清除目前修改，並恢復原始內容嗎？')) return;
+    try {
+      await exampleRepository.reset();
+      toast.success({ title: '已恢復原始內容' });
+    } catch (error) {
+      console.error('Reset example trip failed:', error);
+      toast.error({ title: LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE });
+    }
+  }, [exampleRepository, toast]);
 
   const openFeatureIntroduction = useCallback(() => {
     setShowWhatsNew(false);
@@ -533,182 +428,6 @@ export default function TravelApp() {
   const closeFeatureIntroduction = useCallback(() => {
     setShowFeatureIntroduction(false);
   }, []);
-
-  const openCloneDialog = useCallback(() => {
-    const existing = readCloneJournal();
-    if (existing.status === 'ready' && existing.journal.state === 'completed') {
-      removeCloneJournal();
-    }
-    setCloneStatus('idle');
-    setCloneError('');
-    setClonedRoomId(null);
-    setCloneDialogOpen(true);
-  }, []);
-
-  const closeCloneDialog = useCallback(() => {
-    if (cloneStatus === 'loading') return;
-    setCloneDialogOpen(false);
-  }, [cloneStatus]);
-
-  const handleCloneDemo = useCallback(async () => {
-    if (!isEditableDemoCloneEnabled()) {
-      setCloneStatus('error');
-      setCloneError('Clone 功能目前未啟用。');
-      return;
-    }
-    if (!isCloneDemoEmulatorRuntime()) {
-      setCloneStatus('error');
-      setCloneError('Clone 僅能在本機 Firebase Emulator 環境執行。');
-      return;
-    }
-    if (!db) {
-      setCloneStatus('error');
-      setCloneError('Firebase Emulator 尚未就緒。');
-      return;
-    }
-
-    setCloneStatus('loading');
-    setCloneError('');
-    try {
-      await runCloneBrowserLock(async () => {
-      const currentSandbox = demoSandboxState.sandbox;
-      const sandboxValidation = validateDemoSandbox(currentSandbox);
-      if (!sandboxValidation.valid) throw new Error('目前示範副本無法通過驗證。');
-
-      const existing = readCloneJournal();
-      const operationId = existing.status === 'ready'
-        ? existing.journal.operationId
-        : `clone-${crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
-      const payload = convertDemoSandboxToTrip(currentSandbox, {
-        operationId,
-        roomId: existing.status === 'ready' ? existing.journal.roomId : undefined,
-      });
-      if (
-        existing.status === 'ready'
-        && existing.journal.payloadFingerprint !== payload.cloneOperation.payloadFingerprint
-      ) {
-        const collision = new Error('目前示範副本與待恢復 Clone 不一致。');
-        collision.code = 'CLONE_PAYLOAD_COLLISION';
-        throw collision;
-      }
-
-      let journal = existing.status === 'ready'
-        ? existing.journal
-        : createCloneJournal({
-          operationId,
-          roomId: payload.roomId,
-          templateVersion: currentSandbox.templateVersion,
-          title: payload.meta.title,
-          startDate: payload.meta.startDate,
-          payloadFingerprint: payload.cloneOperation.payloadFingerprint,
-        });
-      const prepared = writeCloneJournal(journal);
-      if (!prepared.ok) throw new Error('無法建立本機 Clone recovery journal。');
-      journal = prepared.journal;
-
-      await runCloneOperationOnce(operationId, async () => {
-        if (journal.state === 'completed') {
-          setClonedRoomId(payload.roomId);
-          return;
-        }
-        if (journal.state === 'repair-required') {
-          journal = transitionCloneOperation(journal, 'RETRY_MYTRIPS');
-          const retrying = writeCloneJournal(journal);
-          if (!retrying.ok) throw new Error('無法保存 myTrips repair 狀態。');
-          journal = retrying.journal;
-        }
-        if (journal.state === 'prepared') {
-          journal = transitionCloneOperation(journal, 'BEGIN_ROOM_WRITE');
-          const writing = writeCloneJournal(journal);
-          if (!writing.ok) throw new Error('無法保存 Clone 寫入狀態。');
-          journal = writing.journal;
-        }
-
-        if (journal.state === 'writing-room') {
-          const {
-            connectDatabaseEmulator,
-            runTransaction,
-          } = await import('firebase/database');
-          ensureCloneDemoEmulatorConnection({
-            database: db,
-            emulatorAuthorized: isCloneDemoEmulatorRuntime(),
-            connectDatabaseEmulator,
-          });
-          const repository = createCloneDemoRepository({
-            database: db,
-            emulatorAuthorized: isCloneDemoEmulatorRuntime(),
-            ref: dbRef,
-            get,
-            runTransaction,
-          });
-          await repository.createRoom(payload);
-          journal = transitionCloneOperation(journal, 'ROOM_VERIFIED');
-          const verified = writeCloneJournal(journal);
-          if (!verified.ok) throw new Error('無法保存 room 驗證狀態。');
-          journal = verified.journal;
-        }
-        if (journal.state === 'room-verified') {
-          journal = transitionCloneOperation(journal, 'BEGIN_MYTRIPS_WRITE');
-          const linking = writeCloneJournal(journal);
-          if (!linking.ok) throw new Error('無法保存 myTrips 寫入狀態。');
-          journal = linking.journal;
-        }
-
-        const tripReference = {
-          ...payload.meta,
-          roomId: payload.roomId,
-        };
-        const latestTrips = readJsonStorage('google-travel-my-trips', myTrips);
-        const linked = writeAndVerifyMyTrips(
-          Array.isArray(latestTrips) ? latestTrips : myTrips,
-          tripReference,
-        );
-        if (!writeStorage('google-travel-my-trips', JSON.stringify(linked.trips))) {
-          throw new Error('myTrips 寫入失敗。');
-        }
-        const readBack = readJsonStorage('google-travel-my-trips', []);
-        if (!readBack.some((trip) => trip?.roomId === payload.roomId)) {
-          throw new Error('myTrips read-back 驗證失敗。');
-        }
-        setMyTrips(linked.trips);
-        journal = transitionCloneOperation(journal, 'MYTRIPS_VERIFIED');
-        const completed = writeCloneJournal(journal);
-        if (!completed.ok) throw new Error('無法保存 Clone 完成狀態。');
-        journal = completed.journal;
-        setClonedRoomId(payload.roomId);
-      });
-      });
-      setCloneStatus('success');
-    } catch (error) {
-      if (error?.code === 'CLONE_ROOM_AMBIGUOUS') {
-        setCloneStatus('ambiguous');
-      } else if (error?.message?.includes('myTrips')) {
-        if (error && typeof error === 'object') {
-          const current = readCloneJournal();
-          if (current.status === 'ready' && current.journal.state === 'linking-mytrips') {
-            const repair = transitionCloneOperation(current.journal, 'MYTRIPS_FAILED');
-            writeCloneJournal(repair);
-            setClonedRoomId(repair.roomId);
-          }
-        }
-        setCloneStatus('repair-required');
-      } else {
-        setCloneStatus('error');
-      }
-      setCloneError(error instanceof Error ? error.message : 'Clone 失敗。');
-    }
-  }, [demoSandboxState, myTrips]);
-
-  const handleOpenClonedTrip = useCallback(() => {
-    if (!clonedRoomId) return;
-    setCloneDialogOpen(false);
-    setDemoPreviewState(null);
-    openTripRoom(clonedRoomId);
-  }, [clonedRoomId, openTripRoom]);
-
-  const handleRepairClonedTrip = useCallback(() => {
-    void handleCloneDemo();
-  }, [handleCloneDemo]);
 
   const completeFirstRunOnboarding = useCallback((action) => {
     if (firstRunCompletionRef.current) return;
@@ -812,6 +531,7 @@ export default function TravelApp() {
         setMyTrips((previousTrips) => [...previousTrips, { ...newMeta, roomId: newRoomId }]);
         setTripModalMode(null);
         window.history.pushState(null, '', `?room=${encodeURIComponent(newRoomId)}`);
+        setActiveTripSource('firebase');
         setActiveRoomId(newRoomId);
       } else {
         const roomId = extractRoomId(tripModalMode);
@@ -842,6 +562,7 @@ export default function TravelApp() {
       failed: false,
     });
     setPendingFeatureTour(false);
+    setActiveTripSource(null);
     setActiveRoomId(null);
     setOfflinePreviewData(null);
   };
@@ -1083,44 +804,6 @@ export default function TravelApp() {
     );
   }
 
-  if (demoPreviewState && !showFirstRunWelcome) {
-    return (
-      <>
-        <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入示範旅程...</div>}>
-          <DemoTripPreview
-            demo={demoPreviewState.demo}
-            initialTab={demoPreviewState.initialTab}
-            t={t}
-            onBack={closeBuiltInDemo}
-            onCreateTrip={handleCreateTripFromDemo}
-            onCloneDemo={openCloneDialog}
-            onAddPlace={handleAddDemoPlace}
-            onUpdatePlace={handleUpdateDemoPlace}
-            onDeletePlace={handleDeleteDemoPlace}
-            onMovePlace={handleMoveDemoPlace}
-            onAddChecklistItem={handleAddDemoChecklistItem}
-            onUpdateChecklistItem={handleUpdateDemoChecklistItem}
-            onDeleteChecklistItem={handleDeleteDemoChecklistItem}
-            onResetDemo={handleResetBuiltInDemo}
-            persistence={demoSandboxState.persistence}
-            saveError={demoSandboxState.error ? '示範副本保存失敗，已切換為記憶體模式。' : ''}
-            showCloneAction={isEditableDemoCloneEnabled()}
-            createActionLabel={hasTrips ? '建立另一個旅程' : '建立我的第一個旅程'}
-          />
-        </Suspense>
-        <CloneDemoDialog
-          open={cloneDialogOpen}
-          status={cloneStatus}
-          errorMessage={cloneError}
-          onConfirm={handleCloneDemo}
-          onCancel={closeCloneDialog}
-          onRepair={handleRepairClonedTrip}
-          onOpenTrip={handleOpenClonedTrip}
-        />
-      </>
-    );
-  }
-
   if (offlinePreviewData && !showFirstRunWelcome) return (
     <>
       <OfflineTripPreview
@@ -1167,14 +850,17 @@ export default function TravelApp() {
       <span
         data-testid="trip-route-context"
         data-room-id={String(activeRoomId)}
-        data-database-namespace={FIREBASE_DATABASE_NAMESPACE}
+        data-database-namespace={activeTripSource === 'firebase' ? FIREBASE_DATABASE_NAMESPACE : ''}
+        data-trip-source={String(activeTripSource || '')}
         className="sr-only"
       >
         旅程已開啟
       </span>
       <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入旅程模組中...</div>}>
         <TripDetail
-          roomId={activeRoomId}
+          tripId={activeRoomId}
+          repository={activeRepository}
+          capabilities={activeRepository?.getCapabilities?.()}
           onBack={closeTrip}
           onUpdateTripMeta={handleUpdateTripMeta}
           onOpenReleaseNotes={openReleaseNotes}
@@ -1224,8 +910,6 @@ export default function TravelApp() {
               onOpenReleaseNotes={openReleaseNotes}
               onOpenFeatureIntroduction={openFeatureIntroduction}
               onStartFeatureTour={startFeatureTour}
-              showDemoEntry={hasTrips}
-              onOpenDemo={() => openBuiltInDemo('overview')}
               onCheckUpdates={handleCheckAppUpdate}
               isCheckingUpdates={isCheckingAppUpdate}
             />
@@ -1343,7 +1027,11 @@ export default function TravelApp() {
                 onClick: () => setShowImportModal(true),
               }}
             />
-            <DemoTripEntryCard t={t} onOpenDemo={() => openBuiltInDemo('overview')} />
+            <DemoTripEntryCard
+              trip={{ ...BUILT_IN_EXAMPLE_TRIP.meta, roomId: LOCAL_EXAMPLE_TRIP_ID }}
+              onOpenDemo={openBuiltInDemo}
+              onReset={handleResetBuiltInDemo}
+            />
             <FeatureIntroductionButton
               onOpen={openFeatureIntroduction}
               className="w-full"
@@ -1351,33 +1039,29 @@ export default function TravelApp() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {myTrips.map(trip => {
-              const cardColor = String(trip.themeColor || '#1e293b'); const cTheme = getThemeClasses(cardColor);
-              return (
-                <div key={String(trip.roomId)} data-testid="trip-card" data-room-id={String(trip.roomId)} onClick={() => { openTripRoom(trip.roomId); }} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 hover:shadow-2xl ${cTheme.cardBorder}`}>
-                  <div className="flex justify-between items-start mb-4">
-                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${cTheme.isLight ? 'bg-black/5 border-black/10 text-slate-700' : 'bg-white/20 border-white/30 text-white'}`}>{String(trip.transport)}</span>
-                    <div className="flex gap-2">
-                      <button onClick={(e) => openEditModal(e, trip)} className={`text-xs p-1 transition-colors hover:text-blue-500 ${cTheme.subText}`}>⚙️ 編輯</button>
-                      <button onClick={(e) => { e.stopPropagation(); if(window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) setMyTrips(prev => prev.filter(item => item.roomId !== trip.roomId)); }} className={`text-xs p-1 transition-colors hover:text-red-500 ${cTheme.subText}`}>移除</button>
-                    </div>
-                  </div>
-                  <h2 data-testid="trip-card-title" className={`text-2xl font-black mb-1.5 transition-colors line-clamp-2 ${cTheme.mainText}`}>{String(trip.title)}</h2>
-                  <p className={`text-sm font-bold mb-5 truncate ${cTheme.subText}`}>📍 {String(trip.destination || '未定地點')}</p>
-                  <div className={`p-3.5 rounded-xl border ${cTheme.cardMetaBg} ${cTheme.cardBorder}`}>
-                    <p className={`text-xs mb-1.5 font-medium ${cTheme.subText}`}>📅 {String(trip.startDate || '').replace(/-/g, '/')} <span className="mx-1 opacity-50">→</span> {String(trip.endDate || '').replace(/-/g, '/')}</p>
-                    <p className={`text-xs truncate font-medium ${cTheme.subText}`}>👥 {Array.isArray(trip.members) ? trip.members.join(', ') : '自己'}</p>
-                  </div>
-                  {offlineCacheSummaries.find(s => s.roomId === trip.roomId) && (
-                    <div className={`mt-4 pt-3 border-t ${cTheme.cardBorder}`} data-testid="offline-cache-status">
-                      <p className={`text-xs font-medium flex items-center gap-1 ${cTheme.subText}`}>
-                        <span className="text-green-500">✓</span> 可離線查看 · 更新於 {new Date(offlineCacheSummaries.find(s => s.roomId === trip.roomId).cachedAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <DemoTripEntryCard
+              trip={{ ...BUILT_IN_EXAMPLE_TRIP.meta, roomId: LOCAL_EXAMPLE_TRIP_ID }}
+              onOpenDemo={openBuiltInDemo}
+              onReset={handleResetBuiltInDemo}
+            />
+            {myTrips.map((trip) => (
+              <TripCard
+                key={String(trip.roomId)}
+                trip={trip}
+                onOpen={() => openTripRoom(trip.roomId)}
+                onEdit={(event) => openEditModal(event, trip)}
+                onDelete={() => {
+                  if (window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) {
+                    setMyTrips((previousTrips) => previousTrips.filter(
+                      (item) => item.roomId !== trip.roomId,
+                    ));
+                  }
+                }}
+                offlineSummary={offlineCacheSummaries.find(
+                  (summary) => summary.roomId === trip.roomId,
+                )}
+              />
+            ))}
           </div>
         )}
       </div>

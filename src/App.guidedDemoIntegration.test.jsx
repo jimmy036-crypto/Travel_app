@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,65 +18,69 @@ const offlineMocks = vi.hoisted(() => ({
   remove: vi.fn(),
 }));
 
-const releaseMocks = vi.hoisted(() => ({
-  hasSeen: vi.fn(() => true),
-  hasPending: vi.fn(() => false),
-  markSeen: vi.fn(),
-  markPending: vi.fn(),
-  clearPending: vi.fn(),
-}));
-
 vi.mock('./firebase.js', () => ({ db: {}, storage: {} }));
-
 vi.mock('firebase/database', () => ({
   ref: firebaseMocks.ref,
   get: firebaseMocks.get,
   set: firebaseMocks.set,
   update: firebaseMocks.update,
+  onValue: vi.fn(),
 }));
-
 vi.mock('@vis.gl/react-google-maps', () => ({
   APIProvider: ({ children }) => <div>{children}</div>,
   useMapsLibrary: vi.fn(),
   useMap: vi.fn(),
 }));
-
 vi.mock('./TripDetail.jsx', () => ({
-  default: () => <div data-testid="mock-trip-detail" />,
+  default: ({
+    tripId,
+    repository,
+    onBack,
+    onUpdateTripMeta,
+  }) => (
+    <div
+      data-testid="mock-trip-detail"
+      data-trip-id={tripId}
+      data-cloud-sync={String(repository?.getCapabilities?.().cloudSync)}
+      data-local-attachments={String(repository?.getCapabilities?.().localAttachmentStorage)}
+    >
+      <button type="button" data-testid="mock-trip-back" onClick={onBack}>Back</button>
+      <button
+        type="button"
+        data-testid="mock-trip-meta-update"
+        onClick={() => onUpdateTripMeta?.(tripId, { title: 'Changed' })}
+      >
+        Update
+      </button>
+    </div>
+  ),
 }));
-
 vi.mock('./features/offline/OfflineTripPreview.jsx', () => ({
   OfflineTripPreview: () => <div data-testid="mock-offline-trip-preview" />,
 }));
-
 vi.mock('./features/offline/offlineTripCache.js', () => ({
   listOfflineTripSummaries: offlineMocks.list,
   readOfflineTripSnapshot: offlineMocks.read,
   removeOfflineTripSnapshot: offlineMocks.remove,
 }));
-
 vi.mock('./components/UIComponents.jsx', () => ({
-  DestinationSearch: ({ value }) => <input data-testid="mock-destination-input" value={value} readOnly />,
-  DateRangePickerModal: () => <div data-testid="mock-date-picker" />,
+  DestinationSearch: ({ value }) => <input value={value} readOnly />,
+  DateRangePickerModal: () => null,
 }));
-
 vi.mock('./components/FeatureTour.jsx', () => ({
   FeatureTour: () => <div data-testid="mock-feature-tour" />,
 }));
-
 vi.mock('./config/releaseNotes.js', () => ({
-  CURRENT_RELEASE_NOTES: { version: 'guided-demo-test', title: 'Test', items: [] },
-  clearCurrentReleaseTourPending: releaseMocks.clearPending,
-  hasPendingCurrentReleaseTour: releaseMocks.hasPending,
-  hasSeenCurrentRelease: releaseMocks.hasSeen,
-  markCurrentReleaseTourPending: releaseMocks.markPending,
-  markCurrentReleaseSeen: releaseMocks.markSeen,
+  CURRENT_RELEASE_NOTES: { version: 'unified-test', title: 'Test', items: [] },
+  clearCurrentReleaseTourPending: vi.fn(),
+  hasPendingCurrentReleaseTour: () => false,
+  hasSeenCurrentRelease: () => true,
+  markCurrentReleaseTourPending: vi.fn(),
+  markCurrentReleaseSeen: vi.fn(),
 }));
-
 vi.mock('./hooks/useOnlineStatus.js', () => ({
   useOnlineStatus: () => ({ isOnline: true, hasBeenOffline: false }),
 }));
-
 vi.mock('./hooks/usePwaInstall.js', () => ({
   usePwaInstall: () => ({
     initialized: true,
@@ -88,18 +92,16 @@ vi.mock('./hooks/usePwaInstall.js', () => ({
     requestInstall: vi.fn(),
   }),
 }));
-
 vi.mock('./components/ui/useToast.js', () => ({
   useToast: () => ({ info: vi.fn(), error: vi.fn(), success: vi.fn() }),
 }));
-
 vi.mock('./components/ui/useConfirm.js', () => ({
   useConfirm: () => vi.fn(async () => true),
 }));
 
 const REAL_TRIP = {
   roomId: 'real-trip-1',
-  title: '真實旅程',
+  title: '大阪三日行',
   destination: '大阪',
   transport: '電車',
   startDate: '2026-10-01',
@@ -108,156 +110,103 @@ const REAL_TRIP = {
   themeColor: '#3b82f6',
 };
 
-function seedTrips(trips) {
+const seedTrips = (trips) => {
+  localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
   localStorage.setItem('google-travel-my-trips', JSON.stringify(trips));
-}
+};
 
-async function renderLobby(trips = []) {
+const renderLobby = async (trips = []) => {
   seedTrips(trips);
   const user = userEvent.setup();
   render(<App />);
   await waitFor(() => expect(screen.getByTestId('travel-lobby')).toBeInTheDocument());
   return user;
-}
+};
 
-async function openDemoFromEmptyLobby(user) {
-  await user.click(screen.getByTestId('demo-trip-entry-open'));
-  await waitFor(() => expect(screen.getByTestId('demo-trip-preview')).toBeInTheDocument());
-}
+const openExample = async (user) => {
+  const entry = screen.getByTestId('demo-trip-entry-card');
+  await user.click(within(entry).getByTestId('example-trip-card-title'));
+  await waitFor(() => expect(screen.getByTestId('mock-trip-detail')).toBeInTheDocument());
+};
 
-async function openDemoFromSettings(user) {
-  await user.click(screen.getByTestId('app-settings-trigger'));
-  await user.click(screen.getByTestId('app-settings-demo-trip'));
-  await waitFor(() => expect(screen.getByTestId('demo-trip-preview')).toBeInTheDocument());
-}
-
-describe('App guided demo integration', () => {
+describe('App unified example trip integration', () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
     window.history.pushState({}, '', '/');
     vi.clearAllMocks();
     offlineMocks.list.mockReturnValue([]);
-    releaseMocks.hasSeen.mockReturnValue(true);
-    releaseMocks.hasPending.mockReturnValue(false);
   });
 
-  it('shows one local demo card in an empty Lobby and no duplicate settings entry', async () => {
-    const user = await renderLobby([]);
-    expect(screen.getByTestId('lobby-empty-state')).toBeInTheDocument();
+  it('shows the example with the shared TripCard in an empty lobby', async () => {
+    await renderLobby();
+    expect(within(screen.getByTestId('demo-trip-entry-card')).getByTestId('trip-card')).toBeVisible();
+  });
+
+  it('keeps the example card beside regular trip cards', async () => {
+    await renderLobby([REAL_TRIP]);
+    expect(screen.getAllByTestId('trip-card')).toHaveLength(2);
     expect(screen.getByTestId('demo-trip-entry-card')).toBeInTheDocument();
-    await user.click(screen.getByTestId('app-settings-trigger'));
-    expect(screen.queryByTestId('app-settings-demo-trip')).not.toBeInTheDocument();
   });
 
-  it('moves the demo entry to Settings when real trips exist', async () => {
+  it('opens the example through the shared TripDetail route', async () => {
+    const user = await renderLobby();
+    await openExample(user);
+    expect(screen.getByTestId('mock-trip-detail')).toHaveAttribute('data-trip-id', 'local-example-trip');
+  });
+
+  it('injects local capabilities without cloud sync', async () => {
+    const user = await renderLobby();
+    await openExample(user);
+    expect(screen.getByTestId('mock-trip-detail')).toHaveAttribute('data-cloud-sync', 'false');
+    expect(screen.getByTestId('mock-trip-detail')).toHaveAttribute('data-local-attachments', 'true');
+  });
+
+  it('uses the title suffix exactly once', async () => {
+    await renderLobby();
+    const title = within(screen.getByTestId('demo-trip-entry-card')).getByTestId('example-trip-card-title');
+    expect(title).toHaveTextContent('東京三日自由行（範例）');
+    expect(title.textContent.match(/（範例）/g)).toHaveLength(1);
+  });
+
+  it('does not put local-example-trip in myTrips after meta updates', async () => {
     const user = await renderLobby([REAL_TRIP]);
-    expect(screen.getByTestId('trip-card')).toHaveAttribute('data-room-id', REAL_TRIP.roomId);
-    expect(screen.queryByTestId('demo-trip-entry-card')).not.toBeInTheDocument();
-    await user.click(screen.getByTestId('app-settings-trigger'));
-    expect(screen.getByTestId('app-settings-demo-trip')).toBeInTheDocument();
+    await openExample(user);
+    await user.click(screen.getByTestId('mock-trip-meta-update'));
+    expect(JSON.parse(localStorage.getItem('google-travel-my-trips'))).toEqual([REAL_TRIP]);
   });
 
-  it('opens the Tokyo demo from the empty Lobby as an exclusive App view', async () => {
-    const user = await renderLobby([]);
-    await openDemoFromEmptyLobby(user);
-    expect(screen.getByTestId('demo-trip-title')).toHaveTextContent('東京三日示範旅程');
-    expect(screen.getByTestId('demo-overview')).toBeVisible();
-    expect(screen.queryByTestId('travel-lobby')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('mock-trip-detail')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('mock-offline-trip-preview')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('mock-feature-tour')).not.toBeInTheDocument();
-  });
-
-  it('opens the demo from Settings with the existing-trip create label', async () => {
-    const user = await renderLobby([REAL_TRIP]);
-    await openDemoFromSettings(user);
-    expect(screen.getByTestId('demo-create-trip-button')).toHaveTextContent('建立另一個旅程');
-    expect(screen.queryByTestId('demo-clone-trip-button')).not.toBeInTheDocument();
-  });
-
-  it('uses the first-trip create label and hides the unfinished clone action', async () => {
-    const user = await renderLobby([]);
-    await openDemoFromEmptyLobby(user);
-    expect(screen.getByTestId('demo-create-trip-button')).toHaveTextContent('建立我的第一個旅程');
-    expect(screen.queryByTestId('demo-clone-trip-button')).not.toBeInTheDocument();
-  });
-
-  it('returns to the unchanged Lobby without changing myTrips or URL', async () => {
-    const user = await renderLobby([REAL_TRIP]);
-    const tripsBefore = localStorage.getItem('google-travel-my-trips');
-    const urlBefore = window.location.href;
-    await openDemoFromSettings(user);
-    await user.click(screen.getByTestId('demo-back-button'));
-    await waitFor(() => expect(screen.getByTestId('travel-lobby')).toBeInTheDocument());
-    expect(screen.getByTestId('trip-card-title')).toHaveTextContent('真實旅程');
-    expect(localStorage.getItem('google-travel-my-trips')).toBe(tripsBefore);
-    expect(window.location.href).toBe(urlBefore);
-  });
-
-  it('does not call Firebase, Offline Cache, or myTrips storage while opening the demo', async () => {
-    const user = await renderLobby([]);
-    firebaseMocks.get.mockClear();
-    firebaseMocks.set.mockClear();
-    firebaseMocks.update.mockClear();
-    offlineMocks.list.mockClear();
-    offlineMocks.read.mockClear();
-    offlineMocks.remove.mockClear();
-    const setItem = vi.spyOn(Storage.prototype, 'setItem');
-    await openDemoFromEmptyLobby(user);
+  it('does not call Firebase or Offline Cache while opening the example', async () => {
+    const user = await renderLobby();
+    await openExample(user);
     expect(firebaseMocks.get).not.toHaveBeenCalled();
     expect(firebaseMocks.set).not.toHaveBeenCalled();
     expect(firebaseMocks.update).not.toHaveBeenCalled();
-    expect(offlineMocks.list).not.toHaveBeenCalled();
     expect(offlineMocks.read).not.toHaveBeenCalled();
-    expect(offlineMocks.remove).not.toHaveBeenCalled();
-    expect(setItem).not.toHaveBeenCalledWith('google-travel-my-trips', expect.anything());
-    setItem.mockRestore();
   });
 
-  it('opens only the existing blank create Modal from the demo CTA', async () => {
-    const user = await renderLobby([]);
-    await openDemoFromEmptyLobby(user);
-    firebaseMocks.set.mockClear();
-    firebaseMocks.update.mockClear();
-    await user.click(screen.getByTestId('demo-create-trip-button'));
-    expect(screen.queryByTestId('demo-trip-preview')).not.toBeInTheDocument();
-    expect(screen.getByTestId('trip-modal')).toBeInTheDocument();
-    expect(screen.getByTestId('trip-modal-title')).toHaveTextContent('建立新旅程');
-    expect(screen.getByTestId('trip-name-input')).toHaveValue('');
-    expect(screen.getByTestId('mock-destination-input')).toHaveValue('');
-    expect(screen.getByTestId('trip-date-range')).toHaveTextContent('點擊選擇出發與回程日期');
-    expect(firebaseMocks.set).not.toHaveBeenCalled();
-    expect(firebaseMocks.update).not.toHaveBeenCalled();
+  it('does not add a room query parameter for the example', async () => {
+    const user = await renderLobby();
+    await openExample(user);
+    expect(window.location.search).toBe('');
   });
 
-  it('does not modify the URL when opening or closing the demo', async () => {
-    const user = await renderLobby([]);
-    const url = window.location.href;
-    await openDemoFromEmptyLobby(user);
-    expect(window.location.href).toBe(url);
-    await user.click(screen.getByTestId('demo-back-button'));
-    expect(window.location.href).toBe(url);
+  it('returns to the unchanged lobby', async () => {
+    const user = await renderLobby([REAL_TRIP]);
+    await openExample(user);
+    await user.click(screen.getByTestId('mock-trip-back'));
+    expect(screen.getAllByTestId('trip-card')).toHaveLength(2);
   });
 
-  it('does not mark release notes seen or start FeatureTour', async () => {
-    const user = await renderLobby([]);
-    releaseMocks.markSeen.mockClear();
-    releaseMocks.markPending.mockClear();
-    await openDemoFromEmptyLobby(user);
-    expect(releaseMocks.markSeen).not.toHaveBeenCalled();
-    expect(releaseMocks.markPending).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('mock-feature-tour')).not.toBeInTheDocument();
+  it('offers reset with the approved confirmation text', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const user = await renderLobby();
+    await user.click(screen.getByRole('button', { name: '恢復原始內容' }));
+    expect(confirm).toHaveBeenCalledWith('確定要清除目前修改，並恢復原始內容嗎？');
+    confirm.mockRestore();
   });
 
-  it('can open and close repeatedly without accumulating duplicate previews', async () => {
-    const user = await renderLobby([]);
-    await openDemoFromEmptyLobby(user);
-    expect(screen.getAllByTestId('demo-trip-preview')).toHaveLength(1);
-    await user.click(screen.getByTestId('demo-back-button'));
-    await waitFor(() => expect(screen.getByTestId('demo-trip-entry-open')).toBeInTheDocument());
-    await openDemoFromEmptyLobby(user);
-    expect(screen.getAllByTestId('demo-trip-preview')).toHaveLength(1);
+  it('does not render forbidden mode or preview labels', async () => {
+    await renderLobby();
+    expect(document.body).not.toHaveTextContent(/示範旅程|本機示範|僅供預覽|範例模式|示範資料|Demo Preview/);
   });
-
 });
