@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { ref as dbRef, update } from 'firebase/database';
 
 export function useExpenseActions({
   room,
@@ -9,7 +8,7 @@ export function useExpenseActions({
   feedback,
   callbacks,
 }) {
-  const { db, roomId } = room;
+  const { repository } = room;
   const { expenses } = data;
   const { setExpensesState, setSyncStatus } = state;
   const { dirtyBranchesRef, lastLocalWriteAtRef, expenseDeleteConfirmRef } = refs;
@@ -24,12 +23,12 @@ export function useExpenseActions({
       : [...safeExpenses, nextExpense];
 
     try {
-      if (!db || !roomId) {
+      if (!repository) {
         setExpensesState(nextExpenses);
       } else {
         setSyncStatus('saving');
         lastLocalWriteAtRef.current = Date.now();
-        await update(dbRef(db, `rooms/${roomId}`), { expenses: nextExpenses });
+        await repository.updateExpenses(nextExpenses);
 
         dirtyBranchesRef.current.expenses = false;
         lastLocalWriteAtRef.current = Date.now();
@@ -51,7 +50,7 @@ export function useExpenseActions({
       });
       throw error;
     }
-  }, [closeExpenseEditor, db, dirtyBranchesRef, expenses, lastLocalWriteAtRef, roomId, setExpensesState, setSyncStatus, toast]);
+  }, [closeExpenseEditor, dirtyBranchesRef, expenses, lastLocalWriteAtRef, repository, setExpensesState, setSyncStatus, toast]);
 
   const deleteExpense = useCallback(async (expenseId) => {
     if (expenseDeleteConfirmRef.current) return;
@@ -74,13 +73,13 @@ export function useExpenseActions({
 
       if (!targetId || nextExpenses.length === safeExpenses.length) return;
 
-      if (!db || !roomId) {
-        throw new Error('Realtime Database is not available for expense deletion.');
+      if (!repository) {
+        throw new Error('Trip repository is not available for expense deletion.');
       }
 
       setSyncStatus('saving');
       lastLocalWriteAtRef.current = Date.now();
-      await update(dbRef(db, `rooms/${roomId}`), { expenses: nextExpenses });
+      await repository.updateExpenses(nextExpenses);
 
       dirtyBranchesRef.current.expenses = false;
       lastLocalWriteAtRef.current = Date.now();
@@ -101,7 +100,7 @@ export function useExpenseActions({
     } finally {
       expenseDeleteConfirmRef.current = false;
     }
-  }, [closeExpenseEditor, confirm, db, dirtyBranchesRef, expenseDeleteConfirmRef, expenses, lastLocalWriteAtRef, roomId, setExpensesState, setSyncStatus, toast]);
+  }, [closeExpenseEditor, confirm, dirtyBranchesRef, expenseDeleteConfirmRef, expenses, lastLocalWriteAtRef, repository, setExpensesState, setSyncStatus, toast]);
 
   return {
     saveExpense,

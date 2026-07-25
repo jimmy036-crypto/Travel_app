@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from 'react';
-import { deleteObject, ref as storageRef } from 'firebase/storage';
 
 import {
   generateId,
@@ -8,7 +7,6 @@ import {
   timeToMins,
 } from '../../helpers.js';
 import { recalculateArrivalTimesFromIndex } from '../itinerary/itineraryCalculations.js';
-import { persistItinerary } from '../../services/placesService.js';
 
 export function usePlaceActions({
   room,
@@ -18,7 +16,7 @@ export function usePlaceActions({
   feedback,
   callbacks,
 }) {
-  const { db, roomId, storage } = room;
+  const { repository } = room;
   const {
     itinerary,
     currentDay,
@@ -46,24 +44,23 @@ export function usePlaceActions({
   } = callbacks;
 
   const persistPlaceItinerary = useCallback(async (nextItinerary) => {
-    if (!db || !roomId) {
+    if (!repository) {
       setItinerary(nextItinerary);
       return;
     }
 
     setSyncStatus('saving');
     lastLocalWriteAtRef.current = Date.now();
-    await persistItinerary({ db, roomId, itinerary: nextItinerary });
+    await repository.updateItinerary(nextItinerary);
 
     dirtyBranchesRef.current.itinerary = false;
     lastLocalWriteAtRef.current = Date.now();
     setItineraryState(nextItinerary);
     setSyncStatus('saved');
   }, [
-    db,
     dirtyBranchesRef,
     lastLocalWriteAtRef,
-    roomId,
+    repository,
     setItinerary,
     setItineraryState,
     setSyncStatus,
@@ -277,8 +274,8 @@ export function usePlaceActions({
 
       if (!targetId || nextDayItems.length === currentDayItems.length) return;
 
-      if (!db || !roomId) {
-        throw new Error('Realtime Database is not available for place deletion.');
+      if (!repository) {
+        throw new Error('Trip repository is not available for place deletion.');
       }
 
       const nextItinerary = {
@@ -288,7 +285,7 @@ export function usePlaceActions({
 
       setSyncStatus('saving');
       lastLocalWriteAtRef.current = Date.now();
-      await persistItinerary({ db, roomId, itinerary: nextItinerary });
+      await repository.updateItinerary(nextItinerary);
 
       dirtyBranchesRef.current.itinerary = false;
       lastLocalWriteAtRef.current = Date.now();
@@ -308,9 +305,9 @@ export function usePlaceActions({
           : []),
       ].filter(Boolean);
 
-      if (storage) {
+      if (repository) {
         storagePaths.forEach((storagePath) => {
-          void deleteObject(storageRef(storage, storagePath)).catch((error) => {
+          void repository.deleteAttachment({ scope: 'place', storagePath }).catch((error) => {
             console.warn('景點附件刪除失敗：', error);
           });
         });
@@ -328,16 +325,14 @@ export function usePlaceActions({
   }, [
     clearOptimizationSummary,
     confirm,
-    db,
     dirtyBranchesRef,
     itinerary,
     lastLocalWriteAtRef,
     placeDeleteConfirmRef,
-    roomId,
+    repository,
     setBackupItin,
     setItineraryState,
     setSyncStatus,
-    storage,
     toast,
   ]);
 
