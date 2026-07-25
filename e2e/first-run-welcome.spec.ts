@@ -62,8 +62,9 @@ test('fresh user completes four steps and opens the local Tokyo demo', async ({ 
 
   await page.getByTestId('first-run-open-demo').click();
   await expect(welcome).toHaveCount(0);
-  await expect(page.getByTestId('demo-trip-preview')).toBeVisible();
-  await expect(page.getByTestId('demo-trip-title')).toContainText('東京三日示範旅程');
+  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await expect(page.getByTestId('trip-detail-title')).toContainText('東京三日自由行（範例）');
+  await expect(page.getByTestId('trip-route-context')).toHaveAttribute('data-trip-source', 'example');
   expect(new URL(page.url()).searchParams.has('room')).toBe(false);
   expect(await page.evaluate((key) => localStorage.getItem(key), ONBOARDING_KEY)).toBe('true');
   expect(await page.evaluate((key) => localStorage.getItem(key), CURRENT_RELEASE_SEEN_KEY)).toBeNull();
@@ -125,7 +126,7 @@ test('non-empty trips and release history are treated as returning use', async (
   });
   await page.goto('/');
   await expect(page.getByTestId('first-run-welcome-dialog')).toHaveCount(0);
-  await expect(page.getByTestId('trip-card')).toHaveCount(1);
+  await expect(page.getByTestId('trip-card')).toHaveCount(2);
 
   await page.evaluate(() => {
     localStorage.clear();
