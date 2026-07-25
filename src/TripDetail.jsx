@@ -3580,7 +3580,7 @@ const TripDetail = ({
       {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
 
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
-      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={roomId} onSave={saveEditedItem} onSaveError={() => {
+      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onSaveError={() => {
         setSyncStatus('error');
         toast.error({
           title: '無法更新景點',
