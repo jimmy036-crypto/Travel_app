@@ -2,11 +2,6 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { generateId } from '../../helpers.js';
 import {
-  deleteTicketAttachment,
-  persistTickets,
-  uploadTicketAttachment,
-} from '../../services/ticketsService.js';
-import {
   TICKET_TYPES,
   normalizeTicket,
 } from './ticketModel.js';
@@ -17,13 +12,13 @@ const CLEANUP_WARNING_DESCRIPTION = '舊附件暫時無法清除，稍後可再�
 
 const trimText = (value) => String(value ?? '').trim();
 
-const assertWritableRoom = (db, roomId) => {
-  if (!db) throw new Error('Firebase Database is required for ticket mutations.');
-  const safeRoomId = trimText(roomId);
-  if (!safeRoomId || FIREBASE_FORBIDDEN_KEY_CHARS.test(safeRoomId)) {
-    throw new Error('roomId is invalid for ticket mutations.');
+const assertWritableTrip = (repository, tripId) => {
+  if (!repository) throw new Error('Trip repository is required for ticket mutations.');
+  const safeTripId = trimText(tripId);
+  if (!safeTripId || FIREBASE_FORBIDDEN_KEY_CHARS.test(safeTripId)) {
+    throw new Error('tripId is invalid for ticket mutations.');
   }
-  return safeRoomId;
+  return safeTripId;
 };
 
 const normalizeAttachmentChange = (attachmentChange) => {
@@ -74,7 +69,7 @@ export function useTicketActions({
   feedback,
   callbacks,
 }) {
-  const { db, roomId, storage } = room;
+  const { repository, tripId } = room;
   const { tickets, members } = data;
   const { setTicketsState, setSyncStatus } = state;
   const {
@@ -106,7 +101,7 @@ export function useTicketActions({
     if (activeMutationRef.current) {
       throw new Error('A ticket mutation is already in progress.');
     }
-    const safeRoomId = assertWritableRoom(db, roomId);
+    assertWritableTrip(repository, tripId);
     if (!ticket || typeof ticket !== 'object' || Array.isArray(ticket)) {
       throw new Error('A canonical ticket draft is required.');
     }
@@ -171,10 +166,9 @@ export function useTicketActions({
 
       if (change.action === 'replace') {
         try {
-          uploadedAttachment = await uploadTicketAttachment({
-            storage,
-            roomId: safeRoomId,
-            ticketId: nextId,
+          uploadedAttachment = await repository.uploadAttachment({
+            scope: 'ticket',
+            ownerId: nextId,
             file: change.file,
             onProgress: setUploadProgress,
           });
@@ -189,7 +183,10 @@ export function useTicketActions({
 
         if (oldStoragePath && uploadedAttachment.storagePath === oldStoragePath) {
           try {
-            await deleteTicketAttachment({ storage, storagePath: uploadedAttachment.storagePath });
+            await repository.deleteAttachment({
+              scope: 'ticket',
+              storagePath: uploadedAttachment.storagePath,
+            });
           } catch (cleanupError) {
             console.warn('Rollback duplicate ticket attachment path failed:', cleanupError);
           }
@@ -230,11 +227,14 @@ export function useTicketActions({
         : safeTickets.map((item, index) => (index === existingIndex ? nextTicket : item));
 
       try {
-        await persistTickets({ db, roomId: safeRoomId, tickets: nextTickets });
+        await repository.updateTickets(nextTickets);
       } catch (error) {
         if (uploadedAttachment?.storagePath) {
           try {
-            await deleteTicketAttachment({ storage, storagePath: uploadedAttachment.storagePath });
+            await repository.deleteAttachment({
+              scope: 'ticket',
+              storagePath: uploadedAttachment.storagePath,
+            });
           } catch (rollbackError) {
             console.warn('Rollback uploaded ticket attachment failed:', rollbackError);
           }
@@ -254,7 +254,7 @@ export function useTicketActions({
         && (change.action === 'replace' || change.action === 'remove');
       if (shouldDeleteOldAttachment) {
         try {
-          await deleteTicketAttachment({ storage, storagePath: oldStoragePath });
+          await repository.deleteAttachment({ scope: 'ticket', storagePath: oldStoragePath });
         } catch (error) {
           cleanupFailed = true;
           console.warn('Delete old ticket attachment failed:', error);
@@ -278,13 +278,12 @@ export function useTicketActions({
   }, [
     activeMutationRef,
     closeTicketEditor,
-    db,
     markWriteStarted,
     markWriteSucceeded,
     members,
-    roomId,
+    repository,
     setSyncStatus,
-    storage,
+    tripId,
     tickets,
     toast,
   ]);
@@ -303,7 +302,7 @@ export function useTicketActions({
       });
       if (!shouldDelete) return false;
 
-      const safeRoomId = assertWritableRoom(db, roomId);
+      assertWritableTrip(repository, tripId);
       const targetId = trimText(ticketId);
       const safeTickets = Array.isArray(tickets) ? tickets : [];
       const targetTicket = safeTickets.find((item) => trimText(item?.id) === targetId);
@@ -315,7 +314,7 @@ export function useTicketActions({
       markWriteStarted();
 
       try {
-        await persistTickets({ db, roomId: safeRoomId, tickets: nextTickets });
+        await repository.updateTickets(nextTickets);
       } catch {
         setSyncStatus('error');
         toast.error({
@@ -329,7 +328,7 @@ export function useTicketActions({
       let cleanupFailed = false;
       if (oldStoragePath) {
         try {
-          await deleteTicketAttachment({ storage, storagePath: oldStoragePath });
+          await repository.deleteAttachment({ scope: 'ticket', storagePath: oldStoragePath });
         } catch (error) {
           cleanupFailed = true;
           console.warn('Delete ticket attachment after record deletion failed:', error);
@@ -351,12 +350,11 @@ export function useTicketActions({
   }, [
     activeMutationRef,
     confirm,
-    db,
     markWriteStarted,
     markWriteSucceeded,
-    roomId,
+    repository,
     setSyncStatus,
-    storage,
+    tripId,
     tickets,
     toast,
   ]);

@@ -7,7 +7,7 @@ const STEPS = [
   },
   {
     title: '先用東京範例快速了解',
-    description: '內建三日示範是可編輯的本機副本，重新整理後仍會保留；它不會同步、不會建立雲端旅程，也不會修改你的正式旅程。',
+    description: '內建旅程可直接編輯，重新整理後仍會保留；它不會同步、不會建立雲端旅程，也不會修改你的其他旅程。',
   },
   {
     title: '建立自己的旅程',
@@ -179,7 +179,7 @@ export default function FirstRunWelcomeDialog({
                 onClick={() => finishOnce(onOpenDemo)}
                 className="min-h-11 rounded-xl bg-violet-600 px-4 py-2 font-bold text-white hover:bg-violet-700"
               >
-                {translate('查看東京示範')}
+                {translate('東京三日自由行（範例）')}
               </button>
               <button
                 type="button"

@@ -454,3 +454,19 @@ export async function clearEmulatorStorage(
     await deleteEmulatorStorageObject(object.name);
   }
 }
+
+export async function assertNoExampleCloudArtifacts(
+  tripId = 'local-example-trip',
+): Promise<void> {
+  const room = await readEmulatorData(`rooms/${tripId}`);
+  if (room !== null) {
+    throw new Error(`Example trip unexpectedly created Emulator room: ${tripId}`);
+  }
+
+  const objects = await listEmulatorStorageObjects(`rooms/${tripId}`);
+  if (objects.length > 0) {
+    throw new Error(
+      `Example trip unexpectedly created ${objects.length} Emulator Storage object(s).`,
+    );
+  }
+}

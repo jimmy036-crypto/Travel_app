@@ -67,7 +67,7 @@ describe('FirstRunWelcomeDialog', () => {
     expect(screen.queryByTestId('first-run-open-demo')).not.toBeInTheDocument();
     expect(screen.queryByTestId('first-run-create-trip')).not.toBeInTheDocument();
     await goToLastStep(user);
-    expect(screen.getByTestId('first-run-open-demo')).toHaveTextContent('查看東京示範');
+    expect(screen.getByTestId('first-run-open-demo')).toHaveTextContent('東京三日自由行（範例）');
     expect(screen.getByTestId('first-run-create-trip')).toHaveTextContent('建立我的第一個旅程');
     expect(screen.getByTestId('first-run-skip')).toHaveTextContent('略過介紹');
     expect(screen.queryByText(/複製/)).not.toBeInTheDocument();

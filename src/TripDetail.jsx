@@ -24,8 +24,6 @@ import { CURRENT_RELEASE_NOTES } from './config/releaseNotes.js';
 import { EmptyState } from './components/ui/EmptyState.jsx';
 import { SkeletonButton, SkeletonText } from './components/ui/Skeleton.jsx';
 
-import { db, storage } from "./firebase";
-import { ref as dbRef, onValue, update } from "firebase/database";
 import {
   formatStayTime,
   generateId,
@@ -64,8 +62,9 @@ import {
   writeTicketActiveMember,
 } from './features/tickets/ticketIdentity.js';
 import { useTicketActions } from './features/tickets/useTicketActions.js';
-import { persistItinerary } from './services/placesService.js';
-import { buildOfflineTripSnapshot, writeOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
+import { createDefaultFirebaseTripRepository } from './features/trip-data/defaultFirebaseTripRepository.js';
+import { normalizeTripCapabilities } from './features/trip-data/tripCapabilities.js';
+import { CLOUD_FEATURE_UNAVAILABLE_MESSAGE } from './features/trip-data/exampleTripConstants.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -1113,7 +1112,7 @@ const normalizeItinerary = (rawValue, meta) => {
 
 
 const useRoomBranchSync = ({
-  roomId,
+  repository,
   branch,
   value,
   dirtyBranchesRef,
@@ -1122,7 +1121,7 @@ const useRoomBranchSync = ({
   setSyncStatus,
 }) => {
   useEffect(() => {
-    if (!db || !roomId || value === null || !dirtyBranchesRef.current[branch]) return undefined;
+    if (!repository || value === null || !dirtyBranchesRef.current[branch]) return undefined;
 
     const version = (writeVersionRef.current[branch] || 0) + 1;
     writeVersionRef.current[branch] = version;
@@ -1132,11 +1131,8 @@ const useRoomBranchSync = ({
     const timer = window.setTimeout(() => {
       const writeBranch = async () => {
         try {
-          if (branch === 'itinerary') {
-            await persistItinerary({ db, roomId, itinerary: value });
-          } else {
-            await update(dbRef(db, `rooms/${roomId}`), { [branch]: value });
-          }
+          const method = `update${branch[0].toUpperCase()}${branch.slice(1)}`;
+          await repository[method](value);
           if (writeVersionRef.current[branch] === version) {
             dirtyBranchesRef.current[branch] = false;
             lastLocalWriteAtRef.current = Date.now();
@@ -1154,7 +1150,7 @@ const useRoomBranchSync = ({
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [branch, dirtyBranchesRef, lastLocalWriteAtRef, roomId, setSyncStatus, value, writeVersionRef]);
+  }, [branch, dirtyBranchesRef, lastLocalWriteAtRef, repository, setSyncStatus, value, writeVersionRef]);
 };
 
 const PRE_TRIP_ID = "PRE_TRIP";
@@ -1257,7 +1253,10 @@ const TripDetailSkeleton = ({
 );
 
 const TripDetail = ({
-  roomId,
+  tripId,
+  roomId: legacyRoomId,
+  repository: providedRepository,
+  capabilities: providedCapabilities,
   onBack,
   onUpdateTripMeta,
   onOpenReleaseNotes,
@@ -1267,6 +1266,19 @@ const TripDetail = ({
   onTourAvailabilityChange,
   isOnline = true,
 }) => {
+  const roomId = String(tripId || legacyRoomId || '');
+  const repository = useMemo(
+    () => providedRepository || (
+      roomId ? createDefaultFirebaseTripRepository(roomId) : null
+    ),
+    [providedRepository, roomId],
+  );
+  const capabilities = useMemo(
+    () => normalizeTripCapabilities(
+      providedCapabilities || repository?.getCapabilities?.(),
+    ),
+    [providedCapabilities, repository],
+  );
   const confirm = useConfirm();
   const toast = useToast();
   const [isLoading, setIsLoading] = useState(true);
@@ -1408,7 +1420,7 @@ const TripDetail = ({
       setSyncStatus("idle");
     });
 
-    if (!db || !roomId) {
+    if (!repository || !roomId) {
       queueMicrotask(() => {
         if (cancelled) return;
         setMetaState({
@@ -1432,11 +1444,8 @@ const TripDetail = ({
       };
     }
 
-    const roomRef = dbRef(db, `rooms/${roomId}`);
-    const unsubscribe = onValue(
-      roomRef,
-      (snapshot) => {
-        const data = snapshot.val();
+    const unsubscribe = repository.subscribeTrip(
+      (data) => {
         if (!data) {
           setLoadError("找不到這個旅程，可能已被刪除或你沒有讀取權限。");
           setIsLoading(false);
@@ -1488,7 +1497,7 @@ const TripDetail = ({
       (error) => {
         console.error("Load room failed:", error);
         setSyncStatus("error");
-        setLoadError("旅程載入失敗，請檢查網路連線或 Firebase 權限。");
+        setLoadError("旅程載入失敗，請確認連線後再試一次。");
         setIsLoading(false);
       }
     );
@@ -1501,10 +1510,10 @@ const TripDetail = ({
       }
       unsubscribe();
     };
-  }, [roomId]);
+  }, [repository, roomId]);
 
   useRoomBranchSync({
-    roomId,
+    repository,
     branch: "meta",
     value: meta,
     dirtyBranchesRef,
@@ -1513,7 +1522,7 @@ const TripDetail = ({
     setSyncStatus,
   });
   useRoomBranchSync({
-    roomId,
+    repository,
     branch: "itinerary",
     value: itinerary,
     dirtyBranchesRef,
@@ -1522,7 +1531,7 @@ const TripDetail = ({
     setSyncStatus,
   });
   useRoomBranchSync({
-    roomId,
+    repository,
     branch: "expenses",
     value: expenses,
     dirtyBranchesRef,
@@ -1531,7 +1540,7 @@ const TripDetail = ({
     setSyncStatus,
   });
   useRoomBranchSync({
-    roomId,
+    repository,
     branch: "settlements",
     value: settlements,
     dirtyBranchesRef,
@@ -1897,7 +1906,7 @@ const TripDetail = ({
     deletingTicketId,
     uploadProgress,
   } = useTicketActions({
-    room: { db, roomId, storage },
+    room: { repository, tripId: roomId },
     data: { tickets, members: membersList },
     state: { setTicketsState, setSyncStatus },
     refs: { dirtyBranchesRef, lastLocalWriteAtRef, ticketMutationRef },
@@ -1952,7 +1961,7 @@ const TripDetail = ({
   }, []);
 
   const { saveExpense: handleSaveExpense, deleteExpense: handleDeleteExpense } = useExpenseActions({
-    room: { db, roomId },
+    room: { repository, tripId: roomId },
     data: { expenses },
     state: { setExpensesState, setSyncStatus },
     refs: { dirtyBranchesRef, lastLocalWriteAtRef, expenseDeleteConfirmRef },
@@ -2103,11 +2112,7 @@ const TripDetail = ({
     saveEditedItem,
     deleteItineraryItem: handleDeleteItineraryItem,
   } = usePlaceActions({
-    room: {
-      db,
-      roomId,
-      storage,
-    },
+    room: { repository, tripId: roomId },
     data: {
       itinerary,
       currentDay: safeCurrentDay,
@@ -2161,14 +2166,14 @@ const TripDetail = ({
   };
 
   const commitChecklistPatch = useCallback((patch) => {
-    if (!db || !roomId || !patch || Object.keys(patch).length === 0) return;
+    if (!repository || !roomId || !patch || Object.keys(patch).length === 0) return;
 
     const version = checklistWriteVersionRef.current + 1;
     checklistWriteVersionRef.current = version;
     lastLocalWriteAtRef.current = Date.now();
     setSyncStatus('saving');
 
-    void update(dbRef(db, `rooms/${roomId}/checklist`), patch)
+    void repository.updateChecklist(patch)
       .then(() => {
         if (checklistWriteVersionRef.current === version) {
           lastLocalWriteAtRef.current = Date.now();
@@ -2178,9 +2183,9 @@ const TripDetail = ({
       .catch((error) => {
         console.error('Sync checklist failed:', error);
         if (checklistWriteVersionRef.current === version) setSyncStatus('error');
-        alert('行前清單同步失敗，請檢查網路或 Firebase 權限。');
+        alert('行前清單保存失敗，請稍後再試。');
       });
-  }, [roomId]);
+  }, [repository, roomId]);
 
   const handleChecklistActorChange = useCallback((member) => {
     const safeMember = String(member || '').trim();
@@ -2281,8 +2286,8 @@ const TripDetail = ({
   }, [checklistItems, commitChecklistPatch]);
 
   const handleShareLink = useCallback(async () => {
-    if (!db) {
-      alert("⚠️ 尚未設定 Firebase！");
+    if (!capabilities.sharing) {
+      alert(CLOUD_FEATURE_UNAVAILABLE_MESSAGE);
       return;
     }
 
@@ -2293,7 +2298,7 @@ const TripDetail = ({
     } catch {
       window.prompt("請手動複製共編連結：", url);
     }
-  }, [meta, roomId]);
+  }, [capabilities.sharing, meta, roomId]);
 
   const handleExploreSearch = (customQuery = null, customLocation = null) => {
     const q = typeof customQuery === 'string' ? customQuery : String(exploreQuery);
@@ -2928,7 +2933,8 @@ const TripDetail = ({
   }, [handleAddPlaceFromSearch, handleDragEnd, safeCurrentDay]);
   useEffect(() => {
     if (
-      !db ||
+      !capabilities.offlineCache ||
+      !repository ||
       !roomId ||
       !isOnline ||
       isLoading ||
@@ -2942,26 +2948,22 @@ const TripDetail = ({
     }
 
     const timer = setTimeout(() => {
-      const snap = buildOfflineTripSnapshot({
-        roomId,
+      try {
+        repository.writeOfflineSnapshot?.({
         meta,
         itinerary,
         expenseStats,
         expenses,
         checklistItems,
         tickets
-      });
-      if (snap) {
-        try {
-          writeOfflineTripSnapshot(snap);
-        } catch (error) {
-          console.warn("Offline trip cache write failed:", error);
-        }
+        });
+      } catch (error) {
+        console.warn("Offline trip cache write failed:", error);
       }
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [isOnline, isLoading, loadError, meta, roomId, itinerary, expenseStats, expenses, checklistItems, tickets, syncStatus]);
+  }, [capabilities.offlineCache, repository, isOnline, isLoading, loadError, meta, roomId, itinerary, expenseStats, expenses, checklistItems, tickets, syncStatus]);
 
   if (loadError) {
     return (
@@ -3027,7 +3029,7 @@ const TripDetail = ({
                       aria-label="自訂旅程外觀"
                     />
                     <h1 data-testid="trip-detail-title" className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
-                    {db ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
+                    {capabilities.cloudSync ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
                 </div>
@@ -3578,7 +3580,7 @@ const TripDetail = ({
       {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
 
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
-      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={roomId} onSave={saveEditedItem} onSaveError={() => {
+      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onSaveError={() => {
         setSyncStatus('error');
         toast.error({
           title: '無法更新景點',

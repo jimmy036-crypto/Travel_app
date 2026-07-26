@@ -79,11 +79,30 @@ const createAttachmentDraft = (overrides = {}) => ({
   ...overrides,
 });
 
-const createDeps = (overrides = {}) => ({
-  room: {
+const testStorage = { app: 'storage' };
+const testRepository = {
+  uploadAttachment: ({ ownerId, ...input }) => serviceMocks.uploadTicketAttachment({
+    ...input,
+    storage: testStorage,
+    roomId: 'room-1',
+    ticketId: ownerId,
+  }),
+  deleteAttachment: ({ storagePath }) => serviceMocks.deleteTicketAttachment({
+    storage: testStorage,
+    storagePath,
+  }),
+  updateTickets: (tickets) => serviceMocks.persistTickets({
     db: { app: 'db' },
     roomId: 'room-1',
-    storage: { app: 'storage' },
+    tickets,
+  }),
+};
+
+const createDeps = (overrides = {}) => ({
+  room: {
+    repository: testRepository,
+    tripId: 'room-1',
+    storage: testStorage,
     ...overrides.room,
   },
   data: {

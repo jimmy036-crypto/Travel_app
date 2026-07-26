@@ -43,8 +43,12 @@ vi.mock('@vis.gl/react-google-maps', () => ({
 }));
 
 vi.mock('./TripDetail.jsx', () => ({
-  default: ({ onBack }) => (
-    <div data-testid="mock-trip-detail">
+  default: ({ onBack, tripId, repository }) => (
+    <div
+      data-testid="mock-trip-detail"
+      data-trip-id={tripId}
+      data-cloud-sync={String(repository?.getCapabilities?.().cloudSync)}
+    >
       <button type="button" data-testid="mock-trip-back" onClick={onBack}>Back</button>
     </div>
   ),
@@ -58,6 +62,8 @@ vi.mock('./features/offline/offlineTripCache.js', () => ({
   listOfflineTripSummaries: offlineMocks.list,
   readOfflineTripSnapshot: offlineMocks.read,
   removeOfflineTripSnapshot: offlineMocks.remove,
+  buildOfflineTripSnapshot: vi.fn(),
+  writeOfflineTripSnapshot: vi.fn(),
 }));
 
 vi.mock('./components/UIComponents.jsx', () => ({
@@ -168,9 +174,10 @@ describe('App first-run welcome integration', () => {
     firebaseMocks.update.mockClear();
     await advanceToFinalStep(user);
     await user.click(screen.getByTestId('first-run-open-demo'));
-    await waitFor(() => expect(screen.getByTestId('demo-trip-preview')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('mock-trip-detail')).toBeInTheDocument());
     expect(localStorage.getItem(FIRST_RUN_ONBOARDING_SEEN_KEY)).toBe('true');
-    expect(screen.getByTestId('demo-trip-title')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-trip-detail')).toHaveAttribute('data-trip-id', 'local-example-trip');
+    expect(screen.getByTestId('mock-trip-detail')).toHaveAttribute('data-cloud-sync', 'false');
     expect(screen.queryByTestId('first-run-welcome-dialog')).not.toBeInTheDocument();
     expect(screen.queryByTestId('travel-lobby')).not.toBeInTheDocument();
     expect(screen.queryByTestId('mock-offline-trip-preview')).not.toBeInTheDocument();
@@ -266,8 +273,10 @@ describe('App first-run welcome integration', () => {
     await user.click(screen.getByTestId('first-run-skip'));
     expect(screen.queryByTestId('first-run-welcome-dialog')).not.toBeInTheDocument();
     expect(screen.getByTestId('travel-lobby')).toBeInTheDocument();
-    await user.click(screen.getByTestId('demo-trip-entry-open'));
-    await user.click(screen.getByTestId('demo-back-button'));
+    await user.click(
+      screen.getByTestId('demo-trip-entry-card').querySelector('[data-testid="example-trip-card-title"]'),
+    );
+    await user.click(screen.getByTestId('mock-trip-back'));
     expect(screen.queryByTestId('first-run-welcome-dialog')).not.toBeInTheDocument();
     set.mockRestore();
   });

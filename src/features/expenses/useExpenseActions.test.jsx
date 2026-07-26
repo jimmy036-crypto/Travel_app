@@ -26,8 +26,10 @@ describe('useExpenseActions', () => {
     firebaseMocks.update.mockResolvedValue(undefined);
 
     mockRoom = {
-      db: { app: 'mock-db' },
-      roomId: 'test-room',
+      repository: {
+        updateExpenses: (expenses) => firebaseMocks.update(null, { expenses }),
+      },
+      tripId: 'test-room',
     };
 
     mockData = {

@@ -86,6 +86,12 @@ function seedTrip() {
   }]));
 }
 
+function getRoomCard() {
+  return screen.getAllByTestId('trip-card').find(
+    (card) => card.getAttribute('data-room-id') === 'room1',
+  );
+}
+
 function mockValidOfflineCache() {
   vi.spyOn(offlineCache, 'listOfflineTripSummaries').mockReturnValue([
     { roomId: 'room1', cachedAt: 1672531200000, title: 'Trip 1', destination: 'Tokyo' },
@@ -121,8 +127,8 @@ describe('App offline trip preview', () => {
   it('APP-01 OPEN-01 opens a valid online room and mounts TripDetail', async () => {
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
 
     await waitFor(() => expect(screen.getByTestId('mock-trip-detail')).toBeInTheDocument());
     expect(screen.queryByTestId('travel-lobby')).not.toBeInTheDocument();
@@ -134,8 +140,8 @@ describe('App offline trip preview', () => {
     mockIsOnline = false;
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
 
     await waitFor(() => expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument());
     expect(screen.getByTestId('offline-preview-title')).toHaveTextContent('Trip 1');
@@ -146,8 +152,8 @@ describe('App offline trip preview', () => {
     mockIsOnline = false;
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
 
     await waitFor(() => expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument());
     expect(screen.queryByTestId('travel-lobby')).not.toBeInTheDocument();
@@ -160,8 +166,8 @@ describe('App offline trip preview', () => {
     mockIsOnline = false;
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
     await waitFor(() => expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument());
 
     expectFirebaseNotCalled();
@@ -175,8 +181,8 @@ describe('App offline trip preview', () => {
     mockIsOnline = false;
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
 
     expect(screen.queryByTestId('offline-trip-preview')).not.toBeInTheDocument();
     expect(screen.queryByTestId('mock-trip-detail')).not.toBeInTheDocument();
@@ -199,7 +205,7 @@ describe('App offline trip preview', () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByTestId('offline-cache-status')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    fireEvent.click(getRoomCard());
 
     await waitFor(() => expect(screen.queryByTestId('offline-cache-status')).not.toBeInTheDocument());
     expect(screen.getByTestId('travel-lobby')).toBeInTheDocument();
@@ -217,8 +223,8 @@ describe('App offline trip preview', () => {
     mockIsOnline = false;
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
     await waitFor(() => expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('offline-preview-back'));
 
@@ -237,8 +243,8 @@ describe('App offline trip preview', () => {
     mockIsOnline = false;
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
     await waitFor(() => expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('offline-preview-clear-cache'));
 
@@ -255,8 +261,8 @@ describe('App offline trip preview', () => {
     mockIsOnline = false;
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
     await waitFor(() => expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('offline-preview-clear-cache'));
 
@@ -274,8 +280,8 @@ describe('App offline trip preview', () => {
     mockIsOnline = false;
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
     await waitFor(() => expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('offline-preview-clear-cache'));
 
@@ -291,8 +297,8 @@ describe('App offline trip preview', () => {
     mockIsOnline = false;
     const { rerender } = render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
     await waitFor(() => expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument());
     const searchBeforeOnline = window.location.search;
 
@@ -312,8 +318,8 @@ describe('App offline trip preview', () => {
   it('APP-13 keeps TripDetail mounted when an open online trip goes offline', async () => {
     const { rerender } = render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId('trip-card')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('trip-card'));
+    await waitFor(() => expect(getRoomCard()).toBeInTheDocument());
+    fireEvent.click(getRoomCard());
     await waitFor(() => expect(screen.getByTestId('mock-trip-detail')).toBeInTheDocument());
 
     mockIsOnline = false;
