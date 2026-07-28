@@ -85,6 +85,73 @@ Full Playwright evidence:
 - The existing DnD library’s built-in touch hold is 120 ms and is not configurable without replacing or copying its sensor. This change keeps the library and focuses on handle-only activation, scroll cancellation, lightweight rendering, and stable drop space.
 - Physical-device Mobile Safari touch feel and final visual polish remain human QA items; automated Mobile Safari covers handle isolation, scrolling, cancellation, first/last moves, time recalculation, and persistence.
 
+## Mobile itinerary refinement follow-up
+
+### Why the first mobile revision was still too heavy
+
+The first revision used `renderClone`, but `@hello-pangea/dnd` still supplied the
+source card's inline height to that clone. The compact-looking clone therefore
+measured 149.5 px in the focused browser test and continued to obscure nearby
+items. The source card also retained desktop-density content on mobile:
+16 px padding, tags, a separate place-information row, navigation, and the
+overflow menu.
+
+### Refined mobile drag overlay
+
+- Preserve the DnD-provided transform and positioning but override clone height
+  to its actual content height.
+- Limit the mobile clone to 240 px wide and 72 px high.
+- Keep only sequence, arrival time, and a single-line place name.
+- Remove action controls and secondary copy from the clone.
+- Use GPU transform and `will-change: transform`; no image, backdrop blur, or
+  full-card content is rendered.
+
+### Refined mobile card layout
+
+- Mobile padding is reduced to 10 px with a smaller radius and tighter internal
+  gaps; desktop keeps its existing 16 px card.
+- The title receives the full content column and keeps a two-line clamp plus
+  `overflow-wrap:anywhere`.
+- Tags and the place-information summary are hidden on mobile and remain
+  available in the place detail view and desktop card.
+- Navigation remains a visible 44 px action. Edit, nearby search, copy, and
+  delete remain inside the existing `...` menu, whose 44 px trigger shares one
+  compact row below the title rather than competing with it.
+- Desktop retains its navigation button, information summary, tags, and hover
+  action row.
+- The feature tour now spotlights the tappable mobile title for full place
+  details while retaining the desktop place-information target. This avoids a
+  stale hidden target after the responsive split.
+
+### Refinement regression coverage
+
+- `TripDetail.repositoryIntegration.test.jsx`: compact/mobile and detailed/
+  desktop class contracts, navigation visibility, menu contents, and click
+  isolation.
+- `itinerary-drag.spec.ts`: clone bounds (240 × 72 px maximum), no buttons in
+  the clone, first/last moves, cancellation, scrolling, recalculation, and
+  persistence.
+- `place-menu-layout.spec.ts`: 320/390 px card-height cap, 10 px mobile padding,
+  title/menu non-intersection, only navigation plus menu buttons visible,
+  complete menu actions, and preserved desktop breakpoint behavior.
+
+Focused refinement results:
+
+- Component regression: 3 files, 12 tests passed in 2.47 s.
+- Place menu/layout Playwright: 6 passed in 49.6 s.
+- Itinerary drag Playwright: 6 passed in 34.3 s.
+- Settlement/appearance Playwright regression: 8 passed in 31.6 s.
+- Feature-tour Playwright after the responsive-target fix: 24 passed in 51.6 s.
+- Full Vitest: 60 files, 730 tests passed in 26.88 s.
+- Full Playwright: 226 tests across Desktop Chrome and Mobile Safari completed
+  with 211 passed and 14 existing conditional skips in 11.3 minutes. One
+  unrelated initial room-load timeout in `core-empty-states.spec.ts` passed on
+  the configured retry; the same case then passed 6/6 with retries disabled.
+- Drag cancellation stability: the long-list scenario passed 6/6 with retries
+  disabled after one isolated retry in an earlier full-suite run.
+- Lint, typecheck, and build passed. Build retained only the existing chunk-size
+  warning.
+
 ## Safety evidence
 
 - Firebase Emulator project: `demo-travel-e2e`
