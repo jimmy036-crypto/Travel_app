@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useMobileViewport } from '../hooks/useMobileViewport.js';
 import { usePwaInstall } from '../hooks/usePwaInstall.js';
 import { PwaInstallInstructionsDialog } from './PwaInstallInstructionsDialog.jsx';
+import { ResponsiveBottomSheet } from './ResponsiveBottomSheet.jsx';
 import { useToast } from './ui/useToast.js';
 
 const MENU_WIDTH = 256;
@@ -33,9 +35,199 @@ function getMenuPosition(trigger) {
   return { top, left };
 }
 
+function SettingsMenuButton({
+  children,
+  testId,
+  onClick,
+  disabled = false,
+  ariaLabel,
+  dataInstallState,
+  menuItem = false,
+  t,
+}) {
+  return (
+    <button
+      type="button"
+      role={menuItem ? 'menuitem' : undefined}
+      data-testid={testId}
+      data-install-state={dataInstallState}
+      onClick={onClick}
+      disabled={disabled}
+      aria-disabled={disabled ? 'true' : undefined}
+      aria-label={ariaLabel}
+      className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 ${t.mainText}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SettingsMenuContent({
+  t,
+  version,
+  tripActions,
+  menuItem,
+  onRunAction,
+  onOpenAppearance,
+  onOpenReleaseNotes,
+  onOpenFeatureIntroduction,
+  onStartFeatureTour,
+  onOpenDemo,
+  showDemoEntry,
+  onCheckUpdates,
+  isCheckingUpdates,
+  showInstalledStatus,
+  showNativeInstallAction,
+  showIosInstallAction,
+  isPrompting,
+  onNativeInstall,
+  onOpenInstallInstructions,
+}) {
+  return (
+    <div className="grid gap-3">
+      {tripActions.length > 0 ? (
+        <section aria-labelledby="app-settings-trip-section-title">
+          <h3
+            id="app-settings-trip-section-title"
+            data-testid="app-settings-trip-section"
+            className={`px-3 pb-1 text-[11px] font-black uppercase tracking-[0.14em] ${t.subText}`}
+          >
+            旅程工具
+          </h3>
+          <div className="grid gap-1">
+            {tripActions.map((action) => (
+              <SettingsMenuButton
+                key={action.id}
+                testId={`app-settings-trip-${action.id}`}
+                onClick={() => onRunAction(action.onSelect)}
+                menuItem={menuItem}
+                t={t}
+              >
+                {action.icon ? <span aria-hidden="true">{action.icon} </span> : null}
+                {action.label}
+              </SettingsMenuButton>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section aria-labelledby="app-settings-app-section-title">
+        <h3
+          id="app-settings-app-section-title"
+          data-testid="app-settings-app-section"
+          className={`px-3 pb-1 text-[11px] font-black uppercase tracking-[0.14em] ${t.subText}`}
+        >
+          App 設定
+        </h3>
+        <div className="grid gap-1">
+          <SettingsMenuButton
+            testId="app-settings-appearance"
+            onClick={() => onRunAction(onOpenAppearance)}
+            menuItem={menuItem}
+            t={t}
+          >
+            外觀設定
+          </SettingsMenuButton>
+          <SettingsMenuButton
+            testId="app-settings-release-notes"
+            onClick={() => onRunAction(onOpenReleaseNotes)}
+            menuItem={menuItem}
+            t={t}
+          >
+            更新內容
+          </SettingsMenuButton>
+          {typeof onOpenFeatureIntroduction === 'function' ? (
+            <SettingsMenuButton
+              testId="app-settings-feature-introduction"
+              onClick={() => onRunAction(onOpenFeatureIntroduction)}
+              ariaLabel="重新開啟功能介紹"
+              menuItem={menuItem}
+              t={t}
+            >
+              功能介紹
+            </SettingsMenuButton>
+          ) : null}
+          <SettingsMenuButton
+            testId="app-settings-feature-tour"
+            onClick={() => onRunAction(onStartFeatureTour)}
+            ariaLabel="開啟旅程功能導覽"
+            menuItem={menuItem}
+            t={t}
+          >
+            功能導覽
+          </SettingsMenuButton>
+          {showDemoEntry && typeof onOpenDemo === 'function' ? (
+            <SettingsMenuButton
+              testId="app-settings-demo-trip"
+              onClick={() => onRunAction(onOpenDemo)}
+              menuItem={menuItem}
+              t={t}
+            >
+              查看示範旅程
+            </SettingsMenuButton>
+          ) : null}
+          <SettingsMenuButton
+            testId="app-settings-check-updates"
+            onClick={() => onRunAction(onCheckUpdates)}
+            disabled={isCheckingUpdates}
+            menuItem={menuItem}
+            t={t}
+          >
+            {isCheckingUpdates ? '檢查中...' : '檢查更新'}
+          </SettingsMenuButton>
+          {showInstalledStatus ? (
+            <SettingsMenuButton
+              testId="app-settings-install-status"
+              dataInstallState="installed"
+              disabled
+              menuItem={menuItem}
+              t={t}
+            >
+              App 已安裝
+            </SettingsMenuButton>
+          ) : null}
+          {showNativeInstallAction ? (
+            <SettingsMenuButton
+              testId="app-settings-install-app"
+              dataInstallState="native"
+              onClick={onNativeInstall}
+              disabled={isPrompting}
+              menuItem={menuItem}
+              t={t}
+            >
+              安裝 App
+            </SettingsMenuButton>
+          ) : null}
+          {showIosInstallAction ? (
+            <SettingsMenuButton
+              testId="app-settings-install-app"
+              dataInstallState="ios"
+              onClick={onOpenInstallInstructions}
+              menuItem={menuItem}
+              t={t}
+            >
+              加入主畫面
+            </SettingsMenuButton>
+          ) : null}
+          <div
+            role={menuItem ? 'none' : undefined}
+            data-testid="app-settings-version"
+            className={`mt-1 rounded-xl border px-3 py-2 text-[10px] font-bold leading-5 ${t.cardBg} ${t.cardBorder} ${t.subText}`}
+          >
+            <span className="block uppercase tracking-[0.16em]">版本資訊</span>
+            <span className="block truncate">{String(version || '')}</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export const AppSettingsMenu = ({
   t,
   version,
+  triggerLabel = '開啟設定',
+  tripActions = [],
   onOpenAppearance,
   onOpenReleaseNotes,
   onOpenFeatureIntroduction,
@@ -45,6 +237,7 @@ export const AppSettingsMenu = ({
   onCheckUpdates,
   isCheckingUpdates = false,
 }) => {
+  const isMobileViewport = useMobileViewport();
   const [isOpen, setIsOpen] = useState(false);
   const [showInstallInstructions, setShowInstallInstructions] = useState(false);
   const [position, setPosition] = useState({ top: MENU_MARGIN, left: MENU_MARGIN });
@@ -78,9 +271,9 @@ export const AppSettingsMenu = ({
   }, []);
 
   const openMenu = useCallback(() => {
-    setPosition(getMenuPosition(triggerRef.current));
+    if (!isMobileViewport) setPosition(getMenuPosition(triggerRef.current));
     setIsOpen(true);
-  }, []);
+  }, [isMobileViewport]);
 
   const toggleMenu = useCallback((event) => {
     event.preventDefault();
@@ -158,20 +351,22 @@ export const AppSettingsMenu = ({
     if (!isOpen) return undefined;
 
     const handlePointerDown = (event) => {
+      if (isMobileViewport) return;
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (menuRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
-      closeMenu();
+      closeMenu({ restoreFocus: true });
     };
 
     const handleKeyDown = (event) => {
+      if (isMobileViewport) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         closeMenu({ restoreFocus: true });
       }
     };
 
-    const handleLayoutChange = () => closeMenu();
+    const handleLayoutChange = () => closeMenu({ restoreFocus: true });
 
     document.addEventListener('pointerdown', handlePointerDown, true);
     document.addEventListener('keydown', handleKeyDown);
@@ -184,14 +379,14 @@ export const AppSettingsMenu = ({
       window.removeEventListener('resize', handleLayoutChange);
       window.removeEventListener('orientationchange', handleLayoutChange);
     };
-  }, [closeMenu, isOpen]);
+  }, [closeMenu, isMobileViewport, isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isMobileViewport) return;
     window.requestAnimationFrame(() => {
       menuRef.current?.querySelector('button')?.focus?.();
     });
-  }, [isOpen]);
+  }, [isMobileViewport, isOpen]);
 
   const menuStyle = useMemo(() => ({
     top: `${position.top}px`,
@@ -201,13 +396,46 @@ export const AppSettingsMenu = ({
     zIndex: 10060,
   }), [position.left, position.top]);
 
+  const safeTripActions = useMemo(
+    () => (Array.isArray(tripActions)
+      ? tripActions.filter((action) => (
+        action
+        && typeof action.id === 'string'
+        && typeof action.label === 'string'
+        && typeof action.onSelect === 'function'
+      ))
+      : []),
+    [tripActions],
+  );
+
+  const menuContentProps = {
+    t,
+    version,
+    tripActions: safeTripActions,
+    onRunAction: runAction,
+    onOpenAppearance,
+    onOpenReleaseNotes,
+    onOpenFeatureIntroduction,
+    onStartFeatureTour,
+    onOpenDemo,
+    showDemoEntry,
+    onCheckUpdates,
+    isCheckingUpdates,
+    showInstalledStatus,
+    showNativeInstallAction,
+    showIosInstallAction,
+    isPrompting,
+    onNativeInstall: handleNativeInstall,
+    onOpenInstallInstructions: handleOpenInstallInstructions,
+  };
+
   return (
     <>
       <button
         ref={triggerRef}
         type="button"
-        aria-label="開啟設定"
-        aria-haspopup="menu"
+        aria-label={triggerLabel}
+        aria-haspopup={isMobileViewport ? 'dialog' : 'menu'}
         aria-expanded={isOpen}
         data-testid="app-settings-trigger"
         onClick={toggleMenu}
@@ -228,7 +456,40 @@ export const AppSettingsMenu = ({
         </svg>
       </button>
 
-      {isOpen ? createPortal(
+      {isOpen && isMobileViewport ? createPortal(
+        <ResponsiveBottomSheet
+          onClose={() => closeMenu({ restoreFocus: true })}
+          labelledBy="app-settings-sheet-title"
+          testId="app-settings-menu"
+          dataMode="mobile-sheet"
+          initialFocusSelector="[data-testid='app-settings-trip-share'], [data-testid='app-settings-appearance']"
+          panelClassName={`${t.modalBg} ${t.cardBorder}`}
+        >
+          <div className={`flex shrink-0 items-center justify-between border-b px-4 py-3 ${t.cardBorder}`}>
+            <h2
+              id="app-settings-sheet-title"
+              className={`text-base font-black ${t.mainText}`}
+            >
+              {safeTripActions.length > 0 ? '旅程工具與設定' : 'App 設定'}
+            </h2>
+            <button
+              type="button"
+              data-testid="app-settings-close"
+              aria-label="關閉旅程工具與設定"
+              onClick={() => closeMenu({ restoreFocus: true })}
+              className={`flex min-h-11 w-11 items-center justify-center rounded-xl text-xl font-black ${t.mainText}`}
+            >
+              ×
+            </button>
+          </div>
+          <div className="min-h-0 overflow-y-auto px-3 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <SettingsMenuContent {...menuContentProps} menuItem={false} />
+          </div>
+        </ResponsiveBottomSheet>,
+        document.body,
+      ) : null}
+
+      {isOpen && !isMobileViewport ? createPortal(
         <div
           ref={menuRef}
           role="menu"
@@ -238,114 +499,7 @@ export const AppSettingsMenu = ({
           style={menuStyle}
           onClick={(event) => event.stopPropagation()}
         >
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="app-settings-appearance"
-            onClick={() => runAction(onOpenAppearance)}
-            className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
-          >
-            外觀設定
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="app-settings-release-notes"
-            onClick={() => runAction(onOpenReleaseNotes)}
-            className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
-          >
-            更新內容
-          </button>
-          {typeof onOpenFeatureIntroduction === 'function' ? (
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="app-settings-feature-introduction"
-              onClick={() => runAction(onOpenFeatureIntroduction)}
-              aria-label="重新開啟功能介紹"
-              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
-            >
-              功能介紹
-            </button>
-          ) : null}
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="app-settings-feature-tour"
-            onClick={() => runAction(onStartFeatureTour)}
-            aria-label="開啟旅程功能導覽"
-            className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
-          >
-            功能導覽
-          </button>
-          {showDemoEntry && typeof onOpenDemo === 'function' ? (
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="app-settings-demo-trip"
-              onClick={() => runAction(onOpenDemo)}
-              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
-            >
-              查看示範旅程
-            </button>
-          ) : null}
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="app-settings-check-updates"
-            onClick={() => runAction(onCheckUpdates)}
-            disabled={isCheckingUpdates}
-            className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 ${t.mainText}`}
-          >
-            {isCheckingUpdates ? '檢查中...' : '檢查更新'}
-          </button>
-          {showInstalledStatus ? (
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="app-settings-install-status"
-              data-install-state="installed"
-              disabled
-              aria-disabled="true"
-              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 ${t.mainText}`}
-            >
-              App 已安裝
-            </button>
-          ) : null}
-          {showNativeInstallAction ? (
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="app-settings-install-app"
-              data-install-state="native"
-              onClick={handleNativeInstall}
-              disabled={isPrompting}
-              aria-disabled={isPrompting ? 'true' : undefined}
-              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 ${t.mainText}`}
-            >
-              安裝 App
-            </button>
-          ) : null}
-          {showIosInstallAction ? (
-            <button
-              type="button"
-              role="menuitem"
-              data-testid="app-settings-install-app"
-              data-install-state="ios"
-              onClick={handleOpenInstallInstructions}
-              className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 ${t.mainText}`}
-            >
-              加入主畫面
-            </button>
-          ) : null}
-          <div
-            role="none"
-            data-testid="app-settings-version"
-            className={`mt-1 rounded-xl border px-3 py-2 text-[10px] font-bold leading-5 ${t.cardBg} ${t.cardBorder} ${t.subText}`}
-          >
-            <span className="block uppercase tracking-[0.16em]">版本資訊</span>
-            <span className="block truncate">{String(version || '')}</span>
-          </div>
+          <SettingsMenuContent {...menuContentProps} menuItem />
         </div>,
         document.body,
       ) : null}

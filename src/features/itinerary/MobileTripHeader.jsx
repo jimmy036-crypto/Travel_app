@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 
 import { getDayDisplay } from '../../helpers.js';
 
@@ -10,38 +10,22 @@ export function MobileTripHeader({
   syncStatusNode,
   settingsNode,
   onBack,
-  onExport,
-  onChecklist,
-  onShare,
 }) {
-  const [toolsOpen, setToolsOpen] = useState(false);
-  const toolsRef = useRef(null);
   const { dateStr } = getDayDisplay(dayId, meta?.startDate);
-
-  useEffect(() => {
-    if (!toolsOpen) return undefined;
-
-    const closeOnOutsidePointer = (event) => {
-      if (!toolsRef.current?.contains(event.target)) setToolsOpen(false);
-    };
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setToolsOpen(false);
-    };
-
-    document.addEventListener('pointerdown', closeOnOutsidePointer, true);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [toolsOpen]);
+  const weatherTemperature = String(weather?.temp || '');
+  const weatherRain = Number.isFinite(Number(weather?.rain))
+    ? `${Number(weather.rain)}%`
+    : '';
 
   return (
     <header
       data-testid="mobile-trip-header"
-      className={`relative z-50 shrink-0 border-b px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 ${t.headerBg} ${t.cardBorder}`}
+      className={`relative z-50 shrink-0 border-b px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] ${t.headerBg} ${t.cardBorder}`}
     >
-      <div className="flex min-w-0 items-center gap-2">
+      <div
+        data-testid="mobile-trip-utility-row"
+        className="flex min-w-0 items-center justify-between gap-3"
+      >
         <button
           type="button"
           data-testid="back-to-lobby"
@@ -51,64 +35,76 @@ export function MobileTripHeader({
         >
           ‹
         </button>
+        {settingsNode}
+      </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
+      <div
+        data-testid="mobile-trip-summary"
+        className={`mt-2 grid min-w-0 gap-2 rounded-2xl border p-3 ${t.cardBg} ${t.cardBorder}`}
+        style={{
+          gridTemplateColumns: 'minmax(0, 1fr) clamp(5.25rem, 27vw, 6.75rem)',
+        }}
+      >
+        <div className="min-w-0">
+          <div className="min-w-0">
             <h1
               data-testid="trip-detail-title"
-              className={`min-w-0 truncate text-lg font-black ${t.mainText}`}
+              className={`line-clamp-2 min-w-0 text-lg font-black leading-5 [overflow-wrap:anywhere] ${t.mainText}`}
             >
               {String(meta?.title || '旅程')}
             </h1>
-            {syncStatusNode}
           </div>
-          <p className={`truncate text-[10px] font-bold ${t.subText}`}>
-            {[dateStr, meta?.destination].filter(Boolean).join('・')}
-            {weather ? `・${weather.temp}・降雨 ${weather.rain}%` : ''}
-          </p>
-        </div>
-
-        <div ref={toolsRef} className="relative shrink-0">
-          <button
-            type="button"
-            data-testid="mobile-trip-tools-trigger"
-            aria-label="開啟旅程工具"
-            aria-haspopup="menu"
-            aria-expanded={toolsOpen}
-            onClick={() => setToolsOpen((current) => !current)}
-            className={`flex min-h-11 w-11 items-center justify-center rounded-xl border text-lg ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+          <div
+            data-testid="mobile-trip-metadata"
+            className={`mt-1 grid min-w-0 gap-0.5 text-xs font-bold leading-4 ${t.subText}`}
           >
-            ⋯
-          </button>
-          {toolsOpen ? (
-            <div
-              role="menu"
-              data-testid="mobile-trip-tools-menu"
-              aria-label="旅程工具"
-              className={`absolute right-0 top-12 z-60 grid w-44 gap-1 rounded-2xl border p-2 shadow-xl ${t.modalBg} ${t.cardBorder}`}
-            >
-              {[
-                ['匯出行程', onExport, '🖨️'],
-                ['共享清單', onChecklist, '✅'],
-                ['分享共編', onShare, '🔗'],
-              ].map(([label, handler, icon]) => (
-                <button
-                  key={label}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setToolsOpen(false);
-                    handler?.();
-                  }}
-                  className={`min-h-11 rounded-xl px-3 text-left text-xs font-black hover:bg-blue-500/10 ${t.mainText}`}
-                >
-                  {icon} {label}
-                </button>
-              ))}
+            {dateStr ? <span>{dateStr}</span> : null}
+            {meta?.destination ? (
+              <span className="[overflow-wrap:anywhere]">📍 {String(meta.destination)}</span>
+            ) : null}
+          </div>
+          {syncStatusNode ? (
+            <div data-testid="mobile-trip-sync-status" className="mt-1 min-w-0">
+              {syncStatusNode}
             </div>
           ) : null}
         </div>
-        {settingsNode}
+
+        <div
+          data-testid="mobile-trip-weather"
+          className={`min-w-0 border-l pl-2 text-right ${t.cardBorder}`}
+        >
+          {weather ? (
+            <>
+              <span aria-hidden="true" className="block text-xl leading-none">
+                {weather.icon || '🌦️'}
+              </span>
+              <strong
+                data-testid="mobile-trip-weather-temperature"
+                className={`mt-1 block text-xl font-black leading-6 tabular-nums [overflow-wrap:anywhere] ${t.mainText}`}
+              >
+                {weatherTemperature}
+              </strong>
+              {weather.description ? (
+                <span className={`block text-xs font-bold leading-4 [overflow-wrap:anywhere] ${t.subText}`}>
+                  {String(weather.description)}
+                </span>
+              ) : null}
+              {weatherRain ? (
+                <span
+                  data-testid="mobile-trip-weather-rain"
+                  className={`block text-xs font-bold leading-4 ${t.subText}`}
+                >
+                  降雨 {weatherRain}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span className={`block text-xs font-bold leading-4 ${t.subText}`}>
+              天氣未載入
+            </span>
+          )}
+        </div>
       </div>
     </header>
   );

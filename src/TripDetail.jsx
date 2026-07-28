@@ -1176,6 +1176,7 @@ const TripDetailSkeleton = ({
   tripThemeColor,
   onBack,
   onOpenReleaseNotes,
+  onOpenFeatureIntroduction,
   onStartFeatureTour,
   onCheckUpdates,
   isCheckingUpdates,
@@ -1212,6 +1213,7 @@ const TripDetailSkeleton = ({
               version={CURRENT_RELEASE_NOTES.version}
               onOpenAppearance={onOpenAppearance}
               onOpenReleaseNotes={onOpenReleaseNotes}
+              onOpenFeatureIntroduction={onOpenFeatureIntroduction}
               onStartFeatureTour={onStartFeatureTour}
               onCheckUpdates={onCheckUpdates}
               isCheckingUpdates={isCheckingUpdates}
@@ -1282,6 +1284,7 @@ const TripDetail = ({
   onBack,
   onUpdateTripMeta,
   onOpenReleaseNotes,
+  onOpenFeatureIntroduction,
   onStartFeatureTour,
   onCheckUpdates,
   isCheckingUpdates,
@@ -2387,6 +2390,27 @@ const TripDetail = ({
     }
   }, [capabilities.sharing, meta, roomId]);
 
+  const tripSettingsActions = useMemo(() => ([
+    {
+      id: 'share',
+      label: '分享共編',
+      icon: '🔗',
+      onSelect: handleShareLink,
+    },
+    {
+      id: 'checklist',
+      label: '共享清單',
+      icon: '✅',
+      onSelect: () => setShowChecklistModal(true),
+    },
+    {
+      id: 'export',
+      label: '匯出行程',
+      icon: '🖨️',
+      onSelect: () => setShowExportModal(true),
+    },
+  ]), [handleShareLink]);
+
   const handleExploreSearch = (customQuery = null, customLocation = null) => {
     const q = typeof customQuery === 'string' ? customQuery : String(exploreQuery);
     if (!q.trim() || !placesLib || !map) return;
@@ -3074,6 +3098,7 @@ const TripDetail = ({
         tripThemeColor={tripThemeColor}
         onBack={onBack}
         onOpenReleaseNotes={onOpenReleaseNotes}
+        onOpenFeatureIntroduction={onOpenFeatureIntroduction}
         onStartFeatureTour={onStartFeatureTour}
         onCheckUpdates={onCheckUpdates}
         isCheckingUpdates={isCheckingUpdates}
@@ -3123,17 +3148,17 @@ const TripDetail = ({
                     key={`mobile-trip-settings-${roomId}`}
                     t={t}
                     version={CURRENT_RELEASE_NOTES.version}
+                    triggerLabel="開啟旅程工具與設定"
+                    tripActions={tripSettingsActions}
                     onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
                     onOpenReleaseNotes={onOpenReleaseNotes}
+                    onOpenFeatureIntroduction={onOpenFeatureIntroduction}
                     onStartFeatureTour={onStartFeatureTour}
                     onCheckUpdates={onCheckUpdates}
                     isCheckingUpdates={isCheckingUpdates}
                   />
                 )}
                 onBack={onBack}
-                onExport={() => setShowExportModal(true)}
-                onChecklist={() => setShowChecklistModal(true)}
-                onShare={handleShareLink}
               />
               {(activeTab === 'plan' || activeTab === 'map') ? (
                 <MobileDaySwitcher
@@ -3198,11 +3223,14 @@ const TripDetail = ({
                   </button>
                   <AppSettingsMenu
                     key={`trip-settings-${roomId}`}
-                    t={t}
-                    version={CURRENT_RELEASE_NOTES.version}
-                    onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
-                    onOpenReleaseNotes={onOpenReleaseNotes}
-                    onStartFeatureTour={onStartFeatureTour}
+                     t={t}
+                     version={CURRENT_RELEASE_NOTES.version}
+                     triggerLabel="開啟旅程工具與設定"
+                     tripActions={tripSettingsActions}
+                     onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+                     onOpenReleaseNotes={onOpenReleaseNotes}
+                     onOpenFeatureIntroduction={onOpenFeatureIntroduction}
+                     onStartFeatureTour={onStartFeatureTour}
                     onCheckUpdates={onCheckUpdates}
                     isCheckingUpdates={isCheckingUpdates}
                   />
@@ -3651,10 +3679,6 @@ const TripDetail = ({
                   onSelectExploreItem={setSelectedExploreItem}
                   onRouteCalculated={handleRouteCalculated}
                   onOpenDetails={handleSavedItemDetails}
-                  onNavigate={(item) => openExternalUrl(getPlaceNavigationUrl(item))}
-                  onOpenActionMenu={openPlaceActionMenu}
-                  activeActionMenuId={activePlaceActionMenu?.id || ''}
-                  registerActionTrigger={activeTab === 'map' ? registerPlaceActionTrigger : undefined}
                 />
               ) : (
                 <>
