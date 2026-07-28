@@ -94,7 +94,7 @@ export const AppSettingsMenu = ({
 
   const runAction = useCallback((action) => {
     closeMenu();
-    action?.();
+    action?.(triggerRef.current);
   }, [closeMenu]);
 
   const restoreTriggerFocus = useCallback(() => {

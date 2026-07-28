@@ -11,7 +11,6 @@ import {
   EditItemModal,
   CopyItemModal,
   ExpenseModal,
-  SettlementModal,
   FullscreenTicketModal,
   ChecklistModal,
   ExportItineraryModal,
@@ -53,6 +52,11 @@ import { useToast } from './components/ui/useToast.js';
 import { usePlaceActions } from './features/places/usePlaceActions.js';
 import { useExpenseActions } from './features/expenses/useExpenseActions.js';
 import { ExpenseSection } from './features/expenses/ExpenseSection.jsx';
+import {
+  cancelSettlementTransferPaid,
+  markSettlementTransferPaid,
+  settlementTransferKey,
+} from './features/expenses/settlementTransferRecords.js';
 import { TicketEditorModal } from './features/tickets/TicketEditorModal.jsx';
 import { TicketWalletSection } from './features/tickets/TicketWalletSection.jsx';
 import { copyTicketOrderNumber } from './features/tickets/ticketClipboard.js';
@@ -1322,11 +1326,6 @@ const TripDetail = ({
     setExpensesState(updater);
   }, []);
 
-  const setSettlements = useCallback((updater) => {
-    dirtyBranchesRef.current.settlements = true;
-    setSettlementsState(updater);
-  }, []);
-
   const [currentDay, setCurrentDay] = useState("Day 1");
   const [activeTab, setActiveTab] = useState("plan");
 
@@ -1337,7 +1336,7 @@ const TripDetail = ({
     /** @type {{id: string, dayId: string, item: any, top: number, left: number, width: number, placement: 'top' | 'bottom'} | null} */ (null)
   );
   const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const [showSettlementModal, setShowSettlementModal] = useState(false);
+  const [settlementMutationId, setSettlementMutationId] = useState('');
   const [editingExpense, setEditingExpense] = useState(/** @type {any} */ (null));
   const [ticketEditorState, setTicketEditorState] = useState(
     /** @type {{mode: 'create' | 'edit', ticket: any | null} | null} */ (null)
@@ -1534,15 +1533,6 @@ const TripDetail = ({
     repository,
     branch: "expenses",
     value: expenses,
-    dirtyBranchesRef,
-    writeVersionRef,
-    lastLocalWriteAtRef,
-    setSyncStatus,
-  });
-  useRoomBranchSync({
-    repository,
-    branch: "settlements",
-    value: settlements,
     dirtyBranchesRef,
     writeVersionRef,
     lastLocalWriteAtRef,
@@ -1977,20 +1967,73 @@ const TripDetail = ({
     closeExpenseEditor();
   }, [closeExpenseEditor, setExpenses]);
 
-  const handleSaveSettlement = useCallback((settlement) => {
-    setSettlements((previous) => [
-      ...(Array.isArray(previous) ? previous : []),
-      settlement,
-    ]);
-    setShowSettlementModal(false);
-  }, [setSettlements]);
+  const persistSettlementRecords = useCallback(async ({
+    nextRecords,
+    previousRecords,
+    mutationId,
+    successTitle,
+  }) => {
+    if (!repository?.updateSettlements || settlementMutationId) return false;
+    setSettlementMutationId(mutationId);
+    dirtyBranchesRef.current.settlements = true;
+    lastLocalWriteAtRef.current = Date.now();
+    setSyncStatus('saving');
+    setSettlementsState(nextRecords);
 
-  const handleDeleteSettlement = useCallback((settlementId) => {
-    if (!window.confirm("確定刪除這筆結算紀錄嗎？刪除後待結算餘額會重新計算。")) return;
-    setSettlements((previous) => (Array.isArray(previous) ? previous : []).filter(
-      item => String(item.id) !== String(settlementId)
-    ));
-  }, [setSettlements]);
+    try {
+      await repository.updateSettlements(nextRecords);
+      dirtyBranchesRef.current.settlements = false;
+      lastLocalWriteAtRef.current = Date.now();
+      setSyncStatus('saved');
+      toast.success({
+        title: successTitle,
+        description: '結算紀錄已保存。',
+      });
+      return true;
+    } catch (error) {
+      console.error('Sync settlements failed:', error);
+      dirtyBranchesRef.current.settlements = false;
+      setSettlementsState(previousRecords);
+      setSyncStatus('error');
+      toast.error({
+        title: '無法更新轉帳狀態',
+        description: '已恢復原本狀態，請檢查連線後再試一次。',
+      });
+      return false;
+    } finally {
+      setSettlementMutationId('');
+    }
+  }, [repository, settlementMutationId, toast]);
+
+  const handleMarkTransferPaid = useCallback((transfer) => {
+    const previousRecords = Array.isArray(settlements) ? settlements : [];
+    const nextRecords = markSettlementTransferPaid({
+      records: previousRecords,
+      transfer,
+      currency: 'TWD',
+    });
+    void persistSettlementRecords({
+      nextRecords,
+      previousRecords,
+      mutationId: settlementTransferKey(transfer),
+      successTitle: '已標記為已轉帳',
+    });
+  }, [persistSettlementRecords, settlements]);
+
+  const handleCancelTransferPaid = useCallback((recordId) => {
+    const previousRecords = Array.isArray(settlements) ? settlements : [];
+    const nextRecords = cancelSettlementTransferPaid({
+      records: previousRecords,
+      recordId,
+      currency: 'TWD',
+    });
+    void persistSettlementRecords({
+      nextRecords,
+      previousRecords,
+      mutationId: String(recordId),
+      successTitle: '已取消轉帳完成狀態',
+    });
+  }, [persistSettlementRecords, settlements]);
   const activeChecklistMember = membersList.includes(checklistActor)
     ? checklistActor
     : (membersList[0] || '自己');
@@ -3179,14 +3222,45 @@ const TripDetail = ({
                          <SearchBox dayId={dayId} onAddPlace={handleAddPlaceFromSearch} t={t} />
                       </div>
 
-                      <Droppable droppableId={String(dayId)}>
+                      <Droppable
+                        droppableId={String(dayId)}
+                        renderClone={(provided, _snapshot, rubric) => {
+                          const cloneItem = (Array.isArray(itinerary[dayId])
+                            ? itinerary[dayId]
+                            : [])[rubric.source.index];
+                          return (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              data-testid="itinerary-drag-clone"
+                              className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-white bg-blue-600 p-3 text-white shadow-2xl"
+                            >
+                              <div className="flex w-11 shrink-0 flex-col items-center">
+                                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-black">
+                                  {rubric.source.index + 1}
+                                </span>
+                                {cloneItem?.time ? <span className="mt-1 text-[10px] font-bold">{String(cloneItem.time)}</span> : null}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="line-clamp-2 text-sm font-black [overflow-wrap:anywhere]">
+                                  {String(cloneItem?.customName || cloneItem?.name || '未命名景點')}
+                                </p>
+                                <p className="mt-1 text-[10px] font-bold text-white/75">
+                                  拖曳排序中
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      >
                         {(provided) => (
                           <div
                             {...provided.droppableProps}
                             ref={provided.innerRef}
                             data-testid="itinerary-day-dropzone"
                             data-day-id={String(dayId)}
-                            className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide"
+                            className="flex-1 overflow-y-auto min-h-37.5 pb-24 md:pb-6 scrollbar-hide"
                           >
                             {(!Array.isArray(itinerary[dayId]) || itinerary[dayId].length === 0) ? (
                               <EmptyState
@@ -3216,12 +3290,12 @@ const TripDetail = ({
                               return (
                               <Draggable key={String(item.id)} draggableId={String(item.id)} index={index}>
                                 {(prov, snap) => (
-                                  <div ref={prov.innerRef} {...prov.draggableProps} className={`transition-all relative group mb-1 ${snap.isDragging ? 'z-50 scale-105 touch-none' : ''}`}>
+                                  <div ref={prov.innerRef} {...prov.draggableProps} className={`relative group mb-1 transition-transform ${snap.isDragging ? 'z-50' : ''}`}>
 
                                     <div
                                       data-testid="place-card"
                                       data-place-id={String(item.id)}
-                                      className={`p-4 rounded-2xl border flex flex-col backdrop-blur-md transition-all relative overflow-hidden ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover} cursor-pointer`}`}
+                                      className={`p-4 rounded-2xl border flex flex-col md:backdrop-blur-md transition-[box-shadow,border-color,transform] relative overflow-hidden ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover} cursor-pointer`}`}
                                       onClick={() => {
                                         if (!snap.isDragging) handleSavedItemDetails(item, dayId);
                                       }}
@@ -3232,7 +3306,7 @@ const TripDetail = ({
                                           data-testid="place-drag-handle"
                                           data-place-id={String(item.id)}
                                           onClick={(event) => event.stopPropagation()}
-                                          className="flex flex-col items-center shrink-0 w-10 cursor-grab active:cursor-grabbing hover:opacity-80"
+                                          className="flex min-h-11 w-11 touch-pan-y select-none flex-col items-center shrink-0 cursor-grab active:cursor-grabbing hover:opacity-80"
                                         >
                                            <div className={`text-xs font-black p-1.5 rounded-full w-7 h-7 flex items-center justify-center ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
                                               {index + 1}
@@ -3249,11 +3323,11 @@ const TripDetail = ({
                                         </div>
 
                                         <div className="flex-1 min-w-0">
-                                          <div className="flex items-start justify-between gap-3">
+                                          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
                                             <div className="min-w-0 flex-1">
                                               <h3
                                                 data-testid="place-card-title"
-                                                className={`truncate text-sm font-bold transition-colors group-hover:text-blue-500 ${snap.isDragging ? 'text-white' : t.mainText}`}
+                                                className={`line-clamp-2 text-sm font-bold transition-colors [overflow-wrap:anywhere] group-hover:text-blue-500 ${snap.isDragging ? 'text-white' : t.mainText}`}
                                                 title="點擊卡片查看詳細資訊"
                                                 role="button"
                                                 tabIndex={0}
@@ -3275,38 +3349,40 @@ const TripDetail = ({
                                               ) : null}
                                             </div>
 
-                                            <button
-                                              type="button"
-                                              data-testid="place-action-menu-trigger"
-                                              data-place-id={String(item.id)}
-                                              aria-label="開啟景點操作"
-                                              aria-haspopup="menu"
-                                              aria-expanded={activePlaceActionMenu?.id === actionMenuId}
-                                              aria-controls={activePlaceActionMenu?.id === actionMenuId ? `place-action-menu-${actionMenuId}` : undefined}
-                                              ref={(node) => {
-                                                if (node) placeActionTriggerRefs.current[actionMenuId] = node;
-                                                else delete placeActionTriggerRefs.current[actionMenuId];
-                                              }}
-                                              onClick={(event) => openPlaceActionMenu(event, dayId, item)}
-                                              className={`export-hide flex min-h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-lg font-black shadow-sm active:scale-95 md:hidden ${snap.isDragging ? 'border-white/25 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
-                                            >
-                                              ⋯
-                                            </button>
-
-                                            <button
-                                              type="button"
-                                              onClick={(event) => {
-                                                event.stopPropagation();
-                                                openExternalUrl(getPlaceNavigationUrl(item));
-                                              }}
-                                              className={`export-hide flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[10px] font-black shadow-sm active:scale-95 ${snap.isDragging ? 'border-white/30 bg-white/15 text-white' : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600'}`}
-                                              title="開啟導航"
-                                              aria-label={`導航到${String(displayName)}`}
-                                            >
-                                              <span>🧭</span>
-                                              <span>導航</span>
-                                            </button>
+                                            <div data-testid="place-card-actions" className="export-hide shrink-0">
+                                              <button
+                                                type="button"
+                                                data-testid="place-action-menu-trigger"
+                                                data-place-id={String(item.id)}
+                                                aria-label="開啟景點操作"
+                                                aria-haspopup="menu"
+                                                aria-expanded={activePlaceActionMenu?.id === actionMenuId}
+                                                aria-controls={activePlaceActionMenu?.id === actionMenuId ? `place-action-menu-${actionMenuId}` : undefined}
+                                                ref={(node) => {
+                                                  if (node) placeActionTriggerRefs.current[actionMenuId] = node;
+                                                  else delete placeActionTriggerRefs.current[actionMenuId];
+                                                }}
+                                                onClick={(event) => openPlaceActionMenu(event, dayId, item)}
+                                                className={`flex min-h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-lg font-black shadow-sm active:scale-95 md:hidden ${snap.isDragging ? 'border-white/25 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
+                                              >
+                                                ⋯
+                                              </button>
+                                            </div>
                                           </div>
+
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              openExternalUrl(getPlaceNavigationUrl(item));
+                                            }}
+                                            className={`export-hide mt-2 flex min-h-11 w-fit shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[10px] font-black shadow-sm active:scale-95 ${snap.isDragging ? 'border-white/30 bg-white/15 text-white' : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600'}`}
+                                            title="開啟導航"
+                                            aria-label={`導航到${String(displayName)}`}
+                                          >
+                                            <span>🧭</span>
+                                            <span>導航</span>
+                                          </button>
 
                                           <div className="mt-2 flex flex-wrap gap-1.5">
                                             {(Array.isArray(item.tags) ? item.tags : []).map((tag, idx) => (
@@ -3384,8 +3460,9 @@ const TripDetail = ({
                 expenseStats={expenseStats}
                 onCreateExpense={openNewExpense}
                 onEditExpense={openExpenseEditor}
-                onOpenSettlement={() => setShowSettlementModal(true)}
-                onDeleteSettlement={handleDeleteSettlement}
+                onMarkTransferPaid={handleMarkTransferPaid}
+                onCancelTransferPaid={handleCancelTransferPaid}
+                settlementMutationId={settlementMutationId}
                 onUpdateBudget={handleBudgetChange}
               />
 
@@ -3628,7 +3705,6 @@ const TripDetail = ({
           t={t}
         />
       ) : null}
-      {showSettlementModal ? <SettlementModal members={membersList} suggestions={expenseStats.preTripTransfers} onClose={() => setShowSettlementModal(false)} onSave={handleSaveSettlement} t={t} /> : null}
       {ticketEditorState ? (
         <TicketEditorModal
           mode={ticketEditorState.mode}
