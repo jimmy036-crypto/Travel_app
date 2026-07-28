@@ -84,6 +84,16 @@ for (const viewport of [
     await expect(page.getByTestId('map-itinerary-sheet')).toBeVisible();
     await expect(page.getByTestId('map-place-card')).toHaveCount(3);
     await expect(mapCard(page, 'map-b').getByTestId('map-place-no-location')).toBeVisible();
+    await expect(page.getByTestId('map-explore-trigger')).toBeVisible();
+    await expect(page.getByRole('textbox', { name: '探索周邊' })).toHaveCount(0);
+
+    const mapCards = page.getByTestId('map-place-card');
+    const firstCardBox = await mapCards.first().boundingBox();
+    expect(firstCardBox).not.toBeNull();
+    expect(firstCardBox?.width || 0).toBeGreaterThanOrEqual(131);
+    expect(firstCardBox?.width || 0).toBeLessThanOrEqual(161);
+    await expect(mapCards.first().getByRole('button', { name: /導航到/ })).toHaveCount(0);
+    await expect(mapCards.first().getByTestId('map-place-action-menu-trigger')).toHaveCount(0);
 
     const marker = page.locator(
       '[data-testid="map-itinerary-marker"][data-place-id="map-c"]',
@@ -100,6 +110,9 @@ for (const viewport of [
 
     await mapCard(page, 'map-b').getByTestId('map-place-card-select').click();
     await expect(mapCard(page, 'map-b')).toHaveAttribute('aria-selected', 'true');
+    await mapCard(page, 'map-b').getByTestId('map-place-card-select').click();
+    await expect(page.getByTestId('place-detail-sheet')).toBeVisible();
+    await page.getByRole('button', { name: '關閉景點詳細資訊' }).click();
 
     const cardScroller = page.getByTestId('map-itinerary-card-scroller');
     await cardScroller.evaluate((element) => element.scrollBy({ left: 300, behavior: 'auto' }));
@@ -121,19 +134,21 @@ for (const viewport of [
   });
 }
 
-test('map card actions remain isolated and selected cards retain details access', async ({ page }) => {
+test('map cards use two-stage details access without timeline-only actions', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${ROOM_ID}`);
   await page.getByTestId('mobile-nav-map').click();
 
-  const firstCard = mapCard(page, 'map-a');
-  await firstCard.getByTestId('map-place-action-menu-trigger').click();
-  await expect(page.getByTestId('place-action-menu')).toBeVisible();
+  const thirdCard = mapCard(page, 'map-c');
+  await expect(thirdCard.getByTestId('map-place-action-menu-trigger')).toHaveCount(0);
+  await expect(thirdCard.getByRole('button', { name: /導航到/ })).toHaveCount(0);
   await expect(page.getByTestId('place-detail-sheet')).toHaveCount(0);
   await expect(page.getByTestId('itinerary-drag-clone')).toHaveCount(0);
-  await page.keyboard.press('Escape');
 
-  await firstCard.getByTestId('map-place-card-select').click();
+  await thirdCard.getByTestId('map-place-card-select').click();
+  await expect(thirdCard).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('place-detail-sheet')).toHaveCount(0);
+  await thirdCard.getByTestId('map-place-card-select').click();
   await expect(page.getByTestId('place-detail-sheet')).toBeVisible();
 });
 

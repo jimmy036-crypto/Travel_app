@@ -91,10 +91,6 @@ function renderMap(overrides = {}) {
     onSelectExploreItem: vi.fn(),
     onRouteCalculated: vi.fn(),
     onOpenDetails: vi.fn(),
-    onNavigate: vi.fn(),
-    onOpenActionMenu: vi.fn(),
-    activeActionMenuId: '',
-    registerActionTrigger: vi.fn(),
     ...overrides,
   };
   const view = render(<MobileTripMapView {...props} />);
@@ -137,7 +133,7 @@ describe('MobileTripMapView', () => {
     expect(screen.getByText('第二天唯一景點')).toBeInTheDocument();
   });
 
-  it('uses a stable image fallback and isolates card actions', () => {
+  it('uses a stable image fallback and removes preview-card actions', () => {
     const { props } = renderMap();
     const image = document.querySelector('img');
     expect(image).not.toBeNull();
@@ -145,11 +141,17 @@ describe('MobileTripMapView', () => {
     expect(screen.getAllByTestId('map-place-photo-fallback').length).toBeGreaterThan(0);
 
     const firstCard = screen.getAllByTestId('map-place-card')[0];
-    fireEvent.click(within(firstCard).getByRole('button', { name: /導航到/ }));
-    fireEvent.click(within(firstCard).getByTestId('map-place-action-menu-trigger'));
-    expect(props.onNavigate).toHaveBeenCalledTimes(1);
-    expect(props.onOpenActionMenu).toHaveBeenCalledTimes(1);
+    expect(within(firstCard).queryByRole('button', { name: /導航到/ })).not.toBeInTheDocument();
+    expect(within(firstCard).queryByTestId('map-place-action-menu-trigger')).not.toBeInTheDocument();
+    expect(firstCard).toHaveClass('w-[clamp(8.25rem,38vw,10rem)]');
+
+    const thirdCard = screen.getAllByTestId('map-place-card')[2];
+    fireEvent.click(within(thirdCard).getByTestId('map-place-card-select'));
+    expect(thirdCard).toHaveAttribute('aria-selected', 'true');
     expect(props.onOpenDetails).not.toHaveBeenCalled();
+
+    fireEvent.click(within(thirdCard).getByTestId('map-place-card-select'));
+    expect(props.onOpenDetails).toHaveBeenCalledWith(itinerary['Day 1'][2], 'Day 1');
   });
 
   it('exposes sheet state and degrades coherently when the Maps API is unavailable', () => {
@@ -164,5 +166,32 @@ describe('MobileTripMapView', () => {
     expect(screen.getByTestId('map-api-unavailable-state')).toBeInTheDocument();
     expect(screen.queryByTestId('google-map-instance')).not.toBeInTheDocument();
     expect(screen.getAllByTestId('map-place-card')).toHaveLength(3);
+  });
+
+  it('keeps the full explore search collapsed until the 44px entry is opened', () => {
+    const { props } = renderMap({ exploreQuery: '餐廳' });
+    expect(screen.getByTestId('map-explore-controls')).toHaveAttribute('data-expanded', 'false');
+    expect(screen.queryByRole('textbox', { name: '探索周邊' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('map-explore-trigger'));
+    expect(screen.getByTestId('map-explore-controls')).toHaveAttribute('data-expanded', 'true');
+    fireEvent.change(screen.getByRole('textbox', { name: '探索周邊' }), {
+      target: { value: '咖啡廳' },
+    });
+    expect(props.onExploreQueryChange).toHaveBeenCalledWith('咖啡廳');
+    fireEvent.click(screen.getByRole('button', { name: '搜尋' }));
+    expect(props.onExploreSearch).toHaveBeenCalledWith('餐廳', null);
+
+    fireEvent.click(screen.getByRole('button', { name: '關閉周邊搜尋' }));
+    expect(screen.getByTestId('map-explore-trigger')).toBeInTheDocument();
+  });
+
+  it('uses the reduced default and expanded sheet heights', () => {
+    renderMap();
+    const sheet = screen.getByTestId('map-itinerary-sheet');
+    expect(sheet).toHaveClass('h-[clamp(10.5rem,30%,12.5rem)]');
+
+    fireEvent.click(screen.getByTestId('map-sheet-toggle'));
+    expect(sheet).toHaveClass('h-[56%]');
   });
 });

@@ -160,8 +160,8 @@ test('cloud-only collaboration keeps its position and explains availability', as
   });
   let collaborationControl = page.getByRole('button', { name: /共編/ });
   if (await collaborationControl.count() === 0) {
-    await page.getByTestId('mobile-trip-tools-trigger').click();
-    collaborationControl = page.getByRole('menuitem', { name: /共編/ });
+    await page.getByTestId('app-settings-trigger').click();
+    collaborationControl = page.getByTestId('app-settings-trip-share');
   }
   await collaborationControl.click();
 

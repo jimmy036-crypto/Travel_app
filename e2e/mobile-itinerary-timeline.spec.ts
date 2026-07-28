@@ -56,7 +56,21 @@ async function dragByKeyboard(
   await page.keyboard.press('Space');
 }
 
-test.beforeEach(async () => {
+test.beforeEach(async ({ page }) => {
+  await page.route('https://api.open-meteo.com/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        daily: {
+          time: ['2026-09-20', '2026-09-21'],
+          temperature_2m_min: [24, 23],
+          temperature_2m_max: [28, 27],
+          precipitation_probability_max: [35, 20],
+        },
+      }),
+    });
+  });
   await clearEmulatorDatabase();
   const dayOne = Array.from({ length: 12 }, (_, index) => ({
     id: `timeline-${index + 1}`,
@@ -72,7 +86,7 @@ test.beforeEach(async () => {
   }));
 
   await seedTestTrip(ROOM_ID, {
-    title: 'E2E Mobile Timeline',
+    title: 'OkinawaChuraumiAquariumOceanExpoParkSouvenirShop',
     startDate: '2026-09-20',
     endDate: '2026-09-21',
     itinerary: {
@@ -97,6 +111,39 @@ for (const width of [320, 390]) {
 
     await expect(page.getByTestId('mobile-trip-header')).toBeVisible();
     await expect(page.getByTestId('mobile-day-switcher')).toBeVisible();
+    await expect(page.getByTestId('mobile-trip-tools-trigger')).toHaveCount(0);
+    await expect(page.getByTestId('app-settings-trigger')).toHaveCount(1);
+    await expect(page.getByTestId('mobile-trip-weather-temperature')).toHaveText('24~28°C');
+    await expect(page.getByTestId('mobile-trip-weather-rain')).toHaveText('降雨 35%');
+
+    const [titleBox, weatherBox, settingsBox, summaryBox] = await Promise.all([
+      page.getByTestId('trip-detail-title').boundingBox(),
+      page.getByTestId('mobile-trip-weather').boundingBox(),
+      page.getByTestId('app-settings-trigger').boundingBox(),
+      page.getByTestId('mobile-trip-summary').boundingBox(),
+    ]);
+    expect(titleBox).not.toBeNull();
+    expect(weatherBox).not.toBeNull();
+    expect(settingsBox).not.toBeNull();
+    expect(summaryBox).not.toBeNull();
+    expect((titleBox?.x || 0) + (titleBox?.width || 0)).toBeLessThanOrEqual(
+      (weatherBox?.x || 0) + 1,
+    );
+    expect((settingsBox?.y || 0) + (settingsBox?.height || 0)).toBeLessThanOrEqual(
+      (summaryBox?.y || 0) + 1,
+    );
+
+    await page.getByTestId('app-settings-trigger').click();
+    await expect(page.getByRole('dialog', { name: '旅程工具與設定' })).toBeVisible();
+    await expect(page.getByTestId('app-settings-trip-section')).toContainText('旅程工具');
+    await expect(page.getByTestId('app-settings-trip-share')).toBeVisible();
+    await expect(page.getByTestId('app-settings-trip-checklist')).toBeVisible();
+    await expect(page.getByTestId('app-settings-trip-export')).toBeVisible();
+    await expect(page.getByTestId('app-settings-app-section')).toContainText('App 設定');
+    await expect(page.getByTestId('app-settings-appearance')).toBeVisible();
+    await page.getByTestId('app-settings-close').click();
+    await expect(page.getByTestId('app-settings-trigger')).toBeFocused();
+
     await expect(page.getByTestId('itinerary-day-card')).toHaveAttribute(
       'data-mobile-composition',
       'timeline',
