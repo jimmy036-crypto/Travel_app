@@ -84,6 +84,39 @@ describe('local example trip repository', () => {
     expect(template.meta.title).toBe('Tokyo');
   });
 
+  it('persists settlement transfer records only in the local example record store', async () => {
+    const recordStore = createMemoryRecordStore();
+    const template = {
+      meta: { title: 'Tokyo' },
+      itinerary: {},
+      expenses: [],
+      settlements: [],
+      tickets: [],
+      checklist: [],
+    };
+    const repository = createLocalExampleTripRepository({
+      recordStore,
+      attachmentStore: createAttachmentStore(),
+      createTemplate: () => template,
+    });
+    const transferRecord = {
+      id: 'transfer-1',
+      fromParticipantId: '自己',
+      toParticipantId: '朋友',
+      amount: 500,
+      currency: 'TWD',
+      status: 'paid',
+      paidAt: '2026-07-28T04:30:00.000Z',
+      createdAt: '2026-07-28T04:30:00.000Z',
+      updatedAt: '2026-07-28T04:30:00.000Z',
+    };
+
+    await repository.updateSettlements([transferRecord]);
+
+    expect((await repository.loadTrip()).settlements).toEqual([transferRecord]);
+    expect(recordStore.inspect().snapshot.settlements).toEqual([transferRecord]);
+  });
+
   it('recovers corrupted and incompatible records from the immutable template', async () => {
     const incompatibleStore = createMemoryRecordStore({
       schemaVersion: '999',

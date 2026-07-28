@@ -8,6 +8,10 @@ import {
   LOCAL_EXAMPLE_TRIP_CAPABILITIES,
 } from './features/trip-data/tripCapabilities.js';
 
+const { expenseSectionSpy } = vi.hoisted(() => ({
+  expenseSectionSpy: vi.fn(),
+}));
+
 vi.mock('./firebase.js', () => ({ db: null, storage: null }));
 vi.mock('@vis.gl/react-google-maps', () => ({
   useMapsLibrary: () => null,
@@ -57,7 +61,26 @@ vi.mock('./components/ui/useToast.js', () => ({
   useToast: () => ({ info: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() }),
 }));
 vi.mock('./features/expenses/ExpenseSection.jsx', () => ({
-  ExpenseSection: () => <section data-testid="expense-section" />,
+  ExpenseSection: (props) => {
+    expenseSectionSpy(props);
+    return (
+      <section data-testid="expense-section">
+        <span data-testid="settlement-record-count">{props.settlements.length}</span>
+        <button
+          type="button"
+          data-testid="test-mark-settlement-paid"
+          onClick={() => props.onMarkTransferPaid({
+            fromParticipantId: '自己',
+            toParticipantId: '朋友',
+            amount: 100,
+            currency: 'TWD',
+          })}
+        >
+          mark
+        </button>
+      </section>
+    );
+  },
 }));
 vi.mock('./features/tickets/TicketWalletSection.jsx', () => ({
   TicketWalletSection: () => <section data-testid="ticket-section" />,
@@ -77,7 +100,18 @@ const snapshot = {
     themeColor: '#2563eb',
   },
   itinerary: {
-    'Day 1': [{ id: 'place-1', name: '淺草寺', time: '10:00' }],
+    'Day 1': [
+      {
+        id: 'place-1',
+        name: '沖繩美麗海水族館 海洋博公園 熱帶夢幻中心紀念品商店',
+        time: '10:00',
+      },
+      {
+        id: 'place-2',
+        name: 'OkinawaChuraumiAquariumOceanExpoParkSouvenirShop',
+        time: '11:00',
+      },
+    ],
   },
   expenses: [],
   settlements: [],
@@ -128,7 +162,10 @@ const renderWithRepository = async (repository, tripId) => {
 };
 
 describe('TripDetail repository injection', () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    expenseSectionSpy.mockClear();
+    vi.restoreAllMocks();
+  });
 
   it('renders a Firebase repository through the shared TripDetail root', async () => {
     const layout = await renderWithRepository(
@@ -159,5 +196,57 @@ describe('TripDetail repository injection', () => {
     expect(screen.queryByTestId('sync-status')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /共編/ }));
     expect(alert).toHaveBeenCalledWith('建立自己的旅程後即可使用此功能');
+  });
+
+  it('rolls settlement state back when repository persistence fails', async () => {
+    const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
+    repository.updateSettlements.mockRejectedValueOnce(new Error('write failed'));
+    await renderWithRepository(repository, 'firebase-trip');
+
+    fireEvent.click(screen.getByTestId('test-mark-settlement-paid'));
+    await waitFor(() => expect(screen.getByTestId('settlement-record-count')).toHaveTextContent('1'));
+    await waitFor(() => expect(screen.getByTestId('settlement-record-count')).toHaveTextContent('0'));
+    expect(repository.updateSettlements).toHaveBeenCalledWith([
+      expect.objectContaining({
+        fromParticipantId: '自己',
+        toParticipantId: '朋友',
+        amount: 100,
+        currency: 'TWD',
+        status: 'paid',
+      }),
+    ]);
+  });
+
+  it('uses only the injected local repository for example settlement writes', async () => {
+    const localRepository = createRepository(LOCAL_EXAMPLE_TRIP_CAPABILITIES);
+    await renderWithRepository(localRepository, 'local-example-trip');
+
+    fireEvent.click(screen.getByTestId('test-mark-settlement-paid'));
+    await waitFor(() => expect(localRepository.updateSettlements).toHaveBeenCalledTimes(1));
+    expect(localRepository.updateSettlements).toHaveBeenCalledWith([
+      expect.objectContaining({ status: 'paid', currency: 'TWD' }),
+    ]);
+  });
+
+  it('keeps long place titles separate from the menu and isolates menu clicks', async () => {
+    const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
+    await renderWithRepository(repository, 'firebase-trip');
+
+    const titles = screen.getAllByTestId('place-card-title');
+    expect(titles).toHaveLength(2);
+    titles.forEach((title) => {
+      expect(title).toHaveClass('line-clamp-2');
+      expect(title).toHaveClass('[overflow-wrap:anywhere]');
+    });
+
+    const firstCard = screen.getAllByTestId('place-card')[0];
+    const menuTrigger = firstCard.querySelector('[data-testid="place-action-menu-trigger"]');
+    expect(menuTrigger).toHaveClass('w-11', 'shrink-0');
+    expect(menuTrigger).not.toHaveAttribute('data-rfd-drag-handle-draggable-id');
+
+    fireEvent.click(menuTrigger);
+    expect(screen.getByTestId('place-action-menu')).toBeInTheDocument();
+    expect(screen.queryByTestId('place-detail-sheet')).not.toBeInTheDocument();
+    expect(repository.updateItinerary).not.toHaveBeenCalled();
   });
 });

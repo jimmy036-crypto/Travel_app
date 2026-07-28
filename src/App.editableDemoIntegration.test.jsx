@@ -145,6 +145,19 @@ describe('editable local example App integration', () => {
     expect(screen.queryByText(/Clone/i)).not.toBeInTheDocument();
   });
 
+  it('opens the lobby appearance dialog and restores focus after Escape', async () => {
+    const user = await renderLobby([REAL_TRIP]);
+    const trigger = screen.getByTestId('lobby-appearance-button');
+
+    await user.click(trigger);
+    expect(screen.getByRole('dialog', { name: '自訂外觀' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('appearance-color-input')).toHaveFocus());
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '自訂外觀' })).not.toBeInTheDocument());
+    expect(trigger).toHaveFocus();
+  });
+
   it('saves structured edits without Firebase or myTrips writes', async () => {
     const user = await renderLobby([REAL_TRIP]);
     await openExample(user);
