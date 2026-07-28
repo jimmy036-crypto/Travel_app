@@ -16,6 +16,18 @@ function placeCard(page: Page, name: string) {
   return page.getByTestId('place-card').filter({ hasText: name }).first();
 }
 
+function boxesOverlap(
+  first: { x: number; y: number; width: number; height: number },
+  second: { x: number; y: number; width: number; height: number },
+): boolean {
+  return !(
+    first.x + first.width <= second.x + 1
+    || second.x + second.width <= first.x + 1
+    || first.y + first.height <= second.y + 1
+    || second.y + second.height <= first.y + 1
+  );
+}
+
 test.beforeEach(async () => {
   await clearEmulatorDatabase();
   await seedTestTrip(ROOM_ID, {
@@ -44,12 +56,27 @@ for (const width of [320, 390]) {
       const card = placeCard(page, name);
       const title = card.getByTestId('place-card-title');
       const menu = card.getByTestId('place-action-menu-trigger');
+      const mobileActions = card.getByTestId('place-card-actions');
       await expect(title).toBeVisible();
       await expect(menu).toBeVisible();
-      const [titleBox, menuBox] = await Promise.all([title.boundingBox(), menu.boundingBox()]);
+      await expect(card).toHaveAttribute('data-mobile-layout', 'compact');
+      await expect(mobileActions).toHaveAttribute('data-layout', 'mobile-compact');
+      await expect(card.getByTestId('place-info-trigger')).toBeHidden();
+      await expect(card.getByTestId('desktop-place-actions')).toBeHidden();
+      await expect(card.locator('button:visible')).toHaveCount(2);
+      await expect(card.getByRole('button', { name: /導航到/ })).toBeVisible();
+      await expect(card).toHaveCSS('padding-top', '10px');
+
+      const [cardBox, titleBox, menuBox] = await Promise.all([
+        card.boundingBox(),
+        title.boundingBox(),
+        menu.boundingBox(),
+      ]);
+      expect(cardBox).not.toBeNull();
       expect(titleBox).not.toBeNull();
       expect(menuBox).not.toBeNull();
-      expect((titleBox?.x || 0) + (titleBox?.width || 0)).toBeLessThanOrEqual((menuBox?.x || 0) + 1);
+      expect(cardBox?.height || 0).toBeLessThanOrEqual(140);
+      expect(boxesOverlap(titleBox!, menuBox!)).toBe(false);
       expect(menuBox?.width || 0).toBeGreaterThanOrEqual(44);
       expect(menuBox?.height || 0).toBeGreaterThanOrEqual(44);
       await expect(title).toHaveCSS('-webkit-line-clamp', '2');
@@ -58,7 +85,12 @@ for (const width of [320, 390]) {
     const firstCard = placeCard(page, NAMES[0]);
     await firstCard.getByTestId('place-action-menu-trigger').click();
     await expect(page.getByTestId('place-action-menu')).toBeVisible();
+    await expect(page.getByTestId('place-action-edit')).toBeVisible();
+    await expect(page.getByTestId('place-action-nearby')).toBeVisible();
+    await expect(page.getByTestId('place-action-copy')).toBeVisible();
+    await expect(page.getByTestId('place-action-delete')).toBeVisible();
     await expect(page.getByTestId('place-detail-sheet')).toHaveCount(0);
+    await expect(page.getByTestId('itinerary-drag-clone')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('place-action-menu')).toHaveCount(0);
 
@@ -69,3 +101,16 @@ for (const width of [320, 390]) {
     expect(order.map((item) => item.id)).toEqual(['long-place-0', 'long-place-1']);
   });
 }
+
+test('desktop breakpoint preserves the existing detailed card actions', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/?room=${ROOM_ID}`);
+  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+
+  const card = placeCard(page, NAMES[0]);
+  await expect(card).toHaveCSS('padding-top', '16px');
+  await expect(card.getByTestId('place-card-actions')).toBeHidden();
+  await expect(card.getByTestId('desktop-place-actions')).toHaveCSS('display', 'flex');
+  await expect(card.getByTestId('place-info-trigger')).toHaveCSS('display', 'flex');
+  await expect(card.getByRole('button', { name: /導航到/ })).toBeVisible();
+});

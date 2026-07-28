@@ -102,7 +102,14 @@ async function dragByKeyboard(
   await handle.scrollIntoViewIfNeeded();
   await handle.focus();
   await page.keyboard.press('Space');
-  await expect(page.getByTestId('itinerary-drag-clone')).toContainText(placeName);
+  const clone = page.getByTestId('itinerary-drag-clone');
+  await expect(clone).toContainText(placeName);
+  await expect(clone).toHaveAttribute('data-mobile-layout', 'compact');
+  const cloneBox = await clone.boundingBox();
+  expect(cloneBox).not.toBeNull();
+  expect(cloneBox?.width || 0).toBeLessThanOrEqual(241);
+  expect(cloneBox?.height || 0).toBeLessThanOrEqual(72);
+  await expect(clone.getByRole('button')).toHaveCount(0);
   for (let index = 0; index < moves; index += 1) {
     await page.keyboard.press(direction);
   }

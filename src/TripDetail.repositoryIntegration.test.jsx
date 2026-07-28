@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import TripDetail from './TripDetail.jsx';
@@ -228,7 +228,7 @@ describe('TripDetail repository injection', () => {
     ]);
   });
 
-  it('keeps long place titles separate from the menu and isolates menu clicks', async () => {
+  it('uses the compact mobile layout while preserving desktop actions and isolating menu clicks', async () => {
     const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
     await renderWithRepository(repository, 'firebase-trip');
 
@@ -240,12 +240,25 @@ describe('TripDetail repository injection', () => {
     });
 
     const firstCard = screen.getAllByTestId('place-card')[0];
+    expect(firstCard).toHaveAttribute('data-mobile-layout', 'compact');
+    expect(firstCard).toHaveClass('p-2.5', 'md:p-4');
+    const mobileActions = firstCard.querySelector('[data-testid="place-card-actions"]');
+    expect(mobileActions).toHaveAttribute('data-layout', 'mobile-compact');
+    expect(mobileActions).toHaveClass('md:hidden');
+    expect(within(mobileActions).getByRole('button', { name: /導航到/ })).toBeInTheDocument();
+
     const menuTrigger = firstCard.querySelector('[data-testid="place-action-menu-trigger"]');
     expect(menuTrigger).toHaveClass('w-11', 'shrink-0');
     expect(menuTrigger).not.toHaveAttribute('data-rfd-drag-handle-draggable-id');
+    expect(firstCard.querySelector('[data-testid="place-info-trigger"]')).toHaveClass('hidden', 'md:flex');
+    expect(firstCard.querySelector('[data-testid="desktop-place-actions"]')).toHaveClass('hidden', 'md:flex');
 
     fireEvent.click(menuTrigger);
     expect(screen.getByTestId('place-action-menu')).toBeInTheDocument();
+    expect(screen.getByTestId('place-action-edit')).toBeInTheDocument();
+    expect(screen.getByTestId('place-action-nearby')).toBeInTheDocument();
+    expect(screen.getByTestId('place-action-copy')).toBeInTheDocument();
+    expect(screen.getByTestId('place-action-delete')).toBeInTheDocument();
     expect(screen.queryByTestId('place-detail-sheet')).not.toBeInTheDocument();
     expect(repository.updateItinerary).not.toHaveBeenCalled();
   });
