@@ -42,10 +42,6 @@ export function MobileTripMapView({
   onSelectExploreItem,
   onRouteCalculated,
   onOpenDetails,
-  onNavigate,
-  onOpenActionMenu,
-  activeActionMenuId,
-  registerActionTrigger,
 }) {
   const apiStatus = useApiLoadingStatus();
   const entries = useMemo(
@@ -54,6 +50,7 @@ export function MobileTripMapView({
   );
   const validEntries = useMemo(() => getValidMapEntries(entries), [entries]);
   const [selectedEntryId, setSelectedEntryId] = useState(entries[0]?.id || '');
+  const [exploreOpen, setExploreOpen] = useState(false);
   const routeState = useMemo(
     () => getRouteDisplayState(entries.map((entry) => entry.item), durations),
     [durations, entries],
@@ -83,7 +80,7 @@ export function MobileTripMapView({
         >
           <div className={`max-w-xs rounded-2xl border p-4 ${t.modalBg} ${t.cardBorder}`}>
             <p className={`text-sm font-black ${t.mainText}`}>地圖服務暫時無法使用</p>
-            <p className={`mt-1 text-xs ${t.subText}`}>仍可從下方行程卡查看、導航與管理景點。</p>
+            <p className={`mt-1 text-xs ${t.subText}`}>仍可從下方行程卡選擇並查看景點詳情。</p>
           </div>
         </div>
       ) : (
@@ -186,38 +183,60 @@ export function MobileTripMapView({
 
       <div
         data-testid="map-explore-controls"
-        className="absolute inset-x-3 top-3 z-20 grid gap-2"
+        data-expanded={exploreOpen}
+        className={`absolute top-3 z-20 ${exploreOpen ? 'inset-x-3' : 'right-3'}`}
       >
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onExploreSearch?.(exploreQuery, null);
-          }}
-          className={`flex items-center gap-1 rounded-2xl border p-1.5 shadow-md ${t.headerBg} ${t.cardBorder}`}
-        >
-          <input
-            value={String(exploreQuery || '')}
-            onChange={(event) => onExploreQueryChange?.(event.target.value)}
-            placeholder="探索周邊"
-            aria-label="探索周邊"
-            className={`min-h-10 min-w-0 flex-1 bg-transparent px-2 text-xs font-bold outline-none ${t.mainText}`}
-          />
-          <button
-            type="submit"
-            className="min-h-10 rounded-xl bg-orange-500 px-3 text-[10px] font-black text-white"
+        {exploreOpen ? (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              onExploreSearch?.(exploreQuery, null);
+            }}
+            className={`flex items-center gap-1 rounded-2xl border p-1.5 shadow-md ${t.headerBg} ${t.cardBorder}`}
           >
-            搜尋
-          </button>
-          {exploreResults.length > 0 ? (
+            <input
+              autoFocus
+              value={String(exploreQuery || '')}
+              onChange={(event) => onExploreQueryChange?.(event.target.value)}
+              placeholder="探索周邊"
+              aria-label="探索周邊"
+              className={`min-h-10 min-w-0 flex-1 bg-transparent px-2 text-xs font-bold outline-none ${t.mainText}`}
+            />
+            <button
+              type="submit"
+              className="min-h-10 rounded-xl bg-orange-500 px-3 text-[10px] font-black text-white"
+            >
+              搜尋
+            </button>
+            {exploreResults.length > 0 ? (
+              <button
+                type="button"
+                onClick={onClearExplore}
+                className={`min-h-10 rounded-xl px-2 text-[10px] font-black ${t.mainText}`}
+              >
+                清除
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={onClearExplore}
-              className={`min-h-10 rounded-xl px-2 text-[10px] font-black ${t.mainText}`}
+              aria-label="關閉周邊搜尋"
+              onClick={() => setExploreOpen(false)}
+              className={`flex min-h-10 min-w-10 items-center justify-center rounded-xl text-lg font-black ${t.mainText}`}
             >
-              清除
+              ×
             </button>
-          ) : null}
-        </form>
+          </form>
+        ) : (
+          <button
+            type="button"
+            data-testid="map-explore-trigger"
+            aria-label="搜尋周邊景點"
+            onClick={() => setExploreOpen(true)}
+            className={`flex h-11 w-11 items-center justify-center rounded-2xl border text-lg shadow-md ${t.headerBg} ${t.cardBorder} ${t.mainText}`}
+          >
+            🔍
+          </button>
+        )}
       </div>
 
       {routeState.message ? (
@@ -239,12 +258,8 @@ export function MobileTripMapView({
           entries={entries}
           selectedEntryId={effectiveSelectedEntryId}
           t={t}
-          activeActionMenuId={activeActionMenuId}
-          registerActionTrigger={registerActionTrigger}
           onSelect={selectEntry}
           onOpenDetails={(item) => onOpenDetails?.(item, dayId)}
-          onNavigate={onNavigate}
-          onOpenActionMenu={onOpenActionMenu}
         />
       ) : null}
     </div>

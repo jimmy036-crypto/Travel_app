@@ -12,12 +12,8 @@ export function MapItinerarySheet({
   entries,
   selectedEntryId,
   t,
-  activeActionMenuId,
-  registerActionTrigger,
   onSelect,
   onOpenDetails,
-  onNavigate,
-  onOpenActionMenu,
 }) {
   const [expanded, setExpanded] = useState(false);
   const cardRefs = useRef({});
@@ -38,7 +34,7 @@ export function MapItinerarySheet({
       aria-label={`${String(dayId)} 地圖行程`}
       aria-expanded={expanded}
       className={`absolute inset-x-0 bottom-1 z-20 flex flex-col rounded-t-3xl border-t px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1 shadow-[0_-10px_30px_rgba(15,23,42,0.14)] transition-[height] ${
-        expanded ? 'h-[62%]' : 'h-[clamp(9.5rem,36%,15rem)]'
+        expanded ? 'h-[56%]' : 'h-[clamp(10.5rem,30%,12.5rem)]'
       } ${t.headerBg} ${t.cardBorder}`}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -65,9 +61,7 @@ export function MapItinerarySheet({
           className="scrollbar-hide flex min-h-0 flex-1 snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain pb-1 touch-pan-x"
           aria-label="依行程順序瀏覽景點"
         >
-          {entries.map((entry) => {
-            const actionMenuId = `${String(dayId)}-${entry.id}`;
-            return (
+          {entries.map((entry) => (
               <div
                 key={entry.id}
                 ref={(node) => {
@@ -79,17 +73,11 @@ export function MapItinerarySheet({
                   entry={entry}
                   selected={entry.id === selectedEntryId}
                   t={t}
-                  actionMenuId={actionMenuId}
-                  actionMenuExpanded={activeActionMenuId === actionMenuId}
-                  registerActionTrigger={registerActionTrigger}
                   onSelect={onSelect}
                   onOpenDetails={onOpenDetails}
-                  onNavigate={onNavigate}
-                  onOpenActionMenu={(event, item) => onOpenActionMenu?.(event, dayId, item)}
                 />
               </div>
-            );
-          })}
+          ))}
         </div>
       )}
     </section>

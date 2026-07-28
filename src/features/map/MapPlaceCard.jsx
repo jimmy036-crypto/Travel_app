@@ -4,13 +4,8 @@ export function MapPlaceCard({
   entry,
   selected,
   t,
-  actionMenuId,
-  actionMenuExpanded,
-  registerActionTrigger,
   onSelect,
   onOpenDetails,
-  onNavigate,
-  onOpenActionMenu,
 }) {
   const [failedPhotoUrl, setFailedPhotoUrl] = useState('');
   const showPhoto = Boolean(entry.photoUrl) && failedPhotoUrl !== entry.photoUrl;
@@ -21,7 +16,7 @@ export function MapPlaceCard({
       data-place-id={entry.id}
       data-order={String(entry.order)}
       aria-selected={selected}
-      className={`w-[min(72vw,15rem)] shrink-0 snap-center rounded-2xl border p-2 transition-[border-color,background-color,transform] ${
+      className={`w-[clamp(8.25rem,38vw,10rem)] shrink-0 snap-center rounded-2xl border p-2 transition-[border-color,background-color] ${
         selected
           ? 'border-blue-500 ring-2 ring-blue-500/30'
           : t.cardBorder
@@ -37,7 +32,7 @@ export function MapPlaceCard({
         className="w-full min-w-0 rounded-xl text-left focus-visible:outline-2 focus-visible:outline-blue-500"
         aria-label={`${selected ? '查看' : '選擇'}第 ${entry.order} 站 ${entry.name}`}
       >
-        <div className={`relative h-18 overflow-hidden rounded-xl ${t.cardMetaBg}`}>
+        <div className={`relative h-16 overflow-hidden rounded-xl ${t.cardMetaBg}`}>
           {showPhoto ? (
             <img
               src={entry.photoUrl}
@@ -77,37 +72,6 @@ export function MapPlaceCard({
           ) : null}
         </div>
       </button>
-
-      <div className="mt-2 flex justify-end gap-1">
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onNavigate?.(entry.item);
-          }}
-          aria-label={`導航到${entry.name}`}
-          className="flex min-h-11 w-11 items-center justify-center rounded-xl border border-emerald-500/30 bg-emerald-500/10"
-        >
-          🧭
-        </button>
-        <button
-          type="button"
-          data-testid="map-place-action-menu-trigger"
-          aria-label={`開啟${entry.name}的景點操作`}
-          aria-haspopup="menu"
-          aria-expanded={actionMenuExpanded}
-          aria-controls={actionMenuExpanded ? `place-action-menu-${actionMenuId}` : undefined}
-          ref={(node) => registerActionTrigger?.(actionMenuId, node)}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpenActionMenu?.(event, entry.item);
-          }}
-          className={`flex min-h-11 w-11 items-center justify-center rounded-xl border text-lg font-black ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
-        >
-          ⋯
-        </button>
-      </div>
     </article>
   );
 }
