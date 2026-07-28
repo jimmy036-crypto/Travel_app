@@ -8,6 +8,7 @@ import {
 
 const SAME_DAY_ROOM_ID = 'e2eitinerarydragroom0001';
 const CROSS_DAY_ROOM_ID = 'e2eitinerarycrossday0001';
+const LONG_LIST_ROOM_ID = 'e2eitinerarylonglist0001';
 
 type ItineraryItem = {
   id?: string;
@@ -86,6 +87,32 @@ async function dragOnePositionUpByKeyboard(
   await page.waitForTimeout(100);
   await page.keyboard.press('ArrowUp');
   await page.waitForTimeout(100);
+  await page.keyboard.press('Space');
+}
+
+async function dragByKeyboard(
+  page: Page,
+  dayId: string,
+  placeName: string,
+  direction: 'ArrowUp' | 'ArrowDown',
+  moves: number,
+): Promise<void> {
+  const handle = placeCard(page, dayId, placeName)
+    .getByTestId('place-drag-handle');
+  await handle.scrollIntoViewIfNeeded();
+  await handle.focus();
+  await page.keyboard.press('Space');
+  const clone = page.getByTestId('itinerary-drag-clone');
+  await expect(clone).toContainText(placeName);
+  await expect(clone).toHaveAttribute('data-mobile-layout', 'compact');
+  const cloneBox = await clone.boundingBox();
+  expect(cloneBox).not.toBeNull();
+  expect(cloneBox?.width || 0).toBeLessThanOrEqual(241);
+  expect(cloneBox?.height || 0).toBeLessThanOrEqual(72);
+  await expect(clone.getByRole('button')).toHaveCount(0);
+  for (let index = 0; index < moves; index += 1) {
+    await page.keyboard.press(direction);
+  }
   await page.keyboard.press('Space');
 }
 
@@ -426,4 +453,80 @@ test('跨日搬移會使用同一拖曳處理流程並保存兩日資料', async
       'E2E 待跨日景點',
       'E2E Day2 終點',
     ]);
+});
+
+test('mobile-safe handle supports 12-item first/last moves, cancellation, scrolling, and persistence', async ({
+  browserName,
+  page,
+}) => {
+  const longName = '沖繩美麗海水族館 海洋博公園 熱帶夢幻中心紀念品商店';
+  const items = Array.from({ length: 12 }, (_, index) => ({
+    id: `long-list-${index + 1}`,
+    name: index === 0 ? longName : `E2E 長清單第 ${index + 1} 站`,
+    customName: '',
+    time: `${String(9 + Math.floor(index / 4)).padStart(2, '0')}:${String((index % 4) * 15).padStart(2, '0')}`,
+    stayTime: 10,
+    tags: [],
+    nextLeg: { mode: 'WALK', mins: 5 },
+    ...(index === 5 ? {
+      placePhoto: {
+        url: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
+      },
+    } : {}),
+  }));
+  await seedTestTrip(LONG_LIST_ROOM_ID, {
+    title: 'E2E mobile long itinerary',
+    itinerary: { 'Day 1': items },
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/?room=${LONG_LIST_ROOM_ID}`);
+  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+
+  const firstHandle = placeCard(page, 'Day 1', longName).getByTestId('place-drag-handle');
+  await expect(firstHandle).toHaveCSS('touch-action', /pan-y|manipulation/);
+  expect(await placeCard(page, 'Day 1', longName)
+    .getByTestId('place-card-title')
+    .getAttribute('data-rfd-drag-handle-draggable-id')).toBeNull();
+
+  const dropzone = dayCard(page, 'Day 1').getByTestId('itinerary-day-dropzone');
+  await dropzone.hover();
+  if (browserName === 'webkit') {
+    await dropzone.evaluate((element) => element.scrollBy({ top: 600, behavior: 'auto' }));
+  } else {
+    await page.mouse.wheel(0, 600);
+  }
+  await expect.poll(() => dropzone.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(page.getByTestId('itinerary-drag-clone')).toHaveCount(0);
+  expect(await visibleOrder(page, 'Day 1')).toEqual(items.map((item) => item.name));
+
+  const cancelName = items[6].name;
+  const cancelHandle = placeCard(page, 'Day 1', cancelName).getByTestId('place-drag-handle');
+  await cancelHandle.scrollIntoViewIfNeeded();
+  await cancelHandle.focus();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('itinerary-drag-clone')).toHaveCount(0);
+  await expect.poll(() => visibleOrder(page, 'Day 1')).toEqual(items.map((item) => item.name));
+
+  await dragByKeyboard(page, 'Day 1', longName, 'ArrowDown', 11);
+  await expect.poll(() => visibleOrder(page, 'Day 1')).toEqual([
+    ...items.slice(1).map((item) => item.name),
+    longName,
+  ]);
+  await expect.poll(async () => (await readDayItems(LONG_LIST_ROOM_ID, 'Day 1'))
+    .map((item) => item.id)).toEqual([
+    ...items.slice(1).map((item) => item.id),
+    items[0].id,
+  ]);
+
+  await dragByKeyboard(page, 'Day 1', longName, 'ArrowUp', 11);
+  await expect.poll(() => visibleOrder(page, 'Day 1')).toEqual(items.map((item) => item.name));
+  await expect(placeCard(page, 'Day 1', items[1].name).getByTestId('place-card-time')).toHaveText('09:15');
+  await expect.poll(async () => (await readDayItems(LONG_LIST_ROOM_ID, 'Day 1'))
+    .map((item) => item.id)).toEqual(items.map((item) => item.id));
+
+  await page.reload();
+  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await expect.poll(() => visibleOrder(page, 'Day 1')).toEqual(items.map((item) => item.name));
 });

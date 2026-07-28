@@ -403,19 +403,11 @@ export const calculateExpenseStats = ({
     expenseFilter: (expense) => expense?.dayId === safePreTripId,
   });
 
-  const preTripSettlements = safeSettlements.filter(
-    (settlement) => settlement?.scope === 'pretrip',
-  );
-  const allBalances = applySettlementsToBalances({
-    balances: allSnapshot.balances,
-    settlements: preTripSettlements,
-    scope: 'pretrip',
-  });
-  const preTripBalances = applySettlementsToBalances({
-    balances: preTripSnapshot.balances,
-    settlements: preTripSettlements,
-    scope: 'pretrip',
-  });
+  // Transfer records describe completed actions; they do not mutate the
+  // current recommendation. This keeps an older paid amount from silently
+  // completing a recommendation after expenses change.
+  const allBalances = allSnapshot.balances;
+  const preTripBalances = preTripSnapshot.balances;
 
   const transfers = buildSettlementTransfers(allBalances);
   const preTripTransfers = buildSettlementTransfers(preTripBalances);
@@ -444,10 +436,12 @@ export const calculateExpenseStats = ({
     preTripTotal: safeExpenses
       .filter((expense) => expense?.dayId === safePreTripId)
       .reduce((sum, expense) => sum + toFiniteNumber(expense?.cost, 0), 0),
-    preTripSettlementTotal: preTripSettlements.reduce(
-      (sum, settlement) => sum + toFiniteNumber(settlement?.amount, 0),
-      0,
-    ),
+    preTripSettlementTotal: safeSettlements
+      .filter((settlement) => settlement?.status !== 'pending')
+      .reduce(
+        (sum, settlement) => sum + toFiniteNumber(settlement?.amount, 0),
+        0,
+      ),
     balanceTotal: calculateBalanceTotal(allBalances),
     preTripBalanceTotal: calculateBalanceTotal(preTripBalances),
   };

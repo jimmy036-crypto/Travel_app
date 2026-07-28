@@ -79,7 +79,18 @@ describe('firebase trip repository', () => {
 
     await repository.updateMeta({ title: 'Updated' });
     await repository.updateExpenses([{ id: 'expense-1' }]);
-    await repository.updateSettlements([{ id: 'settlement-1' }]);
+    const settlementRecord = {
+      id: 'settlement-1',
+      fromParticipantId: '自己',
+      toParticipantId: '朋友',
+      amount: 100,
+      currency: 'TWD',
+      status: 'paid',
+      paidAt: '2026-07-28T04:30:00.000Z',
+      createdAt: '2026-07-28T04:30:00.000Z',
+      updatedAt: '2026-07-28T04:30:00.000Z',
+    };
+    await repository.updateSettlements([settlementRecord]);
     await repository.updateTickets([{ id: 'ticket-1' }]);
     await repository.updateChecklist({ one: { id: 'one' } });
     await repository.updateItinerary({ 'Day 1': [] });
@@ -88,6 +99,11 @@ describe('firebase trip repository', () => {
       1,
       { path: 'rooms/room-1' },
       { meta: { title: 'Updated' } },
+    );
+    expect(databaseMocks.update).toHaveBeenNthCalledWith(
+      3,
+      { path: 'rooms/room-1' },
+      { settlements: [settlementRecord] },
     );
     expect(databaseMocks.update).toHaveBeenLastCalledWith(
       { path: 'rooms/room-1/checklist' },

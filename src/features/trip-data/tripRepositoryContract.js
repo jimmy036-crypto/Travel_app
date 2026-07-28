@@ -25,6 +25,11 @@ export const TRIP_REPOSITORY_METHODS = Object.freeze([
   'getCapabilities',
 ]);
 
+/**
+ * The `settlements` snapshot branch stores transfer completion records rather
+ * than expenses. New records use stable ids plus fromParticipantId,
+ * toParticipantId, amount, currency, status, paidAt, createdAt, and updatedAt.
+ */
 const isRecord = (value) => Boolean(
   value
   && typeof value === 'object'

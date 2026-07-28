@@ -22,8 +22,10 @@ const BASE_TOUR_STEPS = [
   {
     id: 'place-info',
     selector: '[data-testid="place-info-trigger"]',
+    mobileSelector: '[data-testid="place-card-title"]',
     title: '查看完整景點資料',
     description: '地址、定位、附件與備註都集中在景點資訊中。',
+    mobileDescription: '點擊景點名稱即可查看地址、定位、附件與備註。',
   },
   {
     id: 'done',
@@ -85,25 +87,34 @@ function hasVisibleTarget(selector) {
 function buildTourSteps() {
   const steps = [];
   let missingPlaceTargets = false;
+  const useMobileTargets = getViewportSize().width < 768;
 
   BASE_TOUR_STEPS.forEach((step) => {
     if (step.id === 'done') return;
-    if (!step.selector) {
-      steps.push(step);
+    const resolvedStep = useMobileTargets && step.mobileSelector
+      ? {
+          ...step,
+          selector: step.mobileSelector,
+          description: step.mobileDescription || step.description,
+        }
+      : step;
+
+    if (!resolvedStep.selector) {
+      steps.push(resolvedStep);
       return;
     }
 
-    if (hasVisibleTarget(step.selector)) {
-      steps.push(step);
+    if (hasVisibleTarget(resolvedStep.selector)) {
+      steps.push(resolvedStep);
       return;
     }
 
-    if (step.id === 'place-actions' || step.id === 'place-info') {
+    if (resolvedStep.id === 'place-actions' || resolvedStep.id === 'place-info') {
       missingPlaceTargets = true;
       return;
     }
 
-    steps.push(step);
+    steps.push(resolvedStep);
   });
 
   if (missingPlaceTargets) {

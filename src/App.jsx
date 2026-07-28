@@ -41,6 +41,7 @@ import {
 import { FeatureTour } from './components/FeatureTour.jsx';
 import { WhatsNewDialog } from './components/WhatsNewDialog.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
+import { AppearanceDialog } from './components/AppearanceDialog.jsx';
 import { EmptyState } from './components/ui/EmptyState.jsx';
 import { useToast } from './components/ui/useToast.js';
 import { useConfirm } from './components/ui/useConfirm.js';
@@ -148,7 +149,8 @@ export default function TravelApp() {
   const isCheckingAppUpdateRef = useRef(false);
   const [isSavingTrip, setIsSavingTrip] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const lobbyAppearanceInputRef = useRef(null);
+  const appearanceReturnFocusRef = useRef(null);
+  const [showAppearanceDialog, setShowAppearanceDialog] = useState(false);
 
   const [tripModalMode, setTripModalMode] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -163,6 +165,20 @@ export default function TravelApp() {
   const [newMembers, setNewMembers] = useState(["自己"]);
   const [newTransport, setNewTransport] = useState("汽車 🚗");
   const [newThemeColor, setNewThemeColor] = useState("#3b82f6");
+
+  const openLobbyAppearance = useCallback((trigger) => {
+    appearanceReturnFocusRef.current = trigger instanceof HTMLElement
+      ? trigger
+      : document.activeElement;
+    setShowAppearanceDialog(true);
+  }, []);
+
+  const closeLobbyAppearance = useCallback(() => {
+    setShowAppearanceDialog(false);
+    window.requestAnimationFrame(() => {
+      appearanceReturnFocusRef.current?.focus?.();
+    });
+  }, []);
 
   // 用於保留原本已經設定的預算，避免編輯時被洗掉
   const [tempMemberBudgets, setTempMemberBudgets] = useState({});
@@ -882,15 +898,6 @@ export default function TravelApp() {
     <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-x-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
       <div className="max-w-5xl w-full mx-auto p-6 md:p-12 overflow-y-auto">
         <header className="mb-10 flex flex-col gap-5 md:mb-12">
-          <input
-            ref={lobbyAppearanceInputRef}
-            type="color"
-            value={String(customBgColor)}
-            onChange={e => setCustomBgColor(e.target.value)}
-            className="sr-only"
-            tabIndex={-1}
-            aria-label="自訂外觀顏色"
-          />
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="mb-2 flex min-w-0 items-center gap-3 md:gap-4">
@@ -906,7 +913,7 @@ export default function TravelApp() {
               key={activeRoomId || 'lobby-settings'}
               t={t}
               version={CURRENT_RELEASE_NOTES.version}
-              onOpenAppearance={() => lobbyAppearanceInputRef.current?.click?.()}
+              onOpenAppearance={openLobbyAppearance}
               onOpenReleaseNotes={openReleaseNotes}
               onOpenFeatureIntroduction={openFeatureIntroduction}
               onStartFeatureTour={startFeatureTour}
@@ -943,7 +950,7 @@ export default function TravelApp() {
               <button
                 type="button"
                 data-testid="lobby-appearance-button"
-                onClick={() => lobbyAppearanceInputRef.current?.click?.()}
+                onClick={(event) => openLobbyAppearance(event.currentTarget)}
                 className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
               >
                 <span className="h-4 w-4 shrink-0 rounded-full border border-white/70 shadow-sm" style={{ backgroundColor: customBgColor }} aria-hidden="true" />
@@ -1180,6 +1187,14 @@ export default function TravelApp() {
       )}
     </div>
     <OfflineBanner isOnline={isOnline} />
+    {showAppearanceDialog ? (
+      <AppearanceDialog
+        color={customBgColor}
+        onColorChange={setCustomBgColor}
+        onClose={closeLobbyAppearance}
+        t={t}
+      />
+    ) : null}
     {showFirstRunWelcome ? (
       <FirstRunWelcomeDialog
         t={t}
