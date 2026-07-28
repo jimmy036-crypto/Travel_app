@@ -129,14 +129,14 @@ function getSpotlightRect(targetRect) {
   if (!targetRect) return null;
 
   const { width: viewportWidth, height: viewportHeight } = getViewportSize();
-  const left = Math.max(VIEWPORT_MARGIN, targetRect.left - SPOTLIGHT_PADDING);
-  const top = Math.max(VIEWPORT_MARGIN, targetRect.top - SPOTLIGHT_PADDING);
+  const left = Math.max(0, targetRect.left - SPOTLIGHT_PADDING);
+  const top = Math.max(0, targetRect.top - SPOTLIGHT_PADDING);
   const right = Math.min(
-    viewportWidth - VIEWPORT_MARGIN,
+    viewportWidth,
     targetRect.left + targetRect.width + SPOTLIGHT_PADDING,
   );
   const bottom = Math.min(
-    viewportHeight - VIEWPORT_MARGIN,
+    viewportHeight,
     targetRect.top + targetRect.height + SPOTLIGHT_PADDING,
   );
 

@@ -87,12 +87,25 @@ export const extractRoomId = (input) => {
 };
 
 export const isValidCoordinates = (coordsOrLat, maybeLng) => {
-  const lat = typeof coordsOrLat === 'object' && coordsOrLat !== null
-    ? Number(coordsOrLat.lat)
-    : Number(coordsOrLat);
-  const lng = typeof coordsOrLat === 'object' && coordsOrLat !== null
-    ? Number(coordsOrLat.lng)
-    : Number(maybeLng);
+  const rawLat = typeof coordsOrLat === 'object' && coordsOrLat !== null
+    ? coordsOrLat.lat
+    : coordsOrLat;
+  const rawLng = typeof coordsOrLat === 'object' && coordsOrLat !== null
+    ? coordsOrLat.lng
+    : maybeLng;
+  if (
+    rawLat === null
+    || rawLat === undefined
+    || rawLng === null
+    || rawLng === undefined
+    || String(rawLat).trim() === ''
+    || String(rawLng).trim() === ''
+  ) {
+    return false;
+  }
+
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
 
   return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 };
