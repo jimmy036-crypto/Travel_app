@@ -77,4 +77,10 @@ describe('座標驗證', () => {
       }),
     ).toBe(false)
   })
+
+  it('拒絕空座標但接受真正的零座標', () => {
+    expect(isValidCoordinates('', '')).toBe(false)
+    expect(isValidCoordinates(null, undefined)).toBe(false)
+    expect(isValidCoordinates(0, 0)).toBe(true)
+  })
 })

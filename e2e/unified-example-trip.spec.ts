@@ -158,7 +158,12 @@ test('cloud-only collaboration keeps its position and explains availability', as
     expect(dialog.message()).toBe('建立自己的旅程後即可使用此功能');
     await dialog.accept();
   });
-  await page.getByRole('button', { name: /共編/ }).click();
+  let collaborationControl = page.getByRole('button', { name: /共編/ });
+  if (await collaborationControl.count() === 0) {
+    await page.getByTestId('mobile-trip-tools-trigger').click();
+    collaborationControl = page.getByRole('menuitem', { name: /共編/ });
+  }
+  await collaborationControl.click();
 
   expect(await readEmulatorData('rooms')).toBeNull();
   expect(await listEmulatorStorageObjects()).toEqual([]);

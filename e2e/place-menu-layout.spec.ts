@@ -57,15 +57,18 @@ for (const width of [320, 390]) {
       const title = card.getByTestId('place-card-title');
       const menu = card.getByTestId('place-action-menu-trigger');
       const mobileActions = card.getByTestId('place-card-actions');
+      const surface = card.getByTestId('timeline-place-card-surface');
+      const dragHandle = card.getByTestId('place-drag-handle');
       await expect(title).toBeVisible();
       await expect(menu).toBeVisible();
-      await expect(card).toHaveAttribute('data-mobile-layout', 'compact');
-      await expect(mobileActions).toHaveAttribute('data-layout', 'mobile-compact');
+      await expect(card).toHaveAttribute('data-mobile-layout', 'timeline');
+      await expect(mobileActions).toHaveAttribute('data-layout', 'mobile-timeline');
       await expect(card.getByTestId('place-info-trigger')).toBeHidden();
       await expect(card.getByTestId('desktop-place-actions')).toBeHidden();
       await expect(card.locator('button:visible')).toHaveCount(2);
+      await expect(dragHandle).toBeVisible();
       await expect(card.getByRole('button', { name: /導航到/ })).toBeVisible();
-      await expect(card).toHaveCSS('padding-top', '10px');
+      await expect(surface).toHaveCSS('padding-top', '12px');
 
       const [cardBox, titleBox, menuBox] = await Promise.all([
         card.boundingBox(),
@@ -75,7 +78,7 @@ for (const width of [320, 390]) {
       expect(cardBox).not.toBeNull();
       expect(titleBox).not.toBeNull();
       expect(menuBox).not.toBeNull();
-      expect(cardBox?.height || 0).toBeLessThanOrEqual(140);
+      expect(cardBox?.height || 0).toBeLessThanOrEqual(120);
       expect(boxesOverlap(titleBox!, menuBox!)).toBe(false);
       expect(menuBox?.width || 0).toBeGreaterThanOrEqual(44);
       expect(menuBox?.height || 0).toBeGreaterThanOrEqual(44);

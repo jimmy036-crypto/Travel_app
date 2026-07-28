@@ -77,7 +77,12 @@ test('example card opens the shared TripDetail without cloud writes', async ({ p
   );
   await expect(page.locator('[data-testid="expense-tab-button"]:visible')).toHaveCount(1);
   await expect(page.locator('[data-testid="ticket-tab-button"]:visible')).toHaveCount(1);
-  await expect(page.getByTestId('itinerary-day-card')).toHaveCount(3);
+  if (await page.getByTestId('mobile-day-switcher').count()) {
+    await expect(page.getByTestId('itinerary-day-switch-button')).toHaveCount(3);
+    await expect(page.getByTestId('itinerary-day-card')).toHaveCount(1);
+  } else {
+    await expect(page.getByTestId('itinerary-day-card')).toHaveCount(3);
+  }
   expect(page.url()).toBe(initialUrl);
   expect(new URL(page.url()).searchParams.has('room')).toBe(false);
 

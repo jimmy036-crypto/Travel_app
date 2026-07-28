@@ -414,7 +414,14 @@ test('跨日搬移會使用同一拖曳處理流程並保存兩日資料', async
       ],
     });
 
-  await dayCard(page, 'Day 2').scrollIntoViewIfNeeded();
+  const mobileDayTwoSwitch = page.locator(
+    '[data-testid="itinerary-day-switch-button"][data-day-id="Day 2"]',
+  );
+  if (await mobileDayTwoSwitch.count()) {
+    await mobileDayTwoSwitch.click();
+  } else {
+    await dayCard(page, 'Day 2').scrollIntoViewIfNeeded();
+  }
 
   await expect
     .poll(() => visibleOrder(page, 'Day 2'), {
@@ -441,7 +448,11 @@ test('跨日搬移會使用同一拖曳處理流程並保存兩日資料', async
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
-  await dayCard(page, 'Day 2').scrollIntoViewIfNeeded();
+  if (await mobileDayTwoSwitch.count()) {
+    await mobileDayTwoSwitch.click();
+  } else {
+    await dayCard(page, 'Day 2').scrollIntoViewIfNeeded();
+  }
 
   await expect
     .poll(() => visibleOrder(page, 'Day 2'), {
@@ -456,7 +467,6 @@ test('跨日搬移會使用同一拖曳處理流程並保存兩日資料', async
 });
 
 test('mobile-safe handle supports 12-item first/last moves, cancellation, scrolling, and persistence', async ({
-  browserName,
   page,
 }) => {
   const longName = '沖繩美麗海水族館 海洋博公園 熱帶夢幻中心紀念品商店';
@@ -488,14 +498,9 @@ test('mobile-safe handle supports 12-item first/last moves, cancellation, scroll
     .getByTestId('place-card-title')
     .getAttribute('data-rfd-drag-handle-draggable-id')).toBeNull();
 
-  const dropzone = dayCard(page, 'Day 1').getByTestId('itinerary-day-dropzone');
-  await dropzone.hover();
-  if (browserName === 'webkit') {
-    await dropzone.evaluate((element) => element.scrollBy({ top: 600, behavior: 'auto' }));
-  } else {
-    await page.mouse.wheel(0, 600);
-  }
-  await expect.poll(() => dropzone.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  const scroller = page.getByTestId('itinerary-horizontal-scroll');
+  await scroller.evaluate((element) => element.scrollBy({ top: 600, behavior: 'auto' }));
+  await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
   await expect(page.getByTestId('itinerary-drag-clone')).toHaveCount(0);
   expect(await visibleOrder(page, 'Day 1')).toEqual(items.map((item) => item.name));
 

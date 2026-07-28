@@ -127,7 +127,7 @@ test.describe('Offline Awareness', () => {
 
     if (isMobile) {
       // E2E-08: Check that the offline banner does not cover back button or settings
-      const backButton = page.getByTestId('trip-detail-back-button').or(page.getByRole('button', { name: '◀ 返回' }));
+      const backButton = page.getByTestId('back-to-lobby');
       const settingsButton = page.getByTestId('app-settings-trigger');
       const offlineBanner = page.getByTestId('offline-banner');
       
