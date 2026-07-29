@@ -2,6 +2,72 @@
 
 Status: implementation decision for this change only. This document does not represent Gate 1, Gate 3, or release approval.
 
+## Third round: release-to-drop confirmed fixed; first-touch activation was a separate bug
+
+Physical iPhone Safari testing of the second round's `flushSync` fix
+confirmed it worked: releasing the finger now inserts the item immediately,
+with no second tap needed. The same testing surfaced an independent,
+previously-unreported problem: the **first** long-press on a drag handle
+after the trip view loads does not start a drag at all; a second long-press
+immediately after does, and dragging then works normally for the rest of
+the session. This is an activation-timing bug, not a release/commit bug -
+the `flushSync` fix is unrelated and stays in place.
+
+### Root cause
+
+`@hello-pangea/dnd`'s touch sensor (`useTouchSensor` in the library) binds
+its window-level `touchstart` listener - the one thing that lets it recognize
+a touch on a drag handle at all - in a layout effect that runs when
+`DragDropContext` mounts. The same mount also runs the library's own
+long-standing `webkitHack` mitigation: a no-op, non-passive `touchmove`
+listener registered on `window`, specifically because WebKit is documented
+to ignore a later `preventDefault()` on `touchmove` unless a non-passive
+listener was already present on `window` *before* the touch sequence began.
+
+`TripDetail.jsx` mounted `DragDropContext` only inside the "trip has
+loaded" branch - while `isLoading || !meta`, the component returned a
+completely different tree (`TripDetailSkeleton`) with no `DragDropContext`
+anywhere in it. That meant the touch sensor's window listeners, and the
+`webkitHack` primer specifically meant to run ahead of the first real touch,
+were not registered until the exact same synchronous render commit that
+first inserted the real itinerary DOM - drag handles included - and made
+them touchable. On iOS Safari, a large synchronous DOM insertion and a
+freshly-registered touch listener competing with the browser's own
+gesture-recognition/hit-test setup in the same frame is a known source of
+the first gesture being claimed by native scrolling/long-press handling
+instead of reaching JavaScript. By the second attempt, both the DOM and the
+listeners have settled, and the sensor works exactly as expected from then
+on - which matches the reported symptom precisely.
+
+### Fix
+
+`DragDropContext` is now mounted unconditionally, wrapping both branches:
+the loading skeleton (`TripDetailSkeleton`) is rendered as its child while
+`isLoading || !meta`, and the real trip content once loaded - instead of
+`DragDropContext` only existing inside the "loaded" branch. This gives the
+touch sensor's window listeners (and its `webkitHack` primer) the entire
+loading-skeleton period - typically at least one network round trip - to
+register and settle *before* the user can see or touch any real drag
+handle, rather than registering them in the same commit that exposes those
+handles. `DragDropContext` renders no DOM element of its own, and
+`TripDetailSkeleton` contains no `Droppable`/`Draggable`, so wrapping the
+skeleton in it is behaviorally inert - this is a pure mount-timing change,
+not a new dependency or a change to any drag/drop logic.
+
+### Scope and verification
+
+No change to `handleDragEnd`, the `flushSync` commit, `moveItineraryItem`,
+or any of the drag lifecycle callbacks - only where `DragDropContext` is
+mounted relative to the loading state. Full Vitest (760 tests, including
+the existing skeleton-loading coverage), lint, typecheck, build, and the
+existing drag/skeleton E2E specs all pass unchanged. This agent still has
+no access to a physical iPhone; the mount-timing root cause is inferred from
+the library's own source (`useTouchSensor`, the `webkitHack` effect) and the
+component's render structure, not from a captured device trace. Physical
+confirmation that the *first* long-press now activates a drag remains the
+required next step, alongside the still-outstanding release-to-drop
+`?dndDebug=1` confirmation from the second round below.
+
 ## Second round: the touch-action/click-suppression fix did not resolve release-to-drop
 
 Physical iPhone testing after the round documented below still showed the
@@ -76,17 +142,13 @@ present) is layered on top purely to correlate native touch-release timing
 with `onDragEnd` on real hardware; it changes no behavior and writes nothing
 to the repository.
 
-### What still needs physical confirmation
+### Physical confirmation: resolved
 
-This agent has no access to a physical iPhone. The fix above is the specific,
-scoped remedy the task's diagnostic gate names for the "`onDragEnd` fires
-but the visual commit is late" case, and it is exercised by the existing
-pointer-sensor E2E stand-in (`e2e/mobile-touch-drag-release.spec.ts`, all
-passing) plus the full existing drag regression suite. It has **not** been
-confirmed on real iPhone Safari hardware. The physical checklist in
-`docs/qa/MOBILE_ITINERARY_MAP_REDESIGN_QA.md` - including a `?dndDebug=1` run
-to capture real `touchend`/`onDragEnd`/`nextFrame` timing - is the required
-next step before this can be called resolved.
+Confirmed on physical iPhone Safari (see the third round above): release
+now inserts the item immediately, with no second tap required. This closes
+the release-to-drop investigation. The `?dndDebug=1` trace remains available
+for any future regression, but is no longer a blocking open item for this
+symptom.
 
 ## First round: root cause
 

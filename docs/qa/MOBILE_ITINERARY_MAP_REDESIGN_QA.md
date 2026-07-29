@@ -596,6 +596,61 @@ this round's run, per this repository's flaky-test policy (no run is
 reported as a full PASS without the real numbers and the isolated re-run
 evidence for any failure).
 
+## Fifth-round: first-touch drag activation
+
+Physical iPhone Safari testing confirmed the fourth round's `flushSync`
+release-to-drop fix works - no second tap needed on release. It also
+surfaced a separate, previously-unreported bug: the first long-press on a
+drag handle after the trip view loads does not start a drag; a second
+long-press immediately after does, and dragging then works normally for the
+rest of the session. Full root cause and decision detail is in the "Third
+round" section of `docs/decisions/MOBILE_DND_RELEASE_BEHAVIOR.md` (that
+document's own internal round-numbering; it is this task's fifth round
+overall).
+
+### Root cause and fix
+
+`@hello-pangea/dnd`'s touch sensor registers its window-level `touchstart`
+listener, and a `webkitHack` primer specifically meant to run ahead of the
+first real touch, when `DragDropContext` mounts. `TripDetail.jsx` only
+mounted `DragDropContext` inside the "trip has loaded" branch - the loading
+skeleton (`TripDetailSkeleton`) was a completely separate tree with no
+`DragDropContext` in it at all. That left the touch sensor's setup to run in
+the very same synchronous commit that first exposed the real, touchable
+drag handles, giving iOS Safari's gesture recognition no time to settle
+before the user's first touch. `DragDropContext` now wraps both the loading
+skeleton and the loaded content (a ternary inside it, rather than an early
+`return` before it), so the sensor's listeners register during the loading
+period and are already settled by the time any real handle is visible.
+`DragDropContext` itself renders no DOM node and `TripDetailSkeleton`
+contains no `Droppable`/`Draggable`, so this is a pure mount-timing change -
+no drag/drop logic, dependency, or visual change.
+
+### Fifth-round automated evidence
+
+| Check | Result |
+| --- | --- |
+| Full Vitest | PASS: 67 files, 760 tests |
+| Lint | PASS |
+| Typecheck | PASS |
+| Build | PASS; existing chunk-size warning only |
+| Focused skeleton-loading E2E (`core-skeleton-loading.spec.ts`) | PASS: 3 Desktop Chrome + 3 Mobile Safari |
+| Focused drag E2E (`itinerary-drag.spec.ts`, `mobile-touch-drag-release.spec.ts`) | PASS: 6 Desktop Chrome + 6 Mobile Safari |
+| Full Playwright (Desktop Chrome + Mobile Safari) | 233 passed, 1 failed, 14 skipped, 12.4 min. The failure - `external-app-ticket.spec.ts` "syncs external App CRUD and isolated identities across browser contexts" (Desktop Chrome) - is the same test already documented as flaky under full-suite load in the third round above; re-run alone it passed in 4.9s. It exercises ticket/external-app sync, unrelated to this round's skeleton/`DragDropContext` mount-timing change. |
+| Firebase Emulator project | `demo-travel-e2e` |
+| Production Firebase accessed | false |
+| Firebase Rules/config modified | false |
+| Dependencies changed | false |
+| Deploy | false |
+
+### Fifth-round outstanding
+
+This agent has no access to a physical iPhone; the mount-timing root cause
+is inferred from `@hello-pangea/dnd`'s own source and this component's
+render structure, not a captured device trace. The manual checklist item
+below (first long-press after a fresh page load activates a drag
+immediately) is the required next step.
+
 ## Known limitations
 
 - Emulator E2E intentionally has no production Google Maps credential. Pure
@@ -625,8 +680,13 @@ evidence for any failure).
       start drag accidentally.
 - [ ] Normal vertical scroll, handle drag, edge auto-scroll, first/last drop,
       arrival-time recalculation, and reload persistence feel natural.
-- [ ] Touch release on the 44px handle inserts the item immediately — no
+- [x] Touch release on the 44px handle inserts the item immediately — no
       second tap is needed, and details do not open right after a drop.
+      Confirmed on physical iPhone Safari after the `flushSync` fix.
+- [ ] The **first** long-press on a drag handle after the trip view finishes
+      loading starts a drag immediately — no second long-press/tap is needed
+      to "wake up" dragging. (New in the fifth round; see
+      `docs/decisions/MOBILE_DND_RELEASE_BEHAVIOR.md`, "Third round.")
 - [ ] A genuine single tap (no drag) still opens place details instantly.
 - [ ] The "本日主題" theme name is comfortably readable (not 320px-cramped
       against 智慧排路線) and wraps to a second line for long names without
