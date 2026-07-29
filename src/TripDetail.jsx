@@ -80,6 +80,7 @@ import {
 } from './features/itinerary/MobileItineraryTimeline.jsx';
 import { MobileTripMapView } from './features/map/MobileTripMapView.jsx';
 import { isDndDebugEnabled, traceDnd, traceDndNextFrame } from './features/itinerary/dndDebugTrace.js';
+import { DndDebugPanel } from './features/itinerary/DndDebugPanel.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -1472,11 +1473,63 @@ const TripDetail = ({
     Date.now() - dragReleaseAtRef.current < DRAG_CLICK_SUPPRESSION_MS
   ), []);
 
+  // Tracks which touch identifier started on a drag handle, and (once the
+  // sensor confirms a real lift) actively owns the current drag. On iOS
+  // Safari, once a drag has lifted, that same touch sequence must stay under
+  // the drag's control - if the page's own vertical scroll instead claims a
+  // later touchmove for that identifier, the drag is left visually "stuck"
+  // (never reaches a drop or a cancel) until an unrelated second touch picks
+  // it back up. This does not touch drag/itinerary state or the library's
+  // own handlers; it only decides whether to call preventDefault on native
+  // scroll for the one touch identifier that is actively dragging.
+  const pendingHandleTouchIdRef = useRef(/** @type {number | null} */ (null));
+  const activeDragTouchIdRef = useRef(/** @type {number | null} */ (null));
+  const activeDragTouchMoveListenerRef = useRef(/** @type {((event: TouchEvent) => void) | null} */ (null));
+
+  const detachActiveDragTouchGuard = useCallback(() => {
+    if (activeDragTouchMoveListenerRef.current) {
+      document.removeEventListener('touchmove', activeDragTouchMoveListenerRef.current, { capture: false });
+      activeDragTouchMoveListenerRef.current = null;
+    }
+    activeDragTouchIdRef.current = null;
+  }, []);
+
+  const attachActiveDragTouchGuard = useCallback((touchId) => {
+    activeDragTouchIdRef.current = typeof touchId === 'number' ? touchId : null;
+    if (activeDragTouchIdRef.current === null || activeDragTouchMoveListenerRef.current) return;
+
+    const handleActiveDragTouchMove = (event) => {
+      const activeId = activeDragTouchIdRef.current;
+      if (activeId === null) return;
+      const stillOwnsTouch = Array.from(event.touches || [])
+        .some((touch) => touch.identifier === activeId);
+      if (stillOwnsTouch && event.cancelable) event.preventDefault();
+    };
+    activeDragTouchMoveListenerRef.current = handleActiveDragTouchMove;
+    document.addEventListener('touchmove', handleActiveDragTouchMove, { capture: false, passive: false });
+  }, []);
+
   useEffect(() => {
-    if (!isDndDebugEnabled()) return undefined;
+    const handleHandleTouchStart = (event) => {
+      const target = /** @type {unknown} */ (event.target);
+      if (!(target instanceof Element) || !target.closest('[data-testid="place-drag-handle"]')) return;
+      const touch = event.changedTouches?.[0];
+      pendingHandleTouchIdRef.current = touch ? touch.identifier : null;
+    };
+    document.addEventListener('touchstart', handleHandleTouchStart, { capture: true, passive: true });
+    return () => document.removeEventListener('touchstart', handleHandleTouchStart, { capture: true });
+  }, []);
+
+  useEffect(() => {
     const handleNativeTouchEnd = (event) => {
-      if (!activeDraggableIdRef.current) return;
-      traceDnd(event.type === 'touchcancel' ? 'touchcancel' : 'touchend');
+      if (isDndDebugEnabled() && activeDraggableIdRef.current) {
+        traceDnd(event.type === 'touchcancel' ? 'touchcancel' : 'touchend');
+      }
+      const activeId = activeDragTouchIdRef.current;
+      if (activeId === null) return;
+      const touchEnded = Array.from(event.changedTouches || [])
+        .some((touch) => touch.identifier === activeId);
+      if (touchEnded) detachActiveDragTouchGuard();
     };
     document.addEventListener('touchend', handleNativeTouchEnd, { capture: true, passive: true });
     document.addEventListener('touchcancel', handleNativeTouchEnd, { capture: true, passive: true });
@@ -1484,7 +1537,9 @@ const TripDetail = ({
       document.removeEventListener('touchend', handleNativeTouchEnd, { capture: true });
       document.removeEventListener('touchcancel', handleNativeTouchEnd, { capture: true });
     };
-  }, []);
+  }, [detachActiveDragTouchGuard]);
+
+  useEffect(() => () => detachActiveDragTouchGuard(), [detachActiveDragTouchGuard]);
   const registerPlaceActionTrigger = useCallback((actionMenuId, node) => {
     if (node) placeActionTriggerRefs.current[actionMenuId] = node;
     else delete placeActionTriggerRefs.current[actionMenuId];
@@ -2213,8 +2268,9 @@ const TripDetail = ({
 
   const handleDragBeforeCapture = useCallback((before) => {
     activeDraggableIdRef.current = String(before?.draggableId || '');
+    attachActiveDragTouchGuard(pendingHandleTouchIdRef.current);
     traceDnd('onBeforeCapture', { draggableId: activeDraggableIdRef.current });
-  }, []);
+  }, [attachActiveDragTouchGuard]);
 
   const handleDragStart = useCallback((start) => {
     activeDraggableIdRef.current = String(start?.draggableId || '');
@@ -2315,6 +2371,7 @@ const TripDetail = ({
 
   const handleDragEnd = useCallback((result) => {
     activeDraggableIdRef.current = '';
+    detachActiveDragTouchGuard();
     dragReleaseAtRef.current = Date.now();
 
     const { source, destination, reason } = result;
@@ -2393,7 +2450,7 @@ const TripDetail = ({
     }
     traceDnd('onDragEnd:commit');
     traceDndNextFrame('onDragEnd');
-  }, [beginRecalculation, clearOptimizationSummary, itinerary, safeCurrentDay, setItinerary]);
+  }, [beginRecalculation, clearOptimizationSummary, detachActiveDragTouchGuard, itinerary, safeCurrentDay, setItinerary]);
 
   const handleRouteCalculated = useCallback((day, durations) => {
     setRouteDurations((previous) => (
@@ -3750,14 +3807,14 @@ const TripDetail = ({
                                         if (!snap.isDragging) handleSavedItemDetails(item, dayId);
                                       }}
                                     >
-                                      <div className="flex items-start gap-2 md:gap-3">
+                                      <div className="flex items-start gap-2 md:grid md:grid-cols-[3.75rem_minmax(0,1fr)_auto] md:items-center md:gap-3">
                                         <div
                                           {...prov.dragHandleProps}
                                           data-testid="place-drag-handle"
                                           data-place-id={String(item.id)}
                                           aria-label={`拖曳排序 ${String(displayName)}`}
                                           onClick={(event) => event.stopPropagation()}
-                                          className="flex min-h-11 w-11 touch-none select-none flex-col items-center shrink-0 cursor-grab [-webkit-touch-callout:none] active:cursor-grabbing hover:opacity-80"
+                                          className="flex min-h-11 w-11 touch-none select-none flex-col items-center shrink-0 cursor-grab [-webkit-touch-callout:none] active:cursor-grabbing hover:opacity-80 md:w-auto"
                                         >
                                            <div className={`flex h-6 w-6 items-center justify-center rounded-full p-1 text-[10px] font-black md:h-7 md:w-7 md:p-1.5 md:text-xs ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
                                               {index + 1}
@@ -3845,30 +3902,20 @@ const TripDetail = ({
                                               ))}
                                             </div>
                                           ) : null}
-
-                                          {(() => {
-                                            const allResources = Array.isArray(item.resources) ? item.resources.filter((resource) => resource?.url) : [];
-                                            const menuCount = allResources.filter((resource) => resource.type === 'menu').length;
-                                            const otherCount = allResources.length - menuCount;
-                                            const detailParts = [
-                                              item.placePhoto?.url ? '封面' : '',
-                                              menuCount > 0 ? `菜單 ${menuCount}` : '',
-                                              item.memo ? '筆記' : '',
-                                              otherCount > 0 ? `資料 ${otherCount}` : '',
-                                            ].filter(Boolean);
-                                            if (detailParts.length === 0) return null;
-                                            return (
-                                              <div data-testid="place-info-trigger" className={`export-hide mt-2 hidden min-h-10 items-center gap-2 rounded-xl border px-3 md:flex ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder}`}`}>
-                                                <span className="text-sm">ⓘ</span>
-                                                <span className={`shrink-0 text-[10px] font-black ${snap.isDragging ? 'text-white' : t.mainText}`}>景點資訊</span>
-                                                <span className={`min-w-0 flex-1 truncate text-[9px] ${snap.isDragging ? 'text-white/75' : t.subText}`}>
-                                                  {detailParts.join('・')}
-                                                </span>
-                                                <span className={snap.isDragging ? 'text-white/70' : t.subText}>›</span>
-                                              </div>
-                                            );
-                                          })()}
                                         </div>
+
+                                        <button
+                                          type="button"
+                                          data-testid="place-info-trigger"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            if (!snap.isDragging) handleSavedItemDetails(item, dayId);
+                                          }}
+                                          className={`export-hide hidden min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[10px] font-black md:flex ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
+                                        >
+                                          <span className="text-sm">ⓘ</span>
+                                          <span>景點資訊</span>
+                                        </button>
                                       </div>
 
                                     </div>
@@ -4259,6 +4306,7 @@ const TripDetail = ({
           onClose={() => setViewingPlaceResources(null)}
         />
       ) : null}
+      <DndDebugPanel />
     </>
   );
 };
