@@ -78,10 +78,14 @@ for (const viewport of [
     await expect(page.getByTestId('active-trip-view')).toBeVisible();
     await page.getByTestId('mobile-nav-map').click();
 
-    await expect(page.getByTestId('mobile-trip-header')).toBeVisible();
+    await expect(page.getByTestId('mobile-trip-header')).toHaveCount(0);
+    await expect(page.getByTestId('mobile-map-top-bar')).toBeVisible();
     await expect(page.getByTestId('mobile-day-switcher')).toBeVisible();
+    await expect(page.getByTestId('back-to-lobby')).toBeVisible();
+    await expect(page.getByTestId('app-settings-trigger')).toBeVisible();
     await expect(page.getByTestId('mobile-trip-map-view')).toBeVisible();
     await expect(page.getByTestId('map-itinerary-sheet')).toBeVisible();
+    await expect(page.getByTestId('map-itinerary-sheet')).toHaveAttribute('data-state', 'cards');
     await expect(page.getByTestId('map-place-card')).toHaveCount(3);
     await expect(mapCard(page, 'map-b').getByTestId('map-place-no-location')).toBeVisible();
     await expect(page.getByTestId('map-explore-trigger')).toBeVisible();
@@ -131,6 +135,22 @@ for (const viewport of [
     ).click();
     await expect(page.getByTestId('map-place-card')).toHaveCount(1);
     await expect(mapCard(page, 'map-day-two')).toContainText('第二天地圖景點');
+
+    await page.getByTestId('map-sheet-toggle').click();
+    await expect(page.getByTestId('map-itinerary-sheet')).toHaveAttribute('data-state', 'peek');
+    await expect(page.getByTestId('map-sheet-peek-label')).toContainText('第二天地圖景點');
+    const peekBox = await page.getByTestId('map-sheet-peek').boundingBox();
+    expect(peekBox).not.toBeNull();
+    expect(peekBox?.height || 0).toBeGreaterThanOrEqual(44);
+    const [peekSheetBox, mobileNavBox] = await Promise.all([
+      page.getByTestId('map-itinerary-sheet').boundingBox(),
+      page.getByTestId('mobile-nav-map').boundingBox(),
+    ]);
+    expect((peekSheetBox?.y || 0) + (peekSheetBox?.height || 0)).toBeLessThanOrEqual((mobileNavBox?.y || 0) + 1);
+
+    await page.getByTestId('map-sheet-peek').click();
+    await expect(page.getByTestId('map-itinerary-sheet')).toHaveAttribute('data-state', 'cards');
+    await expect(page.getByTestId('map-place-card')).toHaveCount(1);
   });
 }
 

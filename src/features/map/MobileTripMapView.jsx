@@ -253,7 +253,6 @@ export function MobileTripMapView({
 
       {active ? (
         <MapItinerarySheet
-          key={String(dayId)}
           dayId={dayId}
           entries={entries}
           selectedEntryId={effectiveSelectedEntryId}

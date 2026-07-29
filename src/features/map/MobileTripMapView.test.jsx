@@ -157,8 +157,10 @@ describe('MobileTripMapView', () => {
   it('exposes sheet state and degrades coherently when the Maps API is unavailable', () => {
     const { rerender, props } = renderMap();
     const sheet = screen.getByTestId('map-itinerary-sheet');
-    expect(sheet).toHaveAttribute('aria-expanded', 'false');
+    expect(sheet).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(screen.getByTestId('map-sheet-toggle'));
+    expect(sheet).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByTestId('map-sheet-peek'));
     expect(sheet).toHaveAttribute('aria-expanded', 'true');
 
     apiStatus.value = 'FAILED';
@@ -186,12 +188,45 @@ describe('MobileTripMapView', () => {
     expect(screen.getByTestId('map-explore-trigger')).toBeInTheDocument();
   });
 
-  it('uses the reduced default and expanded sheet heights', () => {
+  it('uses a bounded cards height and collapses to a compact peek', () => {
     renderMap();
     const sheet = screen.getByTestId('map-itinerary-sheet');
     expect(sheet).toHaveClass('h-[clamp(10.5rem,30%,12.5rem)]');
+    expect(sheet).toHaveAttribute('data-state', 'cards');
 
     fireEvent.click(screen.getByTestId('map-sheet-toggle'));
-    expect(sheet).toHaveClass('h-[56%]');
+    expect(sheet).toHaveClass('h-[calc(4.5rem+env(safe-area-inset-bottom))]');
+    expect(sheet).toHaveAttribute('data-state', 'peek');
+    expect(screen.queryByTestId('map-itinerary-card-scroller')).not.toBeInTheDocument();
+  });
+
+  it('peek shows the selected place name/time, falls back to a day count, and re-expands on tap', () => {
+    renderMap();
+    fireEvent.click(screen.getByTestId('map-sheet-toggle'));
+    expect(screen.getByTestId('map-sheet-peek-label')).toHaveTextContent('09:00');
+    expect(screen.getByTestId('map-sheet-peek-label')).toHaveTextContent('第一站');
+
+    fireEvent.click(screen.getByTestId('map-sheet-peek'));
+    expect(screen.getByTestId('map-itinerary-card-scroller')).toBeInTheDocument();
+  });
+
+  it('peek falls back to a day count when there is no selection', () => {
+    renderMap({
+      itinerary: {
+        'Day 1': [],
+      },
+    });
+    fireEvent.click(screen.getByTestId('map-sheet-toggle'));
+    expect(screen.getByTestId('map-sheet-peek-label')).toHaveTextContent('展開今日行程');
+  });
+
+  it('keeps the sheet state across a day switch', () => {
+    const { rerender, props } = renderMap();
+    fireEvent.click(screen.getByTestId('map-sheet-toggle'));
+    expect(screen.getByTestId('map-itinerary-sheet')).toHaveAttribute('data-state', 'peek');
+
+    rerender(<MobileTripMapView {...props} dayId="Day 2" />);
+    expect(screen.getByTestId('map-itinerary-sheet')).toHaveAttribute('data-state', 'peek');
+    expect(screen.getByTestId('map-sheet-peek-label')).toHaveTextContent('第二天唯一景點');
   });
 });
