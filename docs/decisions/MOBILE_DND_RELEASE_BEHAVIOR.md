@@ -2,6 +2,122 @@
 
 Status: implementation decision for this change only. This document does not represent Gate 1, Gate 3, or release approval.
 
+## Fourth round: lift now activates on the first touch; the orphaned drag during move/release is a separate bug
+
+Physical iPhone 16 / iOS 26.5.2 Safari testing confirmed the third round's
+mount-timing fix works: the first long-press now lifts the card (no second
+attempt needed to activate). The same testing surfaced a further,
+independent problem, visible only once lift already succeeds:
+
+```text
+first long-press on the handle -> card lifts (activation confirmed working)
+finger stays down and moves     -> the lifted card stays put; the PAGE itself
+                                    scrolls instead of the card following
+first release                   -> the card stays lifted; no drop, no cancel
+touching the still-lifted card again -> it starts following that second touch
+second release                  -> drop completes immediately
+```
+
+This is evidence for the task's diagnostic "Path A" (`onDragStart` occurred,
+`touchmove` occurred, a scroll occurred, the card did not visually update):
+once native scrolling claims the touchmove stream for the same touch
+identifier that lifted the card, the rest of that touch's lifecycle -
+including its eventual `touchend` - can be consumed entirely by the browser's
+native scroll gesture handling rather than reaching any JavaScript listener,
+including `@hello-pangea/dnd`'s own touch sensor. The sensor's internal
+"dragging" state is therefore never told the touch ended, which is why the
+card stays visually lifted (not cancelled, not dropped) until an unrelated
+second touch begins - a fresh touch sequence the sensor picks up and
+associates with the still-open drag, completing it normally on that
+second release.
+
+### Why this was not visible before the third round's fix
+
+Before the mount-timing fix, the first long-press failed to activate a drag
+at all, so this move/release problem - which only manifests *after* a
+successful lift - had no opportunity to surface. Confirming activation now
+succeeds is what exposed it.
+
+### Fix: an active-drag-scoped touch guard (Path A)
+
+`src/TripDetail.jsx` now tracks, without touching any drag/itinerary state
+or the library's own handlers:
+
+1. A capture-phase, passive `touchstart` listener records which touch
+   identifier began on `[data-testid="place-drag-handle"]`.
+2. `onBeforeCapture` (the earliest lifecycle callback, firing as soon as the
+   sensor confirms a real lift) installs a **non-passive** `touchmove`
+   listener on `document`, scoped to that one touch identifier: for as long
+   as the drag is active, if a `touchmove` event's `touches` still include
+   that identifier, it calls `preventDefault()` (guarded by
+   `event.cancelable`). Any other touch (a different finger, elsewhere on
+   screen) is left completely alone - normal page scrolling is unaffected
+   outside an active drag, and unaffected for any touch that isn't the one
+   currently dragging.
+3. `onDragEnd` removes that listener immediately, matching the task's "only
+   install during an active drag" requirement.
+4. As a defensive backstop - in case the library's own `onDragEnd` is ever
+   skipped for the same underlying reason this bug existed - a raw
+   `touchend`/`touchcancel` listener independently tears down the guard the
+   moment the tracked touch identifier ends, and a mount-once cleanup effect
+   removes it on unmount. None of this calls into `moveItineraryItem`,
+   `setItinerary`, or any library method; it only ever adds/removes this
+   one auxiliary listener.
+
+This does not add a permanent `touch-action: none` anywhere, does not lock
+`body` scroll, does not touch the Map's own gesture handling, and does not
+call a synthetic `click` or manually invoke `onDragEnd` to force a stuck
+drag closed - the fix is entirely about not losing ownership of the active
+touch in the first place, which is also the most direct explanation for why
+the orphaned-drag symptom (not just the scroll-hijack symptom) should
+resolve: if the touch is never lost, its `touchend` reaches the sensor
+normally and the drag ends on the first release.
+
+### `?dndDebug=1` on-screen event panel
+
+Console-only logging was not enough for a tester to hand back evidence from
+an iPhone. `src/features/itinerary/dndDebugTrace.js` now keeps an in-memory,
+60-event ring buffer (still non-PII: event name, timestamp, `data-testid` of
+the event target, pointer/touch identifiers and counts, `cancelable`/
+`defaultPrevented`, time since last scroll, current active draggable/phase/
+indices/reason - never place names, coordinates, or room ids), and
+`src/features/itinerary/DndDebugPanel.jsx` renders it as a collapsible
+on-screen table - only when `?dndDebug=1` is present, never otherwise - with
+copy and clear controls. It listens for `touchstart`/`touchmove`/`touchend`/
+`touchcancel`, `pointerdown`/`pointermove`/`pointerup`/`pointercancel`,
+`scroll`, and `click`, alongside the existing lifecycle trace
+(`onBeforeCapture`/`onDragStart`/`onDragEnd`/`onDragEnd:commit`/
+`...:nextFrame`). It writes nothing to the repository and does not affect
+layout or override any library handler.
+
+### Automated coverage and its limits
+
+`e2e/dnd-debug-panel.spec.ts` confirms the panel is absent by default,
+appears under `?dndDebug=1`, logs the expected lifecycle events through a
+real (pointer-sensor) drag with no extra tap, and never contains seeded
+place names. It does **not** exercise the touch guard itself: Playwright's
+"Desktop Chrome" project has no touch-capable browser context (attempting
+`new TouchEvent()`/`document.createEvent('TouchEvent')` there throws
+`NotSupportedError`), and WebKit's synthetic `Touch`/`TouchEvent`
+construction is already documented above as unreliable against this
+library's sensor. Automated coverage of "does the guard actually keep the
+page from scrolling during a real touch drag" is therefore not achievable
+in this environment; physical confirmation is the required next step.
+
+### Scope limits
+
+No change to `flushSync`, `onDragEnd:commit`, `onDragEnd:nextFrame`, the
+arrival-time recalculation state machine, its 10s timeout, the desktop
+title's non-italic weight, or the day-theme overflow fix - all untouched
+per this round's explicit instruction. No dependency was added or
+evaluated; this is entirely a same-library, same-dependency fix (Gate path
+A). Gate path D (a mobile-only `@dnd-kit` migration) was not approached
+because its precondition - real event evidence proving the *library itself*
+cannot maintain a touch sequence even with this guard in place - has not
+been established; it would require a physical-device `?dndDebug=1` capture
+showing the guard installed, `defaultPrevented: true` on the drag's
+touchmove events, and the drag still going orphaned.
+
 ## Third round: release-to-drop confirmed fixed; first-touch activation was a separate bug
 
 Physical iPhone Safari testing of the second round's `flushSync` fix

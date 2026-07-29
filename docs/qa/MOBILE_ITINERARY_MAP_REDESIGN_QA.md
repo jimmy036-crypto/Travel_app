@@ -651,6 +651,117 @@ render structure, not a captured device trace. The manual checklist item
 below (first long-press after a fresh page load activates a drag
 immediately) is the required next step.
 
+## Sixth-round: orphaned drag fix, always-visible 景點資訊, and Preview verification
+
+Physical iPhone 16 / iOS 26.5.2 Safari testing confirmed the fifth round's
+first-touch activation fix works (lift now succeeds on the first
+long-press), and surfaced a further, independent problem visible only once
+lift already succeeds: the lifted card doesn't follow the finger during move
+(the page scrolls instead), the first release neither drops nor cancels the
+drag, and it takes a second touch on the still-lifted card to actually
+complete it. This round also re-verified the tester's Desktop Preview
+screenshot against the current code (the card still appeared to show
+導航/參考資料/景點資訊-style entries), and made the desktop card's 景點資訊 CTA
+always visible per an explicit correction to the prior round's "hide when
+no data" behavior. Full detail:
+`docs/decisions/MOBILE_DND_RELEASE_BEHAVIOR.md` ("Fourth round" - that
+document's own internal numbering) and
+`docs/decisions/DESKTOP_ITINERARY_PLANNER_HIERARCHY.md` ("Second round").
+
+### Orphaned drag: root cause and fix
+
+Once native scrolling claims a touchmove for the same touch identifier that
+lifted a card, that touch's entire remaining lifecycle - including its
+`touchend` - can bypass JavaScript entirely, so `@hello-pangea/dnd`'s sensor
+is never told the drag ended. `src/TripDetail.jsx` now tracks which touch
+identifier began on the drag handle and, for the duration of an active drag
+only, installs a non-passive `touchmove` listener that calls
+`preventDefault()` solely for that one touch identifier - removed the moment
+the drag ends, is cancelled, or the component unmounts. This does not lock
+page scroll outside an active drag, does not touch the Map's gestures, and
+does not fake any library lifecycle call.
+
+### Preview verification finding
+
+A repository-wide search found exactly two `place-card` implementations
+(desktop in `TripDetail.jsx`, mobile timeline in `ItineraryTimelineCard.jsx`)
+- no duplicate desktop render path and no Example-Trip-specific card exist.
+The latest commit has a completed Vercel deployment tied to a stable,
+branch-scoped Preview URL. `vite.config.js`'s PWA config
+(`registerType: 'prompt'`) means a browser that already visited an earlier
+Preview for this branch keeps serving its cached bundle until an update
+prompt is explicitly accepted - the most likely explanation for the
+screenshot showing old card content despite the deployment being current.
+No browser tool was available this session to load the live Preview
+directly and confirm this first-hand.
+
+### `?qaDebug=1` build-identity badge
+
+`vite.config.js` injects `VERCEL_GIT_COMMIT_REF`/`VERCEL_GIT_COMMIT_SHA`
+(automatic Vercel build metadata, not a secret) and a build timestamp; a
+small dismissible corner badge (`src/components/QaDebugBadge.jsx`) shows all
+three, but only when the URL contains `?qaDebug=1` - hidden in every other
+case, including normal Preview and Production visits. **Any physical-device
+test result recorded from now on should include this SHA** so a report can
+never again be ambiguous about which build was tested.
+
+### `?dndDebug=1` on-screen event panel
+
+Console-only logging couldn't be handed back as evidence from an iPhone
+without devtools access. The trace now keeps a 60-event, non-PII ring buffer
+(event name, timestamp, target `data-testid`, pointer/touch identifiers and
+counts, `cancelable`/`defaultPrevented`, time since last scroll, active
+draggable/phase/indices/reason) and `DndDebugPanel.jsx` renders it as a
+collapsible on-screen table with copy/clear controls, only under
+`?dndDebug=1`.
+
+### Desktop card: 景點資訊 always visible, higher density
+
+Per this round's explicit correction, 景點資訊 is no longer conditional on
+having a photo/menu/note/resource - it's always present as one compact CTA,
+moved into its own grid column (`grid-cols-[3.75rem_minmax(0,1fr)_auto]` at
+`md:`) instead of a full-width inline-summary row. This reduced measured
+card height enough to raise the guaranteed basic-card count at 1440×900 from
+3 to 4 per day column.
+
+### Sixth-round automated evidence
+
+| Check | Result |
+| --- | --- |
+| `QaDebugBadge.test.jsx` (new) | PASS: 3 tests |
+| `DndDebugPanel.test.jsx` (new) | PASS: 4 tests |
+| `TripDetail.repositoryIntegration.test.jsx` (updated: 景點資訊 now always present) | PASS |
+| Full Vitest | PASS: 69 files, 767 tests |
+| Lint | PASS |
+| Typecheck | PASS |
+| Build | PASS; existing chunk-size warning only |
+| Focused desktop density E2E (updated: ≥4 cards, ≤112px height) | PASS: 1 Desktop Chrome |
+| Focused place-menu-layout E2E (updated: 景點資訊 always visible) | PASS: 3 Desktop Chrome |
+| New `dnd-debug-panel.spec.ts` (panel absence/presence, non-PII lifecycle log) | PASS: 2 Desktop Chrome + 2 Mobile Safari |
+| Full Playwright (Desktop Chrome + Mobile Safari) | 237 passed, 1 failed, 14 skipped, 12.8 min. The failure - `expense-crud.spec.ts` "編輯幣別、金額與代墊人後會重新計算分帳" (Desktop Chrome) - timed out waiting on a `<select>` mid-test ("element was detached from the DOM, retrying... navigated to...") under full-suite load; re-run alone it passed in 3.3s. It exercises expense currency/payer editing, unrelated to this round's DnD/desktop-card change - the third distinct flaky full-suite test observed across this PR's rounds (previously `external-app-ticket.spec.ts` and `realtime-sync.spec.ts`, both also unrelated to their respective rounds' changes and confirmed passing in isolation), consistent with general full-suite-under-load flakiness in this harness rather than a change-specific regression. |
+| Firebase Emulator project | `demo-travel-e2e` |
+| Production Firebase accessed | false |
+| Firebase Rules/config modified | false |
+| Dependencies changed | false |
+| Deploy | false |
+
+### Sixth-round outstanding
+
+No dependency was added or evaluated (Gate path D's precondition - real
+device evidence proving the library itself, not this new guard, cannot hold
+a touch sequence - has not been established). This agent has no access to a
+physical iPhone; the touch-guard root cause is inferred from the reported
+symptom sequence and the library's documented touch-sensor contract, not a
+captured device trace. Automated coverage of the guard's actual
+`preventDefault` effect is not achievable in this environment (Playwright's
+"Desktop Chrome" project has no touch-capable context; WebKit's synthetic
+`Touch`/`TouchEvent` limitation is already documented above). The required
+next step is a physical iPhone Safari session with `?dndDebug=1`,
+recording the `?qaDebug=1` SHA alongside the result, confirming: first
+long-press lifts, the lifted card follows the finger through move with no
+page scroll, and the first release completes the drop or a clean cancel
+with no second touch needed.
+
 ## Known limitations
 
 - Emulator E2E intentionally has no production Google Maps credential. Pure
@@ -683,20 +794,32 @@ immediately) is the required next step.
 - [x] Touch release on the 44px handle inserts the item immediately — no
       second tap is needed, and details do not open right after a drop.
       Confirmed on physical iPhone Safari after the `flushSync` fix.
-- [ ] The **first** long-press on a drag handle after the trip view finishes
-      loading starts a drag immediately — no second long-press/tap is needed
-      to "wake up" dragging. (New in the fifth round; see
-      `docs/decisions/MOBILE_DND_RELEASE_BEHAVIOR.md`, "Third round.")
+- [x] The **first** long-press on a drag handle after the trip view finishes
+      loading starts a drag immediately (card lifts) — no second long-press/
+      tap is needed to "wake up" dragging. Confirmed on physical iPhone 16 /
+      iOS 26.5.2 Safari.
+- [ ] While holding the lifted card down and moving the finger, the card
+      itself follows the finger and the page does **not** scroll on its own
+      for that same touch. (New in the sixth round - the orphaned-drag fix;
+      see `docs/decisions/MOBILE_DND_RELEASE_BEHAVIOR.md`, "Fourth round.")
+- [ ] The **first** release after a lift completes the drop (or a clean
+      cancel) immediately — it does not leave the card stuck lifted, and no
+      second touch is needed to finish the reorder.
 - [ ] A genuine single tap (no drag) still opens place details instantly.
 - [ ] The "本日主題" theme name is comfortably readable (not 320px-cramped
       against 智慧排路線) and wraps to a second line for long names without
       overlapping the route-optimize button.
-- [ ] Reload with `?dndDebug=1` appended to the URL, perform a real drag,
-      and confirm in the console: `touchend` fires, `onDragEnd` fires with a
-      valid `destination`, `onDragEnd:commit` logs, and `...:nextFrame` logs
-      on the very next frame with the list already reordered on screen — no
-      second tap needed to see it. Confirm no place names or coordinates
-      appear in any logged line.
+- [ ] Reload with `?dndDebug=1` appended to the URL. Confirm the collapsible
+      panel appears at the bottom of the screen with 複製紀錄/清除/收合
+      controls, and is absent without the flag. Perform a real drag and
+      confirm in the panel: `touchstart` on the handle, `onBeforeCapture`/
+      `onDragStart`, `touchmove` entries with `defaultPrevented: true` while
+      the drag is active, `onDragEnd` with a valid `destination`,
+      `onDragEnd:commit`, and `...:nextFrame` — with the list already
+      reordered on screen on release, no second touch needed. Confirm no
+      place names or coordinates appear anywhere in the panel, then use
+      複製紀錄 to copy the evidence. Record the Preview's `?qaDebug=1` SHA
+      alongside this result.
 - [ ] After a reorder, the day header's "正在依新順序精算時間" clears once
       arrival times update (or, if it doesn't clear within ~10s, a one-time
       "無法取得新的移動時間" toast appears and existing times are kept —
@@ -719,9 +842,17 @@ immediately) is the required next step.
 
 ### Desktop
 
-- [ ] At a typical 1440-class width, at least three basic place cards are
+Before testing, confirm with `?qaDebug=1` that the Preview badge's commit
+SHA matches this branch's latest push - the sixth round's Preview
+verification found the most likely cause of "stale-looking" card content
+was a cached Service Worker on a previously-visited Preview origin, not
+leftover code.
+
+- [ ] At a typical 1440-class width, at least **four** basic place cards are
       visible per day column without scrolling past mostly-empty space.
-- [ ] Places without notes/resources/photos show no empty "景點資訊" block.
+- [ ] Every basic place card shows exactly one 景點資訊 button (always
+      present now, even with no notes/resources/photos) — not an empty
+      placeholder block, and not a wide inline summary row.
 - [ ] The desktop card shows no direct navigation button and no hover action
       row; clicking the card (not the drag handle) opens Place Details, which
       offers 導航／編輯／周圍／複製／刪除 (delete still confirms before
