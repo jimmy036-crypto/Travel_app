@@ -117,9 +117,10 @@ test('desktop breakpoint keeps only 景點資訊 on the card and moves actions i
   // action row; navigate/edit/nearby/copy/delete all live in Place Details.
   await expect(card.getByTestId('desktop-place-actions')).toHaveCount(0);
   await expect(card.getByRole('button', { name: /導航到/ })).toHaveCount(0);
-  // No resources, memo, or photo are seeded for this place, so the compact
-  // info trigger renders nothing instead of a large empty placeholder.
-  await expect(card.getByTestId('place-info-trigger')).toHaveCount(0);
+  // 景點資訊 is always present as one compact CTA, regardless of whether this
+  // place has resources/memo/photo - it no longer renders a large inline
+  // summary, so there is no empty-placeholder concern.
+  await expect(card.getByTestId('place-info-trigger')).toBeVisible();
 
   await card.click();
   const sheet = page.getByTestId('place-detail-sheet');

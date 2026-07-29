@@ -250,9 +250,10 @@ describe('TripDetail repository injection', () => {
     const menuTrigger = firstCard.querySelector('[data-testid="place-action-menu-trigger"]');
     expect(menuTrigger).toHaveClass('w-11', 'shrink-0');
     expect(menuTrigger).not.toHaveAttribute('data-rfd-drag-handle-draggable-id');
-    // No resources, memo, or photo are seeded for this place, so the compact
-    // info trigger renders nothing instead of a large empty placeholder.
-    expect(firstCard.querySelector('[data-testid="place-info-trigger"]')).not.toBeInTheDocument();
+    // 景點資訊 is now always present as a compact CTA regardless of whether
+    // this place has resources/memo/photo - it no longer renders a large
+    // inline summary, so there is no empty-placeholder concern.
+    expect(firstCard.querySelector('[data-testid="place-info-trigger"]')).toBeInTheDocument();
     // Desktop cards no longer carry a direct navigation button or a hover
     // action row - navigate/edit/nearby/copy/delete all live in Place Details.
     // (The mobile-compact row above still renders its own nav button; jsdom

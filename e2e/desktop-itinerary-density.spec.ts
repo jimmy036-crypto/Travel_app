@@ -23,7 +23,7 @@ test.beforeEach(async () => {
   });
 });
 
-test('1440x900 shows at least 3 basic desktop cards per day column without oversized padding', async ({ page }) => {
+test('1440x900 shows at least 4 basic desktop cards per day column without oversized padding', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
@@ -43,13 +43,16 @@ test('1440x900 shows at least 3 basic desktop cards per day column without overs
       fullyVisibleCount += 1;
     }
   }
-  expect(fullyVisibleCount).toBeGreaterThanOrEqual(3);
+  expect(fullyVisibleCount).toBeGreaterThanOrEqual(4);
 
-  // No data was seeded with resources/memo/photo, so the compact info
-  // trigger should not reserve a large empty placeholder block.
-  await expect(page.getByTestId('place-info-trigger')).toHaveCount(0);
+  // 景點資訊 is always the one CTA on the card now, regardless of whether
+  // this place has resources/memo/photo - no separate nav/reference/note
+  // buttons and no large empty placeholder.
+  const firstCard = cards.first();
+  await expect(firstCard.getByTestId('place-info-trigger')).toBeVisible();
+  await expect(firstCard.getByRole('button', { name: /導航到/ })).toHaveCount(0);
 
   const firstCardBox = await cards.first().boundingBox();
   expect(firstCardBox).not.toBeNull();
-  expect(firstCardBox?.height || 0).toBeLessThanOrEqual(140);
+  expect(firstCardBox?.height || 0).toBeLessThanOrEqual(112);
 });
