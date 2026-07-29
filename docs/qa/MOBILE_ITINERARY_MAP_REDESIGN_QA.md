@@ -488,6 +488,114 @@ now assert the sync status node renders.
 | Dependencies changed | false |
 | Deploy | false |
 
+## Fourth-round: planner DnD refinement and arrival-time state machine
+
+Physical iPhone testing of the third round's touch-action/click-suppression
+fix showed release-to-drop was still not resolved, and separately confirmed
+four planner issues: the desktop title read as decorative italic, the
+desktop card still exposed a direct navigation button and an edit/nearby/
+copy/delete hover row duplicating Place Details, a long day theme could push
+the 智慧排路線 control outside the day column, and the recalculation badge
+could stay on screen permanently. Full root cause and decision detail lives
+in `docs/decisions/MOBILE_DND_RELEASE_BEHAVIOR.md`,
+`docs/decisions/DESKTOP_ITINERARY_PLANNER_HIERARCHY.md`, and
+`docs/decisions/ARRIVAL_TIME_RECALCULATION_STATE.md`; this section
+summarizes and records evidence.
+
+### iPhone drop: re-diagnosis and fix
+
+The third round's root cause (a trailing synthetic `click` reopening Place
+Details) was real but distinct from the task's actual complaint ("release
+doesn't insert immediately"). Re-reading the code: `onDragEnd` is still
+guaranteed to fire, but `handleDragEnd`'s state updates went through React's
+default (non-`flushSync`) scheduling from a callback the DnD library invokes
+outside React's synthetic event system - on iOS Safari this can leave the
+reordered DOM committed-but-unpainted until the next touch interaction. Both
+drag clones also carried `will-change-transform` on top of `transform-gpu`,
+a known contributor to a stale composited layer surviving a short-lived
+clone's unmount. Fix: the whole drop's state (`setBackupItin`,
+`clearOptimizationSummary`, `setRouteDurations`, `setDirtyRecalcDays`,
+`setItinerary`) is now committed in one `react-dom` `flushSync` call, and
+`will-change-transform` was removed from both clones. No dependency was
+added or evaluated - Gate path A's precondition (`onDragEnd` firing
+reliably) holds, so path B's `@dnd-kit` swap was out of scope this round.
+See the "Manual iPhone Safari checklist" below - this remains unconfirmed on
+real hardware from this session.
+
+### `?dndDebug=1` trace
+
+`src/features/itinerary/dndDebugTrace.js` adds an opt-in, non-PII console
+trace (event name, relative timestamp, day/droppable ids, indices, drag
+reason only - never place names, coordinates, or repository data), enabled
+only via `?dndDebug=1` in the URL. It covers `onBeforeCapture`,
+`onDragStart`, `onDragEnd` (with destination validity), a same-tick
+post-`flushSync` commit marker, a next-`requestAnimationFrame` marker, and a
+debug-only capture-phase `touchend`/`touchcancel` listener for correlating
+native release timing with `onDragEnd` on real hardware.
+
+### Desktop planner hierarchy
+
+- `trip-detail-title` no longer renders `italic`.
+- The desktop place card no longer renders a direct navigation button or the
+  `desktop-place-actions` hover row (編輯／周圍／複製／刪除). Those actions,
+  plus navigate, now live in Place Details
+  (`place-detail-navigate-button`/`-nearby-button`/`-copy-button`/
+  `-delete-button`, alongside the existing `place-detail-edit-button`).
+  Delete keeps its existing confirmation dialog. The card's only right-side
+  affordance is the existing `place-info-trigger` summary, unchanged in its
+  "only when there's real data" rendering rule.
+- The day column header is now `第一天 · 7/29` on its own line, then a
+  `grid-template-columns: minmax(0,1fr) auto` row pairing a `line-clamp-2`,
+  `overflow-wrap:anywhere` theme name against `shrink-0` undo/optimize
+  buttons that degrade to icon-only below `min-[420px]`, so a long theme can
+  no longer push those buttons outside the card.
+
+### Arrival-time recalculation state machine
+
+`timeRecalculationDays` (a plain boolean, only ever cleared on a successful
+`onRouteCalculated` callback) is replaced with a per-day `idle -> pending
+{requestId, startedAt} -> success | error {requestId, completedAt}` machine
+(`recalculationState`, `dirtyRecalcDays`, both in `src/TripDetail.jsx`).
+`Directions` never calls `onRouteCalculated` when the Map API isn't ready,
+on effect cleanup (day switch, unmount, a newer request replacing an older
+one), or on a genuine failure - all of those previously left the badge on
+screen forever. Every one of those cases, plus a day left with ≤1 item, now
+settles: a 10s timeout backstops the cases `Directions` can't itself report,
+each settle is guarded by a `requestId` match so a stale/replaced request
+can never overwrite a newer one, and a day switch settles the day you leave
+quietly (no error toast) while resuming its request automatically when you
+return to it - independent of whether the Map tab is the active tab. No
+arrival time is fabricated on error or timeout; the existing time is kept
+and a one-time toast reads the required "無法取得新的移動時間，已保留目前抵達時間".
+
+### Fourth-round automated evidence
+
+| Check | Result |
+| --- | --- |
+| `TripDetail.recalculation.test.jsx` (new) | PASS: 4 tests (pending→success, timeout→one error toast, day-switch settles quietly, day left with 1 item never marked dirty) |
+| `TripDetail.repositoryIntegration.test.jsx` (updated for the new card/Place Details contract) | PASS: 7 tests |
+| `TripDetail.emulator.test.jsx` | PASS |
+| Focused desktop density E2E (`desktop-itinerary-density.spec.ts`) | PASS: 1 Desktop Chrome |
+| Focused place-menu-layout E2E (updated for the card/Place Details contract) | PASS: 3 Desktop Chrome |
+| Existing drag E2E (`itinerary-drag.spec.ts`, `mobile-touch-drag-release.spec.ts`) | PASS: 6 Desktop Chrome + 6 Mobile Safari |
+| `place-crud.spec.ts`, `core-empty-states.spec.ts` (updated desktop-delete path) | PASS: 10 Desktop Chrome + 10 Mobile Safari |
+| `realtime-sync.spec.ts` (updated desktop-delete path) | PASS: 10 Desktop Chrome + 10 Mobile Safari |
+| Lint | PASS |
+| Typecheck | PASS |
+| Build | PASS; existing chunk-size warning only |
+| Full Vitest | PASS: 67 files, 760 tests |
+| Firebase Emulator project | `demo-travel-e2e` |
+| Production Firebase accessed | false |
+| Firebase Rules/config modified | false |
+| Dependencies changed | false |
+| Deploy | false |
+| Full Playwright (Desktop Chrome + Mobile Safari) | 233 passed, 1 failed, 14 skipped, 12.3 min. The failure - `realtime-sync.spec.ts` "syncs place edits between active browser contexts in realtime" (Mobile Safari) - is a WebKit engine crash (`WebKit encountered an internal error. This is a WebKit bug.` in `WebLoaderStrategy.cpp`) under full-suite resource load, not an assertion failure. Re-run alone: passed in 17.9s. It does not touch any file this change modifies beyond the pre-existing `deletePlaceThroughUi` helper, which this spec's failed run never reached. |
+
+Full-suite Vitest and Playwright numbers above are the actual results of
+this round's run, per this repository's flaky-test policy (no run is
+reported as a full PASS without the real numbers and the isolated re-run
+evidence for any failure).
+
 ## Known limitations
 
 - Emulator E2E intentionally has no production Google Maps credential. Pure
@@ -523,6 +631,16 @@ now assert the sync status node renders.
 - [ ] The "本日主題" theme name is comfortably readable (not 320px-cramped
       against 智慧排路線) and wraps to a second line for long names without
       overlapping the route-optimize button.
+- [ ] Reload with `?dndDebug=1` appended to the URL, perform a real drag,
+      and confirm in the console: `touchend` fires, `onDragEnd` fires with a
+      valid `destination`, `onDragEnd:commit` logs, and `...:nextFrame` logs
+      on the very next frame with the list already reordered on screen — no
+      second tap needed to see it. Confirm no place names or coordinates
+      appear in any logged line.
+- [ ] After a reorder, the day header's "正在依新順序精算時間" clears once
+      arrival times update (or, if it doesn't clear within ~10s, a one-time
+      "無法取得新的移動時間" toast appears and existing times are kept —
+      it never stays on screen indefinitely).
 
 ### Map
 
@@ -544,8 +662,14 @@ now assert the sync status node renders.
 - [ ] At a typical 1440-class width, at least three basic place cards are
       visible per day column without scrolling past mostly-empty space.
 - [ ] Places without notes/resources/photos show no empty "景點資訊" block.
-- [ ] Desktop drag, navigation, details, resources, notes, and the hover
-      action row still work as before.
+- [ ] The desktop card shows no direct navigation button and no hover action
+      row; clicking the card (not the drag handle) opens Place Details, which
+      offers 導航／編輯／周圍／複製／刪除 (delete still confirms before
+      removing).
+- [ ] The trip title in the desktop header is bold, not italic.
+- [ ] A long day theme name wraps to at most two lines and never pushes the
+      智慧排路線／復原 buttons outside the day column, at both a typical and a
+      narrowed desktop window width.
 
 ### Ticket / Expense
 

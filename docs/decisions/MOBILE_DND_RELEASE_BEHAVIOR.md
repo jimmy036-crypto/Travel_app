@@ -2,7 +2,93 @@
 
 Status: implementation decision for this change only. This document does not represent Gate 1, Gate 3, or release approval.
 
-## Root cause
+## Second round: the touch-action/click-suppression fix did not resolve release-to-drop
+
+Physical iPhone testing after the round documented below still showed the
+finger release not inserting the item immediately - a second tap was needed.
+That is a different symptom than what the first round fixed. The first round
+diagnosed and fixed "the drop reopens Place Details right after release,"
+caused by iOS Safari's trailing synthetic `click`. It did **not** address "the
+reordered position does not visually commit on release," which is the actual
+task-1 complaint. Re-diagnosing from the code (real hardware was not
+available to this agent in this session; see "What still needs physical
+confirmation" below):
+
+- `onDragEnd` **is** still guaranteed by `@hello-pangea/dnd`'s touch sensor
+  contract - nothing in this codebase intercepts or cancels the touch
+  sequence before release, and the sensor's own lifecycle (`onBeforeCapture`
+  → `onDragStart` → `onDragEnd`) is fully wired with no gaps (Gate path A
+  applies; path B's dependency swap was not evaluated because this precondition
+  fails).
+- `handleDragEnd` (`src/TripDetail.jsx`) computed the reordered itinerary and
+  called `setItinerary` (plus several other setters) as an ordinary state
+  update. On iOS Safari, that update is scheduled through React's normal
+  batching, which does not guarantee the browser paints the reordered DOM
+  before it decides whether the current frame needs a repaint at all. Because
+  the call originates from `@hello-pangea/dnd`'s own internal touch-sensor
+  dispatch (not a React synthetic event), the reordered DOM could sit
+  committed-but-unpainted until the next touch interaction forced a repaint -
+  exactly the "needs a second tap" symptom, and distinct from the click-reopen
+  bug already fixed.
+- Both drag clones (`MobileItineraryTimeline.jsx`'s `MobileItineraryDragClone`
+  and the desktop clone in `TripDetail.jsx`) carried `will-change-transform`
+  in addition to `transform-gpu`. `will-change` is a standing hint to keep a
+  layer promoted; on a short-lived clone that mounts and unmounts within one
+  drag, this is unnecessary and is one of the known WebKit patterns for a
+  stale composited layer surviving past its node's removal.
+
+### Fix
+
+1. **`flushSync` around the drop commit.** `handleDragEnd`'s state updates
+   (`setBackupItin`, `clearOptimizationSummary`, `setRouteDurations`,
+   `setDirtyRecalcDays`, `setItinerary`) are now wrapped in a single
+   `react-dom` `flushSync` call, so the whole drop - one commit, matching the
+   task's "minimal scope" requirement - is synchronously reflected in the DOM
+   before the `touchend`-driven callback returns, instead of being left to
+   React's default scheduling. `beginRecalculation` (see
+   `docs/decisions/ARRIVAL_TIME_RECALCULATION_STATE.md`) runs immediately
+   after, outside the `flushSync`, since it does not need to affect this
+   frame's paint.
+2. **Dropped `will-change-transform`** from both drag clones, keeping
+   `transform-gpu` (a one-time `translateZ(0)` promotion) for smooth 60fps
+   movement during the drag without leaving a persistent "keep this layer
+   around" hint once the clone unmounts.
+3. **No synthetic click, no second tap.** Neither change adds an extra tap,
+   click, or `requestAnimationFrame`-deferred repaint hack; both are exactly
+   the remedies the task's Gate path A anticipates ("必要時只在單次 drop commit
+   使用最小範圍 flushSync" and "檢查 transform-gpu／will-change 是否保留 stale
+   layer").
+
+### `?dndDebug=1` trace
+
+`src/features/itinerary/dndDebugTrace.js` adds an opt-in, non-PII trace,
+enabled only when the URL contains `?dndDebug=1`. It logs, via
+`console.info`, only: event name, a relative timestamp
+(`performance.now()`), day/droppable ids, indices, and drag reason - never
+place names, coordinates, or any repository data. It is wired into
+`onBeforeCapture`, `onDragStart`, `onDragEnd` (including destination
+validity), a same-tick `onDragEnd:commit` marker immediately after the
+`flushSync` block, and a `requestAnimationFrame`-scheduled `...:nextFrame`
+marker so a physical-device session can confirm the reordered DOM is present
+on the very next frame. A capture-phase, passive, debug-only `touchend`/
+`touchcancel` listener (gated the same way, added only when `?dndDebug=1` is
+present) is layered on top purely to correlate native touch-release timing
+with `onDragEnd` on real hardware; it changes no behavior and writes nothing
+to the repository.
+
+### What still needs physical confirmation
+
+This agent has no access to a physical iPhone. The fix above is the specific,
+scoped remedy the task's diagnostic gate names for the "`onDragEnd` fires
+but the visual commit is late" case, and it is exercised by the existing
+pointer-sensor E2E stand-in (`e2e/mobile-touch-drag-release.spec.ts`, all
+passing) plus the full existing drag regression suite. It has **not** been
+confirmed on real iPhone Safari hardware. The physical checklist in
+`docs/qa/MOBILE_ITINERARY_MAP_REDESIGN_QA.md` - including a `?dndDebug=1` run
+to capture real `touchend`/`onDragEnd`/`nextFrame` timing - is the required
+next step before this can be called resolved.
+
+## First round: root cause
 
 `@hello-pangea/dnd` v18 was wired with only `onDragEnd` on `DragDropContext`; there was no `onBeforeCapture`, `onDragStart`, or `onDragUpdate`, and no independent tracking of "a drag just ended." The 44px drag handle used `touch-action: pan-y` — the same value as the surrounding card — so the browser's native vertical-pan gesture recognizer and the library's own touch sensor competed for the same touch stream on the handle itself. `onDragEnd` reliably fires (it is guaranteed by the library's touch sensor contract), so the "still open after release" and "needs an extra tap" complaints were not caused by a missing drop; they were caused by the absence of any mechanism to distinguish a real tap from the synthetic `click` iOS Safari dispatches after a touch sequence ends. Because `ItineraryTimelineCard`'s card body opened place details on `onClick` whenever `snapshot.isDragging` was already `false` (true again by click time), that trailing synthetic click reliably reopened details right after a drop.
 
