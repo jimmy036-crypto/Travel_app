@@ -66,8 +66,9 @@ async function openDeleteConfirmationForPlace(
     return;
   }
 
-  await placeCard.hover();
-  await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
+  // Desktop: navigate/edit/nearby/copy/delete all live in Place Details now.
+  await placeCard.click();
+  await page.getByTestId('place-detail-delete-button').click();
 }
 
 async function openTrip(page: Page, itinerary: Record<string, SeedPlace[]>) {

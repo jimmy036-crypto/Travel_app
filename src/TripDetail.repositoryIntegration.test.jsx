@@ -228,7 +228,7 @@ describe('TripDetail repository injection', () => {
     ]);
   });
 
-  it('uses the compact mobile layout while preserving desktop actions and isolating menu clicks', async () => {
+  it('uses the compact mobile layout, keeps desktop cards to 景點資訊 only, and isolates menu clicks', async () => {
     const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
     await renderWithRepository(repository, 'firebase-trip');
 
@@ -253,7 +253,11 @@ describe('TripDetail repository injection', () => {
     // No resources, memo, or photo are seeded for this place, so the compact
     // info trigger renders nothing instead of a large empty placeholder.
     expect(firstCard.querySelector('[data-testid="place-info-trigger"]')).not.toBeInTheDocument();
-    expect(firstCard.querySelector('[data-testid="desktop-place-actions"]')).toHaveClass('hidden', 'md:flex');
+    // Desktop cards no longer carry a direct navigation button or a hover
+    // action row - navigate/edit/nearby/copy/delete all live in Place Details.
+    // (The mobile-compact row above still renders its own nav button; jsdom
+    // doesn't apply the `md:hidden` that keeps it off-screen at desktop width.)
+    expect(firstCard.querySelector('[data-testid="desktop-place-actions"]')).not.toBeInTheDocument();
 
     fireEvent.click(menuTrigger);
     expect(screen.getByTestId('place-action-menu')).toBeInTheDocument();
@@ -263,5 +267,20 @@ describe('TripDetail repository injection', () => {
     expect(screen.getByTestId('place-action-delete')).toBeInTheDocument();
     expect(screen.queryByTestId('place-detail-sheet')).not.toBeInTheDocument();
     expect(repository.updateItinerary).not.toHaveBeenCalled();
+  });
+
+  it('opens Place Details from the desktop card and exposes navigate/nearby/copy/delete there', async () => {
+    const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
+    await renderWithRepository(repository, 'firebase-trip');
+
+    const firstCard = screen.getAllByTestId('place-card')[0];
+    fireEvent.click(firstCard);
+
+    const sheet = await screen.findByTestId('place-detail-sheet');
+    expect(within(sheet).getByTestId('place-detail-navigate-button')).toBeInTheDocument();
+    expect(within(sheet).getByTestId('place-detail-nearby-button')).toBeInTheDocument();
+    expect(within(sheet).getByTestId('place-detail-copy-button')).toBeInTheDocument();
+    expect(within(sheet).getByTestId('place-detail-delete-button')).toBeInTheDocument();
+    expect(within(sheet).getByTestId('place-detail-edit-button')).toBeInTheDocument();
   });
 });

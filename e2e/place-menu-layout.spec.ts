@@ -105,7 +105,7 @@ for (const width of [320, 390]) {
   });
 }
 
-test('desktop breakpoint preserves the existing detailed card actions', async ({ page }) => {
+test('desktop breakpoint keeps only 景點資訊 on the card and moves actions into Place Details', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
@@ -113,9 +113,20 @@ test('desktop breakpoint preserves the existing detailed card actions', async ({
   const card = placeCard(page, NAMES[0]);
   await expect(card).toHaveCSS('padding-top', '12px');
   await expect(card.getByTestId('place-card-actions')).toBeHidden();
-  await expect(card.getByTestId('desktop-place-actions')).toHaveCSS('display', 'flex');
+  // Desktop cards no longer carry a direct navigation button or a hover
+  // action row; navigate/edit/nearby/copy/delete all live in Place Details.
+  await expect(card.getByTestId('desktop-place-actions')).toHaveCount(0);
+  await expect(card.getByRole('button', { name: /導航到/ })).toHaveCount(0);
   // No resources, memo, or photo are seeded for this place, so the compact
   // info trigger renders nothing instead of a large empty placeholder.
   await expect(card.getByTestId('place-info-trigger')).toHaveCount(0);
-  await expect(card.getByRole('button', { name: /導航到/ })).toBeVisible();
+
+  await card.click();
+  const sheet = page.getByTestId('place-detail-sheet');
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-navigate-button')).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-nearby-button')).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-copy-button')).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-delete-button')).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-edit-button')).toBeVisible();
 });
