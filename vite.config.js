@@ -3,7 +3,21 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Vercel populates these automatically for every build (no secret involved -
+// they're the same commit metadata already visible in the build logs and PR
+// checks). Used only to render a small, opt-in (?qaDebug=1) build-identity
+// badge so QA can confirm which commit a Preview is actually serving instead
+// of assuming a stale deployment or cached Service Worker is current.
+const qaBuildBranch = process.env.VERCEL_GIT_COMMIT_REF || '';
+const qaBuildSha = (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7);
+const qaBuildTime = new Date().toISOString();
+
 export default defineConfig({
+  define: {
+    __QA_BUILD_BRANCH__: JSON.stringify(qaBuildBranch),
+    __QA_BUILD_SHA__: JSON.stringify(qaBuildSha),
+    __QA_BUILD_TIME__: JSON.stringify(qaBuildTime),
+  },
   plugins: [
     react(),
     tailwindcss(),
