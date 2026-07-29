@@ -3327,22 +3327,6 @@ const TripDetail = ({
     );
   }
 
-  if (isLoading || !meta) {
-    return (
-      <TripDetailSkeleton
-        t={t}
-        tripThemeColor={tripThemeColor}
-        onBack={onBack}
-        onOpenReleaseNotes={onOpenReleaseNotes}
-        onOpenFeatureIntroduction={onOpenFeatureIntroduction}
-        onStartFeatureTour={onStartFeatureTour}
-        onCheckUpdates={onCheckUpdates}
-        isCheckingUpdates={isCheckingUpdates}
-        onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
-      />
-    );
-  }
-
   const mobileSyncStatusNode = capabilities.cloudSync ? (
     <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} />
   ) : null;
@@ -3385,6 +3369,19 @@ const TripDetail = ({
         onDragEnd={handleDragEnd}
         autoScrollerOptions={ITINERARY_DND_AUTO_SCROLLER_OPTIONS}
       >
+        {(isLoading || !meta) ? (
+          <TripDetailSkeleton
+            t={t}
+            tripThemeColor={tripThemeColor}
+            onBack={onBack}
+            onOpenReleaseNotes={onOpenReleaseNotes}
+            onOpenFeatureIntroduction={onOpenFeatureIntroduction}
+            onStartFeatureTour={onStartFeatureTour}
+            onCheckUpdates={onCheckUpdates}
+            isCheckingUpdates={isCheckingUpdates}
+            onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+          />
+        ) : (
         <div data-testid="active-trip-view" style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
           <input
             ref={tripAppearanceInputRef}
@@ -4019,6 +4016,7 @@ const TripDetail = ({
             </button>
           </div>
         </div>
+        )}
       </DragDropContext>
 
       {/* 🌟 彈窗掛載區 */}
