@@ -285,6 +285,209 @@ and map instance count are unchanged.
 - [ ] Recheck physical-device timeline drag, edge auto-scroll, persistence,
       arrival-time recalculation, and Timeline-only navigation/menu actions.
 
+## Third-round responsive chrome, density, DnD, and map peek refinement
+
+Real iPhone Safari and Desktop review of PR #41 (see
+`docs/references/mobile-ux-refinement/mobile-expense-header-current.jpg` and
+`docs/references/mobile-ux-refinement/desktop-itinerary-current.png`)
+surfaced four remaining bottlenecks, addressed here as a stacked, incremental
+refinement. Full root cause and decision detail lives in
+`docs/decisions/RESPONSIVE_TRIP_PAGE_CHROME.md` and
+`docs/decisions/MOBILE_DND_RELEASE_BEHAVIOR.md`; this section summarizes and
+records evidence.
+
+### Per-tab header strategy
+
+`MobileTripHeader` (title/date/destination/weather) was previously mounted
+unconditionally for every mobile tab. It is now scoped to `activeTab ===
+'plan'` only:
+
+- **Map**: a new `MobileMapTopBar` — Back, an embedded `MobileDaySwitcher`
+  (which gained an optional `wrapperClassName` prop so it can drop its own
+  border/padding when embedded), and Settings, in one safe-area-aware row.
+  No title, destination, or weather competes with the map canvas.
+- **Ticket / Expense**: a new `MobileCompactUtilityBar` — Back and Settings
+  only, ~52–60px including safe area, no day switcher, no trip summary.
+
+All three chrome variants reuse one `AppSettingsMenu` element built once per
+render, so there is never more than one Settings trigger mounted. Desktop
+header/tabs are unchanged.
+
+### Mobile daily theme typography
+
+The per-day theme name moved from a single `text-xs` truncated line to a
+two-tier block: a 10px `本日主題` label followed by a 17px `font-black`,
+two-line, `overflow-wrap:anywhere` theme name. The route-optimize control
+became a 44px icon button with an `aria-label`/`title`, showing its text
+label only at `min-[390px]` and up so it never collides with the theme name
+at 320px; the existing undo (`↩️`) control is unchanged in behavior.
+
+### Desktop density before/after
+
+The desktop place card (`TripDetail.jsx`) previously always rendered a
+"景點資訊" info row (`place-info-trigger`) — even with no photo, memo,
+resources, or menu — as a fallback-text placeholder, and used `p-4`/`gap-4`
+spacing. It now:
+
+- Renders `place-info-trigger` only when there is real data to summarize
+  (`detailParts.length > 0`); with none, it renders nothing instead of an
+  empty ~52px block.
+- Renders the tag row only when `item.tags` is non-empty.
+- Uses `p-3`/`gap-3` (12px, within the 12–16px target) instead of `p-4`/`gap-4`.
+
+The transit connector row between cards was already within the 28–36px
+target (`h-7`, 28px) and needed no change. Desktop drag, navigation,
+details, resources, notes, and the hover action row are unchanged.
+`e2e/desktop-itinerary-density.spec.ts` seeds 6 places with no
+photo/memo/resources at 1440×900 and asserts at least 3 land fully inside
+the visible dropzone, that `place-info-trigger` does not render, and that a
+basic card stays ≤140px tall.
+
+### iPhone drop root cause
+
+`DragDropContext` had only `onDragEnd` wired; `onDragEnd` is guaranteed by
+`@hello-pangea/dnd`'s touch sensor and does fire on release, so the
+"needs a second tap" complaint was not a missing drop. It was the drag
+handle's `touch-action: pan-y` (same as the card) letting the browser's
+native pan gesture compete with the library's touch sensor, combined with no
+mechanism to distinguish the drop's release from the synthetic `click`
+Safari dispatches immediately after — `ItineraryTimelineCard`'s card-open
+`onClick` checked only `snapshot.isDragging`, which is already `false` by
+the time that trailing click arrives, so it reopened place details right
+after every touch-driven drop.
+
+### Touch-action decision
+
+The 44px handle now uses `touch-none` (`touch-action: none`) plus
+`select-none` and `[-webkit-touch-callout:none]`, isolating it from native
+browser gestures. Card surfaces keep `touch-pan-y` explicitly, so list
+scrolling everywhere except the handle is unaffected. Applied to both the
+mobile timeline handle (`ItineraryTimelineCard.jsx`) and the desktop card
+handle (`TripDetail.jsx`).
+
+### Synthetic click suppression
+
+`DragDropContext` now wires `onBeforeCapture`/`onDragStart` (record the
+active `draggableId` for lifecycle bookkeeping only), `onDragUpdate`
+(intentional no-op — no state read or written during drag movement), and
+the existing `onDragEnd`. `handleDragEnd` unconditionally stamps
+`dragReleaseAtRef.current = Date.now()`, including on a cancelled or no-op
+drop. `handleSavedItemDetails` and `openPlaceActionMenu` — the shared entry
+points every card-open and action-menu path funnels through, mobile and
+desktop, timeline and map sheet — bail out if invoked within 300ms of that
+stamp. A normal tap that never engaged the sensor is unaffected.
+
+### autoScroller tuning
+
+`DragDropContext` now sets `autoScrollerOptions` to
+`{ startFromPercentage: 0.2, maxScrollAtPercentage: 0.08, maxPixelScroll:
+16, durationDampening: { stopDampeningAt: 800, accelerateAt: 300 } }` — the
+range the task specified — so edge auto-scroll starts earlier and stays
+capped instead of the library default.
+
+### WebKit E2E touch-simulation limitation
+
+Playwright's WebKit build does not reliably deliver a full drag gesture to
+`@hello-pangea/dnd`'s touch sensor via synthetic `Touch`/`TouchEvent`
+construction in headless mode: `new Touch()`/`new TouchEvent()` throw
+`Illegal constructor` in this WebKit build, and the legacy
+`document.createTouch`/`createTouchList`/`initTouchEvent` path does not
+activate the sensor consistently either. `e2e/mobile-touch-drag-release.spec.ts`
+therefore drives the same release/click-suppression contract through the
+library's pointer (mouse) sensor (`mouseDragHandle` in
+`e2e/support/touchDrag.ts`: press, a fine-grained multi-step lift past the
+sensor's activation threshold, many small move steps, release). This is a
+stand-in for, not a replacement of, the physical iPhone Safari checklist
+below, which is the only way to confirm real-touch release-to-drop feel.
+
+A separate, pre-existing, unrelated observation: on this checkout, a
+single-position keyboard-driven reorder on a freshly seeded 4-item day does
+not reliably reach the Firebase Emulator within several seconds, while the
+existing 12-item/11-position keyboard spec persists reliably. This
+reproduces with the keyboard sensor alone, on code this change does not
+touch, so it is a characteristic of small-magnitude reorders in this test
+harness, not a regression. `e2e/mobile-touch-drag-release.spec.ts` asserts
+DOM-level release behavior only; the existing keyboard spec remains the
+persistence regression check.
+
+### Map peek decision
+
+`MapItinerarySheet` moves from a single collapsed/56%-expanded toggle to two
+states, `peek` and `cards` (default `cards`, matching the existing default
+experience):
+
+- **peek**: `h-[calc(4.5rem+env(safe-area-inset-bottom))]` (72px + safe
+  area, within the 64–76px target), a single full-row button showing the
+  handle plus either the selected place's time/name (single-line, truncated)
+  or `今日 N 個景點` / `展開今日行程` when nothing is selected. No image, no
+  navigation, no `⋯`. Tapping anywhere on the row expands to `cards`.
+- **cards**: unchanged `clamp(10.5rem, 30%, 12.5rem)` horizontal card rail.
+  The former 56% expanded state is removed — no distinct product value was
+  identified for a third height beyond peek and the existing card rail.
+
+`MapItinerarySheet` no longer remounts on day switch (the `key={dayId}` on
+its call site in `MobileTripMapView.jsx` was removed), so `peek`/`cards`
+state now persists across day switches as required; marker/card selection
+sync into the peek label without forcing an expand, and switching days
+updates the peek label to the new day's selected/first place without
+changing peek/cards state.
+
+### 320/390/1440 evidence
+
+- `e2e/mobile-map-itinerary-sheet.spec.ts` (320×568, 390×844): map tab no
+  longer shows `mobile-trip-header`; shows `mobile-map-top-bar`,
+  `back-to-lobby`, `app-settings-trigger`, day switcher; sheet defaults to
+  `cards`; toggling to peek keeps a ≥44px touch target, shows the selected
+  day's place name, sits above `mobile-nav-map`, and tapping it re-expands.
+- `e2e/place-menu-layout.spec.ts` (320×390 unchanged; desktop breakpoint
+  updated): desktop card padding-top is now 12px (was 16px), and
+  `place-info-trigger` is absent (not merely hidden) when no data is seeded.
+- `e2e/desktop-itinerary-density.spec.ts` (1440×900): ≥3 basic cards fully
+  visible per day column, no oversized fixed height, no empty info
+  placeholder.
+- `e2e/mobile-touch-drag-release.spec.ts` (390×844): release-triggered
+  reorder with no extra tap, no accidental details-open, no lingering click,
+  cancel clears drag state, and a normal tap still opens details.
+
+### Regression found and fixed during this round
+
+Scoping `MobileTripHeader` to the plan tab also removed its
+`SyncStatusIndicator` (`sync-status-indicator`) from the map, ticket, and
+expense tabs, where it had always been visible. This broke three existing
+specs (`external-app-ticket.spec.ts`, `ticket-edit-lifecycle.spec.ts`, and a
+`whats-new-tour.spec.ts` FeatureTour step that targets the sync status
+control) at the Mobile Safari viewport. Fixed by adding an optional
+`syncStatusNode` prop to `MobileMapTopBar` and `MobileCompactUtilityBar`,
+wired from the same `capabilities.cloudSync` expression `MobileTripHeader`
+already used, built once per render and shared across all three chrome
+variants like the existing `mobileSettingsMenu`. All three specs pass after
+the fix; `MobileMapTopBar.test.jsx` and `MobileCompactUtilityBar.test.jsx`
+now assert the sync status node renders.
+
+### Third-round automated evidence
+
+| Check | Result |
+| --- | --- |
+| MobileMapTopBar component | PASS: 1 test |
+| MobileCompactUtilityBar component | PASS: 1 test |
+| MobileTripMapView / map peek component | PASS: 9 tests (3 new: peek selected-place label, peek day-count fallback, state persists across day switch) |
+| Desktop density/regression component (`TripDetail.repositoryIntegration.test.jsx`) | PASS: updated for `md:p-3` and no-data info-trigger absence |
+| Focused map sheet E2E (`mobile-map-itinerary-sheet.spec.ts`) | PASS: 4 Mobile Safari + 4 Desktop Chrome |
+| Focused desktop density E2E (`desktop-itinerary-density.spec.ts`) | PASS: 1 Mobile Safari + 1 Desktop Chrome |
+| Focused real-touch/pointer drag E2E (`mobile-touch-drag-release.spec.ts`) | PASS: 3 Mobile Safari + 3 Desktop Chrome |
+| Existing drag/place-menu regression (`itinerary-drag.spec.ts`, `place-menu-layout.spec.ts`) | PASS: both projects |
+| Full regression sweep (Expense/Ticket/Appearance/Settlement/FeatureTour/Example Trip/etc.) | PASS: 233 passed, 14 existing PWA conditional skips, both projects, 11.4 min. One `external-app-ticket.spec.ts` Desktop Chrome anchor-attribute check was flaky under full-suite load but passed reliably in isolation; it does not touch any file this change modifies. |
+| Lint | PASS |
+| Typecheck | PASS |
+| Build | PASS; existing chunk-size warning only |
+| Full Vitest | PASS: 66 files, 755 tests |
+| `git diff --check` | PASS |
+| Firebase Emulator project | `demo-travel-e2e` |
+| Production Firebase accessed | false |
+| Firebase Rules/config modified | false |
+| Dependencies changed | false |
+| Deploy | false |
+
 ## Known limitations
 
 - Emulator E2E intentionally has no production Google Maps credential. Pure
@@ -296,6 +499,11 @@ and map instance count are unchanged.
   as real routing.
 - Native inertial scrolling, map gestures, edge auto-scroll feel, light/dark
   contrast, and final density still require a physical iPhone Safari review.
+- Playwright's WebKit build cannot reliably simulate a full touch drag
+  gesture against `@hello-pangea/dnd` in headless mode (see the
+  WebKit E2E touch-simulation limitation above); release-to-drop feel is
+  verified through the library's pointer sensor in E2E and remains a
+  physical-device checklist item below.
 
 ## Manual iPhone Safari checklist
 
@@ -309,6 +517,12 @@ and map instance count are unchanged.
       start drag accidentally.
 - [ ] Normal vertical scroll, handle drag, edge auto-scroll, first/last drop,
       arrival-time recalculation, and reload persistence feel natural.
+- [ ] Touch release on the 44px handle inserts the item immediately — no
+      second tap is needed, and details do not open right after a drop.
+- [ ] A genuine single tap (no drag) still opens place details instantly.
+- [ ] The "本日主題" theme name is comfortably readable (not 320px-cramped
+      against 智慧排路線) and wraps to a second line for long names without
+      overlapping the route-optimize button.
 
 ### Map
 
@@ -318,6 +532,26 @@ and map instance count are unchanged.
       synchronized without aggressive zoom jumps.
 - [ ] Invalid-coordinate items remain visible and sheet/navigation/safe areas
       do not overlap.
+- [ ] The map tab shows only Back, the day switcher, and Settings above the
+      canvas — no trip title/weather — and does not overlap native Google
+      Maps controls.
+- [ ] Collapsing the sheet to peek leaves a comfortable amount of map
+      visible, shows the selected place (or day count) on one line, and
+      tapping the peek row reliably re-expands to cards.
+
+### Desktop
+
+- [ ] At a typical 1440-class width, at least three basic place cards are
+      visible per day column without scrolling past mostly-empty space.
+- [ ] Places without notes/resources/photos show no empty "景點資訊" block.
+- [ ] Desktop drag, navigation, details, resources, notes, and the hover
+      action row still work as before.
+
+### Ticket / Expense
+
+- [ ] Both tabs open directly into their content — no trip summary card, no
+      day switcher — with a compact Back + Settings row that does not cover
+      content and stays within the safe area.
 
 ### Cross-feature
 
