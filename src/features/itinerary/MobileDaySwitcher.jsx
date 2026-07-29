@@ -8,12 +8,13 @@ export function MobileDaySwitcher({
   startDate,
   onSelectDay,
   t,
+  wrapperClassName,
 }) {
   return (
     <nav
       data-testid="mobile-day-switcher"
       aria-label="選擇行程日期"
-      className={`shrink-0 border-b px-3 py-2 ${t.headerBg} ${t.cardBorder}`}
+      className={wrapperClassName ?? `shrink-0 border-b px-3 py-2 ${t.headerBg} ${t.cardBorder}`}
     >
       <div className="scrollbar-hide flex gap-2 overflow-x-auto overscroll-x-contain">
         {(Array.isArray(days) ? days : []).map((dayId) => {
