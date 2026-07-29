@@ -241,7 +241,7 @@ describe('TripDetail repository injection', () => {
 
     const firstCard = screen.getAllByTestId('place-card')[0];
     expect(firstCard).toHaveAttribute('data-mobile-layout', 'compact');
-    expect(firstCard).toHaveClass('p-2.5', 'md:p-4');
+    expect(firstCard).toHaveClass('p-2.5', 'md:p-3');
     const mobileActions = firstCard.querySelector('[data-testid="place-card-actions"]');
     expect(mobileActions).toHaveAttribute('data-layout', 'mobile-compact');
     expect(mobileActions).toHaveClass('md:hidden');
@@ -250,7 +250,9 @@ describe('TripDetail repository injection', () => {
     const menuTrigger = firstCard.querySelector('[data-testid="place-action-menu-trigger"]');
     expect(menuTrigger).toHaveClass('w-11', 'shrink-0');
     expect(menuTrigger).not.toHaveAttribute('data-rfd-drag-handle-draggable-id');
-    expect(firstCard.querySelector('[data-testid="place-info-trigger"]')).toHaveClass('hidden', 'md:flex');
+    // No resources, memo, or photo are seeded for this place, so the compact
+    // info trigger renders nothing instead of a large empty placeholder.
+    expect(firstCard.querySelector('[data-testid="place-info-trigger"]')).not.toBeInTheDocument();
     expect(firstCard.querySelector('[data-testid="desktop-place-actions"]')).toHaveClass('hidden', 'md:flex');
 
     fireEvent.click(menuTrigger);

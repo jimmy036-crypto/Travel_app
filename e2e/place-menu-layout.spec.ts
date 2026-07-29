@@ -111,9 +111,11 @@ test('desktop breakpoint preserves the existing detailed card actions', async ({
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
 
   const card = placeCard(page, NAMES[0]);
-  await expect(card).toHaveCSS('padding-top', '16px');
+  await expect(card).toHaveCSS('padding-top', '12px');
   await expect(card.getByTestId('place-card-actions')).toBeHidden();
   await expect(card.getByTestId('desktop-place-actions')).toHaveCSS('display', 'flex');
-  await expect(card.getByTestId('place-info-trigger')).toHaveCSS('display', 'flex');
+  // No resources, memo, or photo are seeded for this place, so the compact
+  // info trigger renders nothing instead of a large empty placeholder.
+  await expect(card.getByTestId('place-info-trigger')).toHaveCount(0);
   await expect(card.getByRole('button', { name: /導航到/ })).toBeVisible();
 });

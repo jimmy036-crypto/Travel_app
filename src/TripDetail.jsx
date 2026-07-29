@@ -72,6 +72,8 @@ import { CLOUD_FEATURE_UNAVAILABLE_MESSAGE } from './features/trip-data/exampleT
 import { useMobileViewport } from './hooks/useMobileViewport.js';
 import { MobileDaySwitcher } from './features/itinerary/MobileDaySwitcher.jsx';
 import { MobileTripHeader } from './features/itinerary/MobileTripHeader.jsx';
+import { MobileMapTopBar } from './features/map/MobileMapTopBar.jsx';
+import { MobileCompactUtilityBar } from './components/MobileCompactUtilityBar.jsx';
 import {
   MobileItineraryTimeline,
   MobileTimelineSkeleton,
@@ -1169,6 +1171,23 @@ const PRE_TRIP_ID = "PRE_TRIP";
 const PLACE_ACTION_MENU_WIDTH = 176;
 const PLACE_ACTION_MENU_ESTIMATED_HEIGHT = 232;
 const PLACE_ACTION_MENU_MARGIN = 12;
+
+// iOS Safari can deliver a synthetic click after a touch-driven drag release.
+// Card/detail/action taps inside this window after drag end are treated as
+// drag artifacts, not real taps, and are ignored.
+const DRAG_CLICK_SUPPRESSION_MS = 300;
+
+// Starts edge auto-scroll earlier and caps its speed so a long touch drag
+// stays controllable near the top/bottom of the itinerary list.
+const ITINERARY_DND_AUTO_SCROLLER_OPTIONS = {
+  startFromPercentage: 0.2,
+  maxScrollAtPercentage: 0.08,
+  maxPixelScroll: 16,
+  durationDampening: {
+    stopDampeningAt: 800,
+    accelerateAt: 300,
+  },
+};
 const PLACE_ACTION_MENU_GAP = 8;
 
 const TripDetailSkeleton = ({
@@ -1394,6 +1413,11 @@ const TripDetail = ({
   const ignorePlaceActionScrollRef = useRef(false);
   const placeActionTriggerRefs = useRef({});
   const tripAppearanceInputRef = useRef(null);
+  const activeDraggableIdRef = useRef('');
+  const dragReleaseAtRef = useRef(0);
+  const isDragReleaseClick = useCallback(() => (
+    Date.now() - dragReleaseAtRef.current < DRAG_CLICK_SUPPRESSION_MS
+  ), []);
   const registerPlaceActionTrigger = useCallback((actionMenuId, node) => {
     if (node) placeActionTriggerRefs.current[actionMenuId] = node;
     else delete placeActionTriggerRefs.current[actionMenuId];
@@ -1634,6 +1658,7 @@ const TripDetail = ({
   const openPlaceActionMenu = useCallback((event, dayId, item) => {
     event.preventDefault();
     event.stopPropagation();
+    if (isDragReleaseClick()) return;
 
     const menuId = `${String(dayId)}-${String(item?.id || item?.place_id || item?.name || '')}`;
     if (activePlaceActionMenuRef.current?.id === menuId) {
@@ -1654,7 +1679,7 @@ const TripDetail = ({
       item,
       ...getPlaceActionMenuPosition(trigger),
     });
-  }, [closePlaceActionMenu, getPlaceActionMenuPosition]);
+  }, [closePlaceActionMenu, getPlaceActionMenuPosition, isDragReleaseClick]);
 
   const handleItineraryWheel = useCallback((event) => {
     const deltaX = Number(event.deltaX || 0);
@@ -2119,7 +2144,23 @@ const TripDetail = ({
     });
   }, []);
 
+  const handleDragBeforeCapture = useCallback((before) => {
+    activeDraggableIdRef.current = String(before?.draggableId || '');
+  }, []);
+
+  const handleDragStart = useCallback((start) => {
+    activeDraggableIdRef.current = String(start?.draggableId || '');
+  }, []);
+
+  const handleDragUpdate = useCallback(() => {
+    // Intentionally a no-op. The library owns all drag-time visuals; no
+    // itinerary state is read or written until onDragEnd commits a drop.
+  }, []);
+
   const handleDragEnd = useCallback((result) => {
+    activeDraggableIdRef.current = '';
+    dragReleaseAtRef.current = Date.now();
+
     const { source, destination } = result;
     if (!destination) return;
 
@@ -2886,6 +2927,7 @@ const TripDetail = ({
   };
 
   const handleSavedItemDetails = (item, dayId = safeCurrentDay) => {
+    if (isDragReleaseClick()) return;
     setViewingPlaceDetail({ dayId: String(dayId || safeCurrentDay || ''), item });
     setSavedPlaceGoogleDetails(null);
     setSavedPlaceGoogleError('');
@@ -3107,6 +3149,26 @@ const TripDetail = ({
     );
   }
 
+  const mobileSyncStatusNode = capabilities.cloudSync ? (
+    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} />
+  ) : null;
+
+  const mobileSettingsMenu = (
+    <AppSettingsMenu
+      key={`mobile-trip-settings-${roomId}`}
+      t={t}
+      version={CURRENT_RELEASE_NOTES.version}
+      triggerLabel="開啟旅程工具與設定"
+      tripActions={tripSettingsActions}
+      onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+      onOpenReleaseNotes={onOpenReleaseNotes}
+      onOpenFeatureIntroduction={onOpenFeatureIntroduction}
+      onStartFeatureTour={onStartFeatureTour}
+      onCheckUpdates={onCheckUpdates}
+      isCheckingUpdates={isCheckingUpdates}
+    />
+  );
+
   return (
     <>
       <style>{`
@@ -3122,7 +3184,13 @@ const TripDetail = ({
         }
       `}</style>
 
-      <DragDropContext onDragEnd={handleDragEnd}>
+      <DragDropContext
+        onBeforeCapture={handleDragBeforeCapture}
+        onDragStart={handleDragStart}
+        onDragUpdate={handleDragUpdate}
+        onDragEnd={handleDragEnd}
+        autoScrollerOptions={ITINERARY_DND_AUTO_SCROLLER_OPTIONS}
+      >
         <div data-testid="active-trip-view" style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
           <input
             ref={tripAppearanceInputRef}
@@ -3135,37 +3203,43 @@ const TripDetail = ({
           />
           {isMobileViewport ? (
             <>
-              <MobileTripHeader
-                meta={meta}
-                dayId={safeCurrentDay}
-                weather={weatherInfo[safeCurrentDay]}
-                t={t}
-                syncStatusNode={capabilities.cloudSync ? (
-                  <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} />
-                ) : null}
-                settingsNode={(
-                  <AppSettingsMenu
-                    key={`mobile-trip-settings-${roomId}`}
+              {activeTab === 'plan' ? (
+                <>
+                  <MobileTripHeader
+                    meta={meta}
+                    dayId={safeCurrentDay}
+                    weather={weatherInfo[safeCurrentDay]}
                     t={t}
-                    version={CURRENT_RELEASE_NOTES.version}
-                    triggerLabel="開啟旅程工具與設定"
-                    tripActions={tripSettingsActions}
-                    onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
-                    onOpenReleaseNotes={onOpenReleaseNotes}
-                    onOpenFeatureIntroduction={onOpenFeatureIntroduction}
-                    onStartFeatureTour={onStartFeatureTour}
-                    onCheckUpdates={onCheckUpdates}
-                    isCheckingUpdates={isCheckingUpdates}
+                    syncStatusNode={mobileSyncStatusNode}
+                    settingsNode={mobileSettingsMenu}
+                    onBack={onBack}
                   />
-                )}
-                onBack={onBack}
-              />
-              {(activeTab === 'plan' || activeTab === 'map') ? (
-                <MobileDaySwitcher
+                  <MobileDaySwitcher
+                    days={existingDays}
+                    currentDay={safeCurrentDay}
+                    startDate={meta.startDate}
+                    onSelectDay={handleDaySwitch}
+                    t={t}
+                  />
+                </>
+              ) : null}
+              {activeTab === 'map' ? (
+                <MobileMapTopBar
                   days={existingDays}
                   currentDay={safeCurrentDay}
                   startDate={meta.startDate}
                   onSelectDay={handleDaySwitch}
+                  onBack={onBack}
+                  settingsNode={mobileSettingsMenu}
+                  syncStatusNode={mobileSyncStatusNode}
+                  t={t}
+                />
+              ) : null}
+              {(activeTab === 'ticket' || activeTab === 'expense') ? (
+                <MobileCompactUtilityBar
+                  onBack={onBack}
+                  settingsNode={mobileSettingsMenu}
+                  syncStatusNode={mobileSyncStatusNode}
                   t={t}
                 />
               ) : null}
@@ -3254,32 +3328,48 @@ const TripDetail = ({
                     durations={routeDurations[safeCurrentDay]}
                     t={t}
                     controls={(
-                      <div className="mb-3 flex min-w-0 items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className={`truncate text-xs font-black ${t.mainText}`}>
+                      <div className="mb-3 flex min-w-0 items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p
+                            data-testid="mobile-day-theme-label"
+                            className={`text-[10px] font-bold uppercase tracking-wide ${t.subText}`}
+                          >
+                            本日主題
+                          </p>
+                          <p
+                            data-testid="mobile-day-theme-name"
+                            className={`line-clamp-2 text-[17px] font-black leading-6 [overflow-wrap:anywhere] ${t.mainText}`}
+                          >
                             {String(meta.dayThemes?.[safeCurrentDay] || getDayDisplay(safeCurrentDay, meta.startDate).title)}
                           </p>
                           {timeRecalculationDays[safeCurrentDay] ? (
-                            <p className="text-[9px] font-bold text-blue-500">正在依新順序精算時間</p>
+                            <p className="mt-1 text-[9px] font-bold text-blue-500">正在依新順序精算時間</p>
                           ) : null}
                         </div>
-                        <div className="flex shrink-0 gap-1">
+                        <div className="flex shrink-0 items-center gap-1">
                           {backupItin?.dayId === safeCurrentDay ? (
                             <button
                               type="button"
                               onClick={() => handleUndoOptimize(safeCurrentDay)}
-                              className={`min-h-11 rounded-xl border px-3 text-[10px] font-black ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                              aria-label="復原智慧排路線"
+                              title="復原智慧排路線"
+                              className={`flex min-h-11 min-w-11 items-center justify-center rounded-xl border text-sm ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                             >
-                              復原
+                              <span aria-hidden="true">↩️</span>
                             </button>
                           ) : null}
                           <button
                             type="button"
                             onClick={() => handleOptimizeRoute(safeCurrentDay)}
                             disabled={isOptimizing}
-                            className={`min-h-11 rounded-xl border px-3 text-[10px] font-black disabled:opacity-50 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                            aria-label={isOptimizing ? '正在分析智慧排路線' : '智慧排路線'}
+                            title="智慧排路線"
+                            className={`flex min-h-11 items-center justify-center gap-1 rounded-xl border px-2.5 text-[10px] font-black disabled:opacity-50 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                           >
-                            {isOptimizing ? '分析中…' : '智慧排路線'}
+                            <span aria-hidden="true">🧭</span>
+                            <span className="hidden min-[390px]:inline">
+                              {isOptimizing ? '分析中…' : '智慧排路線'}
+                            </span>
                           </button>
                         </div>
                       </div>
@@ -3449,18 +3539,19 @@ const TripDetail = ({
                                       data-testid="place-card"
                                       data-place-id={String(item.id)}
                                       data-mobile-layout="compact"
-                                      className={`relative flex flex-col overflow-hidden rounded-xl border p-2.5 transition-[box-shadow,border-color,transform] md:rounded-2xl md:p-4 md:backdrop-blur-md ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover} cursor-pointer`}`}
+                                      className={`relative flex touch-pan-y flex-col overflow-hidden rounded-xl border p-2.5 transition-[box-shadow,border-color,transform] md:rounded-2xl md:p-3 md:backdrop-blur-md ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover} cursor-pointer`}`}
                                       onClick={() => {
                                         if (!snap.isDragging) handleSavedItemDetails(item, dayId);
                                       }}
                                     >
-                                      <div className="flex items-start gap-2 md:gap-4">
+                                      <div className="flex items-start gap-2 md:gap-3">
                                         <div
                                           {...prov.dragHandleProps}
                                           data-testid="place-drag-handle"
                                           data-place-id={String(item.id)}
+                                          aria-label={`拖曳排序 ${String(displayName)}`}
                                           onClick={(event) => event.stopPropagation()}
-                                          className="flex min-h-11 w-11 touch-pan-y select-none flex-col items-center shrink-0 cursor-grab active:cursor-grabbing hover:opacity-80"
+                                          className="flex min-h-11 w-11 touch-none select-none flex-col items-center shrink-0 cursor-grab [-webkit-touch-callout:none] active:cursor-grabbing hover:opacity-80"
                                         >
                                            <div className={`flex h-6 w-6 items-center justify-center rounded-full p-1 text-[10px] font-black md:h-7 md:w-7 md:p-1.5 md:text-xs ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
                                               {index + 1}
@@ -3553,13 +3644,15 @@ const TripDetail = ({
                                             <span>導航</span>
                                           </button>
 
-                                          <div className="mt-2 hidden flex-wrap gap-1.5 md:flex">
-                                            {(Array.isArray(item.tags) ? item.tags : []).map((tag, idx) => (
-                                              <span key={`tag-${idx}`} className={`rounded-md border px-2 py-0.5 text-[9px] ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : 'border-blue-500/20 bg-blue-500/10 text-blue-600'}`}>
-                                                {String(tag)}
-                                              </span>
-                                            ))}
-                                          </div>
+                                          {Array.isArray(item.tags) && item.tags.length > 0 ? (
+                                            <div className="mt-2 hidden flex-wrap gap-1.5 md:flex">
+                                              {item.tags.map((tag, idx) => (
+                                                <span key={`tag-${idx}`} className={`rounded-md border px-2 py-0.5 text-[9px] ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : 'border-blue-500/20 bg-blue-500/10 text-blue-600'}`}>
+                                                  {String(tag)}
+                                                </span>
+                                              ))}
+                                            </div>
+                                          ) : null}
 
                                           {(() => {
                                             const allResources = Array.isArray(item.resources) ? item.resources.filter((resource) => resource?.url) : [];
@@ -3571,12 +3664,13 @@ const TripDetail = ({
                                               item.memo ? '筆記' : '',
                                               otherCount > 0 ? `資料 ${otherCount}` : '',
                                             ].filter(Boolean);
+                                            if (detailParts.length === 0) return null;
                                             return (
-                                              <div data-testid="place-info-trigger" className={`export-hide mt-3 hidden min-h-10 items-center gap-2 rounded-xl border px-3 md:flex ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder}`}`}>
+                                              <div data-testid="place-info-trigger" className={`export-hide mt-2 hidden min-h-10 items-center gap-2 rounded-xl border px-3 md:flex ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder}`}`}>
                                                 <span className="text-sm">ⓘ</span>
                                                 <span className={`shrink-0 text-[10px] font-black ${snap.isDragging ? 'text-white' : t.mainText}`}>景點資訊</span>
                                                 <span className={`min-w-0 flex-1 truncate text-[9px] ${snap.isDragging ? 'text-white/75' : t.subText}`}>
-                                                  {detailParts.length > 0 ? detailParts.join('・') : '地址、定位與景點資料'}
+                                                  {detailParts.join('・')}
                                                 </span>
                                                 <span className={snap.isDragging ? 'text-white/70' : t.subText}>›</span>
                                               </div>
