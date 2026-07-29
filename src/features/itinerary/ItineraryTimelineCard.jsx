@@ -45,7 +45,7 @@ export function ItineraryTimelineCard({
           data-place-id={String(item?.id || '')}
           aria-label={`拖曳排序 ${displayName}`}
           onClick={(event) => event.stopPropagation()}
-          className={`relative z-1 flex h-11 w-11 touch-pan-y select-none items-center justify-center rounded-full active:cursor-grabbing ${
+          className={`relative z-1 flex h-11 w-11 touch-none select-none items-center justify-center rounded-full [-webkit-touch-callout:none] active:cursor-grabbing ${
             isDragging ? 'cursor-grabbing' : 'cursor-grab'
           }`}
         >
@@ -61,7 +61,7 @@ export function ItineraryTimelineCard({
 
       <article
         data-testid="timeline-place-card-surface"
-        className={`min-w-0 rounded-2xl border p-3 transition-[border-color,background-color,transform] ${
+        className={`min-w-0 touch-pan-y rounded-2xl border p-3 transition-[border-color,background-color,transform] ${
           isDragging
             ? 'border-blue-400 bg-blue-600 text-white'
             : `${t.itemBg} ${t.cardBorder}`
