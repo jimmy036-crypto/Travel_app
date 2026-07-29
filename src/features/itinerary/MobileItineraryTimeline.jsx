@@ -18,7 +18,7 @@ export function MobileItineraryDragClone({ item, index, provided }) {
         ...(provided?.draggableProps?.style || {}),
         height: 'auto',
       }}
-      className="grid max-h-18 max-w-60 transform-gpu will-change-transform grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-xl border border-white/80 bg-blue-600 p-2 text-white shadow-lg"
+      className="grid max-h-18 max-w-60 transform-gpu grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-xl border border-white/80 bg-blue-600 p-2 text-white shadow-lg"
     >
       <div className="flex w-10 shrink-0 flex-col items-center">
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-[10px] font-black">

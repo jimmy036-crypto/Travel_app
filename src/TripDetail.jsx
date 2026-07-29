@@ -1,6 +1,6 @@
 // TripDetail.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { useMapsLibrary, useMap, AdvancedMarker, Pin, Map } from '@vis.gl/react-google-maps';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas-pro';
@@ -79,6 +79,7 @@ import {
   MobileTimelineSkeleton,
 } from './features/itinerary/MobileItineraryTimeline.jsx';
 import { MobileTripMapView } from './features/map/MobileTripMapView.jsx';
+import { isDndDebugEnabled, traceDnd, traceDndNextFrame } from './features/itinerary/dndDebugTrace.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -437,6 +438,10 @@ const PlaceItemDetailModal = ({
   onLoadGoogle,
   onClose,
   onEdit,
+  onNavigate,
+  onSearchNearby,
+  onCopy,
+  onDelete,
   onViewMenu,
   onViewPhoto,
   t,
@@ -541,6 +546,40 @@ const PlaceItemDetailModal = ({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-hide">
+          <section data-testid="place-detail-quick-actions" className="grid grid-cols-2 gap-2 px-4 pt-3 sm:grid-cols-4 md:px-5">
+            <button
+              type="button"
+              data-testid="place-detail-navigate-button"
+              onClick={() => onNavigate?.(item)}
+              className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 text-[11px] font-black text-emerald-600 active:scale-95"
+            >
+              🧭 導航
+            </button>
+            <button
+              type="button"
+              data-testid="place-detail-nearby-button"
+              onClick={() => onSearchNearby?.(item)}
+              className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] font-black active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+            >
+              🔍 周邊
+            </button>
+            <button
+              type="button"
+              data-testid="place-detail-copy-button"
+              onClick={() => onCopy?.(item)}
+              className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] font-black active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+            >
+              📋 複製
+            </button>
+            <button
+              type="button"
+              data-testid="place-detail-delete-button"
+              onClick={() => onDelete?.(item)}
+              className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-red-500/25 bg-red-500/10 px-3 text-[11px] font-black text-red-500 active:scale-95"
+            >
+              🗑️ 刪除
+            </button>
+          </section>
           <section className="p-4 md:p-5">
             {item.placePhoto?.url ? (
               <button
@@ -1177,6 +1216,11 @@ const PLACE_ACTION_MENU_MARGIN = 12;
 // drag artifacts, not real taps, and are ignored.
 const DRAG_CLICK_SUPPRESSION_MS = 300;
 
+// A route recalculation request that never resolves (Map unavailable, a
+// request silently dropped, etc.) must still settle instead of leaving the
+// day header showing "正在依新順序精算時間" forever.
+const RECALCULATION_TIMEOUT_MS = 10000;
+
 // Starts edge auto-scroll earlier and caps its speed so a long touch drag
 // stays controllable near the top/bottom of the itinerary list.
 const ITINERARY_DND_AUTO_SCROLLER_OPTIONS = {
@@ -1407,8 +1451,17 @@ const TripDetail = ({
   const [routeDurations, setRouteDurations] = useState(
     /** @type {Record<string, any>} */ ({})
   );
+  // dayId -> { anchorTime, requestId }: days whose arrival times still need
+  // recalculating after a reorder. Cleared once that day's recalculation
+  // settles (success or error), not just when it starts.
   const pendingTimeRecalculationRef = useRef({});
-  const [timeRecalculationDays, setTimeRecalculationDays] = useState({});
+  const recalcTimeoutsRef = useRef({});
+  const recalcRequestIdRef = useRef(0);
+  // dayId -> true while a reorder on that day hasn't been recalculated yet
+  // (drives the "已重排，切換此日後精算" badge for non-current days).
+  const [dirtyRecalcDays, setDirtyRecalcDays] = useState({});
+  // dayId -> { status: idle|pending|success|error, requestId, startedAt|completedAt, message }
+  const [recalculationState, setRecalculationState] = useState({});
   const activePlaceActionMenuRef = useRef(null);
   const ignorePlaceActionScrollRef = useRef(false);
   const placeActionTriggerRefs = useRef({});
@@ -1418,6 +1471,20 @@ const TripDetail = ({
   const isDragReleaseClick = useCallback(() => (
     Date.now() - dragReleaseAtRef.current < DRAG_CLICK_SUPPRESSION_MS
   ), []);
+
+  useEffect(() => {
+    if (!isDndDebugEnabled()) return undefined;
+    const handleNativeTouchEnd = (event) => {
+      if (!activeDraggableIdRef.current) return;
+      traceDnd(event.type === 'touchcancel' ? 'touchcancel' : 'touchend');
+    };
+    document.addEventListener('touchend', handleNativeTouchEnd, { capture: true, passive: true });
+    document.addEventListener('touchcancel', handleNativeTouchEnd, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('touchend', handleNativeTouchEnd, { capture: true });
+      document.removeEventListener('touchcancel', handleNativeTouchEnd, { capture: true });
+    };
+  }, []);
   const registerPlaceActionTrigger = useCallback((actionMenuId, node) => {
     if (node) placeActionTriggerRefs.current[actionMenuId] = node;
     else delete placeActionTriggerRefs.current[actionMenuId];
@@ -2146,10 +2213,16 @@ const TripDetail = ({
 
   const handleDragBeforeCapture = useCallback((before) => {
     activeDraggableIdRef.current = String(before?.draggableId || '');
+    traceDnd('onBeforeCapture', { draggableId: activeDraggableIdRef.current });
   }, []);
 
   const handleDragStart = useCallback((start) => {
     activeDraggableIdRef.current = String(start?.draggableId || '');
+    traceDnd('onDragStart', {
+      draggableId: activeDraggableIdRef.current,
+      sourceDroppableId: start?.source?.droppableId,
+      sourceIndex: start?.source?.index,
+    });
   }, []);
 
   const handleDragUpdate = useCallback(() => {
@@ -2157,11 +2230,101 @@ const TripDetail = ({
     // itinerary state is read or written until onDragEnd commits a drop.
   }, []);
 
+  const clearRecalcTimeout = useCallback((dayId) => {
+    const handle = recalcTimeoutsRef.current[dayId];
+    if (handle) {
+      window.clearTimeout(handle);
+      delete recalcTimeoutsRef.current[dayId];
+    }
+  }, []);
+
+  // Settles a day's recalculation to a terminal state. Guarded by requestId
+  // so a stale/replaced/cancelled request can never clobber a newer one.
+  const settleRecalculation = useCallback((dayId, requestId, status, message) => {
+    clearRecalcTimeout(dayId);
+    setRecalculationState((previous) => {
+      const current = previous[dayId];
+      if (!current || current.requestId !== requestId) return previous;
+      return {
+        ...previous,
+        [dayId]: { status, requestId, completedAt: Date.now(), message: message || '' },
+      };
+    });
+  }, [clearRecalcTimeout]);
+
+  // Quietly abandons an in-flight request without marking it an error - used
+  // for day switch, unmount, and explicit request replacement, none of which
+  // are failures. The day stays dirty so it recalculates again when revisited.
+  const abandonRecalculation = useCallback((dayId) => {
+    setRecalculationState((previous) => {
+      if (!previous[dayId] || previous[dayId].status !== 'pending') return previous;
+      clearRecalcTimeout(dayId);
+      const next = { ...previous };
+      delete next[dayId];
+      return next;
+    });
+  }, [clearRecalcTimeout]);
+
+  const beginRecalculation = useCallback((dayId) => {
+    if (!pendingTimeRecalculationRef.current[dayId]) return;
+    clearRecalcTimeout(dayId);
+    const requestId = (recalcRequestIdRef.current += 1);
+    pendingTimeRecalculationRef.current[dayId] = {
+      ...pendingTimeRecalculationRef.current[dayId],
+      requestId,
+    };
+    setRecalculationState((previous) => ({
+      ...previous,
+      [dayId]: { status: 'pending', requestId, startedAt: Date.now(), message: '' },
+    }));
+    recalcTimeoutsRef.current[dayId] = window.setTimeout(() => {
+      settleRecalculation(dayId, requestId, 'error', '無法取得新的移動時間，已保留目前抵達時間');
+      setDirtyRecalcDays((previous) => {
+        if (!previous[dayId]) return previous;
+        const next = { ...previous };
+        delete next[dayId];
+        return next;
+      });
+      delete pendingTimeRecalculationRef.current[dayId];
+      toast.error({
+        title: '無法取得新的移動時間',
+        description: '已保留目前抵達時間，可再次拖曳排序重試。',
+      });
+    }, RECALCULATION_TIMEOUT_MS);
+  }, [clearRecalcTimeout, settleRecalculation, toast]);
+
+  // Only one Directions instance is ever mounted (bound to the currently
+  // viewed day), so a day that isn't current can't be actively recalculating
+  // - it just waits, dirty, until the user switches to it. This effect is
+  // what makes recalculation resume purely from Plan-day-selection, with no
+  // dependency on the Map tab being active.
+  useEffect(() => {
+    beginRecalculation(safeCurrentDay);
+    return () => {
+      abandonRecalculation(safeCurrentDay);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeCurrentDay]);
+
+  // True component unmount: clear any outstanding recalculation timeout so
+  // it never fires (and never touches state) after this view is gone.
+  useEffect(() => () => {
+    Object.values(recalcTimeoutsRef.current).forEach((handle) => window.clearTimeout(handle));
+    recalcTimeoutsRef.current = {};
+  }, []);
+
   const handleDragEnd = useCallback((result) => {
     activeDraggableIdRef.current = '';
     dragReleaseAtRef.current = Date.now();
 
-    const { source, destination } = result;
+    const { source, destination, reason } = result;
+    traceDnd('onDragEnd', {
+      sourceDroppableId: source?.droppableId,
+      sourceIndex: source?.index,
+      destinationDroppableId: destination?.droppableId,
+      destinationIndex: destination?.index,
+      reason,
+    });
     if (!destination) return;
 
     const moveResult = moveItineraryItem({
@@ -2180,29 +2343,57 @@ const TripDetail = ({
       pendingRecalculations,
     } = moveResult;
 
+    // A day with at most one item has no leg to recalculate - never mark it
+    // dirty or pending, matching the existing "day < 2" settle requirement.
+    const daysNeedingRecalculation = affectedDays.filter(
+      (dayId) => (nextItinerary[dayId] || []).length > 1,
+    );
+
     affectedDays.forEach((dayId) => {
       const pending = pendingRecalculations[dayId];
-      if (pending) pendingTimeRecalculationRef.current[dayId] = pending;
-      else delete pendingTimeRecalculationRef.current[dayId];
+      if (pending && daysNeedingRecalculation.includes(dayId)) {
+        pendingTimeRecalculationRef.current[dayId] = pending;
+      } else {
+        delete pendingTimeRecalculationRef.current[dayId];
+      }
     });
 
-    setBackupItin(null);
-    clearOptimizationSummary(...affectedDays);
-    setRouteDurations((previous) => {
-      const next = { ...previous };
-      affectedDays.forEach((dayId) => { delete next[dayId]; });
-      return next;
-    });
-    setTimeRecalculationDays((previous) => {
-      const next = { ...previous };
-      affectedDays.forEach((dayId) => {
-        if ((nextItinerary[dayId] || []).length > 1) next[dayId] = true;
-        else delete next[dayId];
+    // The drop must be visible the instant the finger lifts on iOS Safari -
+    // no second tap should be required. Deferring this commit to React's
+    // default scheduling left a window where WebKit had already torn down
+    // the drag's composited layer but had not yet been asked to paint the
+    // reordered DOM, so the list visually "stuck" until the next touch
+    // forced a repaint. flushSync forces the whole drop's state (itinerary
+    // order, cleared summaries/durations, recalculation flags) into one
+    // synchronous commit before this touchend-driven callback returns, so
+    // the reordered DOM exists before the browser decides whether to paint.
+    flushSync(() => {
+      setBackupItin(null);
+      clearOptimizationSummary(...affectedDays);
+      setRouteDurations((previous) => {
+        const next = { ...previous };
+        affectedDays.forEach((dayId) => { delete next[dayId]; });
+        return next;
       });
-      return next;
+      setDirtyRecalcDays((previous) => {
+        const next = { ...previous };
+        affectedDays.forEach((dayId) => {
+          if (daysNeedingRecalculation.includes(dayId)) next[dayId] = true;
+          else delete next[dayId];
+        });
+        return next;
+      });
+      setItinerary(nextItinerary);
     });
-    setItinerary(nextItinerary);
-  }, [clearOptimizationSummary, itinerary, setItinerary]);
+    // The currently viewed day is the only one with a mounted Directions
+    // instance, so it's the only one that can start an active request now;
+    // other affected days stay dirty and pick up a request when visited.
+    if (daysNeedingRecalculation.includes(safeCurrentDay)) {
+      beginRecalculation(safeCurrentDay);
+    }
+    traceDnd('onDragEnd:commit');
+    traceDndNextFrame('onDragEnd');
+  }, [beginRecalculation, clearOptimizationSummary, itinerary, safeCurrentDay, setItinerary]);
 
   const handleRouteCalculated = useCallback((day, durations) => {
     setRouteDurations((previous) => (
@@ -2221,13 +2412,16 @@ const TripDetail = ({
     });
 
     delete pendingTimeRecalculationRef.current[day];
-    setTimeRecalculationDays((previous) => {
+    setDirtyRecalcDays((previous) => {
       if (!previous[day]) return previous;
       const next = { ...previous };
       delete next[day];
       return next;
     });
-  }, [setItinerary]);
+    if (pending.requestId !== undefined) {
+      settleRecalculation(day, pending.requestId, 'success');
+    }
+  }, [setItinerary, settleRecalculation]);
 
   const resetExploreState = useCallback(() => {
     setSelectedExploreItem(null);
@@ -3253,7 +3447,7 @@ const TripDetail = ({
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <button onClick={onBack} data-testid="back-to-lobby" className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
-                    <h1 data-testid="trip-detail-title" className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
+                    <h1 data-testid="trip-detail-title" className="text-xl font-black text-blue-500 truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
                     {capabilities.cloudSync ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
@@ -3342,7 +3536,7 @@ const TripDetail = ({
                           >
                             {String(meta.dayThemes?.[safeCurrentDay] || getDayDisplay(safeCurrentDay, meta.startDate).title)}
                           </p>
-                          {timeRecalculationDays[safeCurrentDay] ? (
+                          {recalculationState[safeCurrentDay]?.status === 'pending' ? (
                             <p className="mt-1 text-[9px] font-bold text-blue-500">正在依新順序精算時間</p>
                           ) : null}
                         </div>
@@ -3405,36 +3599,51 @@ const TripDetail = ({
                       onClick={(event) => handleDaySwitch(dayId, event)}
                       className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-4 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}
                     >
-                      <div className="flex flex-col gap-1 mb-3 group">
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center gap-2 cursor-pointer" onClick={() => handleDayThemeUpdate(dayId)}>
-                             <h2 className={`text-lg font-black truncate ${t.mainText}`}>
-                               {String(title)}
-                               {dayTheme ? <span className="text-blue-500 ml-2">- {dayTheme}</span> : <span className={`export-hide text-[10px] font-normal opacity-40 ml-2 border border-dashed rounded px-1.5 py-0.5 border-current transition-opacity group-hover:opacity-100 ${t.mainText}`}>＋ 新增主題</span>}
-                             </h2>
-                             <span className="export-hide text-xs opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                      <div className="mb-3 flex flex-col gap-1 group">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <h3 className={`shrink-0 text-[11px] font-bold uppercase tracking-wide ${t.subText}`}>{String(title)}</h3>
+                          {dateStr ? <span className={`shrink-0 text-[10px] font-bold ${t.subText}`}>· {String(dateStr)}</span> : null}
+                        </div>
+                        <div
+                          data-testid="day-theme-row"
+                          className="grid items-start gap-2"
+                          style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}
+                        >
+                          <div className="min-w-0 cursor-pointer" onClick={() => handleDayThemeUpdate(dayId)}>
+                            <div className="flex min-w-0 items-start gap-1.5">
+                              <h2
+                                data-testid="day-theme-name"
+                                className={`min-w-0 line-clamp-2 text-lg font-black leading-6 [overflow-wrap:anywhere] ${t.mainText}`}
+                              >
+                                {dayTheme ? String(dayTheme) : <span className={`export-hide text-[10px] font-normal opacity-40 border border-dashed rounded px-1.5 py-0.5 border-current transition-opacity group-hover:opacity-100 ${t.mainText}`}>＋ 新增主題</span>}
+                              </h2>
+                              <span className="export-hide shrink-0 text-xs opacity-0 transition-opacity group-hover:opacity-100">✏️</span>
+                            </div>
                           </div>
 
-                          <div className="flex gap-2 items-center">
+                          <div className="flex shrink-0 items-center gap-2">
                              {backupItin && backupItin.dayId === dayId && (
                                <button
                                   onClick={() => handleUndoOptimize(dayId)}
-                                  className={`export-hide text-[10px] font-bold px-2 py-1.5 rounded-lg border shadow-sm transition-all active:scale-95 whitespace-nowrap shrink-0 hover:bg-red-500 hover:text-white hover:border-red-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                                  aria-label="復原智慧排路線"
+                                  title="復原智慧排路線"
+                                  className={`export-hide shrink-0 whitespace-nowrap rounded-lg border px-2 py-1.5 text-[10px] font-bold shadow-sm transition-all active:scale-95 hover:bg-red-500 hover:text-white hover:border-red-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                                >
-                                  ↩️ 復原
+                                  ↩️<span className="hidden min-[420px]:inline"> 復原</span>
                                </button>
                              )}
                              <button
                                 onClick={() => handleOptimizeRoute(dayId)}
                                 disabled={isOptimizing}
-                                className={`export-hide text-[10px] font-bold px-2 py-1.5 rounded-lg border shadow-sm transition-all active:scale-95 whitespace-nowrap shrink-0 ${isOptimizing ? 'opacity-50 cursor-not-allowed' : `hover:bg-blue-500 hover:text-white hover:border-blue-500`} ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                                aria-label={isOptimizing ? '正在分析智慧排路線' : '智慧排路線'}
+                                title="智慧排路線"
+                                className={`export-hide shrink-0 whitespace-nowrap rounded-lg border px-2 py-1.5 text-[10px] font-bold shadow-sm transition-all active:scale-95 ${isOptimizing ? 'opacity-50 cursor-not-allowed' : `hover:bg-blue-500 hover:text-white hover:border-blue-500`} ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                              >
-                                {isOptimizing ? '🔄 分析中...' : '🧭 智慧排路線'}
+                                {isOptimizing ? '🔄' : '🧭'}<span className="hidden min-[420px]:inline">{isOptimizing ? ' 分析中...' : ' 智慧排路線'}</span>
                              </button>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
-                          {dateStr ? <span className={`text-[10px] font-bold ${t.subText}`}>{String(dateStr)}</span> : null}
                           {weatherInfo[dayId] && (
                             <span className="text-[10px] font-semibold opacity-90 bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded flex items-center gap-1">
                               🌡️ {weatherInfo[dayId].temp} | 🌧️ {weatherInfo[dayId].rain}%
@@ -3448,7 +3657,7 @@ const TripDetail = ({
                               ✅ {optimizationSummaries[dayId].savedMinutes > 0 ? `預估省 ${formatRouteMinutes(optimizationSummaries[dayId].savedMinutes)}` : `距離少 ${formatRouteDistance(optimizationSummaries[dayId].savedMeters)}`}
                             </span>
                           ) : null}
-                          {timeRecalculationDays[dayId] ? (
+                          {dirtyRecalcDays[dayId] ? (
                             <span className="export-hide text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-500 animate-pulse">
                               {dayId === safeCurrentDay ? '⏱ 正在依新順序精算時間' : '⏱ 已重排，切換此日後精算'}
                             </span>
@@ -3477,7 +3686,7 @@ const TripDetail = ({
                                 ...provided.draggableProps.style,
                                 height: 'auto',
                               }}
-                              className="grid max-h-18 max-w-60 transform-gpu will-change-transform grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-xl border border-white/80 bg-blue-600 p-2 text-white shadow-lg md:max-w-none md:grid-cols-[auto_minmax(0,1fr)] md:gap-3 md:rounded-2xl md:p-3 md:shadow-2xl"
+                              className="grid max-h-18 max-w-60 transform-gpu grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-xl border border-white/80 bg-blue-600 p-2 text-white shadow-lg md:max-w-none md:grid-cols-[auto_minmax(0,1fr)] md:gap-3 md:rounded-2xl md:p-3 md:shadow-2xl"
                             >
                               <div className="flex w-10 shrink-0 flex-col items-center md:w-11">
                                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-[10px] font-black md:h-8 md:w-8 md:text-xs">
@@ -3630,20 +3839,6 @@ const TripDetail = ({
                                             </button>
                                           </div>
 
-                                          <button
-                                            type="button"
-                                            onClick={(event) => {
-                                              event.stopPropagation();
-                                              openExternalUrl(getPlaceNavigationUrl(item));
-                                            }}
-                                            className={`export-hide mt-2 hidden min-h-11 w-fit shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[10px] font-black shadow-sm active:scale-95 md:flex ${snap.isDragging ? 'border-white/30 bg-white/15 text-white' : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600'}`}
-                                            title="開啟導航"
-                                            aria-label={`導航到${String(displayName)}`}
-                                          >
-                                            <span>🧭</span>
-                                            <span>導航</span>
-                                          </button>
-
                                           {Array.isArray(item.tags) && item.tags.length > 0 ? (
                                             <div className="mt-2 hidden flex-wrap gap-1.5 md:flex">
                                               {item.tags.map((tag, idx) => (
@@ -3679,13 +3874,6 @@ const TripDetail = ({
                                         </div>
                                       </div>
 
-                                      <div data-testid="desktop-place-actions" className={`export-hide mt-3 pt-3 border-t hidden items-center gap-4 transition-all duration-300 ${snap.isDragging ? 'border-white/20' : t.cardBorder} md:flex md:max-h-0 md:opacity-0 md:group-hover:max-h-14 md:group-hover:opacity-100`}>
-                                        <button data-testid="edit-place-button" onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>✏️ 編輯</button>
-                                        <button onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-orange-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🔍 周邊</button>
-                                        <button onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-purple-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>📋 複製</button>
-                                        <div className="flex-1"></div>
-                                        <button data-testid="delete-place-button" onClick={(event) => { event.stopPropagation(); void handleDeleteItineraryItem(dayId, item); }} className={`text-[11px] hover:text-red-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>刪除</button>
-                                      </div>
                                     </div>
 
                                     {!snap.isDragging && index < itinerary[dayId].length - 1 && routeDurations[dayId]?.[index] ? (
@@ -4030,6 +4218,28 @@ const TripDetail = ({
             setViewingPlaceDetail(null);
             setSavedPlaceGoogleDetails(null);
             setSavedPlaceGoogleError('');
+          }}
+          onNavigate={(item) => openExternalUrl(getPlaceNavigationUrl(item))}
+          onSearchNearby={() => {
+            const target = viewingPlaceDetail;
+            setViewingPlaceDetail(null);
+            setSavedPlaceGoogleDetails(null);
+            setSavedPlaceGoogleError('');
+            if (target) handleSearchNearby(target.item);
+          }}
+          onCopy={() => {
+            const target = viewingPlaceDetail;
+            setViewingPlaceDetail(null);
+            setSavedPlaceGoogleDetails(null);
+            setSavedPlaceGoogleError('');
+            if (target) setCopyingItem(target.item);
+          }}
+          onDelete={() => {
+            const target = viewingPlaceDetail;
+            setViewingPlaceDetail(null);
+            setSavedPlaceGoogleDetails(null);
+            setSavedPlaceGoogleError('');
+            if (target) void handleDeleteItineraryItem(target.dayId, target.item);
           }}
           onViewMenu={(item) => setViewingPlaceResources({ item, mode: 'menu' })}
           onViewPhoto={(photo) => setViewingPlacePhoto(photo)}
