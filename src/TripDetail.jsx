@@ -19,6 +19,7 @@ import {
 } from './components/UIComponents.jsx';
 import { SyncStatusIndicator } from './components/SyncStatusIndicator.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
+import { AppearanceDialog } from './components/AppearanceDialog.jsx';
 import { CURRENT_RELEASE_NOTES } from './config/releaseNotes.js';
 import { EmptyState } from './components/ui/EmptyState.jsx';
 import { SkeletonButton, SkeletonText } from './components/ui/Skeleton.jsx';
@@ -42,6 +43,8 @@ import { CATEGORIES, MAP_ID } from "./constants";
 import {
   calculateExpenseStats,
 } from "./features/expenses/expenseCalculations";
+import { PRE_TRIP_ID } from './features/expenses/expenseConstants.js';
+import { buildSettlementBalanceModel } from './features/expenses/settlementBalanceModel.js';
 import {
   cloneRouteItems,
   moveItineraryItem,
@@ -68,9 +71,13 @@ import {
 import { useTicketActions } from './features/tickets/useTicketActions.js';
 import { createDefaultFirebaseTripRepository } from './features/trip-data/defaultFirebaseTripRepository.js';
 import { normalizeTripCapabilities } from './features/trip-data/tripCapabilities.js';
-import { CLOUD_FEATURE_UNAVAILABLE_MESSAGE } from './features/trip-data/exampleTripConstants.js';
+import {
+  CLOUD_FEATURE_UNAVAILABLE_MESSAGE,
+  LOCAL_EXAMPLE_TRIP_ID,
+} from './features/trip-data/exampleTripConstants.js';
 import { useMobileViewport } from './hooks/useMobileViewport.js';
 import { MobileDaySwitcher } from './features/itinerary/MobileDaySwitcher.jsx';
+import { DesktopDayNavigator } from './features/itinerary/DesktopDayNavigator.jsx';
 import { MobileTripHeader } from './features/itinerary/MobileTripHeader.jsx';
 import { MobileMapTopBar } from './features/map/MobileMapTopBar.jsx';
 import { MobileCompactUtilityBar } from './components/MobileCompactUtilityBar.jsx';
@@ -81,6 +88,7 @@ import {
 import { MobileTripMapView } from './features/map/MobileTripMapView.jsx';
 import { isDndDebugEnabled, traceDnd, traceDndNextFrame } from './features/itinerary/dndDebugTrace.js';
 import { DndDebugPanel } from './features/itinerary/DndDebugPanel.jsx';
+import { buildPrintPreviewToolbar } from './features/export/itineraryPrintPreview.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -1207,7 +1215,6 @@ const useRoomBranchSync = ({
   }, [branch, dirtyBranchesRef, lastLocalWriteAtRef, repository, setSyncStatus, value, writeVersionRef]);
 };
 
-const PRE_TRIP_ID = "PRE_TRIP";
 const PLACE_ACTION_MENU_WIDTH = 176;
 const PLACE_ACTION_MENU_ESTIMATED_HEIGHT = 232;
 const PLACE_ACTION_MENU_MARGIN = 12;
@@ -1356,6 +1363,7 @@ const TripDetail = ({
   isOnline = true,
 }) => {
   const roomId = String(tripId || legacyRoomId || '');
+  const isExampleTrip = roomId === LOCAL_EXAMPLE_TRIP_ID;
   const repository = useMemo(
     () => providedRepository || (
       roomId ? createDefaultFirebaseTripRepository(roomId) : null
@@ -1466,7 +1474,7 @@ const TripDetail = ({
   const activePlaceActionMenuRef = useRef(null);
   const ignorePlaceActionScrollRef = useRef(false);
   const placeActionTriggerRefs = useRef({});
-  const tripAppearanceInputRef = useRef(null);
+  const appearanceTriggerRef = useRef(null);
   const activeDraggableIdRef = useRef('');
   const dragReleaseAtRef = useRef(0);
   const isDragReleaseClick = useCallback(() => (
@@ -1562,6 +1570,7 @@ const TripDetail = ({
 
   const [isExporting, setIsExporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showAppearanceDialog, setShowAppearanceDialog] = useState(false);
   const [weatherInfo, setWeatherInfo] = useState(
     /** @type {Record<string, {temp: string, rain: number}>} */ ({})
   );
@@ -1932,7 +1941,7 @@ const TripDetail = ({
     window.requestAnimationFrame(() => {
       document
         .getElementById(`day-card-${nextDayId}`)
-        ?.scrollIntoView?.({ block: 'nearest', inline: 'start', behavior: 'auto' });
+        ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
     });
   }, [closePlaceActionMenu]);
 
@@ -2060,6 +2069,18 @@ const TripDetail = ({
   const handleColorChange = (newColor) => {
     setMeta((previousMeta) => ({ ...previousMeta, themeColor: String(newColor) }));
   };
+
+  const openAppearanceDialog = useCallback((trigger) => {
+    appearanceTriggerRef.current = trigger instanceof HTMLElement
+      ? trigger
+      : document.activeElement;
+    setShowAppearanceDialog(true);
+  }, []);
+
+  const closeAppearanceDialog = useCallback(() => {
+    setShowAppearanceDialog(false);
+    window.requestAnimationFrame(() => appearanceTriggerRef.current?.focus?.());
+  }, []);
 
   const handleBudgetChange = (member, value) => {
     const parsedValue = Number(value);
@@ -2248,6 +2269,12 @@ const TripDetail = ({
     existingDays,
     preTripId: PRE_TRIP_ID,
   }), [existingDays, expenses, membersList, settlements]);
+  const settlementModel = useMemo(() => buildSettlementBalanceModel({
+    expenses,
+    settlements,
+    members: membersList,
+    preTripId: PRE_TRIP_ID,
+  }), [expenses, membersList, settlements]);
 
 
   const clearOptimizationSummary = useCallback((...dayIds) => {
@@ -2988,7 +3015,7 @@ const TripDetail = ({
     return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
   };
 
-  const buildFullItineraryHtml = (options) => {
+  const buildFullItineraryHtml = (options, returnUrl) => {
     const includeNotes = Boolean(options?.includeNotes);
     const includeAddresses = Boolean(options?.includeAddresses);
     const includeWeather = Boolean(options?.includeWeather);
@@ -3093,8 +3120,10 @@ const TripDetail = ({
   .memo { margin-top:10px; padding:9px 11px; border-left:3px solid ${exportAccent}; background:#f6f8fc; border-radius:0 9px 9px 0; color:#334155; font-size:11px; line-height:1.55; }
   .empty-day { padding:26px; text-align:center; border:1px dashed #dbe3ef; border-radius:16px; color:#64748b; }
   .footer-note { padding:20px 42px 34px; color:#64748b; font-size:10px; text-align:center; border-top:1px solid #dbe3ef; }
-  .no-print { padding:12px; text-align:center; background:#0f172a; color:white; position:sticky; top:0; z-index:2; }
-  .no-print button { border:0; background:#2563eb; color:white; padding:9px 18px; border-radius:10px; font-weight:800; cursor:pointer; }
+  .no-print { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:12px max(14px,env(safe-area-inset-left)); text-align:center; background:#0f172a; color:white; position:sticky; top:0; z-index:2; }
+  .no-print a, .no-print button { min-height:44px; display:inline-flex; align-items:center; justify-content:center; border:0; background:#2563eb; color:white; padding:9px 16px; border-radius:10px; font-weight:800; cursor:pointer; text-decoration:none; white-space:nowrap; }
+  .preview-heading { display:grid; gap:2px; }
+  .preview-heading span { color:#cbd5e1; font-size:11px; font-weight:600; }
   @media print {
     @page { size:A4; margin:12mm; }
     body { background:white; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
@@ -3106,6 +3135,9 @@ const TripDetail = ({
     .summary { padding:8mm 2mm; }
   }
   @media (max-width:600px) {
+    .no-print { align-items:stretch; flex-wrap:wrap; }
+    .preview-heading { order:-1; width:100%; }
+    .no-print a, .no-print button { flex:1; }
     .cover { padding:34px 26px; min-height:410px; }
     .cover h1 { font-size:32px; margin-top:40px; }
     .cover-meta { grid-template-columns:1fr; }
@@ -3116,7 +3148,7 @@ const TripDetail = ({
 </style>
 </head>
 <body>
-  <div class="no-print">預覽完整行程 <button onclick="window.print()">列印／另存 PDF</button></div>
+  ${buildPrintPreviewToolbar(returnUrl)}
   <main class="document">
     <section class="cover">
       <div class="cover-label">SMART TRAVEL ITINERARY</div>
@@ -3142,6 +3174,7 @@ const TripDetail = ({
   };
 
   const handleExportFullItinerary = (options) => {
+    const returnUrl = window.location.href;
     const previewWindow = window.open("", "_blank");
     if (!previewWindow) {
       alert("瀏覽器阻擋了匯出視窗，請允許此網站開啟彈出式視窗後再試一次。");
@@ -3150,7 +3183,7 @@ const TripDetail = ({
     try {
       previewWindow.opener = null;
       previewWindow.document.open();
-      previewWindow.document.write(buildFullItineraryHtml(options));
+      previewWindow.document.write(buildFullItineraryHtml(options, returnUrl));
       previewWindow.document.close();
       setShowExportModal(false);
       previewWindow.focus();
@@ -3401,7 +3434,7 @@ const TripDetail = ({
       version={CURRENT_RELEASE_NOTES.version}
       triggerLabel="開啟旅程工具與設定"
       tripActions={tripSettingsActions}
-      onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+      onOpenAppearance={openAppearanceDialog}
       onOpenReleaseNotes={onOpenReleaseNotes}
       onOpenFeatureIntroduction={onOpenFeatureIntroduction}
       onStartFeatureTour={onStartFeatureTour}
@@ -3442,19 +3475,10 @@ const TripDetail = ({
             onStartFeatureTour={onStartFeatureTour}
             onCheckUpdates={onCheckUpdates}
             isCheckingUpdates={isCheckingUpdates}
-            onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+            onOpenAppearance={openAppearanceDialog}
           />
         ) : (
         <div data-testid="active-trip-view" style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
-          <input
-            ref={tripAppearanceInputRef}
-            type="color"
-            value={tripThemeColor}
-            onChange={e => handleColorChange(e.target.value)}
-            className="sr-only"
-            tabIndex={-1}
-            aria-label="自訂旅程外觀"
-          />
           {isMobileViewport ? (
             <>
               {activeTab === 'plan' ? (
@@ -3555,7 +3579,7 @@ const TripDetail = ({
                      version={CURRENT_RELEASE_NOTES.version}
                      triggerLabel="開啟旅程工具與設定"
                      tripActions={tripSettingsActions}
-                     onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+                     onOpenAppearance={openAppearanceDialog}
                      onOpenReleaseNotes={onOpenReleaseNotes}
                      onOpenFeatureIntroduction={onOpenFeatureIntroduction}
                      onStartFeatureTour={onStartFeatureTour}
@@ -3564,6 +3588,16 @@ const TripDetail = ({
                   />
                 </div>
               </div>
+              ) : null}
+
+              {!isMobileViewport && (activeTab === 'plan' || activeTab === 'map') ? (
+                <DesktopDayNavigator
+                  days={existingDays}
+                  currentDay={safeCurrentDay}
+                  startDate={meta.startDate}
+                  onSelectDay={handleDaySwitch}
+                  t={t}
+                />
               ) : null}
 
               <div
@@ -3582,6 +3616,7 @@ const TripDetail = ({
                     durations={routeDurations[safeCurrentDay]}
                     t={t}
                     controls={(
+                      <div>
                       <div className="mb-3 flex min-w-0 items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <p
@@ -3626,6 +3661,12 @@ const TripDetail = ({
                             </span>
                           </button>
                         </div>
+                      </div>
+                      {isExampleTrip ? (
+                        <p className={`mb-3 rounded-xl border px-3 py-2 text-[10px] font-bold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
+                          試試「智慧排路線」，比較調整前後的順序
+                        </p>
+                      ) : null}
                       </div>
                     )}
                     search={(
@@ -3702,8 +3743,13 @@ const TripDetail = ({
                                 {isOptimizing ? '🔄' : '🧭'}<span className="hidden min-[420px]:inline">{isOptimizing ? ' 分析中...' : ' 智慧排路線'}</span>
                              </button>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
+                         </div>
+                         {isExampleTrip ? (
+                           <p className={`export-hide mt-2 rounded-lg border px-2.5 py-2 text-[10px] font-bold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
+                             試試「智慧排路線」，比較調整前後的順序
+                           </p>
+                         ) : null}
+                         <div className="flex items-center gap-2 mt-0.5">
                           {weatherInfo[dayId] && (
                             <span className="text-[10px] font-semibold opacity-90 bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded flex items-center gap-1">
                               🌡️ {weatherInfo[dayId].temp} | 🌧️ {weatherInfo[dayId].rain}%
@@ -3957,10 +4003,11 @@ const TripDetail = ({
                 t={t}
                 isActive={activeTab === 'expense'}
                 expenses={expenses}
-                settlements={settlements}
                 membersList={membersList}
                 meta={meta}
                 expenseStats={expenseStats}
+                settlementModel={settlementModel}
+                settlements={settlements}
                 onCreateExpense={openNewExpense}
                 onEditExpense={openExpenseEditor}
                 onMarkTransferPaid={handleMarkTransferPaid}
@@ -4202,6 +4249,15 @@ const TripDetail = ({
           onClose={() => setShowExportModal(false)}
           onExportFull={handleExportFullItinerary}
           onExportDay={(dayId) => void handleExportDayImage(dayId)}
+          t={t}
+        />
+      ) : null}
+      {showAppearanceDialog ? (
+        <AppearanceDialog
+          context="trip"
+          color={tripThemeColor}
+          onColorChange={handleColorChange}
+          onClose={closeAppearanceDialog}
           t={t}
         />
       ) : null}

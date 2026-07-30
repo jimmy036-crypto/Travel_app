@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import {
+  clearEmulatorDatabase,
+  readEmulatorData,
+  seedTestTrip,
+} from './support/emulator';
 
 async function seedLobby(page: Page): Promise<void> {
   await markCurrentReleaseSeen(page);
@@ -20,6 +25,10 @@ async function seedLobby(page: Page): Promise<void> {
 }
 
 test.beforeEach(async ({ page }) => {
+  await clearEmulatorDatabase();
+  await seedTestTrip('appearance-room', {
+    title: 'Appearance trip',
+  });
   await seedLobby(page);
 });
 
@@ -54,4 +63,26 @@ test('settings appearance trigger works at desktop width and returns focus to se
   await page.getByTestId('appearance-done-button').click();
   await expect(page.getByTestId('appearance-dialog')).toHaveCount(0);
   await expect(settingsTrigger).toBeFocused();
+});
+
+test('Trip Settings opens the context-aware appearance dialog and persists its color', async ({ page }) => {
+  await page.goto('/?room=appearance-room');
+  const settingsTrigger = page.getByTestId('app-settings-trigger');
+  await settingsTrigger.click();
+  await page.getByTestId('app-settings-appearance').click();
+
+  const dialog = page.getByTestId('appearance-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('旅程主題顏色');
+  const input = page.getByTestId('appearance-color-input');
+  await input.fill('#123456');
+  await expect(page.getByTestId('active-trip-view')).toHaveCSS('background-color', 'rgb(18, 52, 86)');
+  await page.getByTestId('appearance-done-button').click();
+  await expect(dialog).toHaveCount(0);
+  await expect(settingsTrigger).toBeFocused();
+
+  await expect.poll(() => readEmulatorData('rooms/appearance-room/meta/themeColor'))
+    .toBe('#123456');
+  await page.reload();
+  await expect(page.getByTestId('active-trip-view')).toHaveCSS('background-color', 'rgb(18, 52, 86)');
 });

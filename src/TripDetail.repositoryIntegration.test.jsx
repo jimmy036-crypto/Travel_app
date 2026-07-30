@@ -74,6 +74,7 @@ vi.mock('./features/expenses/ExpenseSection.jsx', () => ({
             toParticipantId: '朋友',
             amount: 100,
             currency: 'TWD',
+            scope: 'intrip',
           })}
         >
           mark
@@ -212,6 +213,7 @@ describe('TripDetail repository injection', () => {
         toParticipantId: '朋友',
         amount: 100,
         currency: 'TWD',
+        scope: 'intrip',
         status: 'paid',
       }),
     ]);
@@ -224,7 +226,7 @@ describe('TripDetail repository injection', () => {
     fireEvent.click(screen.getByTestId('test-mark-settlement-paid'));
     await waitFor(() => expect(localRepository.updateSettlements).toHaveBeenCalledTimes(1));
     expect(localRepository.updateSettlements).toHaveBeenCalledWith([
-      expect.objectContaining({ status: 'paid', currency: 'TWD' }),
+      expect.objectContaining({ status: 'paid', currency: 'TWD', scope: 'intrip' }),
     ]);
   });
 

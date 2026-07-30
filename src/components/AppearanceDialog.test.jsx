@@ -53,4 +53,20 @@ describe('AppearanceDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(3);
     unmount();
   });
+
+  it('uses trip-specific copy when opened from Trip settings', () => {
+    render(
+      <AppearanceDialog
+        context="trip"
+        color="#123456"
+        onColorChange={vi.fn()}
+        onClose={vi.fn()}
+        t={theme}
+      />,
+    );
+
+    expect(screen.getByText('旅程主題顏色')).toBeVisible();
+    expect(screen.getByLabelText('選擇旅程主題顏色')).toBeVisible();
+    expect(screen.getByText(/隨旅程保存/)).toBeVisible();
+  });
 });

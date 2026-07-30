@@ -33,10 +33,11 @@ const sanitizeTemplateValue = (value) => {
   );
 };
 
-const isValidEnvelope = (value) => (
+const isStructurallyValidEnvelope = (value) => (
   isRecord(value)
   && value.schemaVersion === LOCAL_EXAMPLE_SCHEMA_VERSION
-  && value.templateVersion === LOCAL_EXAMPLE_TEMPLATE_VERSION
+  && typeof value.templateVersion === 'string'
+  && value.templateVersion.length > 0
   && value.tripId === LOCAL_EXAMPLE_TRIP_ID
   && Number.isInteger(value.revision)
   && value.revision >= 0
@@ -48,6 +49,56 @@ const isValidEnvelope = (value) => (
   && Array.isArray(value.snapshot.tickets)
   && Array.isArray(value.snapshot.checklist)
 );
+
+const V2_PRE_TRIP_EXPENSE_IDS = new Set([
+  'demo-expense-pretrip-deposit',
+  'demo-expense-pretrip-pass',
+  'demo-expense-pretrip-insurance',
+]);
+
+const migrateV1SnapshotToV2 = (storedSnapshot, templateSnapshot) => {
+  const next = normalizeTripSnapshot(storedSnapshot);
+  const template = normalizeTripSnapshot(templateSnapshot);
+  const canonicalPlaces = new Map(
+    Object.values(template.itinerary)
+      .flatMap((items) => (Array.isArray(items) ? items : []))
+      .map((item) => [String(item?.id || ''), item]),
+  );
+
+  next.itinerary = Object.fromEntries(
+    Object.entries(next.itinerary).map(([dayId, items]) => [
+      dayId,
+      (Array.isArray(items) ? items : []).map((item) => {
+        const canonical = canonicalPlaces.get(String(item?.id || ''));
+        if (!canonical) return item;
+        const migrated = { ...item };
+        if (
+          (!Number.isFinite(Number(item?.lat)) || !Number.isFinite(Number(item?.lng)))
+          && Number.isFinite(Number(canonical?.lat))
+          && Number.isFinite(Number(canonical?.lng))
+        ) {
+          migrated.lat = Number(canonical.lat);
+          migrated.lng = Number(canonical.lng);
+        }
+        if (!migrated.coordinateSource && canonical.coordinateSource) {
+          migrated.coordinateSource = canonical.coordinateSource;
+        }
+        if (migrated.nextLeg?.mode === 'DEMO' && canonical.nextLeg?.mode === 'AUTO') {
+          migrated.nextLeg = { ...migrated.nextLeg, mode: 'AUTO' };
+        }
+        return migrated;
+      }),
+    ]),
+  );
+
+  const existingExpenseIds = new Set(next.expenses.map((expense) => String(expense?.id || '')));
+  const addedExpenses = template.expenses.filter((expense) => (
+    V2_PRE_TRIP_EXPENSE_IDS.has(String(expense?.id || ''))
+    && !existingExpenseIds.has(String(expense?.id || ''))
+  ));
+  next.expenses = [...next.expenses, ...addedExpenses];
+  return next;
+};
 
 const createWriteError = (error) => Object.assign(
   new Error(LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE, { cause: error }),
@@ -72,9 +123,13 @@ export function createLocalExampleTemplateSnapshot(options = {}) {
   return snapshot;
 }
 
-const createEnvelope = (snapshot, revision = 0) => ({
+const createEnvelope = (
+  snapshot,
+  revision = 0,
+  templateVersion = LOCAL_EXAMPLE_TEMPLATE_VERSION,
+) => ({
   schemaVersion: LOCAL_EXAMPLE_SCHEMA_VERSION,
-  templateVersion: LOCAL_EXAMPLE_TEMPLATE_VERSION,
+  templateVersion,
   tripId: LOCAL_EXAMPLE_TRIP_ID,
   revision,
   snapshot: normalizeTripSnapshot(snapshot),
@@ -185,9 +240,38 @@ export function createLocalExampleTripRepository(options = {}) {
       return envelope;
     }
 
-    if (stored && isValidEnvelope(stored)) {
+    if (
+      stored
+      && isStructurallyValidEnvelope(stored)
+      && stored.templateVersion === LOCAL_EXAMPLE_TEMPLATE_VERSION
+    ) {
       envelope = createEnvelope(stored.snapshot, stored.revision);
       envelope.updatedAt = stored.updatedAt;
+      return envelope;
+    }
+
+    if (
+      stored
+      && isStructurallyValidEnvelope(stored)
+      && stored.templateVersion === '1.0.0'
+    ) {
+      envelope = createEnvelope(
+        migrateV1SnapshotToV2(stored.snapshot, createTemplate()),
+        stored.revision + 1,
+      );
+      recoveryReason = 'template-migrated';
+      await persistEnvelope(envelope);
+      return envelope;
+    }
+
+    if (stored && isStructurallyValidEnvelope(stored)) {
+      envelope = createEnvelope(
+        stored.snapshot,
+        stored.revision,
+        stored.templateVersion,
+      );
+      envelope.updatedAt = stored.updatedAt;
+      recoveryReason = 'template-update-available';
       return envelope;
     }
 
@@ -323,6 +407,33 @@ export function createLocalExampleTripRepository(options = {}) {
       await persistEnvelope(nextEnvelope);
       envelope = nextEnvelope;
       recoveryReason = 'reset';
+      await notify();
+      return defensiveTripCopy(await visibleSnapshot());
+    },
+
+    async removeLocalData() {
+      assertActive();
+      await attachmentStore.clear();
+      try {
+        await recordStore.clear();
+      } catch (error) {
+        if (!isDatabaseUnavailable(error)) throw error;
+        persistence = 'memory';
+      }
+      envelope = null;
+      loadPromise = null;
+      recoveryReason = 'removed';
+      return true;
+    },
+
+    async restoreCurrentTemplate() {
+      assertActive();
+      await attachmentStore.clear();
+      const nextEnvelope = createEnvelope(createTemplate(), 0);
+      await persistEnvelope(nextEnvelope);
+      envelope = nextEnvelope;
+      loadPromise = Promise.resolve(nextEnvelope);
+      recoveryReason = 'restored';
       await notify();
       return defensiveTripCopy(await visibleSnapshot());
     },

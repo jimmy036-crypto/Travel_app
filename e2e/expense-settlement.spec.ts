@@ -20,6 +20,7 @@ type TransferRecord = {
   paidAt: string | null;
   createdAt: string;
   updatedAt: string;
+  scope?: 'pretrip' | 'intrip';
 };
 
 function toList<T>(value: T[] | Record<string, T> | null): T[] {
@@ -72,11 +73,14 @@ test('regular trip persists mark and cancel settlement status in the Emulator', 
 
   await page.goto(`/?room=${ROOM_ID}`);
   await openSettlement(page);
-  const pending = page.getByTestId('pending-settlement-transfer');
+  const intripScope = page.getByTestId('settlement-scope-intrip');
+  const pending = intripScope.getByTestId('pending-settlement-transfer');
   await expect(pending).toContainText('王小明 → 陳小華');
   await expect(pending).toContainText('NT$1,250');
-  await page.getByTestId('mark-settlement-paid').click();
-  await expect(page.getByTestId('completed-settlement-transfer')).toContainText('已轉帳');
+  await pending.getByTestId('mark-settlement-paid').click();
+  await expect(intripScope.getByTestId('completed-settlement-transfer')).toContainText('已轉帳');
+  await expect(intripScope.getByTestId('settlement-all-paid')).toHaveText('已全部結清');
+  await expect(intripScope.getByTestId('remaining-balance-list').getByText('已結清 $0')).toHaveCount(2);
 
   await expect.poll(async () => {
     const value = await readEmulatorData<TransferRecord[] | Record<string, TransferRecord>>(
@@ -89,6 +93,7 @@ test('regular trip persists mark and cancel settlement status in the Emulator', 
     amount: 1250,
     currency: 'TWD',
     status: 'paid',
+    scope: 'intrip',
   });
   const savedValue = await readEmulatorData<TransferRecord[] | Record<string, TransferRecord>>(
     `rooms/${ROOM_ID}/settlements`,
@@ -101,9 +106,10 @@ test('regular trip persists mark and cancel settlement status in the Emulator', 
 
   await page.reload();
   await openSettlement(page);
-  await expect(page.getByTestId('completed-settlement-transfer')).toContainText('已轉帳');
-  await page.getByTestId('cancel-settlement-paid').click();
-  await expect(page.getByTestId('pending-settlement-transfer')).toBeVisible();
+  const reloadedIntripScope = page.getByTestId('settlement-scope-intrip');
+  await expect(reloadedIntripScope.getByTestId('completed-settlement-transfer')).toContainText('已轉帳');
+  await reloadedIntripScope.getByTestId('cancel-settlement-paid').click();
+  await expect(reloadedIntripScope.getByTestId('pending-settlement-transfer')).toBeVisible();
 
   await expect.poll(async () => {
     const value = await readEmulatorData<TransferRecord[] | Record<string, TransferRecord>>(
@@ -125,7 +131,9 @@ test('example trip keeps settlement status in IndexedDB with zero Firebase write
   await openExample(page);
   await openSettlement(page);
 
-  const pending = page.getByTestId('pending-settlement-transfer').first();
+  await page.getByTestId('settlement-scope-tab-pretrip').click();
+  const pretripScope = page.getByTestId('settlement-scope-pretrip');
+  const pending = pretripScope.getByTestId('pending-settlement-transfer').first();
   await expect(pending).toBeVisible();
   await pending.getByTestId('mark-settlement-paid').click();
   const completed = page.getByTestId('completed-settlement-transfer').first();
@@ -136,7 +144,10 @@ test('example trip keeps settlement status in IndexedDB with zero Firebase write
   await page.reload({ waitUntil: 'domcontentloaded' });
   await openExample(page);
   await openSettlement(page);
-  const reloadedCompleted = page.getByTestId('completed-settlement-transfer').first();
+  await page.getByTestId('settlement-scope-tab-pretrip').click();
+  const reloadedCompleted = page.getByTestId('settlement-scope-pretrip')
+    .getByTestId('completed-settlement-transfer')
+    .first();
   await expect(reloadedCompleted).toContainText(completedPair || '');
   await expect(reloadedCompleted).toContainText(completedAmount || '');
   await expect(reloadedCompleted).toContainText('已轉帳');

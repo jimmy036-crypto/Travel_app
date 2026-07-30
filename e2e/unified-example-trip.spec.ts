@@ -169,3 +169,31 @@ test('cloud-only collaboration keeps its position and explains availability', as
   expect(await listEmulatorStorageObjects()).toEqual([]);
   await assertNoExampleCloudArtifacts();
 });
+
+test('example can be removed, stays hidden after reload, and is restored from Settings', async ({ page }) => {
+  await page.goto('/');
+  const card = page.getByTestId('demo-trip-entry-card');
+  await expect(card).toBeVisible();
+  await card.getByTestId('remove-example-trip').click();
+
+  const confirmDialog = page.getByTestId('confirm-dialog');
+  await expect(confirmDialog).toContainText('從這台裝置的大廳移除示範旅程？');
+  await expect(confirmDialog).toContainText('正式旅程不受影響');
+  await confirmDialog.getByTestId('confirm-accept').click();
+  await expect(card).toHaveCount(0);
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('demo-trip-entry-card')).toHaveCount(0);
+  const settingsTrigger = page.getByTestId('app-settings-trigger');
+  await settingsTrigger.click();
+  const restore = page.getByTestId('app-settings-demo-trip');
+  await expect(restore).toHaveText('恢復示範旅程');
+  await restore.click();
+  await expect(page.getByTestId('demo-trip-entry-card')).toBeVisible();
+  await expect(settingsTrigger).toBeFocused();
+
+  expect(await readEmulatorData('rooms')).toBeNull();
+  expect(await listEmulatorStorageObjects()).toEqual([]);
+  await assertNoExampleCloudArtifacts();
+  expect(await page.evaluate(() => localStorage.getItem('google-travel-my-trips'))).toBe('[]');
+});

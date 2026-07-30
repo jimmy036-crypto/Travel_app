@@ -46,7 +46,9 @@ function parseEnvFile(fileName: string): Record<string, string> {
   );
 }
 
-const emulatorLocalEnv = parseEnvFile('.env.emulator.local');
+const emulatorLocalEnv = process.env.CI || process.env.TRAVEL_E2E_SKIP_LOCAL_ENV === 'true'
+  ? {}
+  : parseEnvFile('.env.emulator.local');
 
 function getEmulatorEnvValue(key: string): string | undefined {
   const value = process.env.CI

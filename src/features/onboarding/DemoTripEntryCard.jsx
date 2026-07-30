@@ -5,6 +5,7 @@ import { TripCard } from '../../components/TripCard.jsx';
 export function DemoTripEntryCard({
   trip,
   onOpenDemo,
+  onRemove,
   onReset,
 }) {
   return (
@@ -12,6 +13,7 @@ export function DemoTripEntryCard({
       <TripCard
         trip={trip}
         onOpen={onOpenDemo}
+        onRemove={onRemove}
         onReset={onReset}
         titleTestId="example-trip-card-title"
       />

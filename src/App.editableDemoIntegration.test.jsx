@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App.jsx';
 import { isEditableDemoCloneEnabled } from './features/onboarding/cloneDemoFeatureFlag.js';
+import { EXAMPLE_TRIP_VISIBILITY_KEY } from './features/onboarding/exampleTripVisibility.js';
 
 const firebaseMocks = vi.hoisted(() => ({
   ref: vi.fn((_db, path) => path),
@@ -184,5 +185,42 @@ describe('editable local example App integration', () => {
     await waitFor(() => expect(JSON.parse(localStorage.getItem('google-travel-my-trips'))).toEqual([REAL_TRIP]));
     expect(firebaseMocks.update).not.toHaveBeenCalled();
     confirm.mockRestore();
+  });
+
+  it('removes the example locally, survives reload, and restores it from Settings', async () => {
+    const user = await renderLobby([REAL_TRIP]);
+
+    await user.click(screen.getByRole('button', { name: '從大廳移除' }));
+    await waitFor(() => expect(screen.queryByTestId('demo-trip-entry-card')).not.toBeInTheDocument());
+    expect(JSON.parse(localStorage.getItem('google-travel-my-trips'))).toEqual([REAL_TRIP]);
+    expect(localStorage.getItem(EXAMPLE_TRIP_VISIBILITY_KEY)).toBe('hidden');
+    expect(firebaseMocks.update).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId('app-settings-trigger'));
+    const restore = screen.getByTestId('app-settings-demo-trip');
+    expect(restore).toHaveTextContent('恢復示範旅程');
+    await user.click(restore);
+
+    await waitFor(() => expect(screen.getByTestId('demo-trip-entry-card')).toBeVisible());
+    expect(localStorage.getItem(EXAMPLE_TRIP_VISIBILITY_KEY)).toBeNull();
+    expect(JSON.parse(localStorage.getItem('google-travel-my-trips'))).toEqual([REAL_TRIP]);
+    expect(firebaseMocks.update).not.toHaveBeenCalled();
+  });
+
+  it('explicit feature-introduction open restores a hidden example before opening it', async () => {
+    localStorage.setItem(EXAMPLE_TRIP_VISIBILITY_KEY, 'hidden');
+    const user = await renderLobby([REAL_TRIP]);
+    expect(screen.queryByTestId('demo-trip-entry-card')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('feature-introduction-button'));
+    for (let index = 1; index < 5; index += 1) {
+      await user.click(screen.getByTestId('feature-introduction-next'));
+    }
+    await user.click(screen.getByTestId('feature-introduction-open-demo'));
+
+    await waitFor(() => expect(screen.getByTestId('shared-trip-detail')).toBeInTheDocument());
+    expect(localStorage.getItem(EXAMPLE_TRIP_VISIBILITY_KEY)).toBeNull();
+    expect(firebaseMocks.update).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('google-travel-my-trips'))).toEqual([REAL_TRIP]);
   });
 });

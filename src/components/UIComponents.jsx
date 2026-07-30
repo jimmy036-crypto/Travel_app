@@ -372,50 +372,169 @@ export const DateRangePickerModal = ({ initialStart, initialEnd, onConfirm, onCl
 export const DestinationSearch = ({ value, onChange, t }) => {
   const val = String(value || '');
   const lib = useMapsLibrary('places');
+  const placesLibrary = (
+    IS_FIREBASE_EMULATOR
+      ? window.__TRAVEL_E2E_DESTINATION_PLACES__ || lib
+      : lib
+  );
+  const [inputState, setInputState] = useState({
+    externalValue: val,
+    displayValue: val,
+    query: val,
+    committedValue: '',
+  });
+  const [isOpen, setIsOpen] = useState(true);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [isPending, setIsPending] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const rootRef = useRef(null);
+  const inputRef = useRef(null);
+  const selectionRequestRef = useRef(0);
+  const listboxId = React.useId();
+  if (inputState.externalValue !== val) {
+    const isCommittedSelection = inputState.committedValue === val;
+    setInputState({
+      externalValue: val,
+      displayValue: val,
+      query: isCommittedSelection ? '' : val,
+      committedValue: '',
+    });
+  }
   const [sug, clearSug] = usePlacePredictions({
-    input: val,
-    placesLibrary: lib,
+    input: inputState.query,
+    placesLibrary,
     types: REGION_AUTOCOMPLETE_TYPES,
   });
+  const safeActiveIndex = sug.length === 0
+    ? -1
+    : Math.min(Math.max(activeIndex, 0), sug.length - 1);
 
   const handleSearch = (event) => {
     const nextValue = String(event.target.value);
+    selectionRequestRef.current += 1;
+    setInputState({
+      externalValue: val,
+      displayValue: nextValue,
+      query: nextValue,
+      committedValue: '',
+    });
+    setIsOpen(true);
+    setIsPending(false);
+    setErrorMessage('');
     // 使用者只要重新輸入，就先清掉舊座標；必須重新點選建議項目才能儲存。
     onChange(nextValue, null);
   };
 
   const select = (prediction) => {
-    if (!lib || !prediction?.place_id) return;
+    if (!placesLibrary || !prediction?.place_id || isPending) return;
     const selectedText = String(prediction.description || '');
+    const requestId = selectionRequestRef.current + 1;
+    selectionRequestRef.current = requestId;
+    setInputState({
+      externalValue: val,
+      displayValue: selectedText,
+      query: '',
+      committedValue: '',
+    });
+    setIsOpen(false);
+    setActiveIndex(-1);
+    setIsPending(true);
+    setErrorMessage('');
     clearSug();
 
     // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
-    const service = new lib.PlacesService(document.createElement('div'));
+    const service = new placesLibrary.PlacesService(document.createElement('div'));
     service.getDetails({ placeId: prediction.place_id, fields: ['geometry'] }, (result, status) => {
+      if (requestId !== selectionRequestRef.current) return;
       const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK;
       const location = result?.geometry?.location;
+      setIsPending(false);
+      setInputState((previous) => ({
+        ...previous,
+        committedValue: selectedText,
+      }));
       if (ok && location) {
         onChange(selectedText, { lat: location.lat(), lng: location.lng() });
       } else {
         onChange(selectedText, null);
-        alert('無法取得此目的地的座標，請重新搜尋並選擇。');
+        setErrorMessage('無法取得此目的地的座標，請重新搜尋並選擇。');
       }
+      window.requestAnimationFrame(() => inputRef.current?.focus?.());
     });
   };
 
+  const handleKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setIsOpen(false);
+      setActiveIndex(-1);
+      return;
+    }
+    if (!isOpen || sug.length === 0) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((index) => (index + 1) % sug.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((index) => (index <= 0 ? sug.length - 1 : index - 1));
+    } else if (event.key === 'Enter' && safeActiveIndex >= 0) {
+      event.preventDefault();
+      select(sug[safeActiveIndex]);
+    }
+  };
+
+  const handleBlur = (event) => {
+    if (rootRef.current?.contains(event.relatedTarget)) return;
+    setIsOpen(false);
+  };
+
   return (
-    <div className="relative">
+    <div ref={rootRef} className="relative">
       <input
+         ref={inputRef}
+         role="combobox"
+         aria-autocomplete="list"
+         aria-expanded={isOpen && sug.length > 0}
+         aria-controls={listboxId}
+         aria-activedescendant={safeActiveIndex >= 0 ? `${listboxId}-option-${safeActiveIndex}` : undefined}
+         aria-describedby={errorMessage ? `${listboxId}-error` : undefined}
          className={`w-full p-3.5 rounded-xl border outline-none focus:ring-2 focus:ring-blue-500 transition-colors text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
          placeholder="請搜尋並選擇城市 (例如：日本大阪)"
-         value={String(val)}
+         value={inputState.displayValue}
          onChange={handleSearch}
+         onKeyDown={handleKeyDown}
+         onFocus={() => setIsOpen(true)}
+         onBlur={handleBlur}
          autoComplete="off"
       />
-      {sug.length > 0 ? (
-        <div className={`absolute z-50 w-full mt-1 rounded-xl shadow-2xl border overflow-hidden text-sm backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>
-          {sug.map((suggestion) => (
-            <button key={String(suggestion.place_id)} type="button" onClick={() => select(suggestion)} className={`block w-full text-left p-3 cursor-pointer border-b transition-colors hover:bg-blue-500 hover:text-white ${t.mainText} ${t.cardBorder}`}>
+      {isPending ? (
+        <p role="status" className={`mt-2 text-xs font-bold ${t.subText}`}>
+          正在取得地點資料…
+        </p>
+      ) : null}
+      {errorMessage ? (
+        <p id={`${listboxId}-error`} role="alert" className="mt-2 text-xs font-bold text-red-500">
+          {errorMessage}
+        </p>
+      ) : null}
+      {isOpen && sug.length > 0 ? (
+        <div
+          id={listboxId}
+          role="listbox"
+          aria-label="目的地建議"
+          className={`absolute z-50 mt-1 w-full overflow-hidden rounded-xl border text-sm shadow-2xl backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}
+        >
+          {sug.map((suggestion, index) => (
+            <button
+              id={`${listboxId}-option-${index}`}
+              key={String(suggestion.place_id)}
+              type="button"
+              role="option"
+              aria-selected={index === safeActiveIndex}
+              disabled={isPending}
+              onClick={() => select(suggestion)}
+              className={`block min-h-11 w-full cursor-pointer border-b p-3 text-left transition-colors hover:bg-blue-500 hover:text-white disabled:cursor-wait disabled:opacity-60 ${index === safeActiveIndex ? 'bg-blue-500 text-white' : t.mainText} ${t.cardBorder}`}
+            >
               {String(suggestion.description)}
             </button>
           ))}

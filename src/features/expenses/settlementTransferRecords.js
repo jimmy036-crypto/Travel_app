@@ -25,12 +25,26 @@ const createRecordId = () => (
   || `settlement-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 );
 
-export const settlementTransferKey = (value, fallbackCurrency = DEFAULT_CURRENCY) => {
+export const normalizeSettlementScope = (value) => {
+  const scope = asText(value).toLowerCase();
+  return scope === 'pretrip' || scope === 'intrip' ? scope : null;
+};
+
+export const settlementTransferIdentityKey = (
+  value,
+  fallbackCurrency = DEFAULT_CURRENCY,
+) => {
   const fromParticipantId = asText(value?.fromParticipantId ?? value?.from);
   const toParticipantId = asText(value?.toParticipantId ?? value?.to);
   const currency = asText(value?.currency || fallbackCurrency).toUpperCase();
   const amount = asMoney(value?.amount);
   return `${fromParticipantId}\u0000${toParticipantId}\u0000${currency}\u0000${amount.toFixed(2)}`;
+};
+
+export const settlementTransferKey = (value, fallbackCurrency = DEFAULT_CURRENCY) => {
+  const scope = normalizeSettlementScope(value?.scope);
+  const identity = settlementTransferIdentityKey(value, fallbackCurrency);
+  return scope ? `${scope}\u0000${identity}` : identity;
 };
 
 export const normalizeSettlementTransferRecord = (
@@ -42,6 +56,7 @@ export const normalizeSettlementTransferRecord = (
   const toParticipantId = asText(value?.toParticipantId ?? value?.to);
   const amount = asMoney(value?.amount);
   const currency = asText(value?.currency || fallbackCurrency).toUpperCase();
+  const scope = normalizeSettlementScope(value?.scope);
   if (!id || !fromParticipantId || !toParticipantId || fromParticipantId === toParticipantId) {
     return null;
   }
@@ -63,6 +78,7 @@ export const normalizeSettlementTransferRecord = (
     paidAt,
     createdAt,
     updatedAt: asIsoTime(value?.updatedAt ?? value?.createdAt, createdAt),
+    ...(scope ? { scope } : {}),
   };
 };
 
@@ -79,6 +95,7 @@ export const createPaidSettlementTransferRecord = ({
     toParticipantId: transfer?.toParticipantId ?? transfer?.to,
     amount: transfer?.amount,
     currency: transfer?.currency || currency,
+    scope: transfer?.scope,
     status: 'paid',
     paidAt: timestamp,
     createdAt: timestamp,
@@ -164,12 +181,16 @@ export const partitionSettlementTransfers = ({
       .map((record) => settlementTransferKey(record, currency)),
   );
   const pending = (Array.isArray(suggestions) ? suggestions : [])
-    .map((suggestion) => ({
-      fromParticipantId: asText(suggestion?.fromParticipantId ?? suggestion?.from),
-      toParticipantId: asText(suggestion?.toParticipantId ?? suggestion?.to),
-      amount: asMoney(suggestion?.amount),
-      currency: asText(suggestion?.currency || currency).toUpperCase(),
-    }))
+    .map((suggestion) => {
+      const scope = normalizeSettlementScope(suggestion?.scope);
+      return {
+        fromParticipantId: asText(suggestion?.fromParticipantId ?? suggestion?.from),
+        toParticipantId: asText(suggestion?.toParticipantId ?? suggestion?.to),
+        amount: asMoney(suggestion?.amount),
+        currency: asText(suggestion?.currency || currency).toUpperCase(),
+        ...(scope ? { scope } : {}),
+      };
+    })
     .filter((suggestion) => (
       suggestion.fromParticipantId
       && suggestion.toParticipantId

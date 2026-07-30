@@ -379,7 +379,7 @@ export const calculateExpenseStats = ({
   const safeExpenses = Array.isArray(expenses) ? expenses : [];
   const safeSettlements = Array.isArray(settlements) ? settlements : [];
   const validMembers = toMemberList(members);
-  const safePreTripId = String(preTripId || 'PRE_TRIP');
+  const safePreTripId = String(preTripId || PRE_TRIP_ID);
   const groupOrder = [
     safePreTripId,
     ...toMemberList(Array.isArray(existingDays) ? existingDays : []),
@@ -437,7 +437,10 @@ export const calculateExpenseStats = ({
       .filter((expense) => expense?.dayId === safePreTripId)
       .reduce((sum, expense) => sum + toFiniteNumber(expense?.cost, 0), 0),
     preTripSettlementTotal: safeSettlements
-      .filter((settlement) => settlement?.status !== 'pending')
+      .filter((settlement) => (
+        settlement?.status !== 'pending'
+        && String(settlement?.scope || '') === 'pretrip'
+      ))
       .reduce(
         (sum, settlement) => sum + toFiniteNumber(settlement?.amount, 0),
         0,
@@ -513,3 +516,4 @@ export const calculateMemberCategoryStats = (expenses, members, categories) => {
 
   return result;
 };
+import { PRE_TRIP_ID } from './expenseConstants.js';

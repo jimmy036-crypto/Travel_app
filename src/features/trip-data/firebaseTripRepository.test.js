@@ -85,6 +85,7 @@ describe('firebase trip repository', () => {
       toParticipantId: '朋友',
       amount: 100,
       currency: 'TWD',
+      scope: 'intrip',
       status: 'paid',
       paidAt: '2026-07-28T04:30:00.000Z',
       createdAt: '2026-07-28T04:30:00.000Z',

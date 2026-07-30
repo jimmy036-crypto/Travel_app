@@ -73,6 +73,7 @@ function SettingsMenuContent({
   onOpenFeatureIntroduction,
   onStartFeatureTour,
   onOpenDemo,
+  demoEntryLabel,
   showDemoEntry,
   onCheckUpdates,
   isCheckingUpdates,
@@ -163,7 +164,7 @@ function SettingsMenuContent({
               menuItem={menuItem}
               t={t}
             >
-              查看示範旅程
+              {demoEntryLabel}
             </SettingsMenuButton>
           ) : null}
           <SettingsMenuButton
@@ -233,6 +234,7 @@ export const AppSettingsMenu = ({
   onOpenFeatureIntroduction,
   onStartFeatureTour,
   onOpenDemo,
+  demoEntryLabel = '查看示範旅程',
   showDemoEntry = false,
   onCheckUpdates,
   isCheckingUpdates = false,
@@ -418,6 +420,7 @@ export const AppSettingsMenu = ({
     onOpenFeatureIntroduction,
     onStartFeatureTour,
     onOpenDemo,
+    demoEntryLabel,
     showDemoEntry,
     onCheckUpdates,
     isCheckingUpdates,

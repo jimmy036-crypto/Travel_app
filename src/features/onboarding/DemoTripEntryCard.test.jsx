@@ -26,17 +26,27 @@ describe('DemoTripEntryCard', () => {
     expect(screen.queryByText('僅供預覽')).not.toBeInTheDocument();
   });
 
-  it('opens the same trip card and exposes reset without triggering open', async () => {
+  it('opens the same trip card and exposes local remove/reset without triggering open', async () => {
     const user = userEvent.setup();
     const onOpenDemo = vi.fn();
     const onReset = vi.fn();
-    render(<DemoTripEntryCard trip={trip} onOpenDemo={onOpenDemo} onReset={onReset} />);
+    const onRemove = vi.fn();
+    render(
+      <DemoTripEntryCard
+        trip={trip}
+        onOpenDemo={onOpenDemo}
+        onRemove={onRemove}
+        onReset={onReset}
+      />,
+    );
 
     await user.click(screen.getByTestId('example-trip-card-title'));
     expect(onOpenDemo).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: '恢復原始內容' }));
     expect(onReset).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', { name: '從大廳移除' }));
+    expect(onRemove).toHaveBeenCalledTimes(1);
     expect(onOpenDemo).toHaveBeenCalledTimes(1);
   });
 });

@@ -14,6 +14,7 @@ const transfer = {
   toParticipantId: '陳小華',
   amount: 1250,
   currency: 'TWD',
+  scope: 'pretrip',
 };
 
 describe('settlement transfer records', () => {
@@ -28,6 +29,7 @@ describe('settlement transfer records', () => {
       toParticipantId: '陳小華',
       amount: 1250,
       currency: 'TWD',
+      scope: 'pretrip',
       status: 'paid',
       paidAt: NOW,
       createdAt: NOW,
@@ -99,6 +101,25 @@ describe('settlement transfer records', () => {
     expect(pending).toEqual([
       expect.objectContaining({ amount: 1300, currency: 'TWD' }),
       expect.objectContaining({ amount: 1250, currency: 'JPY' }),
+    ]);
+  });
+
+  it('keeps otherwise-equal transfers in separate scopes', () => {
+    const paid = createPaidSettlementTransferRecord({
+      transfer,
+      idFactory: () => 'transfer-1',
+      now: () => NOW,
+    });
+    const { pending } = partitionSettlementTransfers({
+      records: [paid],
+      suggestions: [
+        transfer,
+        { ...transfer, scope: 'intrip' },
+      ],
+    });
+
+    expect(pending).toEqual([
+      expect.objectContaining({ scope: 'intrip', amount: 1250 }),
     ]);
   });
 
