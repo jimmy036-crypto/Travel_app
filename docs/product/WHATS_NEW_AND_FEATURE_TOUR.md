@@ -2,18 +2,28 @@
 
 ## Current Release
 
-- Version: `2026.07-mobile-collaboration`
-- Local storage key: `travel-app-seen-release-2026.07-mobile-collaboration`
-- Pending tour session key: `travel-app-pending-feature-tour-2026.07-mobile-collaboration`
+- Version: `2026.07-trip-management-redesign`
+- Title: `行程規劃、地圖與記帳全面升級`
+- Published at: `2026-07-30`
+- Local storage key: `travel-app-seen-release-2026.07-trip-management-redesign`
+- Pending tour session key: `travel-app-pending-feature-tour-2026.07-trip-management-redesign`
 - Source of truth: `src/config/releaseNotes.js`
+- Release notes document: `docs/releases/2026-07-trip-management-redesign.md`
+
+Older release keys are never deleted, so a user who has seen a previous release still sees this one once.
 
 ## Update Items
 
-- Realtime sync status: users can see connection, syncing, saved, and remote update states on the trip page.
-- Mobile day switching: larger day buttons reduce accidental taps while switching itinerary days.
-- Mobile place action menu: edit, nearby search, copy, and delete are grouped under the `...` menu.
-- Clearer place information entry: `景點資訊` opens address, location, attachments, and notes; `查看周邊` switches to map exploration nearby.
-- Collaboration improvements: places, itinerary order, expenses, and ticket attachments update across devices.
+Six user-facing highlights, in display order:
+
+1. `responsive-planner` — 手機與桌面規劃介面重整.
+2. `map-itinerary` — 地圖與行程保持同步.
+3. `settlement-transfer` — 記錄旅伴是否已完成轉帳.
+4. `place-details` — 景點資料集中管理.
+5. `appearance-tools` — 外觀與旅程工具整合.
+6. `guided-example` — 可編輯範例旅程與新版指引.
+
+Copy rules for this list: stay user-facing, do not claim full offline editing, and do not claim flawless iOS behaviour. Icons stay single simple glyphs so no icon dependency is required.
 
 ## Display Rules
 
@@ -35,7 +45,7 @@ The seen state is intentionally stored only in localStorage. It is a per-device 
 - Lobby with one saved trip: the app may route directly into that trip, then waits for TripDetail readiness before showing the tour.
 - Lobby with multiple saved trips: the app shows `選擇要用來導覽的旅程` and uses the existing saved trip list as the source of truth.
 - Lobby with no trips: the primary button is `建立第一個旅程`; it opens the existing create-trip flow and does not create fake trip data.
-- Pending intent is stored in sessionStorage using `travel-app-pending-feature-tour-2026.07-mobile-collaboration`, with App state as the runtime fallback.
+- Pending intent is stored in sessionStorage using `travel-app-pending-feature-tour-2026.07-trip-management-redesign`, with App state as the runtime fallback.
 - Pending intent is cleared after the tour starts, when trip selection is canceled, when the selected trip fails to load, or when the user navigates back to the Lobby.
 - If TripDetail reports a load failure, the app clears pending state and can show `無法開啟此旅程，請選擇其他旅程。`.
 - If an editing form may contain unsaved changes, the app shows `先完成目前編輯` and does not close the form or discard input.
@@ -46,21 +56,38 @@ The seen state is intentionally stored only in localStorage. It is a per-device 
 1. Update `CURRENT_RELEASE_VERSION` in `src/config/releaseNotes.js`.
 2. Update `CURRENT_RELEASE_NOTES.title`, `publishedAt`, and `highlights`.
 3. Keep copy user-facing. Do not mention implementation details such as Firebase, E2E, browser contexts, schemas, listeners, commits, or tests.
-4. Update the E2E helper constant in `e2e/support/releaseNotes.ts`.
+4. Update the E2E helper constants in `e2e/support/releaseNotes.ts` and `e2e/support/tickets.ts`.
 5. Update the default Playwright `storageState` key in `playwright.config.ts`.
-6. Update this document.
+6. Add a release document under `docs/releases/`.
+7. Update this document.
 
 ## Feature Tour Steps
 
-1. Sync status: focuses `sync-status-indicator`.
-2. Mobile day switching: focuses `mobile-day-switcher`.
-3. Place action menu: focuses `place-action-menu-trigger`.
-4. Place information: focuses `place-info-trigger`.
-5. Completion: centered final card.
+The tour resolves its own target per layout, because the merged trip view renders different DOM for mobile and desktop. Breakpoint: `window.innerWidth < 768` counts as mobile.
 
-If a target is not present, the tour shows a centered explanation card and lets the user continue. It does not create data, switch to dangerous actions, or depend on a positioning library.
+| # | Step id | Mobile target | Desktop target |
+| --- | --- | --- | --- |
+| 1 | `sync-status` | `mobile-trip-sync-status` → `sync-status-indicator` | `sync-status-indicator` |
+| 2 | `current-day-planning` | `mobile-day-switcher` | first in-viewport `itinerary-day-card` → `day-theme-row` |
+| 3 | `place-details` | `place-card[data-mobile-layout="timeline"]` → `place-card-title` | `place-info-trigger` |
+| 4 | `map-itinerary` | `mobile-nav-map` | `map-panel` |
+| 5 | `expense-settlement` | `expense-tab-button[data-layout="mobile"]` | `expense-tab-button[data-layout="desktop"]` |
+| 6 | `trip-tools` | `app-settings-trigger` | `app-settings-trigger` |
+| 7 | `done` | none (centered card) | none (centered card) |
 
-For trips with no places, the place action and place information steps are combined into one fallback step: `新增景點後解鎖更多功能`. Future tour steps should define their prerequisites in `FeatureTour.jsx`; when prerequisites are missing, prefer skipping or combining related steps instead of repeating generic missing-target messages.
+Rules enforced by `FeatureTour.jsx`:
+
+- The tour never teaches the desktop `...` place action menu or a desktop direct-navigation button. Those controls do not exist or are hidden by the `md` breakpoint on desktop, and hidden responsive DOM is never spotlighted.
+- Targets are only accepted when they render with a non-zero box. Candidates already inside the viewport win, so a horizontally scrolled desktop planner spotlights the day the user is looking at.
+- The tour never activates a tab, clicks a target, or creates data. When a step's target is not on screen, the step renders instructional `noTargetTitle`/`noTargetDescription` copy with no spotlight and is marked with `data-instructional="true"` plus a `feature-tour-instructional-step` marker.
+- The local example trip has no cloud sync, so step 1 falls back to instructional copy explaining that.
+- The current step id is exposed as `data-step-id` on `feature-tour-step` so tests assert the step, not the copy.
+- Escape closes the tour, focus returns to the launching control, and `resize`, `orientationchange` and capture-phase `scroll` all re-resolve the target for the current layout.
+- No tour or positioning dependency is used.
+
+For trips whose planner surface is visible but has no place cards, step 3 is replaced by one fallback step, `empty-place-fallback` (`新增景點後解鎖景點資訊`). A hidden planner is not treated as an empty trip: the step is kept and falls back to instructional copy instead.
+
+Future tour steps should declare `mobileSelectors`, `desktopSelectors` and no-target copy in `FeatureTour.jsx`. Prefer combining related steps or writing honest instructional copy over repeating generic missing-target messages.
 
 ## E2E Helper
 
@@ -75,6 +102,7 @@ Playwright config marks the current release as seen by default so existing E2E t
 ## Known Limits
 
 - Release seen state is per browser/device.
-- The tour highlights the first matching target for repeated UI elements.
-- On pages without trip content, some tour steps fall back to a centered explanation.
+- The tour highlights the first visible matching target for repeated UI elements; it does not mark them all.
+- On pages without trip content, some tour steps fall back to a centered instructional card.
 - The tour uses lightweight fixed positioning instead of a full tooltip engine.
+- Real routes need valid Google Maps configuration; the map step teaches the surface, not a guarantee of live routing.

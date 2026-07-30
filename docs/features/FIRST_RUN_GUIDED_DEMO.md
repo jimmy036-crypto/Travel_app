@@ -115,7 +115,7 @@ Preview 提供總覽、行程、票券、記帳、清單五個分頁。分頁與
 
 ### 首次啟動 Welcome
 
-Phase 7B-3 已加入僅對真正新使用者顯示的四步 Welcome；Lobby 與 Settings 的示範入口則由 Phase 7B-2 提供。判定、互斥與延後規則見下方 Phase 7B-3 章節。
+Phase 7B-3 已加入僅對真正新使用者顯示的 Welcome（`2026.07-trip-management-redesign` 起為五步）；Lobby 與 Settings 的示範入口則由 Phase 7B-2 提供。判定、互斥與延後規則見下方 Phase 7B-3 章節。
 
 ### What's New 顯示順序
 
@@ -123,7 +123,14 @@ First-run Welcome 優先於 What's New；首次 onboarding session 不會連續�
 
 ### 導覽中心與 FeatureTour
 
-`guidance.chapters` 可在未來導覽中心顯示進度，或驅動 Demo Preview 內的 chapter 導覽。若與 `FeatureTour` spotlight 整合，必須處理分頁 target 可見性、focus、mobile safe-area 與退出行為；本階段沒有修改 `FeatureTour` 或建立 spotlight。
+`guidance.chapters` 可在未來導覽中心顯示進度，或驅動 Demo Preview 內的 chapter 導覽。若與 `FeatureTour` spotlight 整合，必須處理分頁 target 可見性、focus、mobile safe-area 與退出行為。
+
+`2026.07-trip-management-redesign` 已依實際合併後的 DOM 重寫 `FeatureTour`，步驟與 selector 見 `docs/product/WHATS_NEW_AND_FEATURE_TOUR.md`。重點契約：
+
+- 「功能介紹」（`FirstRunWelcomeDialog` replay 模式）與「功能導覽」（`FeatureTour`）仍是兩個獨立流程，重播其中一個不會啟動另一個。
+- 導覽不會替使用者切換分頁；目標不在畫面上時改用說明式（no-target）步驟。
+- 導覽不聚焦被 responsive breakpoint 隱藏的元素，例如桌面的「⋯」操作鍵。
+- 本機範例旅程沒有雲端同步，同步狀態步驟會改用說明式文案。
 
 ## 本階段非目標
 
@@ -173,12 +180,17 @@ Browser Back 的專用 demo history 行為尚未加入；目前開啟與關閉�
 
 「真正的新使用者」會在 App 寫入預設值前，以一次性 snapshot 判斷。非空 `google-travel-my-trips`、任何 release seen 紀錄、非預設外觀色、有效 Offline Trip Cache、active member 或 checklist actor 紀錄都代表已有使用歷史。僅存在內容為 `[]` 的 myTrips key，或外觀色仍為預設 `#d8b4e2`，不會被誤判為 returning user。
 
-Welcome 共四步：
+Welcome 自 `2026.07-trip-management-redesign` 起共五步（`src/features/onboarding/FirstRunWelcomeDialog.jsx` 的 `STEPS` 為單一來源）：
 
-1. 歡迎與集中管理功能概覽。
-2. 東京三日唯讀示範的資料邊界。
-3. 建立正式旅程與旅伴協作。
-4. 即時同步、唯讀離線預覽與支援瀏覽器的主畫面安裝提示。
+1. 歡迎使用智の旅行：行程、地圖、票券、記帳、清單與旅伴協作集中在同一旅程。
+2. 用適合裝置的方式規劃：手機使用單日時間軸；桌面使用多日並排畫面。
+3. 從地圖掌握移動順序：地圖依當日順序顯示景點，標記、卡片與日期同步。
+4. 集中管理票券與旅費：保存票券與附件、記錄共同支出，並標記轉帳完成狀態。
+5. 先試範例，或建立自己的旅程：範例可編輯且只保存在本機；正式旅程可分享即時協作。
+
+進度指示與 `progressbar` 的 `aria-valuemax` 由 `STEPS.length` 推導，因此步驟數只需在一處調整。第五步保留三個既有完成操作：開啟範例、建立旅程、關閉／略過。文案刻意不宣稱完整離線編輯，也不宣稱 iOS 行為完美無誤。
+
+Traditional Chinese 文案在 320px 寬度不得水平溢出；`FirstRunWelcomeDialog.test.jsx` 檢查 wrapping class 與最小按鈕尺寸，`e2e/first-run-welcome.spec.ts` 在 320px viewport 逐步檢查 `scrollWidth`、document 寬度與步驟區塊右邊界。
 
 Welcome 的優先順序高於 What's New，並與 FeatureTour、Demo Preview、Offline Preview、TripDetail、建立／匯入 Modal 互斥。首次 onboarding session 完成後不會立刻接著顯示 What's New，也不會把 current release 標記為 seen；下一次重新載入時，未讀 release 會恢復既有提示流程。
 
