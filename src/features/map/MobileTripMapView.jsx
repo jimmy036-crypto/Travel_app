@@ -121,13 +121,24 @@ export function MobileTripMapView({
                     event.stopPropagation();
                     selectEntry(entry);
                   }}
-                  className={`flex min-h-9 min-w-9 items-center justify-center rounded-full border-2 px-2 text-xs font-black shadow-md transition-transform ${
-                    selected
-                      ? 'scale-110 border-white bg-blue-700 text-white ring-2 ring-blue-500/50'
-                      : 'border-white bg-blue-600 text-white'
-                  }`}
+                  // The visible pin is smaller than the touch target, so markers
+                  // stay tappable without crowding the map.
+                  className="flex h-11 w-11 items-center justify-center bg-transparent"
                 >
-                  {entry.order}
+                  {/* A circle with one square corner, rotated 45°, reads as an
+                      inverted teardrop with the point at the bottom. */}
+                  <span
+                    data-testid="map-itinerary-marker-pin"
+                    className={`flex h-7 w-7 rotate-45 items-center justify-center rounded-full rounded-br-none border-2 shadow-md transition-transform ${
+                      selected
+                        ? 'scale-110 border-white bg-blue-700 ring-2 ring-blue-500/50'
+                        : 'border-white bg-blue-600'
+                    }`}
+                  >
+                    <span className="-rotate-45 text-[11px] font-black leading-none text-white">
+                      {entry.order}
+                    </span>
+                  </span>
                 </button>
               </AdvancedMarker>
             );

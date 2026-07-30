@@ -133,6 +133,45 @@ describe('MobileTripMapView', () => {
     expect(screen.getByText('第二天唯一景點')).toBeInTheDocument();
   });
 
+  it('draws order markers as inverted teardrops inside a full touch target', () => {
+    renderMap();
+    const marker = screen.getAllByTestId('map-itinerary-marker')[0];
+    const pin = within(marker).getByTestId('map-itinerary-marker-pin');
+
+    // The button stays a 44px touch target while the visible pin is smaller.
+    expect(marker).toHaveClass('h-11');
+    expect(marker).toHaveClass('w-11');
+    expect(pin).toHaveClass('h-7');
+    expect(pin).toHaveClass('w-7');
+
+    // Round on three corners, square on one, rotated 45deg: a teardrop whose
+    // point sits at the bottom.
+    expect(pin).toHaveClass('rounded-full');
+    expect(pin).toHaveClass('rounded-br-none');
+    expect(pin).toHaveClass('rotate-45');
+
+    // The order counter is counter-rotated so it stays upright and legible.
+    const label = within(marker).getByText('1');
+    expect(label).toHaveClass('-rotate-45');
+  });
+
+  it('keeps marker selection state on the pin, not the touch target', () => {
+    renderMap();
+    const markers = screen.getAllByTestId('map-itinerary-marker');
+    const thirdMarker = markers.find(
+      (marker) => marker.getAttribute('data-place-id') === 'c',
+    );
+
+    expect(thirdMarker).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(thirdMarker);
+
+    expect(thirdMarker).toHaveAttribute('aria-pressed', 'true');
+    expect(within(thirdMarker).getByTestId('map-itinerary-marker-pin'))
+      .toHaveClass('bg-blue-700');
+    expect(within(markers[0]).getByTestId('map-itinerary-marker-pin'))
+      .toHaveClass('bg-blue-600');
+  });
+
   it('uses a stable image fallback and removes preview-card actions', () => {
     const { props } = renderMap();
     const image = document.querySelector('img');
