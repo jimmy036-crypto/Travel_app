@@ -122,10 +122,14 @@ const REAL_TRIP = {
   themeColor: '#3b82f6',
 };
 
+const FIRST_RUN_STEP_COUNT = 5;
+
 const advanceToFinalStep = async (user) => {
-  await user.click(screen.getByTestId('first-run-next'));
-  await user.click(screen.getByTestId('first-run-next'));
-  await user.click(screen.getByTestId('first-run-next'));
+  for (let index = 0; index < FIRST_RUN_STEP_COUNT - 1; index += 1) {
+    await user.click(screen.getByTestId('first-run-next'));
+  }
+  expect(screen.getByTestId('first-run-progress'))
+    .toHaveTextContent(`第 ${FIRST_RUN_STEP_COUNT} / ${FIRST_RUN_STEP_COUNT} 步`);
 };
 
 const renderFreshApp = async () => {

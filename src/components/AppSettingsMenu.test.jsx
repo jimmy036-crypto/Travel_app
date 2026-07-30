@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppSettingsMenu } from './AppSettingsMenu.jsx';
+import { CURRENT_RELEASE_VERSION } from '../config/releaseNotes.js';
 
 const installMock = vi.hoisted(() => ({
   snapshot: null,
@@ -104,6 +105,36 @@ describe('AppSettingsMenu', () => {
     await user.click(screen.getByTestId('app-settings-check-updates'));
 
     expect(onCheckUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the current release version once, alongside every settings entry', async () => {
+    const user = userEvent.setup();
+
+    renderMenu({
+      version: CURRENT_RELEASE_VERSION,
+      onOpenFeatureIntroduction: vi.fn(),
+    });
+    await openMenu(user);
+
+    const versionCards = screen.getAllByTestId('app-settings-version');
+    expect(versionCards).toHaveLength(1);
+    expect(versionCards[0]).toHaveTextContent('版本資訊');
+    expect(versionCards[0]).toHaveTextContent('2026.07-trip-management-redesign');
+
+    for (const testId of [
+      'app-settings-release-notes',
+      'app-settings-feature-introduction',
+      'app-settings-feature-tour',
+      'app-settings-check-updates',
+      'app-settings-appearance',
+    ]) {
+      expect(screen.getAllByTestId(testId)).toHaveLength(1);
+    }
+
+    expect(screen.getByTestId('app-settings-release-notes')).toHaveTextContent('更新內容');
+    expect(screen.getByTestId('app-settings-feature-introduction')).toHaveTextContent('功能介紹');
+    expect(screen.getByTestId('app-settings-feature-tour')).toHaveTextContent('功能導覽');
+    expect(screen.getAllByTestId('app-settings-menu')).toHaveLength(1);
   });
 
   it('MENU-INSTALL-01 shows install action when native prompt is available', async () => {

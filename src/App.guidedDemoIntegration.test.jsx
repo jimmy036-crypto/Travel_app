@@ -205,6 +205,34 @@ describe('App unified example trip integration', () => {
     confirm.mockRestore();
   });
 
+  it('replays the five-step introduction from the lobby without changing onboarding state', async () => {
+    const user = await renderLobby([REAL_TRIP]);
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+
+    await user.click(screen.getByTestId('feature-introduction-button'));
+
+    const dialog = await screen.findByTestId('feature-introduction-dialog');
+    expect(dialog).toHaveAttribute('data-mode', 'replay');
+    expect(screen.getByTestId('feature-introduction-progress')).toHaveTextContent('第 1 / 5 步');
+
+    for (let index = 2; index <= 5; index += 1) {
+      await user.click(screen.getByTestId('feature-introduction-next'));
+      expect(screen.getByTestId('feature-introduction-progress'))
+        .toHaveTextContent(`第 ${index} / 5 步`);
+    }
+
+    expect(screen.getByTestId('feature-introduction-open-demo')).toBeInTheDocument();
+    expect(screen.getByTestId('feature-introduction-create-trip')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('feature-introduction-close'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('feature-introduction-dialog')).not.toBeInTheDocument();
+    });
+    expect(setItem).not.toHaveBeenCalledWith('travel-app-seen-onboarding-v1', expect.anything());
+    setItem.mockRestore();
+  });
+
   it('does not render forbidden mode or preview labels', async () => {
     await renderLobby();
     expect(document.body).not.toHaveTextContent(/示範旅程|本機示範|僅供預覽|範例模式|示範資料|Demo Preview/);

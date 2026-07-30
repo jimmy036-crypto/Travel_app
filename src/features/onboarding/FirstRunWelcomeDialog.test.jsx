@@ -15,10 +15,20 @@ const renderDialog = (props = {}) => {
   return { ...view, callbacks };
 };
 
+const STEP_TITLES = [
+  '歡迎使用智の旅行',
+  '用適合裝置的方式規劃',
+  '從地圖掌握移動順序',
+  '集中管理票券與旅費',
+  '先試範例，或建立自己的旅程',
+];
+
+const LAST_STEP_INDEX = STEP_TITLES.length - 1;
+
 const goToLastStep = async (user) => {
-  await user.click(screen.getByTestId('first-run-next'));
-  await user.click(screen.getByTestId('first-run-next'));
-  await user.click(screen.getByTestId('first-run-next'));
+  for (let index = 0; index < LAST_STEP_INDEX; index += 1) {
+    await user.click(screen.getByTestId('first-run-next'));
+  }
 };
 
 describe('FirstRunWelcomeDialog', () => {
@@ -31,37 +41,55 @@ describe('FirstRunWelcomeDialog', () => {
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveAttribute('aria-labelledby', 'first-run-title');
-    expect(screen.getByText('歡迎使用智能旅行管理')).toBeInTheDocument();
-    expect(screen.getByText('第 1 / 4 步')).toBeInTheDocument();
+    expect(screen.getByText(STEP_TITLES[0])).toBeInTheDocument();
+    expect(screen.getByText('第 1 / 5 步')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuemax', '5');
     expect(screen.queryByTestId('first-run-back')).not.toBeInTheDocument();
   });
 
   it('falls back to step one for an invalid initial step and accepts a valid step', () => {
     const first = renderDialog({ initialStep: 9 });
-    expect(screen.getByText('歡迎使用智能旅行管理')).toBeInTheDocument();
+    expect(screen.getByText(STEP_TITLES[0])).toBeInTheDocument();
     first.unmount();
     renderDialog({ initialStep: 2 });
-    expect(screen.getByText('建立自己的旅程')).toBeInTheDocument();
-    expect(screen.getByText('第 3 / 4 步')).toBeInTheDocument();
+    expect(screen.getByText(STEP_TITLES[2])).toBeInTheDocument();
+    expect(screen.getByText('第 3 / 5 步')).toBeInTheDocument();
   });
 
-  it('moves through all four steps and supports going back without completing', async () => {
+  it('moves through all five steps and supports going back without completing', async () => {
     const user = userEvent.setup();
     const { callbacks } = renderDialog();
-    await user.click(screen.getByTestId('first-run-next'));
-    expect(screen.getByText('先用東京範例快速了解')).toBeInTheDocument();
+
+    for (let index = 1; index < STEP_TITLES.length; index += 1) {
+      await user.click(screen.getByTestId('first-run-next'));
+      expect(screen.getByText(STEP_TITLES[index])).toBeInTheDocument();
+      expect(screen.getByText(`第 ${index + 1} / 5 步`)).toBeInTheDocument();
+    }
+
     await user.click(screen.getByTestId('first-run-back'));
-    expect(screen.getByText('歡迎使用智能旅行管理')).toBeInTheDocument();
-    await goToLastStep(user);
-    expect(screen.getByText('多人協作與離線查看')).toBeInTheDocument();
-    expect(screen.getByText('第 4 / 4 步')).toBeInTheDocument();
+    expect(screen.getByText(STEP_TITLES[LAST_STEP_INDEX - 1])).toBeInTheDocument();
     expect(callbacks.onOpenDemo).not.toHaveBeenCalled();
     expect(callbacks.onCreateTrip).not.toHaveBeenCalled();
     expect(callbacks.onSkip).not.toHaveBeenCalled();
   });
 
-  it('shows completion actions only on step four and has no clone action or anchor', async () => {
+  it('teaches responsive planning, map order, tickets and expenses', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByTestId('first-run-next'));
+    expect(screen.getByTestId('first-run-step')).toHaveTextContent('手機使用單日時間軸');
+    expect(screen.getByTestId('first-run-step')).toHaveTextContent('桌面使用多日並排畫面');
+
+    await user.click(screen.getByTestId('first-run-next'));
+    expect(screen.getByTestId('first-run-step')).toHaveTextContent('地圖依當日順序顯示景點');
+
+    await user.click(screen.getByTestId('first-run-next'));
+    expect(screen.getByTestId('first-run-step')).toHaveTextContent('標記轉帳完成狀態');
+  });
+
+  it('shows completion actions only on the final step and has no clone action or anchor', async () => {
     const user = userEvent.setup();
     renderDialog();
     expect(screen.queryByTestId('first-run-open-demo')).not.toBeInTheDocument();
@@ -139,12 +167,40 @@ describe('FirstRunWelcomeDialog', () => {
     expect(screen.getByTestId('first-run-next')).toHaveClass('min-h-11');
   });
 
-  it('uses accurate offline and install wording', () => {
-    renderDialog({ initialStep: 3 });
-    const description = screen.getByText(/最近開啟的旅程/);
-    expect(description).toHaveTextContent('唯讀離線預覽');
-    expect(description).toHaveTextContent('在瀏覽器支援時');
+  it('describes the example trip as local-only without promising offline editing', () => {
+    renderDialog({ initialStep: LAST_STEP_INDEX });
+    const description = screen.getByText(/範例可編輯/);
+    expect(description).toHaveTextContent('只保存在本機');
+    expect(description).toHaveTextContent('正式旅程可分享即時協作');
     expect(description).not.toHaveTextContent('離線編輯');
+  });
+
+  it('does not overclaim offline editing or flawless iOS behaviour in any step', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const seen = [];
+
+    for (let index = 0; index < STEP_TITLES.length; index += 1) {
+      seen.push(screen.getByTestId('first-run-step').textContent || '');
+      if (index < LAST_STEP_INDEX) await user.click(screen.getByTestId('first-run-next'));
+    }
+
+    const copy = seen.join('');
+    expect(copy).not.toContain('離線編輯');
+    expect(copy).not.toContain('完全離線');
+    expect(copy).not.toContain('完美');
+    expect(copy).not.toContain('iOS');
+  });
+
+  it('keeps 320px Traditional Chinese text wrapping inside the panel', () => {
+    renderDialog({ initialStep: LAST_STEP_INDEX });
+    const step = screen.getByTestId('first-run-step');
+    expect(step).toHaveClass('min-w-0');
+    expect(step).toHaveClass('break-words');
+    expect(step.querySelector('h2')).toHaveClass('break-words');
+    expect(step.querySelector('p[id$="-description"]')).toHaveClass('break-words');
+    expect(screen.getByTestId('first-run-open-demo')).toHaveClass('min-h-11');
+    expect(screen.getByTestId('first-run-create-trip')).toHaveClass('min-h-11');
   });
 
   it('does not access localStorage or change the URL', async () => {
@@ -185,7 +241,7 @@ describe('FirstRunWelcomeDialog', () => {
   ])('keeps replay completion action %s available without touching onboarding storage', async (testId, callback) => {
     const user = userEvent.setup();
     const storageSet = vi.spyOn(Storage.prototype, 'setItem');
-    const view = renderDialog({ mode: 'replay', initialStep: 3 });
+    const view = renderDialog({ mode: 'replay', initialStep: LAST_STEP_INDEX });
     await user.click(screen.getByTestId(testId));
     expect(view.callbacks[callback]).toHaveBeenCalledTimes(1);
     expect(storageSet).not.toHaveBeenCalled();
