@@ -60,3 +60,11 @@ tasks/active/HANDOFF.md
 # Keep active task specs visible unless intentionally archived.
 !tasks/active/TASK.md
 !tasks/active/.gitkeep
+
+# Local AI task packages and launchers
+/CODEX_TASK_*.md
+/CLAUDE_TASK_*.md
+/START_CODEX_*.ps1
+/START_CLAUDE_*.ps1
+/README-START-HERE.md
+/SHA256SUMS.txt
