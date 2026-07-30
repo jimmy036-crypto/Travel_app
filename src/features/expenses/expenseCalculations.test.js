@@ -439,7 +439,7 @@ describe('完整支出統計', () => {
     });
   });
 
-  it('結算只抵銷餘額，不改變總花費與個人負擔', () => {
+  it('轉帳紀錄與目前建議分開，不改變總花費、個人負擔或目前餘額', () => {
     const before = calculateExpenseStats({
       expenses,
       settlements: [],
@@ -460,7 +460,8 @@ describe('完整支出統計', () => {
     expect(after.totalExpense).toBe(before.totalExpense);
     expect(after.personalSpent).toEqual(before.personalSpent);
     expect(after.preTripSettlementTotal).toBe(200);
-    expect(after.preTripBalances).toEqual({ 自己: 300, 小明: -300 });
+    expect(after.preTripBalances).toEqual(before.preTripBalances);
+    expect(after.preTripBalances).toEqual({ 自己: 500, 小明: -500 });
   });
 
   it('全部與行前餘額都維持總和為零', () => {

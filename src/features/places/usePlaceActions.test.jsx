@@ -42,9 +42,11 @@ const createPlaceResult = (overrides = {}) => ({
 const createDeps = (overrides = {}) => {
   const deps = {
     room: {
-      db: { app: 'db' },
-      roomId: 'room-1',
-      storage: { app: 'storage' },
+      repository: {
+        updateItinerary: (itinerary) => persistItinerary({ itinerary }),
+        deleteAttachment: ({ storagePath }) => deleteObject({ path: storagePath }),
+      },
+      tripId: 'room-1',
     },
     data: {
       itinerary: {
@@ -198,7 +200,7 @@ describe('usePlaceActions', () => {
 
   it('uses local itinerary state when adding from search without a database room', async () => {
     const view = renderUsePlaceActions(createDeps({
-      room: { db: null, roomId: '' },
+      room: { repository: null, tripId: '' },
     }));
 
     await act(async () => {

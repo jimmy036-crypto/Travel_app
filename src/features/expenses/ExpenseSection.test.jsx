@@ -46,8 +46,9 @@ const defaultProps = {
   },
   onCreateExpense: vi.fn(),
   onEditExpense: vi.fn(),
-  onOpenSettlement: vi.fn(),
-  onDeleteSettlement: vi.fn(),
+  onMarkTransferPaid: vi.fn(),
+  onCancelTransferPaid: vi.fn(),
+  settlementMutationId: '',
   onUpdateBudget: vi.fn(),
 };
 
@@ -117,6 +118,85 @@ describe('ExpenseSection', () => {
     expect(screen.getByText('應收回 +NT$100')).toBeInTheDocument();
     expect(screen.getByText('須支付 -NT$100')).toBeInTheDocument();
     expect(screen.getAllByText('NT$100').length).toBeGreaterThan(0); // transfer amount and others
+  });
+
+  it('顯示待轉帳並可標記為已轉帳', () => {
+    const transfer = { from: 'Bob', to: 'Alice', amount: 1250 };
+    render(<ExpenseSection
+      {...defaultProps}
+      expenseStats={{
+        ...defaultProps.expenseStats,
+        balances: { Alice: 1250, Bob: -1250 },
+        transfers: [transfer],
+      }}
+    />);
+
+    fireEvent.click(screen.getByTestId('expense-settlement-view-button'));
+    expect(screen.getByTestId('pending-settlement-transfer')).toHaveTextContent('Bob → Alice');
+    expect(screen.getByTestId('pending-settlement-transfer')).toHaveTextContent('NT$1,250');
+    fireEvent.click(screen.getByTestId('mark-settlement-paid'));
+    expect(defaultProps.onMarkTransferPaid).toHaveBeenCalledWith(expect.objectContaining({
+      fromParticipantId: 'Bob',
+      toParticipantId: 'Alice',
+      amount: 1250,
+      currency: 'TWD',
+    }));
+  });
+
+  it('顯示已完成紀錄並可取消已轉帳', () => {
+    render(<ExpenseSection
+      {...defaultProps}
+      settlements={[{
+        id: 'transfer-1',
+        fromParticipantId: 'Bob',
+        toParticipantId: 'Alice',
+        amount: 100,
+        currency: 'TWD',
+        status: 'paid',
+        paidAt: '2026-07-28T04:30:00.000Z',
+        createdAt: '2026-07-28T04:30:00.000Z',
+        updatedAt: '2026-07-28T04:30:00.000Z',
+      }]}
+      expenseStats={{
+        ...defaultProps.expenseStats,
+        transfers: [{ from: 'Bob', to: 'Alice', amount: 100 }],
+      }}
+    />);
+
+    fireEvent.click(screen.getByTestId('expense-settlement-view-button'));
+    expect(screen.queryByTestId('pending-settlement-transfer')).not.toBeInTheDocument();
+    expect(screen.getByTestId('completed-settlement-transfer')).toHaveTextContent('已轉帳');
+    fireEvent.click(screen.getByTestId('cancel-settlement-paid'));
+    expect(defaultProps.onCancelTransferPaid).toHaveBeenCalledWith('transfer-1');
+  });
+
+  it('金額或幣別改變後不沿用舊 paid 狀態', () => {
+    const paidRecord = {
+      id: 'transfer-1',
+      fromParticipantId: 'Bob',
+      toParticipantId: 'Alice',
+      amount: 100,
+      currency: 'TWD',
+      status: 'paid',
+      paidAt: '2026-07-28T04:30:00.000Z',
+      createdAt: '2026-07-28T04:30:00.000Z',
+      updatedAt: '2026-07-28T04:30:00.000Z',
+    };
+    render(<ExpenseSection
+      {...defaultProps}
+      settlements={[paidRecord]}
+      expenseStats={{
+        ...defaultProps.expenseStats,
+        transfers: [
+          { from: 'Bob', to: 'Alice', amount: 120 },
+          { from: 'Bob', to: 'Alice', amount: 100, currency: 'JPY' },
+        ],
+      }}
+    />);
+
+    fireEvent.click(screen.getByTestId('expense-settlement-view-button'));
+    expect(screen.getAllByTestId('pending-settlement-transfer')).toHaveLength(2);
+    expect(screen.getByTestId('completed-settlement-transfer')).toHaveTextContent('NT$100');
   });
 
   it('點新增費用呼叫 onCreateExpense', () => {

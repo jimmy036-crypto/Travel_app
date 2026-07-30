@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppSettingsMenu } from './AppSettingsMenu.jsx';
+import { CURRENT_RELEASE_VERSION } from '../config/releaseNotes.js';
 
 const installMock = vi.hoisted(() => ({
   snapshot: null,
@@ -50,6 +51,19 @@ function setInstallSnapshot(overrides = {}) {
   }
 }
 
+function setMobileViewport(matches) {
+  window.matchMedia.mockImplementation((query) => ({
+    matches: query === '(max-width: 767px)' ? matches : false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 function renderMenu(props = {}) {
   return render(
     <AppSettingsMenu
@@ -71,6 +85,7 @@ async function openMenu(user) {
 
 describe('AppSettingsMenu', () => {
   beforeEach(() => {
+    setMobileViewport(false);
     setInstallSnapshot();
     toastMock.info.mockClear();
     toastMock.error.mockClear();
@@ -90,6 +105,36 @@ describe('AppSettingsMenu', () => {
     await user.click(screen.getByTestId('app-settings-check-updates'));
 
     expect(onCheckUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the current release version once, alongside every settings entry', async () => {
+    const user = userEvent.setup();
+
+    renderMenu({
+      version: CURRENT_RELEASE_VERSION,
+      onOpenFeatureIntroduction: vi.fn(),
+    });
+    await openMenu(user);
+
+    const versionCards = screen.getAllByTestId('app-settings-version');
+    expect(versionCards).toHaveLength(1);
+    expect(versionCards[0]).toHaveTextContent('版本資訊');
+    expect(versionCards[0]).toHaveTextContent('2026.07-trip-management-redesign');
+
+    for (const testId of [
+      'app-settings-release-notes',
+      'app-settings-feature-introduction',
+      'app-settings-feature-tour',
+      'app-settings-check-updates',
+      'app-settings-appearance',
+    ]) {
+      expect(screen.getAllByTestId(testId)).toHaveLength(1);
+    }
+
+    expect(screen.getByTestId('app-settings-release-notes')).toHaveTextContent('更新內容');
+    expect(screen.getByTestId('app-settings-feature-introduction')).toHaveTextContent('功能介紹');
+    expect(screen.getByTestId('app-settings-feature-tour')).toHaveTextContent('功能導覽');
+    expect(screen.getAllByTestId('app-settings-menu')).toHaveLength(1);
   });
 
   it('MENU-INSTALL-01 shows install action when native prompt is available', async () => {
@@ -328,5 +373,173 @@ describe('AppSettingsMenu', () => {
     await openMenu(user);
     await user.click(screen.getByTestId('app-settings-check-updates'));
     expect(onCheckUpdates).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the demo entry when disabled or callback is missing', async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderMenu({ showDemoEntry: false, onOpenDemo: vi.fn() });
+    await openMenu(user);
+    expect(screen.queryByTestId('app-settings-demo-trip')).not.toBeInTheDocument();
+    unmount();
+
+    renderMenu({ showDemoEntry: true, onOpenDemo: undefined });
+    await openMenu(user);
+    expect(screen.queryByTestId('app-settings-demo-trip')).not.toBeInTheDocument();
+  });
+
+  it('shows the demo entry, closes first, and calls its callback once', async () => {
+    const user = userEvent.setup();
+    const onOpenDemo = vi.fn();
+    renderMenu({ showDemoEntry: true, onOpenDemo });
+    await openMenu(user);
+    const entry = screen.getByTestId('app-settings-demo-trip');
+    expect(entry).toHaveTextContent('查看示範旅程');
+    await user.click(entry);
+    expect(onOpenDemo).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('app-settings-menu')).not.toBeInTheDocument();
+  });
+
+  it('keeps Escape focus behavior with the demo entry enabled', async () => {
+    const user = userEvent.setup();
+    renderMenu({ showDemoEntry: true, onOpenDemo: vi.fn() });
+    const trigger = screen.getByTestId('app-settings-trigger');
+    await openMenu(user);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByTestId('app-settings-menu')).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('keeps release notes, feature tour, and install actions independent', async () => {
+    const user = userEvent.setup();
+    const onOpenReleaseNotes = vi.fn();
+    const onStartFeatureTour = vi.fn();
+    const onOpenDemo = vi.fn();
+    setInstallSnapshot({ nativePromptAvailable: true });
+    renderMenu({ showDemoEntry: true, onOpenDemo, onOpenReleaseNotes, onStartFeatureTour });
+
+    await openMenu(user);
+    await user.click(screen.getByTestId('app-settings-release-notes'));
+    expect(onOpenReleaseNotes).toHaveBeenCalledTimes(1);
+    expect(onOpenDemo).not.toHaveBeenCalled();
+
+    await openMenu(user);
+    await user.click(screen.getByTestId('app-settings-feature-tour'));
+    expect(onStartFeatureTour).toHaveBeenCalledTimes(1);
+    expect(onOpenDemo).not.toHaveBeenCalled();
+
+    await openMenu(user);
+    await user.click(screen.getByTestId('app-settings-install-app'));
+    expect(installMock.snapshot.requestInstall).toHaveBeenCalledTimes(1);
+    expect(onOpenDemo).not.toHaveBeenCalled();
+  });
+
+  it('keeps feature introduction and contextual feature tour as separate actions', async () => {
+    const user = userEvent.setup();
+    const onOpenFeatureIntroduction = vi.fn();
+    const onStartFeatureTour = vi.fn();
+    renderMenu({ onOpenFeatureIntroduction, onStartFeatureTour });
+
+    await openMenu(user);
+    const introduction = screen.getByTestId('app-settings-feature-introduction');
+    const tour = screen.getByTestId('app-settings-feature-tour');
+    expect(introduction).toHaveTextContent('功能介紹');
+    expect(introduction).toHaveAccessibleName('重新開啟功能介紹');
+    expect(tour).toHaveAccessibleName('開啟旅程功能導覽');
+
+    await user.click(introduction);
+    expect(onOpenFeatureIntroduction).toHaveBeenCalledTimes(1);
+    expect(onStartFeatureTour).not.toHaveBeenCalled();
+
+    await openMenu(user);
+    await user.click(screen.getByTestId('app-settings-feature-tour'));
+    expect(onStartFeatureTour).toHaveBeenCalledTimes(1);
+    expect(onOpenFeatureIntroduction).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the menu within a small viewport and scrollable', async () => {
+    const user = userEvent.setup();
+    const originalHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 320 });
+    renderMenu({ showDemoEntry: true, onOpenDemo: vi.fn() });
+    const trigger = screen.getByTestId('app-settings-trigger');
+    vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue({
+      top: 260, bottom: 304, left: 330, right: 374, width: 44, height: 44, x: 330, y: 260, toJSON: () => ({}),
+    });
+    await openMenu(user);
+    const menu = screen.getByTestId('app-settings-menu');
+    expect(Number.parseFloat(menu.style.top)).toBeGreaterThanOrEqual(12);
+    expect(menu.style.maxHeight).toBe('calc(100dvh - 24px)');
+    expect(menu).toHaveClass('overflow-y-auto');
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight });
+  });
+
+  it('shows trip actions only when TripDetail provides them', async () => {
+    const user = userEvent.setup();
+    const onShare = vi.fn();
+    const onChecklist = vi.fn();
+    const onExport = vi.fn();
+
+    const { unmount } = renderMenu();
+    await openMenu(user);
+    expect(screen.queryByTestId('app-settings-trip-section')).not.toBeInTheDocument();
+    expect(screen.getByTestId('app-settings-app-section')).toHaveTextContent('App 設定');
+    unmount();
+
+    renderMenu({
+      tripActions: [
+        { id: 'share', label: '分享共編', icon: '🔗', onSelect: onShare },
+        { id: 'checklist', label: '共享清單', icon: '✅', onSelect: onChecklist },
+        { id: 'export', label: '匯出行程', icon: '🖨️', onSelect: onExport },
+      ],
+    });
+    await openMenu(user);
+    expect(screen.getByTestId('app-settings-trip-section')).toHaveTextContent('旅程工具');
+    expect(screen.getByTestId('app-settings-trip-share')).toHaveTextContent('分享共編');
+    expect(screen.getByTestId('app-settings-trip-checklist')).toHaveTextContent('共享清單');
+    expect(screen.getByTestId('app-settings-trip-export')).toHaveTextContent('匯出行程');
+
+    await user.click(screen.getByTestId('app-settings-trip-share'));
+    expect(onShare).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('app-settings-menu')).not.toBeInTheDocument();
+  });
+
+  it('uses a named bottom sheet on mobile and restores trigger focus after closing', async () => {
+    const user = userEvent.setup();
+    setMobileViewport(true);
+    renderMenu({
+      triggerLabel: '開啟旅程工具與設定',
+      tripActions: [
+        { id: 'share', label: '分享共編', onSelect: vi.fn() },
+      ],
+    });
+
+    const trigger = screen.getByTestId('app-settings-trigger');
+    await user.click(trigger);
+
+    expect(screen.getByTestId('app-settings-menu')).toHaveAttribute('data-mode', 'mobile-sheet');
+    expect(screen.getByRole('dialog', { name: '旅程工具與設定' })).toBeInTheDocument();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByTestId('app-settings-appearance')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('app-settings-close'));
+    expect(screen.queryByTestId('app-settings-menu')).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('keeps the anchored popover and Escape focus behavior on desktop', async () => {
+    const user = userEvent.setup();
+    renderMenu({
+      tripActions: [
+        { id: 'share', label: '分享共編', onSelect: vi.fn() },
+      ],
+    });
+
+    const trigger = screen.getByTestId('app-settings-trigger');
+    await user.click(trigger);
+    expect(screen.getByTestId('app-settings-menu')).toHaveAttribute('role', 'menu');
+    expect(screen.getByTestId('app-settings-menu')).toHaveClass('fixed');
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

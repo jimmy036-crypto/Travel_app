@@ -1,6 +1,6 @@
 // TripDetail.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { useMapsLibrary, useMap, AdvancedMarker, Pin, Map } from '@vis.gl/react-google-maps';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import html2canvas from 'html2canvas-pro';
@@ -11,7 +11,6 @@ import {
   EditItemModal,
   CopyItemModal,
   ExpenseModal,
-  SettlementModal,
   FullscreenTicketModal,
   ChecklistModal,
   ExportItineraryModal,
@@ -24,8 +23,6 @@ import { CURRENT_RELEASE_NOTES } from './config/releaseNotes.js';
 import { EmptyState } from './components/ui/EmptyState.jsx';
 import { SkeletonButton, SkeletonText } from './components/ui/Skeleton.jsx';
 
-import { db, storage } from "./firebase";
-import { ref as dbRef, onValue, update } from "firebase/database";
 import {
   formatStayTime,
   generateId,
@@ -55,6 +52,11 @@ import { useToast } from './components/ui/useToast.js';
 import { usePlaceActions } from './features/places/usePlaceActions.js';
 import { useExpenseActions } from './features/expenses/useExpenseActions.js';
 import { ExpenseSection } from './features/expenses/ExpenseSection.jsx';
+import {
+  cancelSettlementTransferPaid,
+  markSettlementTransferPaid,
+  settlementTransferKey,
+} from './features/expenses/settlementTransferRecords.js';
 import { TicketEditorModal } from './features/tickets/TicketEditorModal.jsx';
 import { TicketWalletSection } from './features/tickets/TicketWalletSection.jsx';
 import { copyTicketOrderNumber } from './features/tickets/ticketClipboard.js';
@@ -64,8 +66,21 @@ import {
   writeTicketActiveMember,
 } from './features/tickets/ticketIdentity.js';
 import { useTicketActions } from './features/tickets/useTicketActions.js';
-import { persistItinerary } from './services/placesService.js';
-import { buildOfflineTripSnapshot, writeOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
+import { createDefaultFirebaseTripRepository } from './features/trip-data/defaultFirebaseTripRepository.js';
+import { normalizeTripCapabilities } from './features/trip-data/tripCapabilities.js';
+import { CLOUD_FEATURE_UNAVAILABLE_MESSAGE } from './features/trip-data/exampleTripConstants.js';
+import { useMobileViewport } from './hooks/useMobileViewport.js';
+import { MobileDaySwitcher } from './features/itinerary/MobileDaySwitcher.jsx';
+import { MobileTripHeader } from './features/itinerary/MobileTripHeader.jsx';
+import { MobileMapTopBar } from './features/map/MobileMapTopBar.jsx';
+import { MobileCompactUtilityBar } from './components/MobileCompactUtilityBar.jsx';
+import {
+  MobileItineraryTimeline,
+  MobileTimelineSkeleton,
+} from './features/itinerary/MobileItineraryTimeline.jsx';
+import { MobileTripMapView } from './features/map/MobileTripMapView.jsx';
+import { isDndDebugEnabled, traceDnd, traceDndNextFrame } from './features/itinerary/dndDebugTrace.js';
+import { DndDebugPanel } from './features/itinerary/DndDebugPanel.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -424,6 +439,10 @@ const PlaceItemDetailModal = ({
   onLoadGoogle,
   onClose,
   onEdit,
+  onNavigate,
+  onSearchNearby,
+  onCopy,
+  onDelete,
   onViewMenu,
   onViewPhoto,
   t,
@@ -528,6 +547,40 @@ const PlaceItemDetailModal = ({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-hide">
+          <section data-testid="place-detail-quick-actions" className="grid grid-cols-2 gap-2 px-4 pt-3 sm:grid-cols-4 md:px-5">
+            <button
+              type="button"
+              data-testid="place-detail-navigate-button"
+              onClick={() => onNavigate?.(item)}
+              className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 text-[11px] font-black text-emerald-600 active:scale-95"
+            >
+              🧭 導航
+            </button>
+            <button
+              type="button"
+              data-testid="place-detail-nearby-button"
+              onClick={() => onSearchNearby?.(item)}
+              className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] font-black active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+            >
+              🔍 周邊
+            </button>
+            <button
+              type="button"
+              data-testid="place-detail-copy-button"
+              onClick={() => onCopy?.(item)}
+              className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] font-black active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+            >
+              📋 複製
+            </button>
+            <button
+              type="button"
+              data-testid="place-detail-delete-button"
+              onClick={() => onDelete?.(item)}
+              className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-red-500/25 bg-red-500/10 px-3 text-[11px] font-black text-red-500 active:scale-95"
+            >
+              🗑️ 刪除
+            </button>
+          </section>
           <section className="p-4 md:p-5">
             {item.placePhoto?.url ? (
               <button
@@ -1113,7 +1166,7 @@ const normalizeItinerary = (rawValue, meta) => {
 
 
 const useRoomBranchSync = ({
-  roomId,
+  repository,
   branch,
   value,
   dirtyBranchesRef,
@@ -1122,7 +1175,7 @@ const useRoomBranchSync = ({
   setSyncStatus,
 }) => {
   useEffect(() => {
-    if (!db || !roomId || value === null || !dirtyBranchesRef.current[branch]) return undefined;
+    if (!repository || value === null || !dirtyBranchesRef.current[branch]) return undefined;
 
     const version = (writeVersionRef.current[branch] || 0) + 1;
     writeVersionRef.current[branch] = version;
@@ -1132,11 +1185,8 @@ const useRoomBranchSync = ({
     const timer = window.setTimeout(() => {
       const writeBranch = async () => {
         try {
-          if (branch === 'itinerary') {
-            await persistItinerary({ db, roomId, itinerary: value });
-          } else {
-            await update(dbRef(db, `rooms/${roomId}`), { [branch]: value });
-          }
+          const method = `update${branch[0].toUpperCase()}${branch.slice(1)}`;
+          await repository[method](value);
           if (writeVersionRef.current[branch] === version) {
             dirtyBranchesRef.current[branch] = false;
             lastLocalWriteAtRef.current = Date.now();
@@ -1154,13 +1204,35 @@ const useRoomBranchSync = ({
     }, 250);
 
     return () => window.clearTimeout(timer);
-  }, [branch, dirtyBranchesRef, lastLocalWriteAtRef, roomId, setSyncStatus, value, writeVersionRef]);
+  }, [branch, dirtyBranchesRef, lastLocalWriteAtRef, repository, setSyncStatus, value, writeVersionRef]);
 };
 
 const PRE_TRIP_ID = "PRE_TRIP";
 const PLACE_ACTION_MENU_WIDTH = 176;
 const PLACE_ACTION_MENU_ESTIMATED_HEIGHT = 232;
 const PLACE_ACTION_MENU_MARGIN = 12;
+
+// iOS Safari can deliver a synthetic click after a touch-driven drag release.
+// Card/detail/action taps inside this window after drag end are treated as
+// drag artifacts, not real taps, and are ignored.
+const DRAG_CLICK_SUPPRESSION_MS = 300;
+
+// A route recalculation request that never resolves (Map unavailable, a
+// request silently dropped, etc.) must still settle instead of leaving the
+// day header showing "正在依新順序精算時間" forever.
+const RECALCULATION_TIMEOUT_MS = 10000;
+
+// Starts edge auto-scroll earlier and caps its speed so a long touch drag
+// stays controllable near the top/bottom of the itinerary list.
+const ITINERARY_DND_AUTO_SCROLLER_OPTIONS = {
+  startFromPercentage: 0.2,
+  maxScrollAtPercentage: 0.08,
+  maxPixelScroll: 16,
+  durationDampening: {
+    stopDampeningAt: 800,
+    accelerateAt: 300,
+  },
+};
 const PLACE_ACTION_MENU_GAP = 8;
 
 const TripDetailSkeleton = ({
@@ -1168,12 +1240,16 @@ const TripDetailSkeleton = ({
   tripThemeColor,
   onBack,
   onOpenReleaseNotes,
+  onOpenFeatureIntroduction,
   onStartFeatureTour,
   onCheckUpdates,
   isCheckingUpdates,
   onOpenAppearance,
-}) => (
-  <div
+}) => {
+  const isMobileViewport = useMobileViewport();
+
+  return (
+    <div
     data-testid="trip-detail-skeleton"
     style={{ backgroundColor: tripThemeColor }}
     className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}
@@ -1201,6 +1277,7 @@ const TripDetailSkeleton = ({
               version={CURRENT_RELEASE_NOTES.version}
               onOpenAppearance={onOpenAppearance}
               onOpenReleaseNotes={onOpenReleaseNotes}
+              onOpenFeatureIntroduction={onOpenFeatureIntroduction}
               onStartFeatureTour={onStartFeatureTour}
               onCheckUpdates={onCheckUpdates}
               isCheckingUpdates={isCheckingUpdates}
@@ -1216,59 +1293,84 @@ const TripDetailSkeleton = ({
           </div>
         </div>
 
-        <div className="scrollbar-hide flex-1 overflow-hidden p-4">
-          <div
-            data-testid="itinerary-skeleton-day"
-            className={`min-w-85 max-w-85 rounded-3xl border-2 p-4 backdrop-blur-md ${t.cardBg} ${t.cardBorder}`}
-            aria-hidden="true"
-          >
-            <div className="mb-4 flex items-start justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                <SkeletonText lines={2} className="w-52" />
-              </div>
-              <SkeletonButton className="h-8 w-24 shrink-0" />
-            </div>
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div
-                  key={`itinerary-skeleton-place-${index}`}
-                  data-testid="itinerary-skeleton-place"
-                  className={`rounded-2xl border p-4 shadow-sm ${t.itemBg} ${t.cardBorder}`}
-                >
-                  <div className="flex gap-4">
-                    <div className="h-10 w-10 shrink-0 rounded-xl bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
-                    <div className="min-w-0 flex-1">
-                      <SkeletonText lines={2} />
-                      <div className="mt-3 flex gap-2">
-                        <div className="h-5 w-16 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
-                        <div className="h-5 w-20 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+        <div className="scrollbar-hide flex-1 overflow-hidden">
+          {isMobileViewport ? (
+            <MobileTimelineSkeleton t={t} />
+          ) : (
+            <div className="p-4">
+              <div
+                data-testid="itinerary-skeleton-day"
+                className={`min-w-85 max-w-85 rounded-3xl border-2 p-4 backdrop-blur-md ${t.cardBg} ${t.cardBorder}`}
+                aria-hidden="true"
+              >
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <SkeletonText lines={2} className="w-52" />
+                  </div>
+                  <SkeletonButton className="h-8 w-24 shrink-0" />
+                </div>
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div
+                      key={`itinerary-skeleton-place-${index}`}
+                      data-testid="itinerary-skeleton-place"
+                      className={`rounded-2xl border p-4 shadow-sm ${t.itemBg} ${t.cardBorder}`}
+                    >
+                      <div className="flex gap-4">
+                        <div className="h-10 w-10 shrink-0 rounded-xl bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                        <div className="min-w-0 flex-1">
+                          <SkeletonText lines={2} />
+                          <div className="mt-3 flex gap-2">
+                            <div className="h-5 w-16 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                            <div className="h-5 w-20 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
       <div className={`hidden flex-1 md:block ${t.mapBg}`} aria-hidden="true" />
     </div>
-  </div>
-);
+    </div>
+  );
+};
 
 const TripDetail = ({
-  roomId,
+  tripId,
+  roomId: legacyRoomId,
+  repository: providedRepository,
+  capabilities: providedCapabilities,
   onBack,
   onUpdateTripMeta,
   onOpenReleaseNotes,
+  onOpenFeatureIntroduction,
   onStartFeatureTour,
   onCheckUpdates,
   isCheckingUpdates,
   onTourAvailabilityChange,
   isOnline = true,
 }) => {
+  const roomId = String(tripId || legacyRoomId || '');
+  const repository = useMemo(
+    () => providedRepository || (
+      roomId ? createDefaultFirebaseTripRepository(roomId) : null
+    ),
+    [providedRepository, roomId],
+  );
+  const capabilities = useMemo(
+    () => normalizeTripCapabilities(
+      providedCapabilities || repository?.getCapabilities?.(),
+    ),
+    [providedCapabilities, repository],
+  );
   const confirm = useConfirm();
   const toast = useToast();
+  const isMobileViewport = useMobileViewport();
   const [isLoading, setIsLoading] = useState(true);
 
   const [meta, setMetaState] = useState(/** @type {any} */ (null));
@@ -1310,11 +1412,6 @@ const TripDetail = ({
     setExpensesState(updater);
   }, []);
 
-  const setSettlements = useCallback((updater) => {
-    dirtyBranchesRef.current.settlements = true;
-    setSettlementsState(updater);
-  }, []);
-
   const [currentDay, setCurrentDay] = useState("Day 1");
   const [activeTab, setActiveTab] = useState("plan");
 
@@ -1325,7 +1422,7 @@ const TripDetail = ({
     /** @type {{id: string, dayId: string, item: any, top: number, left: number, width: number, placement: 'top' | 'bottom'} | null} */ (null)
   );
   const [showExpenseModal, setShowExpenseModal] = useState(false);
-  const [showSettlementModal, setShowSettlementModal] = useState(false);
+  const [settlementMutationId, setSettlementMutationId] = useState('');
   const [editingExpense, setEditingExpense] = useState(/** @type {any} */ (null));
   const [ticketEditorState, setTicketEditorState] = useState(
     /** @type {{mode: 'create' | 'edit', ticket: any | null} | null} */ (null)
@@ -1355,12 +1452,98 @@ const TripDetail = ({
   const [routeDurations, setRouteDurations] = useState(
     /** @type {Record<string, any>} */ ({})
   );
+  // dayId -> { anchorTime, requestId }: days whose arrival times still need
+  // recalculating after a reorder. Cleared once that day's recalculation
+  // settles (success or error), not just when it starts.
   const pendingTimeRecalculationRef = useRef({});
-  const [timeRecalculationDays, setTimeRecalculationDays] = useState({});
+  const recalcTimeoutsRef = useRef({});
+  const recalcRequestIdRef = useRef(0);
+  // dayId -> true while a reorder on that day hasn't been recalculated yet
+  // (drives the "已重排，切換此日後精算" badge for non-current days).
+  const [dirtyRecalcDays, setDirtyRecalcDays] = useState({});
+  // dayId -> { status: idle|pending|success|error, requestId, startedAt|completedAt, message }
+  const [recalculationState, setRecalculationState] = useState({});
   const activePlaceActionMenuRef = useRef(null);
   const ignorePlaceActionScrollRef = useRef(false);
   const placeActionTriggerRefs = useRef({});
   const tripAppearanceInputRef = useRef(null);
+  const activeDraggableIdRef = useRef('');
+  const dragReleaseAtRef = useRef(0);
+  const isDragReleaseClick = useCallback(() => (
+    Date.now() - dragReleaseAtRef.current < DRAG_CLICK_SUPPRESSION_MS
+  ), []);
+
+  // Tracks which touch identifier started on a drag handle, and (once the
+  // sensor confirms a real lift) actively owns the current drag. On iOS
+  // Safari, once a drag has lifted, that same touch sequence must stay under
+  // the drag's control - if the page's own vertical scroll instead claims a
+  // later touchmove for that identifier, the drag is left visually "stuck"
+  // (never reaches a drop or a cancel) until an unrelated second touch picks
+  // it back up. This does not touch drag/itinerary state or the library's
+  // own handlers; it only decides whether to call preventDefault on native
+  // scroll for the one touch identifier that is actively dragging.
+  const pendingHandleTouchIdRef = useRef(/** @type {number | null} */ (null));
+  const activeDragTouchIdRef = useRef(/** @type {number | null} */ (null));
+  const activeDragTouchMoveListenerRef = useRef(/** @type {((event: TouchEvent) => void) | null} */ (null));
+
+  const detachActiveDragTouchGuard = useCallback(() => {
+    if (activeDragTouchMoveListenerRef.current) {
+      document.removeEventListener('touchmove', activeDragTouchMoveListenerRef.current, { capture: false });
+      activeDragTouchMoveListenerRef.current = null;
+    }
+    activeDragTouchIdRef.current = null;
+  }, []);
+
+  const attachActiveDragTouchGuard = useCallback((touchId) => {
+    activeDragTouchIdRef.current = typeof touchId === 'number' ? touchId : null;
+    if (activeDragTouchIdRef.current === null || activeDragTouchMoveListenerRef.current) return;
+
+    const handleActiveDragTouchMove = (event) => {
+      const activeId = activeDragTouchIdRef.current;
+      if (activeId === null) return;
+      const stillOwnsTouch = Array.from(event.touches || [])
+        .some((touch) => touch.identifier === activeId);
+      if (stillOwnsTouch && event.cancelable) event.preventDefault();
+    };
+    activeDragTouchMoveListenerRef.current = handleActiveDragTouchMove;
+    document.addEventListener('touchmove', handleActiveDragTouchMove, { capture: false, passive: false });
+  }, []);
+
+  useEffect(() => {
+    const handleHandleTouchStart = (event) => {
+      const target = /** @type {unknown} */ (event.target);
+      if (!(target instanceof Element) || !target.closest('[data-testid="place-drag-handle"]')) return;
+      const touch = event.changedTouches?.[0];
+      pendingHandleTouchIdRef.current = touch ? touch.identifier : null;
+    };
+    document.addEventListener('touchstart', handleHandleTouchStart, { capture: true, passive: true });
+    return () => document.removeEventListener('touchstart', handleHandleTouchStart, { capture: true });
+  }, []);
+
+  useEffect(() => {
+    const handleNativeTouchEnd = (event) => {
+      if (isDndDebugEnabled() && activeDraggableIdRef.current) {
+        traceDnd(event.type === 'touchcancel' ? 'touchcancel' : 'touchend');
+      }
+      const activeId = activeDragTouchIdRef.current;
+      if (activeId === null) return;
+      const touchEnded = Array.from(event.changedTouches || [])
+        .some((touch) => touch.identifier === activeId);
+      if (touchEnded) detachActiveDragTouchGuard();
+    };
+    document.addEventListener('touchend', handleNativeTouchEnd, { capture: true, passive: true });
+    document.addEventListener('touchcancel', handleNativeTouchEnd, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('touchend', handleNativeTouchEnd, { capture: true });
+      document.removeEventListener('touchcancel', handleNativeTouchEnd, { capture: true });
+    };
+  }, [detachActiveDragTouchGuard]);
+
+  useEffect(() => () => detachActiveDragTouchGuard(), [detachActiveDragTouchGuard]);
+  const registerPlaceActionTrigger = useCallback((actionMenuId, node) => {
+    if (node) placeActionTriggerRefs.current[actionMenuId] = node;
+    else delete placeActionTriggerRefs.current[actionMenuId];
+  }, []);
 
   const placesLib = useMapsLibrary('places');
   const [exploreQuery, setExploreQuery] = useState("");
@@ -1408,7 +1591,7 @@ const TripDetail = ({
       setSyncStatus("idle");
     });
 
-    if (!db || !roomId) {
+    if (!repository || !roomId) {
       queueMicrotask(() => {
         if (cancelled) return;
         setMetaState({
@@ -1432,11 +1615,8 @@ const TripDetail = ({
       };
     }
 
-    const roomRef = dbRef(db, `rooms/${roomId}`);
-    const unsubscribe = onValue(
-      roomRef,
-      (snapshot) => {
-        const data = snapshot.val();
+    const unsubscribe = repository.subscribeTrip(
+      (data) => {
         if (!data) {
           setLoadError("找不到這個旅程，可能已被刪除或你沒有讀取權限。");
           setIsLoading(false);
@@ -1488,7 +1668,7 @@ const TripDetail = ({
       (error) => {
         console.error("Load room failed:", error);
         setSyncStatus("error");
-        setLoadError("旅程載入失敗，請檢查網路連線或 Firebase 權限。");
+        setLoadError("旅程載入失敗，請確認連線後再試一次。");
         setIsLoading(false);
       }
     );
@@ -1501,10 +1681,10 @@ const TripDetail = ({
       }
       unsubscribe();
     };
-  }, [roomId]);
+  }, [repository, roomId]);
 
   useRoomBranchSync({
-    roomId,
+    repository,
     branch: "meta",
     value: meta,
     dirtyBranchesRef,
@@ -1513,7 +1693,7 @@ const TripDetail = ({
     setSyncStatus,
   });
   useRoomBranchSync({
-    roomId,
+    repository,
     branch: "itinerary",
     value: itinerary,
     dirtyBranchesRef,
@@ -1522,18 +1702,9 @@ const TripDetail = ({
     setSyncStatus,
   });
   useRoomBranchSync({
-    roomId,
+    repository,
     branch: "expenses",
     value: expenses,
-    dirtyBranchesRef,
-    writeVersionRef,
-    lastLocalWriteAtRef,
-    setSyncStatus,
-  });
-  useRoomBranchSync({
-    roomId,
-    branch: "settlements",
-    value: settlements,
     dirtyBranchesRef,
     writeVersionRef,
     lastLocalWriteAtRef,
@@ -1556,10 +1727,13 @@ const TripDetail = ({
       Math.max(0, viewportWidth - (PLACE_ACTION_MENU_MARGIN * 2)),
     );
     const maxLeft = viewportWidth - width - PLACE_ACTION_MENU_MARGIN;
-    const left = Math.min(
-      Math.max(PLACE_ACTION_MENU_MARGIN, rect.right - width),
-      Math.max(PLACE_ACTION_MENU_MARGIN, maxLeft),
-    );
+    const leftOfTrigger = rect.left - width - PLACE_ACTION_MENU_GAP;
+    const left = leftOfTrigger >= PLACE_ACTION_MENU_MARGIN
+      ? leftOfTrigger
+      : Math.min(
+        Math.max(PLACE_ACTION_MENU_MARGIN, rect.right - width),
+        Math.max(PLACE_ACTION_MENU_MARGIN, maxLeft),
+      );
     const bottomTop = rect.bottom + PLACE_ACTION_MENU_GAP;
     const hasRoomBelow = bottomTop + PLACE_ACTION_MENU_ESTIMATED_HEIGHT <= viewportHeight - PLACE_ACTION_MENU_MARGIN;
     const topPlacement = rect.top - PLACE_ACTION_MENU_ESTIMATED_HEIGHT - PLACE_ACTION_MENU_GAP;
@@ -1581,11 +1755,24 @@ const TripDetail = ({
   const closePlaceActionMenu = useCallback(({ restoreFocus = false } = {}) => {
     const currentMenu = activePlaceActionMenuRef.current;
     ignorePlaceActionScrollRef.current = false;
+    const visibleTrigger = Array.from(
+      document.querySelectorAll('[data-testid="place-action-menu-trigger"]'),
+    ).find((node) => (
+      node instanceof HTMLElement
+      && node.getClientRects().length > 0
+      && node.getAttribute('aria-expanded') === 'true'
+    ));
+    const trigger = visibleTrigger || (currentMenu?.id
+      ? placeActionTriggerRefs.current[currentMenu.id]
+      : null);
+    if (restoreFocus) {
+      trigger?.focus?.({ preventScroll: true });
+    }
     setActivePlaceActionMenu(null);
 
-    if (restoreFocus && currentMenu?.id) {
+    if (restoreFocus && trigger) {
       window.requestAnimationFrame(() => {
-        placeActionTriggerRefs.current[currentMenu.id]?.focus?.();
+        if (document.activeElement !== trigger) trigger.focus?.({ preventScroll: true });
       });
     }
   }, []);
@@ -1593,6 +1780,7 @@ const TripDetail = ({
   const openPlaceActionMenu = useCallback((event, dayId, item) => {
     event.preventDefault();
     event.stopPropagation();
+    if (isDragReleaseClick()) return;
 
     const menuId = `${String(dayId)}-${String(item?.id || item?.place_id || item?.name || '')}`;
     if (activePlaceActionMenuRef.current?.id === menuId) {
@@ -1613,7 +1801,7 @@ const TripDetail = ({
       item,
       ...getPlaceActionMenuPosition(trigger),
     });
-  }, [closePlaceActionMenu, getPlaceActionMenuPosition]);
+  }, [closePlaceActionMenu, getPlaceActionMenuPosition, isDragReleaseClick]);
 
   const handleItineraryWheel = useCallback((event) => {
     const deltaX = Number(event.deltaX || 0);
@@ -1726,6 +1914,14 @@ const TripDetail = ({
   ]);
 
   const safeCurrentDay = existingDays.includes(currentDay) ? currentDay : (existingDays[0] || "Day 1");
+  const mapDayCoordinateKey = useMemo(() => JSON.stringify(
+    (Array.isArray(itinerary[safeCurrentDay]) ? itinerary[safeCurrentDay] : [])
+      .filter((item) => isValidCoordinates(item?.lat, item?.lng))
+      .map((item) => ({
+        lat: Number(item.lat),
+        lng: Number(item.lng),
+      })),
+  ), [itinerary, safeCurrentDay]);
   const handleDaySwitch = useCallback((dayId, event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
@@ -1741,32 +1937,29 @@ const TripDetail = ({
   }, [closePlaceActionMenu]);
 
   useEffect(() => {
-    if (!map || !itinerary[safeCurrentDay]) return;
-    const dayItems = Array.isArray(itinerary[safeCurrentDay]) ? itinerary[safeCurrentDay] : [];
-    if (dayItems.length === 0) return;
+    const mapIsVisible = !isMobileViewport || activeTab === 'map';
+    if (!map || !mapIsVisible) return undefined;
+    const coordinateInputs = JSON.parse(mapDayCoordinateKey);
+    if (coordinateInputs.length === 0) return undefined;
 
-    const validItems = dayItems.filter((item) => isValidCoordinates(item?.lat, item?.lng));
-
-    if (validItems.length === 0) return;
-
-    const timer = setTimeout(() => {
-      if (validItems.length === 1) {
-        map.panTo({ lat: Number(validItems[0].lat), lng: Number(validItems[0].lng) });
+    const timer = window.setTimeout(() => {
+      if (coordinateInputs.length === 1) {
+        map.panTo(coordinateInputs[0]);
         map.setZoom(15);
       } else {
         const bounds = new window.google.maps.LatLngBounds();
-        validItems.forEach(item => {
-          bounds.extend({ lat: Number(item.lat), lng: Number(item.lng) });
-        });
-        map.fitBounds(bounds, { top: 60, bottom: 60, left: 40, right: 40 });
+        coordinateInputs.forEach((position) => bounds.extend(position));
+        map.fitBounds(bounds, isMobileViewport
+          ? { top: 100, bottom: 220, left: 36, right: 36 }
+          : { top: 60, bottom: 60, left: 40, right: 40 });
         window.google.maps.event.addListenerOnce(map, "idle", () => {
           if (map.getZoom() > 16) map.setZoom(16);
         });
       }
     }, 150);
 
-    return () => clearTimeout(timer);
-  }, [map, safeCurrentDay, itinerary, activeTab]);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, isMobileViewport, map, mapDayCoordinateKey]);
 
   useEffect(() => {
     if (!meta?.destination || !meta?.startDate || existingDays.length === 0) return undefined;
@@ -1897,7 +2090,7 @@ const TripDetail = ({
     deletingTicketId,
     uploadProgress,
   } = useTicketActions({
-    room: { db, roomId, storage },
+    room: { repository, tripId: roomId },
     data: { tickets, members: membersList },
     state: { setTicketsState, setSyncStatus },
     refs: { dirtyBranchesRef, lastLocalWriteAtRef, ticketMutationRef },
@@ -1952,7 +2145,7 @@ const TripDetail = ({
   }, []);
 
   const { saveExpense: handleSaveExpense, deleteExpense: handleDeleteExpense } = useExpenseActions({
-    room: { db, roomId },
+    room: { repository, tripId: roomId },
     data: { expenses },
     state: { setExpensesState, setSyncStatus },
     refs: { dirtyBranchesRef, lastLocalWriteAtRef, expenseDeleteConfirmRef },
@@ -1968,20 +2161,73 @@ const TripDetail = ({
     closeExpenseEditor();
   }, [closeExpenseEditor, setExpenses]);
 
-  const handleSaveSettlement = useCallback((settlement) => {
-    setSettlements((previous) => [
-      ...(Array.isArray(previous) ? previous : []),
-      settlement,
-    ]);
-    setShowSettlementModal(false);
-  }, [setSettlements]);
+  const persistSettlementRecords = useCallback(async ({
+    nextRecords,
+    previousRecords,
+    mutationId,
+    successTitle,
+  }) => {
+    if (!repository?.updateSettlements || settlementMutationId) return false;
+    setSettlementMutationId(mutationId);
+    dirtyBranchesRef.current.settlements = true;
+    lastLocalWriteAtRef.current = Date.now();
+    setSyncStatus('saving');
+    setSettlementsState(nextRecords);
 
-  const handleDeleteSettlement = useCallback((settlementId) => {
-    if (!window.confirm("確定刪除這筆結算紀錄嗎？刪除後待結算餘額會重新計算。")) return;
-    setSettlements((previous) => (Array.isArray(previous) ? previous : []).filter(
-      item => String(item.id) !== String(settlementId)
-    ));
-  }, [setSettlements]);
+    try {
+      await repository.updateSettlements(nextRecords);
+      dirtyBranchesRef.current.settlements = false;
+      lastLocalWriteAtRef.current = Date.now();
+      setSyncStatus('saved');
+      toast.success({
+        title: successTitle,
+        description: '結算紀錄已保存。',
+      });
+      return true;
+    } catch (error) {
+      console.error('Sync settlements failed:', error);
+      dirtyBranchesRef.current.settlements = false;
+      setSettlementsState(previousRecords);
+      setSyncStatus('error');
+      toast.error({
+        title: '無法更新轉帳狀態',
+        description: '已恢復原本狀態，請檢查連線後再試一次。',
+      });
+      return false;
+    } finally {
+      setSettlementMutationId('');
+    }
+  }, [repository, settlementMutationId, toast]);
+
+  const handleMarkTransferPaid = useCallback((transfer) => {
+    const previousRecords = Array.isArray(settlements) ? settlements : [];
+    const nextRecords = markSettlementTransferPaid({
+      records: previousRecords,
+      transfer,
+      currency: 'TWD',
+    });
+    void persistSettlementRecords({
+      nextRecords,
+      previousRecords,
+      mutationId: settlementTransferKey(transfer),
+      successTitle: '已標記為已轉帳',
+    });
+  }, [persistSettlementRecords, settlements]);
+
+  const handleCancelTransferPaid = useCallback((recordId) => {
+    const previousRecords = Array.isArray(settlements) ? settlements : [];
+    const nextRecords = cancelSettlementTransferPaid({
+      records: previousRecords,
+      recordId,
+      currency: 'TWD',
+    });
+    void persistSettlementRecords({
+      nextRecords,
+      previousRecords,
+      mutationId: String(recordId),
+      successTitle: '已取消轉帳完成狀態',
+    });
+  }, [persistSettlementRecords, settlements]);
   const activeChecklistMember = membersList.includes(checklistActor)
     ? checklistActor
     : (membersList[0] || '自己');
@@ -2020,8 +2266,122 @@ const TripDetail = ({
     });
   }, []);
 
+  const handleDragBeforeCapture = useCallback((before) => {
+    activeDraggableIdRef.current = String(before?.draggableId || '');
+    attachActiveDragTouchGuard(pendingHandleTouchIdRef.current);
+    traceDnd('onBeforeCapture', { draggableId: activeDraggableIdRef.current });
+  }, [attachActiveDragTouchGuard]);
+
+  const handleDragStart = useCallback((start) => {
+    activeDraggableIdRef.current = String(start?.draggableId || '');
+    traceDnd('onDragStart', {
+      draggableId: activeDraggableIdRef.current,
+      sourceDroppableId: start?.source?.droppableId,
+      sourceIndex: start?.source?.index,
+    });
+  }, []);
+
+  const handleDragUpdate = useCallback(() => {
+    // Intentionally a no-op. The library owns all drag-time visuals; no
+    // itinerary state is read or written until onDragEnd commits a drop.
+  }, []);
+
+  const clearRecalcTimeout = useCallback((dayId) => {
+    const handle = recalcTimeoutsRef.current[dayId];
+    if (handle) {
+      window.clearTimeout(handle);
+      delete recalcTimeoutsRef.current[dayId];
+    }
+  }, []);
+
+  // Settles a day's recalculation to a terminal state. Guarded by requestId
+  // so a stale/replaced/cancelled request can never clobber a newer one.
+  const settleRecalculation = useCallback((dayId, requestId, status, message) => {
+    clearRecalcTimeout(dayId);
+    setRecalculationState((previous) => {
+      const current = previous[dayId];
+      if (!current || current.requestId !== requestId) return previous;
+      return {
+        ...previous,
+        [dayId]: { status, requestId, completedAt: Date.now(), message: message || '' },
+      };
+    });
+  }, [clearRecalcTimeout]);
+
+  // Quietly abandons an in-flight request without marking it an error - used
+  // for day switch, unmount, and explicit request replacement, none of which
+  // are failures. The day stays dirty so it recalculates again when revisited.
+  const abandonRecalculation = useCallback((dayId) => {
+    setRecalculationState((previous) => {
+      if (!previous[dayId] || previous[dayId].status !== 'pending') return previous;
+      clearRecalcTimeout(dayId);
+      const next = { ...previous };
+      delete next[dayId];
+      return next;
+    });
+  }, [clearRecalcTimeout]);
+
+  const beginRecalculation = useCallback((dayId) => {
+    if (!pendingTimeRecalculationRef.current[dayId]) return;
+    clearRecalcTimeout(dayId);
+    const requestId = (recalcRequestIdRef.current += 1);
+    pendingTimeRecalculationRef.current[dayId] = {
+      ...pendingTimeRecalculationRef.current[dayId],
+      requestId,
+    };
+    setRecalculationState((previous) => ({
+      ...previous,
+      [dayId]: { status: 'pending', requestId, startedAt: Date.now(), message: '' },
+    }));
+    recalcTimeoutsRef.current[dayId] = window.setTimeout(() => {
+      settleRecalculation(dayId, requestId, 'error', '無法取得新的移動時間，已保留目前抵達時間');
+      setDirtyRecalcDays((previous) => {
+        if (!previous[dayId]) return previous;
+        const next = { ...previous };
+        delete next[dayId];
+        return next;
+      });
+      delete pendingTimeRecalculationRef.current[dayId];
+      toast.error({
+        title: '無法取得新的移動時間',
+        description: '已保留目前抵達時間，可再次拖曳排序重試。',
+      });
+    }, RECALCULATION_TIMEOUT_MS);
+  }, [clearRecalcTimeout, settleRecalculation, toast]);
+
+  // Only one Directions instance is ever mounted (bound to the currently
+  // viewed day), so a day that isn't current can't be actively recalculating
+  // - it just waits, dirty, until the user switches to it. This effect is
+  // what makes recalculation resume purely from Plan-day-selection, with no
+  // dependency on the Map tab being active.
+  useEffect(() => {
+    beginRecalculation(safeCurrentDay);
+    return () => {
+      abandonRecalculation(safeCurrentDay);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [safeCurrentDay]);
+
+  // True component unmount: clear any outstanding recalculation timeout so
+  // it never fires (and never touches state) after this view is gone.
+  useEffect(() => () => {
+    Object.values(recalcTimeoutsRef.current).forEach((handle) => window.clearTimeout(handle));
+    recalcTimeoutsRef.current = {};
+  }, []);
+
   const handleDragEnd = useCallback((result) => {
-    const { source, destination } = result;
+    activeDraggableIdRef.current = '';
+    detachActiveDragTouchGuard();
+    dragReleaseAtRef.current = Date.now();
+
+    const { source, destination, reason } = result;
+    traceDnd('onDragEnd', {
+      sourceDroppableId: source?.droppableId,
+      sourceIndex: source?.index,
+      destinationDroppableId: destination?.droppableId,
+      destinationIndex: destination?.index,
+      reason,
+    });
     if (!destination) return;
 
     const moveResult = moveItineraryItem({
@@ -2040,29 +2400,57 @@ const TripDetail = ({
       pendingRecalculations,
     } = moveResult;
 
+    // A day with at most one item has no leg to recalculate - never mark it
+    // dirty or pending, matching the existing "day < 2" settle requirement.
+    const daysNeedingRecalculation = affectedDays.filter(
+      (dayId) => (nextItinerary[dayId] || []).length > 1,
+    );
+
     affectedDays.forEach((dayId) => {
       const pending = pendingRecalculations[dayId];
-      if (pending) pendingTimeRecalculationRef.current[dayId] = pending;
-      else delete pendingTimeRecalculationRef.current[dayId];
+      if (pending && daysNeedingRecalculation.includes(dayId)) {
+        pendingTimeRecalculationRef.current[dayId] = pending;
+      } else {
+        delete pendingTimeRecalculationRef.current[dayId];
+      }
     });
 
-    setBackupItin(null);
-    clearOptimizationSummary(...affectedDays);
-    setRouteDurations((previous) => {
-      const next = { ...previous };
-      affectedDays.forEach((dayId) => { delete next[dayId]; });
-      return next;
-    });
-    setTimeRecalculationDays((previous) => {
-      const next = { ...previous };
-      affectedDays.forEach((dayId) => {
-        if ((nextItinerary[dayId] || []).length > 1) next[dayId] = true;
-        else delete next[dayId];
+    // The drop must be visible the instant the finger lifts on iOS Safari -
+    // no second tap should be required. Deferring this commit to React's
+    // default scheduling left a window where WebKit had already torn down
+    // the drag's composited layer but had not yet been asked to paint the
+    // reordered DOM, so the list visually "stuck" until the next touch
+    // forced a repaint. flushSync forces the whole drop's state (itinerary
+    // order, cleared summaries/durations, recalculation flags) into one
+    // synchronous commit before this touchend-driven callback returns, so
+    // the reordered DOM exists before the browser decides whether to paint.
+    flushSync(() => {
+      setBackupItin(null);
+      clearOptimizationSummary(...affectedDays);
+      setRouteDurations((previous) => {
+        const next = { ...previous };
+        affectedDays.forEach((dayId) => { delete next[dayId]; });
+        return next;
       });
-      return next;
+      setDirtyRecalcDays((previous) => {
+        const next = { ...previous };
+        affectedDays.forEach((dayId) => {
+          if (daysNeedingRecalculation.includes(dayId)) next[dayId] = true;
+          else delete next[dayId];
+        });
+        return next;
+      });
+      setItinerary(nextItinerary);
     });
-    setItinerary(nextItinerary);
-  }, [clearOptimizationSummary, itinerary, setItinerary]);
+    // The currently viewed day is the only one with a mounted Directions
+    // instance, so it's the only one that can start an active request now;
+    // other affected days stay dirty and pick up a request when visited.
+    if (daysNeedingRecalculation.includes(safeCurrentDay)) {
+      beginRecalculation(safeCurrentDay);
+    }
+    traceDnd('onDragEnd:commit');
+    traceDndNextFrame('onDragEnd');
+  }, [beginRecalculation, clearOptimizationSummary, detachActiveDragTouchGuard, itinerary, safeCurrentDay, setItinerary]);
 
   const handleRouteCalculated = useCallback((day, durations) => {
     setRouteDurations((previous) => (
@@ -2081,13 +2469,16 @@ const TripDetail = ({
     });
 
     delete pendingTimeRecalculationRef.current[day];
-    setTimeRecalculationDays((previous) => {
+    setDirtyRecalcDays((previous) => {
       if (!previous[day]) return previous;
       const next = { ...previous };
       delete next[day];
       return next;
     });
-  }, [setItinerary]);
+    if (pending.requestId !== undefined) {
+      settleRecalculation(day, pending.requestId, 'success');
+    }
+  }, [setItinerary, settleRecalculation]);
 
   const resetExploreState = useCallback(() => {
     setSelectedExploreItem(null);
@@ -2103,11 +2494,7 @@ const TripDetail = ({
     saveEditedItem,
     deleteItineraryItem: handleDeleteItineraryItem,
   } = usePlaceActions({
-    room: {
-      db,
-      roomId,
-      storage,
-    },
+    room: { repository, tripId: roomId },
     data: {
       itinerary,
       currentDay: safeCurrentDay,
@@ -2161,14 +2548,14 @@ const TripDetail = ({
   };
 
   const commitChecklistPatch = useCallback((patch) => {
-    if (!db || !roomId || !patch || Object.keys(patch).length === 0) return;
+    if (!repository || !roomId || !patch || Object.keys(patch).length === 0) return;
 
     const version = checklistWriteVersionRef.current + 1;
     checklistWriteVersionRef.current = version;
     lastLocalWriteAtRef.current = Date.now();
     setSyncStatus('saving');
 
-    void update(dbRef(db, `rooms/${roomId}/checklist`), patch)
+    void repository.updateChecklist(patch)
       .then(() => {
         if (checklistWriteVersionRef.current === version) {
           lastLocalWriteAtRef.current = Date.now();
@@ -2178,9 +2565,9 @@ const TripDetail = ({
       .catch((error) => {
         console.error('Sync checklist failed:', error);
         if (checklistWriteVersionRef.current === version) setSyncStatus('error');
-        alert('行前清單同步失敗，請檢查網路或 Firebase 權限。');
+        alert('行前清單保存失敗，請稍後再試。');
       });
-  }, [roomId]);
+  }, [repository, roomId]);
 
   const handleChecklistActorChange = useCallback((member) => {
     const safeMember = String(member || '').trim();
@@ -2281,8 +2668,8 @@ const TripDetail = ({
   }, [checklistItems, commitChecklistPatch]);
 
   const handleShareLink = useCallback(async () => {
-    if (!db) {
-      alert("⚠️ 尚未設定 Firebase！");
+    if (!capabilities.sharing) {
+      alert(CLOUD_FEATURE_UNAVAILABLE_MESSAGE);
       return;
     }
 
@@ -2293,7 +2680,28 @@ const TripDetail = ({
     } catch {
       window.prompt("請手動複製共編連結：", url);
     }
-  }, [meta, roomId]);
+  }, [capabilities.sharing, meta, roomId]);
+
+  const tripSettingsActions = useMemo(() => ([
+    {
+      id: 'share',
+      label: '分享共編',
+      icon: '🔗',
+      onSelect: handleShareLink,
+    },
+    {
+      id: 'checklist',
+      label: '共享清單',
+      icon: '✅',
+      onSelect: () => setShowChecklistModal(true),
+    },
+    {
+      id: 'export',
+      label: '匯出行程',
+      icon: '🖨️',
+      onSelect: () => setShowExportModal(true),
+    },
+  ]), [handleShareLink]);
 
   const handleExploreSearch = (customQuery = null, customLocation = null) => {
     const q = typeof customQuery === 'string' ? customQuery : String(exploreQuery);
@@ -2770,6 +3178,7 @@ const TripDetail = ({
   };
 
   const handleSavedItemDetails = (item, dayId = safeCurrentDay) => {
+    if (isDragReleaseClick()) return;
     setViewingPlaceDetail({ dayId: String(dayId || safeCurrentDay || ''), item });
     setSavedPlaceGoogleDetails(null);
     setSavedPlaceGoogleError('');
@@ -2928,7 +3337,8 @@ const TripDetail = ({
   }, [handleAddPlaceFromSearch, handleDragEnd, safeCurrentDay]);
   useEffect(() => {
     if (
-      !db ||
+      !capabilities.offlineCache ||
+      !repository ||
       !roomId ||
       !isOnline ||
       isLoading ||
@@ -2942,26 +3352,22 @@ const TripDetail = ({
     }
 
     const timer = setTimeout(() => {
-      const snap = buildOfflineTripSnapshot({
-        roomId,
+      try {
+        repository.writeOfflineSnapshot?.({
         meta,
         itinerary,
         expenseStats,
         expenses,
         checklistItems,
         tickets
-      });
-      if (snap) {
-        try {
-          writeOfflineTripSnapshot(snap);
-        } catch (error) {
-          console.warn("Offline trip cache write failed:", error);
-        }
+        });
+      } catch (error) {
+        console.warn("Offline trip cache write failed:", error);
       }
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [isOnline, isLoading, loadError, meta, roomId, itinerary, expenseStats, expenses, checklistItems, tickets, syncStatus]);
+  }, [capabilities.offlineCache, repository, isOnline, isLoading, loadError, meta, roomId, itinerary, expenseStats, expenses, checklistItems, tickets, syncStatus]);
 
   if (loadError) {
     return (
@@ -2978,20 +3384,25 @@ const TripDetail = ({
     );
   }
 
-  if (isLoading || !meta) {
-    return (
-      <TripDetailSkeleton
-        t={t}
-        tripThemeColor={tripThemeColor}
-        onBack={onBack}
-        onOpenReleaseNotes={onOpenReleaseNotes}
-        onStartFeatureTour={onStartFeatureTour}
-        onCheckUpdates={onCheckUpdates}
-        isCheckingUpdates={isCheckingUpdates}
-        onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
-      />
-    );
-  }
+  const mobileSyncStatusNode = capabilities.cloudSync ? (
+    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} />
+  ) : null;
+
+  const mobileSettingsMenu = (
+    <AppSettingsMenu
+      key={`mobile-trip-settings-${roomId}`}
+      t={t}
+      version={CURRENT_RELEASE_NOTES.version}
+      triggerLabel="開啟旅程工具與設定"
+      tripActions={tripSettingsActions}
+      onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+      onOpenReleaseNotes={onOpenReleaseNotes}
+      onOpenFeatureIntroduction={onOpenFeatureIntroduction}
+      onStartFeatureTour={onStartFeatureTour}
+      onCheckUpdates={onCheckUpdates}
+      isCheckingUpdates={isCheckingUpdates}
+    />
+  );
 
   return (
     <>
@@ -3008,26 +3419,90 @@ const TripDetail = ({
         }
       `}</style>
 
-      <DragDropContext onDragEnd={handleDragEnd}>
+      <DragDropContext
+        onBeforeCapture={handleDragBeforeCapture}
+        onDragStart={handleDragStart}
+        onDragUpdate={handleDragUpdate}
+        onDragEnd={handleDragEnd}
+        autoScrollerOptions={ITINERARY_DND_AUTO_SCROLLER_OPTIONS}
+      >
+        {(isLoading || !meta) ? (
+          <TripDetailSkeleton
+            t={t}
+            tripThemeColor={tripThemeColor}
+            onBack={onBack}
+            onOpenReleaseNotes={onOpenReleaseNotes}
+            onOpenFeatureIntroduction={onOpenFeatureIntroduction}
+            onStartFeatureTour={onStartFeatureTour}
+            onCheckUpdates={onCheckUpdates}
+            isCheckingUpdates={isCheckingUpdates}
+            onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+          />
+        ) : (
         <div data-testid="active-trip-view" style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
+          <input
+            ref={tripAppearanceInputRef}
+            type="color"
+            value={tripThemeColor}
+            onChange={e => handleColorChange(e.target.value)}
+            className="sr-only"
+            tabIndex={-1}
+            aria-label="自訂旅程外觀"
+          />
+          {isMobileViewport ? (
+            <>
+              {activeTab === 'plan' ? (
+                <>
+                  <MobileTripHeader
+                    meta={meta}
+                    dayId={safeCurrentDay}
+                    weather={weatherInfo[safeCurrentDay]}
+                    t={t}
+                    syncStatusNode={mobileSyncStatusNode}
+                    settingsNode={mobileSettingsMenu}
+                    onBack={onBack}
+                  />
+                  <MobileDaySwitcher
+                    days={existingDays}
+                    currentDay={safeCurrentDay}
+                    startDate={meta.startDate}
+                    onSelectDay={handleDaySwitch}
+                    t={t}
+                  />
+                </>
+              ) : null}
+              {activeTab === 'map' ? (
+                <MobileMapTopBar
+                  days={existingDays}
+                  currentDay={safeCurrentDay}
+                  startDate={meta.startDate}
+                  onSelectDay={handleDaySwitch}
+                  onBack={onBack}
+                  settingsNode={mobileSettingsMenu}
+                  syncStatusNode={mobileSyncStatusNode}
+                  t={t}
+                />
+              ) : null}
+              {(activeTab === 'ticket' || activeTab === 'expense') ? (
+                <MobileCompactUtilityBar
+                  onBack={onBack}
+                  settingsNode={mobileSettingsMenu}
+                  syncStatusNode={mobileSyncStatusNode}
+                  t={t}
+                />
+              ) : null}
+            </>
+          ) : null}
           <div className="flex-1 flex overflow-hidden">
 
             <div className={`flex-col border-r transition-opacity duration-300 backdrop-blur-xl ${t.sidebarBg} ${t.cardBorder} ${activeTab === 'map' ? 'hidden md:flex md:w-2/3 lg:w-1/2' : 'flex w-full md:w-2/3 lg:w-1/2'}`}>
-              <div className={`relative z-40 p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-3 shadow-md shrink-0 border-b backdrop-blur-2xl ${t.headerBg} ${t.cardBorder}`}>
+              {!isMobileViewport ? (
+              <div className={`relative z-40 flex p-4 flex-col justify-between items-start gap-3 shadow-md shrink-0 border-b backdrop-blur-2xl md:flex-row md:items-center ${t.headerBg} ${t.cardBorder}`}>
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <button onClick={onBack} data-testid="back-to-lobby" className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
-                    <input
-                      ref={tripAppearanceInputRef}
-                      type="color"
-                      value={tripThemeColor}
-                      onChange={e => handleColorChange(e.target.value)}
-                      className="sr-only"
-                      tabIndex={-1}
-                      aria-label="自訂旅程外觀"
-                    />
-                    <h1 data-testid="trip-detail-title" className="text-xl font-black text-blue-500 italic truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
-                    {db ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
+                    <h1 data-testid="trip-detail-title" className="text-xl font-black text-blue-500 truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
+                    {capabilities.cloudSync ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
                   </div>
                   <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
                 </div>
@@ -3070,45 +3545,101 @@ const TripDetail = ({
                   </button>
                   <AppSettingsMenu
                     key={`trip-settings-${roomId}`}
-                    t={t}
-                    version={CURRENT_RELEASE_NOTES.version}
-                    onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
-                    onOpenReleaseNotes={onOpenReleaseNotes}
-                    onStartFeatureTour={onStartFeatureTour}
+                     t={t}
+                     version={CURRENT_RELEASE_NOTES.version}
+                     triggerLabel="開啟旅程工具與設定"
+                     tripActions={tripSettingsActions}
+                     onOpenAppearance={() => tripAppearanceInputRef.current?.click?.()}
+                     onOpenReleaseNotes={onOpenReleaseNotes}
+                     onOpenFeatureIntroduction={onOpenFeatureIntroduction}
+                     onStartFeatureTour={onStartFeatureTour}
                     onCheckUpdates={onCheckUpdates}
                     isCheckingUpdates={isCheckingUpdates}
                   />
                 </div>
               </div>
+              ) : null}
 
-              <div className={`md:hidden shrink-0 border-b px-4 py-3 ${t.headerBg} ${t.cardBorder} ${(activeTab === 'plan' || activeTab === 'map') ? 'block' : 'hidden'}`}>
-                <div
-                  data-testid="mobile-day-switcher"
-                  className="scrollbar-hide flex gap-2 overflow-x-auto overscroll-x-contain"
-                >
-                  {existingDays.map((dayId) => {
-                    const { title } = getDayDisplay(dayId, meta.startDate);
-                    const isCurrent = safeCurrentDay === dayId;
-
-                    return (
-                      <button
-                        key={`mobile-day-${dayId}`}
-                        type="button"
-                        data-testid="itinerary-day-switch-button"
-                        data-day-id={String(dayId)}
-                        aria-pressed={isCurrent}
-                        onClick={(event) => handleDaySwitch(dayId, event)}
-                        className={`min-h-11 shrink-0 rounded-xl border px-4 text-xs font-black shadow-sm transition-all active:scale-95 ${isCurrent ? 'border-blue-500 bg-blue-600 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
-                      >
-                        {String(title)}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div data-testid="itinerary-horizontal-scroll" onWheel={handleItineraryWheel} className={`scrollbar-hide flex-1 overflow-x-auto overscroll-x-contain p-4 gap-4 items-start ${(activeTab === 'plan' || activeTab === 'map') ? 'flex' : 'hidden'}`}>
-                {existingDays.map(dayId => {
+              <div
+                data-testid="itinerary-horizontal-scroll"
+                onWheel={isMobileViewport ? undefined : handleItineraryWheel}
+                className={`scrollbar-hide flex-1 ${
+                  isMobileViewport
+                    ? 'overflow-y-auto overflow-x-hidden'
+                    : 'overflow-x-auto overscroll-x-contain p-4 gap-4 items-start'
+                } ${(activeTab === 'plan' || (!isMobileViewport && activeTab === 'map')) ? (isMobileViewport ? 'block' : 'flex') : 'hidden'}`}
+              >
+                {isMobileViewport ? (activeTab === 'plan' ? (
+                  <MobileItineraryTimeline
+                    dayId={safeCurrentDay}
+                    items={itinerary[safeCurrentDay]}
+                    durations={routeDurations[safeCurrentDay]}
+                    t={t}
+                    controls={(
+                      <div className="mb-3 flex min-w-0 items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p
+                            data-testid="mobile-day-theme-label"
+                            className={`text-[10px] font-bold uppercase tracking-wide ${t.subText}`}
+                          >
+                            本日主題
+                          </p>
+                          <p
+                            data-testid="mobile-day-theme-name"
+                            className={`line-clamp-2 text-[17px] font-black leading-6 [overflow-wrap:anywhere] ${t.mainText}`}
+                          >
+                            {String(meta.dayThemes?.[safeCurrentDay] || getDayDisplay(safeCurrentDay, meta.startDate).title)}
+                          </p>
+                          {recalculationState[safeCurrentDay]?.status === 'pending' ? (
+                            <p className="mt-1 text-[9px] font-bold text-blue-500">正在依新順序精算時間</p>
+                          ) : null}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {backupItin?.dayId === safeCurrentDay ? (
+                            <button
+                              type="button"
+                              onClick={() => handleUndoOptimize(safeCurrentDay)}
+                              aria-label="復原智慧排路線"
+                              title="復原智慧排路線"
+                              className={`flex min-h-11 min-w-11 items-center justify-center rounded-xl border text-sm ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                            >
+                              <span aria-hidden="true">↩️</span>
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => handleOptimizeRoute(safeCurrentDay)}
+                            disabled={isOptimizing}
+                            aria-label={isOptimizing ? '正在分析智慧排路線' : '智慧排路線'}
+                            title="智慧排路線"
+                            className={`flex min-h-11 items-center justify-center gap-1 rounded-xl border px-2.5 text-[10px] font-black disabled:opacity-50 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                          >
+                            <span aria-hidden="true">🧭</span>
+                            <span className="hidden min-[390px]:inline">
+                              {isOptimizing ? '分析中…' : '智慧排路線'}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    search={(
+                      <SearchBox
+                        dayId={safeCurrentDay}
+                        onAddPlace={handleAddPlaceFromSearch}
+                        t={t}
+                      />
+                    )}
+                    onAddPlace={() => focusPlaceSearchInput(safeCurrentDay)}
+                    onOpenDetails={handleSavedItemDetails}
+                    onNavigate={(item) => openExternalUrl(getPlaceNavigationUrl(item))}
+                    onOpenActionMenu={openPlaceActionMenu}
+                    activeActionMenuId={activePlaceActionMenu?.id || ''}
+                    registerActionTrigger={activeTab === 'plan' ? registerPlaceActionTrigger : undefined}
+                    onEditTransit={(item, dayId) => setEditingItemData({ dayId, item })}
+                  />
+                ) : null) : (
+                  <>
+                  {existingDays.map(dayId => {
                   const { title, dateStr } = getDayDisplay(dayId, meta.startDate);
                   const isCurrent = safeCurrentDay === dayId;
                   const dayTheme = meta.dayThemes?.[dayId] || "";
@@ -3122,36 +3653,51 @@ const TripDetail = ({
                       onClick={(event) => handleDaySwitch(dayId, event)}
                       className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-4 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}
                     >
-                      <div className="flex flex-col gap-1 mb-3 group">
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center gap-2 cursor-pointer" onClick={() => handleDayThemeUpdate(dayId)}>
-                             <h2 className={`text-lg font-black truncate ${t.mainText}`}>
-                               {String(title)}
-                               {dayTheme ? <span className="text-blue-500 ml-2">- {dayTheme}</span> : <span className={`export-hide text-[10px] font-normal opacity-40 ml-2 border border-dashed rounded px-1.5 py-0.5 border-current transition-opacity group-hover:opacity-100 ${t.mainText}`}>＋ 新增主題</span>}
-                             </h2>
-                             <span className="export-hide text-xs opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                      <div className="mb-3 flex flex-col gap-1 group">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <h3 className={`shrink-0 text-[11px] font-bold uppercase tracking-wide ${t.subText}`}>{String(title)}</h3>
+                          {dateStr ? <span className={`shrink-0 text-[10px] font-bold ${t.subText}`}>· {String(dateStr)}</span> : null}
+                        </div>
+                        <div
+                          data-testid="day-theme-row"
+                          className="grid items-start gap-2"
+                          style={{ gridTemplateColumns: 'minmax(0,1fr) auto' }}
+                        >
+                          <div className="min-w-0 cursor-pointer" onClick={() => handleDayThemeUpdate(dayId)}>
+                            <div className="flex min-w-0 items-start gap-1.5">
+                              <h2
+                                data-testid="day-theme-name"
+                                className={`min-w-0 line-clamp-2 text-lg font-black leading-6 [overflow-wrap:anywhere] ${t.mainText}`}
+                              >
+                                {dayTheme ? String(dayTheme) : <span className={`export-hide text-[10px] font-normal opacity-40 border border-dashed rounded px-1.5 py-0.5 border-current transition-opacity group-hover:opacity-100 ${t.mainText}`}>＋ 新增主題</span>}
+                              </h2>
+                              <span className="export-hide shrink-0 text-xs opacity-0 transition-opacity group-hover:opacity-100">✏️</span>
+                            </div>
                           </div>
 
-                          <div className="flex gap-2 items-center">
+                          <div className="flex shrink-0 items-center gap-2">
                              {backupItin && backupItin.dayId === dayId && (
                                <button
                                   onClick={() => handleUndoOptimize(dayId)}
-                                  className={`export-hide text-[10px] font-bold px-2 py-1.5 rounded-lg border shadow-sm transition-all active:scale-95 whitespace-nowrap shrink-0 hover:bg-red-500 hover:text-white hover:border-red-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                                  aria-label="復原智慧排路線"
+                                  title="復原智慧排路線"
+                                  className={`export-hide shrink-0 whitespace-nowrap rounded-lg border px-2 py-1.5 text-[10px] font-bold shadow-sm transition-all active:scale-95 hover:bg-red-500 hover:text-white hover:border-red-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                                >
-                                  ↩️ 復原
+                                  ↩️<span className="hidden min-[420px]:inline"> 復原</span>
                                </button>
                              )}
                              <button
                                 onClick={() => handleOptimizeRoute(dayId)}
                                 disabled={isOptimizing}
-                                className={`export-hide text-[10px] font-bold px-2 py-1.5 rounded-lg border shadow-sm transition-all active:scale-95 whitespace-nowrap shrink-0 ${isOptimizing ? 'opacity-50 cursor-not-allowed' : `hover:bg-blue-500 hover:text-white hover:border-blue-500`} ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                                aria-label={isOptimizing ? '正在分析智慧排路線' : '智慧排路線'}
+                                title="智慧排路線"
+                                className={`export-hide shrink-0 whitespace-nowrap rounded-lg border px-2 py-1.5 text-[10px] font-bold shadow-sm transition-all active:scale-95 ${isOptimizing ? 'opacity-50 cursor-not-allowed' : `hover:bg-blue-500 hover:text-white hover:border-blue-500`} ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                              >
-                                {isOptimizing ? '🔄 分析中...' : '🧭 智慧排路線'}
+                                {isOptimizing ? '🔄' : '🧭'}<span className="hidden min-[420px]:inline">{isOptimizing ? ' 分析中...' : ' 智慧排路線'}</span>
                              </button>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
-                          {dateStr ? <span className={`text-[10px] font-bold ${t.subText}`}>{String(dateStr)}</span> : null}
                           {weatherInfo[dayId] && (
                             <span className="text-[10px] font-semibold opacity-90 bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded flex items-center gap-1">
                               🌡️ {weatherInfo[dayId].temp} | 🌧️ {weatherInfo[dayId].rain}%
@@ -3165,7 +3711,7 @@ const TripDetail = ({
                               ✅ {optimizationSummaries[dayId].savedMinutes > 0 ? `預估省 ${formatRouteMinutes(optimizationSummaries[dayId].savedMinutes)}` : `距離少 ${formatRouteDistance(optimizationSummaries[dayId].savedMeters)}`}
                             </span>
                           ) : null}
-                          {timeRecalculationDays[dayId] ? (
+                          {dirtyRecalcDays[dayId] ? (
                             <span className="export-hide text-[10px] font-bold px-2 py-0.5 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-500 animate-pulse">
                               {dayId === safeCurrentDay ? '⏱ 正在依新順序精算時間' : '⏱ 已重排，切換此日後精算'}
                             </span>
@@ -3177,14 +3723,50 @@ const TripDetail = ({
                          <SearchBox dayId={dayId} onAddPlace={handleAddPlaceFromSearch} t={t} />
                       </div>
 
-                      <Droppable droppableId={String(dayId)}>
+                      <Droppable
+                        droppableId={String(dayId)}
+                        renderClone={(provided, _snapshot, rubric) => {
+                          const cloneItem = (Array.isArray(itinerary[dayId])
+                            ? itinerary[dayId]
+                            : [])[rubric.source.index];
+                          return (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              data-testid="itinerary-drag-clone"
+                              data-mobile-layout="compact"
+                              style={{
+                                ...provided.draggableProps.style,
+                                height: 'auto',
+                              }}
+                              className="grid max-h-18 max-w-60 transform-gpu grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-2 overflow-hidden rounded-xl border border-white/80 bg-blue-600 p-2 text-white shadow-lg md:max-w-none md:grid-cols-[auto_minmax(0,1fr)] md:gap-3 md:rounded-2xl md:p-3 md:shadow-2xl"
+                            >
+                              <div className="flex w-10 shrink-0 flex-col items-center md:w-11">
+                                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-[10px] font-black md:h-8 md:w-8 md:text-xs">
+                                  {rubric.source.index + 1}
+                                </span>
+                                {cloneItem?.time ? <span className="mt-0.5 text-[9px] font-bold md:mt-1 md:text-[10px]">{String(cloneItem.time)}</span> : null}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="line-clamp-1 text-xs font-black [overflow-wrap:anywhere] md:line-clamp-2 md:text-sm">
+                                  {String(cloneItem?.customName || cloneItem?.name || '未命名景點')}
+                                </p>
+                                <p className="mt-1 hidden text-[10px] font-bold text-white/75 md:block">
+                                  拖曳排序中
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      >
                         {(provided) => (
                           <div
                             {...provided.droppableProps}
                             ref={provided.innerRef}
                             data-testid="itinerary-day-dropzone"
                             data-day-id={String(dayId)}
-                            className="flex-1 overflow-y-auto min-h-37.5 pb-6 scrollbar-hide"
+                            className="flex-1 overflow-y-auto min-h-37.5 pb-24 md:pb-6 scrollbar-hide"
                           >
                             {(!Array.isArray(itinerary[dayId]) || itinerary[dayId].length === 0) ? (
                               <EmptyState
@@ -3214,65 +3796,84 @@ const TripDetail = ({
                               return (
                               <Draggable key={String(item.id)} draggableId={String(item.id)} index={index}>
                                 {(prov, snap) => (
-                                  <div ref={prov.innerRef} {...prov.draggableProps} className={`transition-all relative group mb-1 ${snap.isDragging ? 'z-50 scale-105 touch-none' : ''}`}>
+                                  <div ref={prov.innerRef} {...prov.draggableProps} className={`relative group mb-1 transition-transform ${snap.isDragging ? 'z-50' : ''}`}>
 
                                     <div
                                       data-testid="place-card"
                                       data-place-id={String(item.id)}
-                                      className={`p-4 rounded-2xl border flex flex-col backdrop-blur-md transition-all relative overflow-hidden ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover} cursor-pointer`}`}
+                                      data-mobile-layout="compact"
+                                      className={`relative flex touch-pan-y flex-col overflow-hidden rounded-xl border p-2.5 transition-[box-shadow,border-color,transform] md:rounded-2xl md:p-3 md:backdrop-blur-md ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover} cursor-pointer`}`}
                                       onClick={() => {
                                         if (!snap.isDragging) handleSavedItemDetails(item, dayId);
                                       }}
                                     >
-                                      <div className="flex gap-4 items-start">
+                                      <div className="flex items-start gap-2 md:grid md:grid-cols-[3.75rem_minmax(0,1fr)_auto] md:items-center md:gap-3">
                                         <div
                                           {...prov.dragHandleProps}
                                           data-testid="place-drag-handle"
                                           data-place-id={String(item.id)}
+                                          aria-label={`拖曳排序 ${String(displayName)}`}
                                           onClick={(event) => event.stopPropagation()}
-                                          className="flex flex-col items-center shrink-0 w-10 cursor-grab active:cursor-grabbing hover:opacity-80"
+                                          className="flex min-h-11 w-11 touch-none select-none flex-col items-center shrink-0 cursor-grab [-webkit-touch-callout:none] active:cursor-grabbing hover:opacity-80 md:w-auto"
                                         >
-                                           <div className={`text-xs font-black p-1.5 rounded-full w-7 h-7 flex items-center justify-center ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
+                                           <div className={`flex h-6 w-6 items-center justify-center rounded-full p-1 text-[10px] font-black md:h-7 md:w-7 md:p-1.5 md:text-xs ${snap.isDragging ? 'bg-white/20 text-white' : 'bg-blue-500 text-white shadow-md'}`}>
                                               {index + 1}
                                            </div>
                                            {item.time ? (
                                              <span
                                                data-testid="place-card-time"
-                                               className={`text-[10px] font-bold mt-1.5 ${snap.isDragging ? 'text-white' : t.mainText}`}
+                                               className={`mt-0.5 text-[9px] font-bold md:mt-1.5 md:text-[10px] ${snap.isDragging ? 'text-white' : t.mainText}`}
                                              >
                                                {String(item.time)}
                                              </span>
                                            ) : null}
-                                           <span className="export-hide text-slate-400 mt-2 text-[10px]">≡</span>
+                                           <span className="export-hide mt-0.5 text-[9px] text-slate-400 md:mt-2 md:text-[10px]">≡</span>
                                         </div>
 
                                         <div className="flex-1 min-w-0">
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0 flex-1">
-                                              <h3
-                                                data-testid="place-card-title"
-                                                className={`truncate text-sm font-bold transition-colors group-hover:text-blue-500 ${snap.isDragging ? 'text-white' : t.mainText}`}
-                                                title="點擊卡片查看詳細資訊"
-                                                role="button"
-                                                tabIndex={0}
-                                                onKeyDown={(event) => {
-                                                  if (event.key === 'Enter' || event.key === ' ') {
-                                                    event.preventDefault();
-                                                    event.stopPropagation();
-                                                    handleSavedItemDetails(item, dayId);
-                                                  }
-                                                }}
-                                              >
-                                                {String(displayName)}
-                                                {isCustomName ? <span className="ml-1.5 text-[10px] font-normal opacity-60">({String(item.name)})</span> : null}
-                                              </h3>
-                                              {item.stayTime !== undefined ? (
-                                                <p className={`mt-0.5 text-[10px] font-bold ${item.stayTime === "0" || item.stayTime === 0 ? 'text-blue-500' : t.subText}`}>
-                                                  {formatStayTime(item.stayTime)}
-                                                </p>
-                                              ) : null}
-                                            </div>
+                                          <div className="min-w-0">
+                                            <h3
+                                              data-testid="place-card-title"
+                                              className={`line-clamp-2 text-sm font-bold leading-5 transition-colors [overflow-wrap:anywhere] group-hover:text-blue-500 ${snap.isDragging ? 'text-white' : t.mainText}`}
+                                              title="點擊卡片查看詳細資訊"
+                                              role="button"
+                                              tabIndex={0}
+                                              onKeyDown={(event) => {
+                                                if (event.key === 'Enter' || event.key === ' ') {
+                                                  event.preventDefault();
+                                                  event.stopPropagation();
+                                                  handleSavedItemDetails(item, dayId);
+                                                }
+                                              }}
+                                            >
+                                              {String(displayName)}
+                                              {isCustomName ? <span className="ml-1.5 text-[10px] font-normal opacity-60">({String(item.name)})</span> : null}
+                                            </h3>
+                                            {item.stayTime !== undefined ? (
+                                              <p className={`text-[9px] font-bold md:mt-0.5 md:text-[10px] ${item.stayTime === "0" || item.stayTime === 0 ? 'text-blue-500' : t.subText}`}>
+                                                {formatStayTime(item.stayTime)}
+                                              </p>
+                                            ) : null}
+                                          </div>
 
+                                          <div
+                                            data-testid="place-card-actions"
+                                            data-layout="mobile-compact"
+                                            className="export-hide mt-1.5 flex items-center justify-end gap-1.5 md:hidden"
+                                          >
+                                            <button
+                                              type="button"
+                                              onClick={(event) => {
+                                                event.stopPropagation();
+                                                openExternalUrl(getPlaceNavigationUrl(item));
+                                              }}
+                                              className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[10px] font-black shadow-sm active:scale-95 ${snap.isDragging ? 'border-white/30 bg-white/15 text-white' : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600'}`}
+                                              title="開啟導航"
+                                              aria-label={`導航到${String(displayName)}`}
+                                            >
+                                              <span>🧭</span>
+                                              <span>導航</span>
+                                            </button>
                                             <button
                                               type="button"
                                               data-testid="place-action-menu-trigger"
@@ -3286,65 +3887,37 @@ const TripDetail = ({
                                                 else delete placeActionTriggerRefs.current[actionMenuId];
                                               }}
                                               onClick={(event) => openPlaceActionMenu(event, dayId, item)}
-                                              className={`export-hide flex min-h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-lg font-black shadow-sm active:scale-95 md:hidden ${snap.isDragging ? 'border-white/25 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
+                                              className={`flex min-h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-lg font-black shadow-sm active:scale-95 ${snap.isDragging ? 'border-white/25 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
                                             >
                                               ⋯
                                             </button>
-
-                                            <button
-                                              type="button"
-                                              onClick={(event) => {
-                                                event.stopPropagation();
-                                                openExternalUrl(getPlaceNavigationUrl(item));
-                                              }}
-                                              className={`export-hide flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[10px] font-black shadow-sm active:scale-95 ${snap.isDragging ? 'border-white/30 bg-white/15 text-white' : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600'}`}
-                                              title="開啟導航"
-                                              aria-label={`導航到${String(displayName)}`}
-                                            >
-                                              <span>🧭</span>
-                                              <span>導航</span>
-                                            </button>
                                           </div>
 
-                                          <div className="mt-2 flex flex-wrap gap-1.5">
-                                            {(Array.isArray(item.tags) ? item.tags : []).map((tag, idx) => (
-                                              <span key={`tag-${idx}`} className={`rounded-md border px-2 py-0.5 text-[9px] ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : 'border-blue-500/20 bg-blue-500/10 text-blue-600'}`}>
-                                                {String(tag)}
-                                              </span>
-                                            ))}
-                                          </div>
-
-                                          {(() => {
-                                            const allResources = Array.isArray(item.resources) ? item.resources.filter((resource) => resource?.url) : [];
-                                            const menuCount = allResources.filter((resource) => resource.type === 'menu').length;
-                                            const otherCount = allResources.length - menuCount;
-                                            const detailParts = [
-                                              item.placePhoto?.url ? '封面' : '',
-                                              menuCount > 0 ? `菜單 ${menuCount}` : '',
-                                              item.memo ? '筆記' : '',
-                                              otherCount > 0 ? `資料 ${otherCount}` : '',
-                                            ].filter(Boolean);
-                                            return (
-                                              <div data-testid="place-info-trigger" className={`export-hide mt-3 flex min-h-10 items-center gap-2 rounded-xl border px-3 ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder}`}`}>
-                                                <span className="text-sm">ⓘ</span>
-                                                <span className={`shrink-0 text-[10px] font-black ${snap.isDragging ? 'text-white' : t.mainText}`}>景點資訊</span>
-                                                <span className={`min-w-0 flex-1 truncate text-[9px] ${snap.isDragging ? 'text-white/75' : t.subText}`}>
-                                                  {detailParts.length > 0 ? detailParts.join('・') : '地址、定位與景點資料'}
+                                          {Array.isArray(item.tags) && item.tags.length > 0 ? (
+                                            <div className="mt-2 hidden flex-wrap gap-1.5 md:flex">
+                                              {item.tags.map((tag, idx) => (
+                                                <span key={`tag-${idx}`} className={`rounded-md border px-2 py-0.5 text-[9px] ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : 'border-blue-500/20 bg-blue-500/10 text-blue-600'}`}>
+                                                  {String(tag)}
                                                 </span>
-                                                <span className={snap.isDragging ? 'text-white/70' : t.subText}>›</span>
-                                              </div>
-                                            );
-                                          })()}
+                                              ))}
+                                            </div>
+                                          ) : null}
                                         </div>
+
+                                        <button
+                                          type="button"
+                                          data-testid="place-info-trigger"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            if (!snap.isDragging) handleSavedItemDetails(item, dayId);
+                                          }}
+                                          className={`export-hide hidden min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[10px] font-black md:flex ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
+                                        >
+                                          <span className="text-sm">ⓘ</span>
+                                          <span>景點資訊</span>
+                                        </button>
                                       </div>
 
-                                      <div data-testid="desktop-place-actions" className={`export-hide mt-3 pt-3 border-t hidden items-center gap-4 transition-all duration-300 ${snap.isDragging ? 'border-white/20' : t.cardBorder} md:flex md:max-h-0 md:opacity-0 md:group-hover:max-h-14 md:group-hover:opacity-100`}>
-                                        <button data-testid="edit-place-button" onClick={(event) => { event.stopPropagation(); setEditingItemData({ dayId, item }); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-blue-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>✏️ 編輯</button>
-                                        <button onClick={(event) => { event.stopPropagation(); handleSearchNearby(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-orange-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>🔍 周邊</button>
-                                        <button onClick={(event) => { event.stopPropagation(); setCopyingItem(item); }} className={`flex items-center gap-1 text-[11px] font-bold hover:text-purple-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>📋 複製</button>
-                                        <div className="flex-1"></div>
-                                        <button data-testid="delete-place-button" onClick={(event) => { event.stopPropagation(); void handleDeleteItineraryItem(dayId, item); }} className={`text-[11px] hover:text-red-500 transition-colors ${snap.isDragging ? 'text-white' : t.subText}`}>刪除</button>
-                                      </div>
                                     </div>
 
                                     {!snap.isDragging && index < itinerary[dayId].length - 1 && routeDurations[dayId]?.[index] ? (
@@ -3369,7 +3942,9 @@ const TripDetail = ({
                       </Droppable>
                     </div>
                   );
-                })}
+                  })}
+                  </>
+                )}
               </div>
 
               <ExpenseSection
@@ -3382,8 +3957,9 @@ const TripDetail = ({
                 expenseStats={expenseStats}
                 onCreateExpense={openNewExpense}
                 onEditExpense={openExpenseEditor}
-                onOpenSettlement={() => setShowSettlementModal(true)}
-                onDeleteSettlement={handleDeleteSettlement}
+                onMarkTransferPaid={handleMarkTransferPaid}
+                onCancelTransferPaid={handleCancelTransferPaid}
+                settlementMutationId={settlementMutationId}
                 onUpdateBudget={handleBudgetChange}
               />
 
@@ -3409,6 +3985,29 @@ const TripDetail = ({
 
             {/* 地圖區塊 */}
             <div data-testid="map-panel" className={`relative flex-1 transition-opacity duration-300 ease-in-out ${activeTab === 'map' ? 'flex' : 'hidden md:flex'}`}>
+              {isMobileViewport ? (
+                <MobileTripMapView
+                  active={activeTab === 'map'}
+                  itinerary={itinerary}
+                  dayId={safeCurrentDay}
+                  durations={routeDurations[safeCurrentDay]}
+                  t={t}
+                  exploreQuery={exploreQuery}
+                  exploreResults={exploreResults}
+                  onExploreQueryChange={setExploreQuery}
+                  onExploreSearch={handleExploreSearch}
+                  onClearExplore={() => {
+                    setExploreResults([]);
+                    setSelectedExploreItem(null);
+                    setExploreQuery('');
+                    setExploreOriginItem(null);
+                  }}
+                  onSelectExploreItem={setSelectedExploreItem}
+                  onRouteCalculated={handleRouteCalculated}
+                  onOpenDetails={handleSavedItemDetails}
+                />
+              ) : (
+                <>
               <div className="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-125 z-20 flex flex-col gap-2">
                 <div className={`flex items-center gap-2 p-2 rounded-2xl shadow-lg backdrop-blur-xl border ${t.headerBg} ${t.cardBorder}`}>
                   <input value={String(exploreQuery)} onChange={e => setExploreQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleExploreSearch(exploreQuery, null); }} placeholder="探索周邊美食地標..." className={`flex-1 bg-transparent px-2 outline-none text-sm font-bold ${t.mainText} placeholder:opacity-50`} />
@@ -3444,12 +4043,14 @@ const TripDetail = ({
                     );
                   })}
               </Map>
+                </>
+              )}
             </div>
           </div>
 
           <div style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0.5rem)' }} className={`grid grid-cols-4 border-t h-20 shrink-0 z-30 shadow-lg md:hidden ${t.headerBg} ${t.cardBorder}`}>
-            <button onClick={() => setActiveTab("plan")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "plan" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>📋<span className="text-[10px] mt-1 font-bold">行程</span></button>
-            <button onClick={() => setActiveTab("map")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "map" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>🗺️<span className="text-[10px] mt-1 font-bold">地圖</span></button>
+            <button type="button" data-testid="mobile-nav-plan" aria-current={activeTab === "plan" ? "page" : undefined} onClick={() => setActiveTab("plan")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "plan" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>📋<span className="text-[10px] mt-1 font-bold">行程</span></button>
+            <button type="button" data-testid="mobile-nav-map" aria-current={activeTab === "map" ? "page" : undefined} onClick={() => setActiveTab("map")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "map" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>🗺️<span className="text-[10px] mt-1 font-bold">地圖</span></button>
             <button type="button" data-testid="ticket-tab-button" data-layout="mobile" onClick={() => setActiveTab("ticket")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "ticket" ? "text-amber-500 font-bold -translate-y-1" : t.subText}`}>🎟️<span className="text-[10px] mt-1 font-bold">票券</span></button>
             <button
               type="button"
@@ -3462,6 +4063,7 @@ const TripDetail = ({
             </button>
           </div>
         </div>
+        )}
       </DragDropContext>
 
       {/* 🌟 彈窗掛載區 */}
@@ -3578,7 +4180,7 @@ const TripDetail = ({
       {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
 
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
-      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={roomId} onSave={saveEditedItem} onSaveError={() => {
+      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onSaveError={() => {
         setSyncStatus('error');
         toast.error({
           title: '無法更新景點',
@@ -3626,7 +4228,6 @@ const TripDetail = ({
           t={t}
         />
       ) : null}
-      {showSettlementModal ? <SettlementModal members={membersList} suggestions={expenseStats.preTripTransfers} onClose={() => setShowSettlementModal(false)} onSave={handleSaveSettlement} t={t} /> : null}
       {ticketEditorState ? (
         <TicketEditorModal
           mode={ticketEditorState.mode}
@@ -3663,6 +4264,28 @@ const TripDetail = ({
             setSavedPlaceGoogleDetails(null);
             setSavedPlaceGoogleError('');
           }}
+          onNavigate={(item) => openExternalUrl(getPlaceNavigationUrl(item))}
+          onSearchNearby={() => {
+            const target = viewingPlaceDetail;
+            setViewingPlaceDetail(null);
+            setSavedPlaceGoogleDetails(null);
+            setSavedPlaceGoogleError('');
+            if (target) handleSearchNearby(target.item);
+          }}
+          onCopy={() => {
+            const target = viewingPlaceDetail;
+            setViewingPlaceDetail(null);
+            setSavedPlaceGoogleDetails(null);
+            setSavedPlaceGoogleError('');
+            if (target) setCopyingItem(target.item);
+          }}
+          onDelete={() => {
+            const target = viewingPlaceDetail;
+            setViewingPlaceDetail(null);
+            setSavedPlaceGoogleDetails(null);
+            setSavedPlaceGoogleError('');
+            if (target) void handleDeleteItineraryItem(target.dayId, target.item);
+          }}
           onViewMenu={(item) => setViewingPlaceResources({ item, mode: 'menu' })}
           onViewPhoto={(photo) => setViewingPlacePhoto(photo)}
           t={t}
@@ -3683,6 +4306,7 @@ const TripDetail = ({
           onClose={() => setViewingPlaceResources(null)}
         />
       ) : null}
+      <DndDebugPanel />
     </>
   );
 };

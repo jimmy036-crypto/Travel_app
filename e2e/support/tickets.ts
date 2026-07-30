@@ -31,7 +31,8 @@ export const PDF_BYTES = Buffer.from(
   'utf8',
 );
 
-const RELEASE_SEEN_KEY = 'travel-app-seen-release-2026.07-mobile-collaboration';
+const RELEASE_SEEN_KEY =
+  'travel-app-seen-release-2026.07-trip-management-redesign';
 
 export function toList<T>(value: T[] | Record<string, T> | null): T[] {
   if (Array.isArray(value)) return value.filter(Boolean);

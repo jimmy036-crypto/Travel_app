@@ -5,9 +5,43 @@ import {
   seedTestTrip,
 } from './support/emulator';
 import {
+  CURRENT_RELEASE_HIGHLIGHT_COUNT,
+  CURRENT_RELEASE_PUBLISHED_AT,
+  CURRENT_RELEASE_TITLE,
+  CURRENT_RELEASE_VERSION,
   clearCurrentReleaseSeen,
   markCurrentReleaseSeen,
 } from './support/releaseNotes';
+
+// The contextual tour teaches these areas, in this order, on both layouts.
+const TOUR_STEP_IDS = [
+  'sync-status',
+  'current-day-planning',
+  'place-details',
+  'map-itinerary',
+  'expense-settlement',
+  'trip-tools',
+  'done',
+];
+
+async function expectStepId(page: Page, stepId: string) {
+  await expect(page.getByTestId('feature-tour-step')).toHaveAttribute(
+    'data-step-id',
+    stepId,
+  );
+}
+
+async function walkTour(page: Page, expectedIds: string[]) {
+  const seen: string[] = [];
+  for (;;) {
+    seen.push(
+      (await page.getByTestId('feature-tour-step').getAttribute('data-step-id')) || '',
+    );
+    if (await page.getByTestId('feature-tour-next').count() === 0) break;
+    await page.getByTestId('feature-tour-next').click();
+  }
+  expect(seen).toEqual(expectedIds);
+}
 
 const TOUR_ROOM_ID = 'e2ewhatsnewtourroom0001';
 const EMPTY_TOUR_ROOM_ID = 'e2ewhatsnewemptyroom0001';
@@ -213,7 +247,39 @@ test('shows release notes for an unseen version', async ({ page }) => {
   await expect(page.locator('#whats-new-title')).toBeVisible();
   await expect(page.getByTestId('whats-new-start-tour')).toHaveCount(0);
   await expect(page.getByTestId('whats-new-create-trip')).toBeVisible();
-  await expect(page.locator('[data-testid="whats-new-dialog"] article')).toHaveCount(5);
+  await expect(page.locator('[data-testid="whats-new-dialog"] article')).toHaveCount(
+    CURRENT_RELEASE_HIGHLIGHT_COUNT,
+  );
+
+  const dialog = page.getByTestId('whats-new-dialog');
+  await expect(dialog).toContainText(CURRENT_RELEASE_VERSION);
+  await expect(dialog).toContainText(CURRENT_RELEASE_PUBLISHED_AT);
+  await expect(dialog).toContainText(CURRENT_RELEASE_TITLE);
+  await expect(dialog).toContainText('手機與桌面規劃介面重整');
+  await expect(dialog).toContainText('地圖與行程保持同步');
+  await expect(dialog).toContainText('記錄旅伴是否已完成轉帳');
+  await expect(dialog).toContainText('景點資料集中管理');
+  await expect(dialog).toContainText('外觀與旅程工具整合');
+  await expect(dialog).toContainText('可編輯範例旅程與新版指引');
+  await expect(dialog).not.toContainText('手機快速切換天數');
+  await expect(dialog).not.toContainText('多人即時協作改善');
+});
+
+test('settings shows the current release version', async ({ page }) => {
+  await markCurrentReleaseSeen(page);
+
+  await page.goto('/');
+  await expect(page.getByTestId('travel-lobby')).toBeVisible();
+  await page.getByTestId('app-settings-trigger').click();
+
+  const versionCard = page.getByTestId('app-settings-version');
+  await expect(versionCard).toBeVisible();
+  await expect(versionCard).toContainText(CURRENT_RELEASE_VERSION);
+  await expect(page.getByTestId('app-settings-release-notes')).toHaveCount(1);
+  await expect(page.getByTestId('app-settings-feature-introduction')).toHaveCount(1);
+  await expect(page.getByTestId('app-settings-feature-tour')).toHaveCount(1);
+  await expect(page.getByTestId('app-settings-check-updates')).toHaveCount(1);
+  await expect(page.getByTestId('app-settings-version')).toHaveCount(1);
 });
 
 test('does not automatically reopen a release marked as seen', async ({
@@ -313,7 +379,11 @@ test('offers trip creation instead of starting the tour when no trips exist', as
 
   await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
   await expect(page.getByTestId('whats-new-create-trip')).toBeVisible();
-  await expect(page.getByText('建立旅程後，即可體驗天數切換、景點操作與多人同步導覽。')).toBeVisible();
+  const helper = page.getByText(/^建立旅程後/);
+  await expect(helper).toBeVisible();
+  for (const fragment of ['行程', '地圖', '票券', '記帳', '結算', '共編']) {
+    await expect(helper).toContainText(fragment);
+  }
 
   await page.getByTestId('whats-new-create-trip').click();
 
@@ -364,23 +434,60 @@ test('completes the mobile feature tour', async ({ page }) => {
 
   await expect(page.getByTestId('feature-tour')).toBeVisible();
   await expect(page.getByTestId('feature-tour-step')).toBeVisible();
+  await expect(page.getByTestId('feature-tour-empty-place-fallback')).toHaveCount(0);
+
+  await expectStepId(page, 'sync-status');
+  await page.getByTestId('feature-tour-next').click();
+  await expectStepId(page, 'current-day-planning');
+  await expect(page.getByTestId('feature-tour-step')).toContainText('點天數切換');
 
   await page.getByTestId('feature-tour-next').click();
-  await expect(page.getByTestId('feature-tour-step')).toBeVisible();
+  await expectStepId(page, 'place-details');
+  await expect(page.getByTestId('feature-tour-step')).toContainText('點景點名稱或卡片');
 
   await page.getByTestId('feature-tour-next').click();
-  await expect(page.getByTestId('feature-tour-step')).toContainText('更多景點操作');
+  await expectStepId(page, 'map-itinerary');
 
   await page.getByTestId('feature-tour-next').click();
-  await expect(page.getByTestId('feature-tour-step')).toContainText('查看完整景點資料');
+  await expectStepId(page, 'expense-settlement');
+  await expect(page.getByTestId('feature-tour-step')).toContainText('已轉帳');
 
   await page.getByTestId('feature-tour-next').click();
-  await expect(page.getByTestId('feature-tour-step')).toContainText('開始規劃旅程');
+  await expectStepId(page, 'trip-tools');
+
+  await page.getByTestId('feature-tour-next').click();
+  await expectStepId(page, 'done');
+  await expect(page.getByTestId('feature-tour-step')).toContainText('開始規劃你的旅程');
 
   await page.getByTestId('feature-tour-finish').click();
 
   await expect(page.getByTestId('feature-tour')).toHaveCount(0);
   await expect(page.getByTestId('whats-new-dialog')).toHaveCount(0);
+});
+
+test('completes the desktop feature tour without teaching hidden mobile controls', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await clearCurrentReleaseSeen(page);
+  await seedTourTrip();
+
+  await page.goto(`/?room=${TOUR_ROOM_ID}`);
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.getByTestId('whats-new-start-tour').click();
+  await expect(page.getByTestId('feature-tour')).toBeVisible();
+
+  // The desktop ⋯ trigger exists in the tree but is hidden by the md breakpoint.
+  await expect(page.getByTestId('place-action-menu-trigger').first()).toBeHidden();
+  await expect(page.getByTestId('feature-tour-empty-place-fallback')).toHaveCount(0);
+
+  await walkTour(page, TOUR_STEP_IDS);
+  await expect(page.getByTestId('feature-tour-finish')).toBeVisible();
+  await page.getByTestId('feature-tour-finish').click();
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
 });
 
 test('keeps the active tour target clear and inside the spotlight', async ({
@@ -413,7 +520,112 @@ test('keeps the active tour target clear and inside the spotlight', async ({
   expect(movement).toBeGreaterThan(4);
 
   await page.getByTestId('feature-tour-next').click();
-  await expectTargetInsideSpotlight(page, 'place-action-menu-trigger');
+  await expectStepId(page, 'place-details');
+  await expectTargetInsideSpotlight(page, 'place-card-title');
+
+  await page.getByTestId('feature-tour-next').click();
+  await expectStepId(page, 'map-itinerary');
+  await expectTargetInsideSpotlight(page, 'mobile-nav-map');
+});
+
+test('spotlights desktop-only planner and map targets', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await clearCurrentReleaseSeen(page);
+  await seedTourTrip();
+
+  await page.goto(`/?room=${TOUR_ROOM_ID}`);
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.getByTestId('whats-new-start-tour').click();
+  await expect(page.getByTestId('feature-tour')).toBeVisible();
+
+  await expectTargetInsideSpotlight(page, 'sync-status-indicator');
+
+  await page.getByTestId('feature-tour-next').click();
+  await expectStepId(page, 'current-day-planning');
+  await expect(page.getByTestId('feature-tour-step')).toContainText('桌面把每天並排顯示');
+  await expectTargetInsideSpotlight(page, 'day-theme-row');
+
+  await page.getByTestId('feature-tour-next').click();
+  await expectStepId(page, 'place-details');
+  await expectTargetInsideSpotlight(page, 'place-info-trigger');
+
+  await page.getByTestId('feature-tour-next').click();
+  await expectStepId(page, 'map-itinerary');
+  await expect(page.getByTestId('feature-tour-spotlight')).toBeVisible();
+
+  await page.getByTestId('feature-tour-next').click();
+  await expectStepId(page, 'expense-settlement');
+  await expectTargetInsideSpotlight(page, 'expense-tab-button');
+});
+
+test('does not activate another tab while teaching the map and expense areas', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await clearCurrentReleaseSeen(page);
+  await seedTourTrip();
+
+  await page.goto(`/?room=${TOUR_ROOM_ID}`);
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.getByTestId('whats-new-start-tour').click();
+  await expect(page.getByTestId('feature-tour')).toBeVisible();
+
+  await walkTour(page, TOUR_STEP_IDS);
+
+  await expect(page.getByTestId('mobile-nav-plan')).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(page.getByTestId('mobile-nav-map')).not.toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+
+  await page.getByTestId('feature-tour-finish').click();
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+  await expect(page.getByTestId('mobile-day-switcher')).toBeVisible();
+});
+
+test('uses instructional steps instead of spotlighting a hidden planner', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await markCurrentReleaseSeen(page);
+  await seedTourTrip();
+
+  await page.goto(`/?room=${TOUR_ROOM_ID}`);
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+
+  // Start the tour from the expense tab, where the planner DOM is hidden.
+  await page.getByTestId('expense-tab-button').click();
+  await expect(page.getByTestId('expense-panel')).toBeVisible();
+  await page.getByTestId('app-settings-trigger').click();
+  await page.getByTestId('app-settings-feature-tour').click();
+
+  await expect(page.getByTestId('feature-tour')).toBeVisible();
+  await page.getByTestId('feature-tour-next').click();
+
+  await expectStepId(page, 'current-day-planning');
+  await expect(page.getByTestId('feature-tour-instructional-step')).toBeAttached();
+  await expect(page.getByTestId('feature-tour-step')).toContainText('切換到「行程」後');
+  await expect(page.getByTestId('feature-tour-spotlight')).toHaveCount(0);
+  await expect(page.getByTestId('feature-tour-empty-place-fallback')).toHaveCount(0);
+
+  await page.getByTestId('feature-tour-next').click();
+  await expectStepId(page, 'place-details');
+  await expect(page.getByTestId('feature-tour-instructional-step')).toBeAttached();
+
+  // The tour never switched the tab on the user's behalf.
+  await expect(page.getByTestId('expense-panel')).toBeVisible();
 });
 
 test('ends the tour when navigating away from the trip', async ({ page }) => {
@@ -449,7 +661,46 @@ test('can reopen release notes from the permanent entry', async ({ page }) => {
   await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
 });
 
-test('combines missing place targets into one helpful fallback step', async ({ page }) => {
+for (const [layoutName, viewport] of [
+  ['mobile', { width: 390, height: 844 }],
+  ['desktop', { width: 1280, height: 800 }],
+] as const) {
+  test(`gives an empty ${layoutName} trip exactly one meaningful place fallback`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    await clearCurrentReleaseSeen(page);
+    await seedEmptyTourTrip();
+
+    await page.goto(`/?room=${EMPTY_TOUR_ROOM_ID}`);
+
+    await expect(page.getByTestId('active-trip-view')).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByTestId('whats-new-start-tour').click();
+    await expect(page.getByTestId('feature-tour')).toBeVisible();
+
+    await walkTour(page, [
+      'sync-status',
+      'current-day-planning',
+      'empty-place-fallback',
+      'map-itinerary',
+      'expense-settlement',
+      'trip-tools',
+      'done',
+    ]);
+
+    await expect(page.getByTestId('feature-tour-finish')).toBeVisible();
+    await page.getByTestId('feature-tour-finish').click();
+
+    await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+    await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  });
+}
+
+test('describes the empty place fallback without promising hidden actions', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await clearCurrentReleaseSeen(page);
   await seedEmptyTourTrip();
@@ -465,13 +716,11 @@ test('combines missing place targets into one helpful fallback step', async ({ p
   await page.getByTestId('feature-tour-next').click();
   await page.getByTestId('feature-tour-next').click();
 
-  await expect(page.getByTestId('feature-tour-empty-place-fallback')).toBeVisible();
-  await expect(page.getByTestId('feature-tour-step')).toContainText('新增景點後解鎖更多功能');
-
-  await page.getByTestId('feature-tour-next').click();
-  await expect(page.getByTestId('feature-tour-finish')).toBeVisible();
-  await page.getByTestId('feature-tour-finish').click();
-
-  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
-  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await expect(page.getByTestId('feature-tour-empty-place-fallback')).toBeAttached();
+  await expectStepId(page, 'empty-place-fallback');
+  const step = page.getByTestId('feature-tour-step');
+  await expect(step).toContainText('新增景點後解鎖景點資訊');
+  await expect(step).toContainText('這個旅程還沒有景點');
+  await expect(step).not.toContainText('⋯');
+  await expect(page.getByTestId('feature-tour-spotlight')).toHaveCount(0);
 });

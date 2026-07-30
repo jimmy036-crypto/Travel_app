@@ -436,14 +436,15 @@ async function deletePlaceThroughUi(
   if (await mobileActionTrigger.isVisible().catch(() => false)) {
     await mobileActionTrigger.click();
   } else {
-    await placeCard.hover();
+    // Desktop: navigate/edit/nearby/copy/delete all live in Place Details now.
+    await placeCard.click();
   }
 
   const mobileActionMenu = page.getByTestId('place-action-menu');
   if (await mobileActionMenu.isVisible().catch(() => false)) {
     await mobileActionMenu.getByTestId('place-action-delete').click();
   } else {
-    await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
+    await page.getByTestId('place-detail-delete-button').click();
   }
   await expect(page.getByTestId('confirm-dialog')).toBeVisible();
   await expect(page.getByTestId('confirm-dialog')).toContainText('刪除這個景點？');

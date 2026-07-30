@@ -1,4 +1,5 @@
-export const CURRENT_RELEASE_VERSION = '2026.07-mobile-collaboration';
+export const CURRENT_RELEASE_VERSION =
+  '2026.07-trip-management-redesign';
 
 export const CURRENT_RELEASE_SEEN_KEY =
   `travel-app-seen-release-${CURRENT_RELEASE_VERSION}`;
@@ -8,38 +9,44 @@ export const CURRENT_RELEASE_PENDING_TOUR_KEY =
 
 export const CURRENT_RELEASE_NOTES = {
   version: CURRENT_RELEASE_VERSION,
-  title: '旅行協作體驗全面升級',
-  publishedAt: '2026-07',
+  title: '行程規劃、地圖與記帳全面升級',
+  publishedAt: '2026-07-30',
   highlights: [
     {
-      id: 'sync-status',
-      icon: '●',
-      title: '即時同步狀態',
-      description: '旅程頁會顯示正在連線、正在同步、已同步與遠端更新狀態。',
+      id: 'responsive-planner',
+      icon: '▤',
+      title: '手機與桌面規劃介面重整',
+      description: '手機使用單日時間軸；桌面保留多日並排規劃，低頻操作集中到景點資訊。',
     },
     {
-      id: 'mobile-days',
-      icon: '日',
-      title: '手機快速切換天數',
-      description: '新增更大的天數按鈕，降低切換每天行程時的誤觸。',
+      id: 'map-itinerary',
+      icon: '◎',
+      title: '地圖與行程保持同步',
+      description: '依當日順序顯示標記與路線，地圖景點卡、選取狀態與天數切換同步。',
     },
     {
-      id: 'place-actions',
-      icon: '⋯',
-      title: '景點操作選單',
-      description: '手機版將編輯、查看周邊、複製與刪除收進「⋯」選單。',
+      id: 'settlement-transfer',
+      icon: '⇄',
+      title: '記錄旅伴是否已完成轉帳',
+      description: '結算建議可標記或取消已轉帳，重新整理後仍保留。',
     },
     {
-      id: 'place-info',
+      id: 'place-details',
       icon: 'i',
-      title: '景點資訊入口更清楚',
-      description: '景點資訊用來查看地址、定位、附件與備註；查看周邊會切到地圖探索附近地點。',
+      title: '景點資料集中管理',
+      description: '導航、編輯、周圍搜尋、附件、菜單與筆記集中在景點資訊。',
     },
     {
-      id: 'collaboration',
-      icon: '↻',
-      title: '多人即時協作改善',
-      description: '景點、行程排序、費用與票券附件能在其他裝置即時更新。',
+      id: 'appearance-tools',
+      icon: '⚙',
+      title: '外觀與旅程工具整合',
+      description: '外觀設定改為明確介面，分享共編、共享清單與匯出集中到設定。',
+    },
+    {
+      id: 'guided-example',
+      icon: '★',
+      title: '可編輯範例旅程與新版指引',
+      description: '可先用本機範例了解行程、地圖、票券與記帳；範例不寫入正式雲端旅程。',
     },
   ],
 };

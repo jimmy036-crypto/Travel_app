@@ -5,7 +5,7 @@ import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRe
 import { APIProvider } from '@vis.gl/react-google-maps';
 
 // 引入 Firebase 與 Helper
-import { db } from "./firebase";
+import { db, storage } from "./firebase";
 import { get, ref as dbRef, set, update } from "firebase/database";
 import { API_KEY } from "./constants";
 import {
@@ -41,6 +41,7 @@ import {
 import { FeatureTour } from './components/FeatureTour.jsx';
 import { WhatsNewDialog } from './components/WhatsNewDialog.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
+import { AppearanceDialog } from './components/AppearanceDialog.jsx';
 import { EmptyState } from './components/ui/EmptyState.jsx';
 import { useToast } from './components/ui/useToast.js';
 import { useConfirm } from './components/ui/useConfirm.js';
@@ -49,6 +50,24 @@ import { useOnlineStatus } from './hooks/useOnlineStatus.js';
 import { OfflineBanner } from './components/OfflineBanner.jsx';
 import { listOfflineTripSummaries, removeOfflineTripSnapshot, readOfflineTripSnapshot } from './features/offline/offlineTripCache.js';
 import { OfflineTripPreview } from './features/offline/OfflineTripPreview.jsx';
+import { DemoTripEntryCard } from './features/onboarding/DemoTripEntryCard.jsx';
+import { TripCard } from './components/TripCard.jsx';
+import { FeatureIntroductionButton } from './features/onboarding/FeatureIntroductionButton.jsx';
+import FirstRunWelcomeDialog from './features/onboarding/FirstRunWelcomeDialog.jsx';
+import { createFirebaseTripRepository } from './features/trip-data/firebaseTripRepository.js';
+import {
+  createLocalExampleTemplateSnapshot,
+  createLocalExampleTripRepository,
+} from './features/trip-data/localExampleTripRepository.js';
+import {
+  LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE,
+  LOCAL_EXAMPLE_TRIP_ID,
+} from './features/trip-data/exampleTripConstants.js';
+import {
+  markFirstRunOnboardingSeen,
+  readFirstRunEligibilitySnapshot,
+  shouldShowFirstRunOnboarding,
+} from './features/onboarding/onboardingState.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -64,6 +83,8 @@ const FIREBASE_DATABASE_NAMESPACE = (() => {
   }
 })();
 
+const BUILT_IN_EXAMPLE_TRIP = createLocalExampleTemplateSnapshot();
+
 const formatDateForInput = (date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -78,6 +99,8 @@ export default function TravelApp() {
   const { isOnline, hasBeenOffline } = useOnlineStatus();
   const toast = useToast();
   const confirm = useConfirm();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   
   const lastOnlineState = useRef(isOnline);
   useEffect(() => {
@@ -90,10 +113,24 @@ export default function TravelApp() {
     lastOnlineState.current = isOnline;
   }, [isOnline, hasBeenOffline, toast]);
 
+  const [firstRunSnapshot] = useState(() => readFirstRunEligibilitySnapshot());
+
   const [myTrips, setMyTrips] = useState(() => {
     const stored = readJsonStorage('google-travel-my-trips', []);
     return Array.isArray(stored) ? stored : [];
   });
+  const [suppressReleasePromptForFirstRunSession] = useState(
+    () => shouldShowFirstRunOnboarding(firstRunSnapshot)
+      && myTrips.length === 0
+      && !hasSeenCurrentRelease(),
+  );
+  const [firstRunResolved, setFirstRunResolved] = useState(
+    () => !suppressReleasePromptForFirstRunSession,
+  );
+  const [showFirstRunWelcome, setShowFirstRunWelcome] = useState(
+    () => suppressReleasePromptForFirstRunSession && !firstRunSnapshot.hasRoomDeepLink,
+  );
+  const firstRunCompletionRef = useRef(false);
   const [customBgColor, setCustomBgColor] = useState(() => readStorage('google-travel-custom-bg', '#d8b4e2'));
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showFeatureTour, setShowFeatureTour] = useState(false);
@@ -112,7 +149,8 @@ export default function TravelApp() {
   const isCheckingAppUpdateRef = useRef(false);
   const [isSavingTrip, setIsSavingTrip] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const lobbyAppearanceInputRef = useRef(null);
+  const appearanceReturnFocusRef = useRef(null);
+  const [showAppearanceDialog, setShowAppearanceDialog] = useState(false);
 
   const [tripModalMode, setTripModalMode] = useState(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -128,6 +166,20 @@ export default function TravelApp() {
   const [newTransport, setNewTransport] = useState("汽車 🚗");
   const [newThemeColor, setNewThemeColor] = useState("#3b82f6");
 
+  const openLobbyAppearance = useCallback((trigger) => {
+    appearanceReturnFocusRef.current = trigger instanceof HTMLElement
+      ? trigger
+      : document.activeElement;
+    setShowAppearanceDialog(true);
+  }, []);
+
+  const closeLobbyAppearance = useCallback(() => {
+    setShowAppearanceDialog(false);
+    window.requestAnimationFrame(() => {
+      appearanceReturnFocusRef.current?.focus?.();
+    });
+  }, []);
+
   // 用於保留原本已經設定的預算，避免編輯時被洗掉
   const [tempMemberBudgets, setTempMemberBudgets] = useState({});
 
@@ -137,9 +189,34 @@ export default function TravelApp() {
     if (typeof window === 'undefined') return null;
     return extractRoomId(new URLSearchParams(window.location.search).get('room')) || null;
   });
+  const [activeTripSource, setActiveTripSource] = useState(() => (
+    typeof window !== 'undefined'
+    && extractRoomId(new URLSearchParams(window.location.search).get('room'))
+      ? 'firebase'
+      : null
+  ));
 
   const [offlinePreviewData, setOfflinePreviewData] = useState(null);
   const [offlineCacheSummaries, setOfflineCacheSummaries] = useState([]);
+  const [showFeatureIntroduction, setShowFeatureIntroduction] = useState(false);
+  const exampleRepository = useMemo(() => createLocalExampleTripRepository({
+    onPersistenceError: () => toastRef.current.error({
+      title: LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE,
+    }),
+  }), []);
+  useEffect(() => () => {
+    exampleRepository.dispose();
+  }, [exampleRepository]);
+  const activeRepository = useMemo(() => {
+    if (!activeRoomId) return null;
+    if (activeTripSource === 'example') return exampleRepository;
+    if (!db || !storage) return null;
+    return createFirebaseTripRepository({
+      db,
+      storage,
+      tripId: activeRoomId,
+    });
+  }, [activeRoomId, activeTripSource, exampleRepository]);
 
   const refreshOfflineCacheSummaries = useCallback(() => {
     setOfflineCacheSummaries(listOfflineTripSummaries());
@@ -184,12 +261,14 @@ export default function TravelApp() {
       }
 
       setActiveRoomId(null);
+      setActiveTripSource(null);
       setOfflinePreviewData(fullSnap);
       return true;
     }
 
     setOfflinePreviewData(null);
     window.history.pushState(null, '', `?room=${encodeURIComponent(safeRoomId)}`);
+    setActiveTripSource('firebase');
     setActiveRoomId(safeRoomId);
     return true;
   }, [isOnline, offlineCacheSummaries, refreshOfflineCacheSummaries, toast]);
@@ -203,9 +282,50 @@ export default function TravelApp() {
   }, [customBgColor]);
 
   useEffect(() => {
-    if (releasePromptDeferred || hasSeenCurrentRelease()) return;
+    if (
+      suppressReleasePromptForFirstRunSession
+      || !firstRunResolved
+      || showFirstRunWelcome
+      || releasePromptDeferred
+      || hasSeenCurrentRelease()
+    ) return;
     setShowWhatsNew(true);
-  }, [releasePromptDeferred]);
+  }, [
+    firstRunResolved,
+    releasePromptDeferred,
+    showFirstRunWelcome,
+    suppressReleasePromptForFirstRunSession,
+  ]);
+
+  useEffect(() => {
+    if (
+      !suppressReleasePromptForFirstRunSession
+      || firstRunResolved
+      || showFirstRunWelcome
+      || activeRoomId
+      || offlinePreviewData
+      || tripModalMode
+      || showImportModal
+      || showFeatureTour
+      || showTripTourSelection
+    ) return;
+    const isUxFoundationDemo = import.meta.env.DEV
+      && typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
+    if (isUxFoundationDemo) return;
+    setShowWhatsNew(false);
+    setShowFirstRunWelcome(true);
+  }, [
+    activeRoomId,
+    firstRunResolved,
+    offlinePreviewData,
+    showFeatureTour,
+    showFirstRunWelcome,
+    showImportModal,
+    showTripTourSelection,
+    suppressReleasePromptForFirstRunSession,
+    tripModalMode,
+  ]);
 
   useEffect(() => {
     const handlePopState = () => {
@@ -223,6 +343,7 @@ export default function TravelApp() {
         setPendingFeatureTour(false);
       }
       setActiveRoomId(roomId || null);
+      setActiveTripSource(roomId ? 'firebase' : null);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -230,6 +351,7 @@ export default function TravelApp() {
 
   const handleUpdateTripMeta = useCallback((roomId, meta) => {
     if (!roomId || !meta) return;
+    if (roomId === LOCAL_EXAMPLE_TRIP_ID) return;
     setMyTrips((previousTrips) => {
       const nextTrip = { ...meta, roomId };
       const index = previousTrips.findIndex((trip) => trip.roomId === roomId);
@@ -293,6 +415,46 @@ export default function TravelApp() {
     setNewTransport("汽車 🚗"); setNewThemeColor("#3b82f6");
     setTripModalMode('create');
   }, []);
+
+  const openBuiltInDemo = useCallback(() => {
+    setShowWhatsNew(false);
+    setShowFeatureIntroduction(false);
+    setOfflinePreviewData(null);
+    window.history.pushState(null, '', window.location.pathname);
+    setActiveTripSource('example');
+    setActiveRoomId(LOCAL_EXAMPLE_TRIP_ID);
+  }, []);
+
+  const handleResetBuiltInDemo = useCallback(async () => {
+    if (!window.confirm('確定要清除目前修改，並恢復原始內容嗎？')) return;
+    try {
+      await exampleRepository.reset();
+      toast.success({ title: '已恢復原始內容' });
+    } catch (error) {
+      console.error('Reset example trip failed:', error);
+      toast.error({ title: LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE });
+    }
+  }, [exampleRepository, toast]);
+
+  const openFeatureIntroduction = useCallback(() => {
+    setShowWhatsNew(false);
+    setShowFeatureIntroduction(true);
+  }, []);
+
+  const closeFeatureIntroduction = useCallback(() => {
+    setShowFeatureIntroduction(false);
+  }, []);
+
+  const completeFirstRunOnboarding = useCallback((action) => {
+    if (firstRunCompletionRef.current) return;
+    firstRunCompletionRef.current = true;
+    markFirstRunOnboardingSeen();
+    setFirstRunResolved(true);
+    setShowFirstRunWelcome(false);
+
+    if (action === 'demo') openBuiltInDemo('overview');
+    if (action === 'create') openCreateModal();
+  }, [openBuiltInDemo, openCreateModal]);
 
   const fillEmulatorRequiredFields = () => {
     const start = new Date();
@@ -385,6 +547,7 @@ export default function TravelApp() {
         setMyTrips((previousTrips) => [...previousTrips, { ...newMeta, roomId: newRoomId }]);
         setTripModalMode(null);
         window.history.pushState(null, '', `?room=${encodeURIComponent(newRoomId)}`);
+        setActiveTripSource('firebase');
         setActiveRoomId(newRoomId);
       } else {
         const roomId = extractRoomId(tripModalMode);
@@ -415,6 +578,7 @@ export default function TravelApp() {
       failed: false,
     });
     setPendingFeatureTour(false);
+    setActiveTripSource(null);
     setActiveRoomId(null);
     setOfflinePreviewData(null);
   };
@@ -593,7 +757,7 @@ export default function TravelApp() {
   const tourCtaMode = activeRoomId
     ? 'trip'
     : (hasTrips ? 'lobby-trips' : 'lobby-empty');
-  const releaseExperience = (
+  const releaseExperience = showFirstRunWelcome ? null : (
     <>
       {showWhatsNew ? (
         <WhatsNewDialog
@@ -656,7 +820,7 @@ export default function TravelApp() {
     );
   }
 
-  if (offlinePreviewData) return (
+  if (offlinePreviewData && !showFirstRunWelcome) return (
     <>
       <OfflineTripPreview
         summary={offlinePreviewData}
@@ -696,23 +860,27 @@ export default function TravelApp() {
     </>
   );
 
-  if (activeRoomId) return (
+  if (activeRoomId && !showFirstRunWelcome) return (
     <>
     <APIProvider apiKey={API_KEY}>
       <span
         data-testid="trip-route-context"
         data-room-id={String(activeRoomId)}
-        data-database-namespace={FIREBASE_DATABASE_NAMESPACE}
+        data-database-namespace={activeTripSource === 'firebase' ? FIREBASE_DATABASE_NAMESPACE : ''}
+        data-trip-source={String(activeTripSource || '')}
         className="sr-only"
       >
         旅程已開啟
       </span>
       <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入旅程模組中...</div>}>
         <TripDetail
-          roomId={activeRoomId}
+          tripId={activeRoomId}
+          repository={activeRepository}
+          capabilities={activeRepository?.getCapabilities?.()}
           onBack={closeTrip}
           onUpdateTripMeta={handleUpdateTripMeta}
           onOpenReleaseNotes={openReleaseNotes}
+          onOpenFeatureIntroduction={openFeatureIntroduction}
           onStartFeatureTour={startFeatureTour}
           onCheckUpdates={handleCheckAppUpdate}
           isCheckingUpdates={isCheckingAppUpdate}
@@ -731,15 +899,6 @@ export default function TravelApp() {
     <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-x-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
       <div className="max-w-5xl w-full mx-auto p-6 md:p-12 overflow-y-auto">
         <header className="mb-10 flex flex-col gap-5 md:mb-12">
-          <input
-            ref={lobbyAppearanceInputRef}
-            type="color"
-            value={String(customBgColor)}
-            onChange={e => setCustomBgColor(e.target.value)}
-            className="sr-only"
-            tabIndex={-1}
-            aria-label="自訂外觀顏色"
-          />
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="mb-2 flex min-w-0 items-center gap-3 md:gap-4">
@@ -755,8 +914,9 @@ export default function TravelApp() {
               key={activeRoomId || 'lobby-settings'}
               t={t}
               version={CURRENT_RELEASE_NOTES.version}
-              onOpenAppearance={() => lobbyAppearanceInputRef.current?.click?.()}
+              onOpenAppearance={openLobbyAppearance}
               onOpenReleaseNotes={openReleaseNotes}
+              onOpenFeatureIntroduction={openFeatureIntroduction}
               onStartFeatureTour={startFeatureTour}
               onCheckUpdates={handleCheckAppUpdate}
               isCheckingUpdates={isCheckingAppUpdate}
@@ -765,6 +925,10 @@ export default function TravelApp() {
 
           {hasTrips ? (
           <div className="grid w-full gap-3 md:flex md:items-center md:justify-end">
+            <FeatureIntroductionButton
+              onOpen={openFeatureIntroduction}
+              className="w-full md:w-auto"
+            />
             <button
               type="button"
               data-testid="create-trip-button"
@@ -787,7 +951,7 @@ export default function TravelApp() {
               <button
                 type="button"
                 data-testid="lobby-appearance-button"
-                onClick={() => lobbyAppearanceInputRef.current?.click?.()}
+                onClick={(event) => openLobbyAppearance(event.currentTarget)}
                 className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
               >
                 <span className="h-4 w-4 shrink-0 rounded-full border border-white/70 shadow-sm" style={{ backgroundColor: customBgColor }} aria-hidden="true" />
@@ -846,64 +1010,71 @@ export default function TravelApp() {
         ) : null}
 
         {!hasTrips ? (
-          <EmptyState
-            testId="lobby-empty-state"
-            className={`${t.cardBg} ${t.cardBorder} mt-16 md:mt-24`}
-            icon={(
+          <div className="mt-16 space-y-6 md:mt-24">
+            <EmptyState
+              testId="lobby-empty-state"
+              className={`${t.cardBg} ${t.cardBorder}`}
+              icon={(
               <svg viewBox="0 0 48 48" className="h-14 w-14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M8 34c7-4 13-4 20 0s13 4 20 0" />
                 <path d="M12 30V12l10 5 10-5 10 5v18" />
                 <path d="M22 17v18" />
                 <path d="M32 12v23" />
               </svg>
-            )}
-            title="建立你的第一個旅程"
-            description="集中管理每日行程、景點、費用與旅伴協作，從第一個旅程開始規劃。"
-            primaryAction={{
-              label: '建立新旅程',
-              testId: 'lobby-empty-create-trip',
-              onClick: openCreateModal,
-            }}
-            secondaryAction={{
-              label: '匯入旅程',
-              testId: 'lobby-empty-import-trip',
-              onClick: () => setShowImportModal(true),
-            }}
-          />
+              )}
+              title="建立你的第一個旅程"
+              description="集中管理每日行程、景點、費用與旅伴協作，從第一個旅程開始規劃。"
+              primaryAction={{
+                label: '建立新旅程',
+                testId: 'lobby-empty-create-trip',
+                onClick: openCreateModal,
+              }}
+              secondaryAction={{
+                label: '匯入旅程',
+                testId: 'lobby-empty-import-trip',
+                onClick: () => setShowImportModal(true),
+              }}
+            />
+            <DemoTripEntryCard
+              trip={{ ...BUILT_IN_EXAMPLE_TRIP.meta, roomId: LOCAL_EXAMPLE_TRIP_ID }}
+              onOpenDemo={openBuiltInDemo}
+              onReset={handleResetBuiltInDemo}
+            />
+            <FeatureIntroductionButton
+              onOpen={openFeatureIntroduction}
+              className="w-full"
+            />
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {myTrips.map(trip => {
-              const cardColor = String(trip.themeColor || '#1e293b'); const cTheme = getThemeClasses(cardColor);
-              return (
-                <div key={String(trip.roomId)} data-testid="trip-card" data-room-id={String(trip.roomId)} onClick={() => { openTripRoom(trip.roomId); }} style={{ backgroundColor: cardColor }} className={`border rounded-3xl p-6 cursor-pointer transition-all duration-300 group shadow-xl hover:-translate-y-1 hover:shadow-2xl ${cTheme.cardBorder}`}>
-                  <div className="flex justify-between items-start mb-4">
-                    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${cTheme.isLight ? 'bg-black/5 border-black/10 text-slate-700' : 'bg-white/20 border-white/30 text-white'}`}>{String(trip.transport)}</span>
-                    <div className="flex gap-2">
-                      <button onClick={(e) => openEditModal(e, trip)} className={`text-xs p-1 transition-colors hover:text-blue-500 ${cTheme.subText}`}>⚙️ 編輯</button>
-                      <button onClick={(e) => { e.stopPropagation(); if(window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) setMyTrips(prev => prev.filter(item => item.roomId !== trip.roomId)); }} className={`text-xs p-1 transition-colors hover:text-red-500 ${cTheme.subText}`}>移除</button>
-                    </div>
-                  </div>
-                  <h2 data-testid="trip-card-title" className={`text-2xl font-black mb-1.5 transition-colors line-clamp-2 ${cTheme.mainText}`}>{String(trip.title)}</h2>
-                  <p className={`text-sm font-bold mb-5 truncate ${cTheme.subText}`}>📍 {String(trip.destination || '未定地點')}</p>
-                  <div className={`p-3.5 rounded-xl border ${cTheme.cardMetaBg} ${cTheme.cardBorder}`}>
-                    <p className={`text-xs mb-1.5 font-medium ${cTheme.subText}`}>📅 {String(trip.startDate || '').replace(/-/g, '/')} <span className="mx-1 opacity-50">→</span> {String(trip.endDate || '').replace(/-/g, '/')}</p>
-                    <p className={`text-xs truncate font-medium ${cTheme.subText}`}>👥 {Array.isArray(trip.members) ? trip.members.join(', ') : '自己'}</p>
-                  </div>
-                  {offlineCacheSummaries.find(s => s.roomId === trip.roomId) && (
-                    <div className={`mt-4 pt-3 border-t ${cTheme.cardBorder}`} data-testid="offline-cache-status">
-                      <p className={`text-xs font-medium flex items-center gap-1 ${cTheme.subText}`}>
-                        <span className="text-green-500">✓</span> 可離線查看 · 更新於 {new Date(offlineCacheSummaries.find(s => s.roomId === trip.roomId).cachedAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <DemoTripEntryCard
+              trip={{ ...BUILT_IN_EXAMPLE_TRIP.meta, roomId: LOCAL_EXAMPLE_TRIP_ID }}
+              onOpenDemo={openBuiltInDemo}
+              onReset={handleResetBuiltInDemo}
+            />
+            {myTrips.map((trip) => (
+              <TripCard
+                key={String(trip.roomId)}
+                trip={trip}
+                onOpen={() => openTripRoom(trip.roomId)}
+                onEdit={(event) => openEditModal(event, trip)}
+                onDelete={() => {
+                  if (window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) {
+                    setMyTrips((previousTrips) => previousTrips.filter(
+                      (item) => item.roomId !== trip.roomId,
+                    ));
+                  }
+                }}
+                offlineSummary={offlineCacheSummaries.find(
+                  (summary) => summary.roomId === trip.roomId,
+                )}
+              />
+            ))}
           </div>
         )}
       </div>
 
-      {showImportModal && (
+      {!showFirstRunWelcome && showImportModal && (
         <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setShowImportModal(false)}>
           <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
             <h2 className={`text-xl font-black mb-2 ${t.mainText}`}>📥 匯入雲端行程</h2>
@@ -913,7 +1084,7 @@ export default function TravelApp() {
         </div>
       )}
 
-      {tripModalMode && (
+      {!showFirstRunWelcome && tripModalMode && (
         <APIProvider apiKey={API_KEY}>
           <div data-testid="trip-modal" style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setTripModalMode(null)}>
             <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto overflow-x-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
@@ -1017,6 +1188,34 @@ export default function TravelApp() {
       )}
     </div>
     <OfflineBanner isOnline={isOnline} />
+    {showAppearanceDialog ? (
+      <AppearanceDialog
+        color={customBgColor}
+        onColorChange={setCustomBgColor}
+        onClose={closeLobbyAppearance}
+        t={t}
+      />
+    ) : null}
+    {showFirstRunWelcome ? (
+      <FirstRunWelcomeDialog
+        t={t}
+        onOpenDemo={() => completeFirstRunOnboarding('demo')}
+        onCreateTrip={() => completeFirstRunOnboarding('create')}
+        onSkip={() => completeFirstRunOnboarding('skip')}
+      />
+    ) : null}
+    {showFeatureIntroduction ? (
+      <FirstRunWelcomeDialog
+        mode="replay"
+        t={t}
+        onOpenDemo={() => openBuiltInDemo('overview')}
+        onCreateTrip={() => {
+          closeFeatureIntroduction();
+          openCreateModal();
+        }}
+        onClose={closeFeatureIntroduction}
+      />
+    ) : null}
     {releaseExperience}
     </>
   );
