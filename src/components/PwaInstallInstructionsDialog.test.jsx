@@ -67,12 +67,16 @@ describe('PwaInstallInstructionsDialog', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('DIALOG-07 ignores non-Escape keys', async () => {
+  it('DIALOG-07 ignores non-Escape navigation keys', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<PwaInstallInstructionsDialog open platform="ios" browser="safari" onClose={onClose} />);
 
-    await user.keyboard('{Enter}');
+    // The dialog moves focus to its close button on open, so Enter would
+    // legitimately activate that button and call onClose. ArrowDown activates
+    // nothing, so it isolates what this test is about: the document-level key
+    // handler must react to Escape only.
+    await user.keyboard('{ArrowDown}');
 
     expect(onClose).not.toHaveBeenCalled();
   });
