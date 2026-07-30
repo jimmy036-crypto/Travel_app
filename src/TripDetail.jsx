@@ -3388,6 +3388,12 @@ const TripDetail = ({
     <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} />
   ) : null;
 
+  // The map top bar is the only mobile header that also carries the day
+  // switcher, so the badge goes compact there to stop it squeezing the days.
+  const mobileCompactSyncStatusNode = capabilities.cloudSync ? (
+    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} compact />
+  ) : null;
+
   const mobileSettingsMenu = (
     <AppSettingsMenu
       key={`mobile-trip-settings-${roomId}`}
@@ -3479,7 +3485,7 @@ const TripDetail = ({
                   onSelectDay={handleDaySwitch}
                   onBack={onBack}
                   settingsNode={mobileSettingsMenu}
-                  syncStatusNode={mobileSyncStatusNode}
+                  syncStatusNode={mobileCompactSyncStatusNode}
                   t={t}
                 />
               ) : null}
