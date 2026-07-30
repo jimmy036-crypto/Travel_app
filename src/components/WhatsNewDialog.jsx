@@ -128,7 +128,7 @@ export const WhatsNewDialog = ({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 md:px-6">
           {tourCtaMode === 'lobby-empty' ? (
             <p className={`mb-4 rounded-2xl border px-4 py-3 text-sm font-bold leading-6 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>
-              建立旅程後，即可體驗天數切換、景點操作與多人同步導覽。
+              建立旅程後，即可體驗每日行程規劃、地圖順序、票券保存、記帳與結算，以及旅伴共編同步導覽。
             </p>
           ) : null}
           <div className="grid gap-3">

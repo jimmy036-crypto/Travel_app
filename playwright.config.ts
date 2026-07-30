@@ -39,7 +39,7 @@ const inheritedEnv = Object.fromEntries(
 
 const firebaseEmulatorCommand = 'npm run emulators:e2e';
 const currentReleaseSeenKey =
-  'travel-app-seen-release-2026.07-mobile-collaboration';
+  'travel-app-seen-release-2026.07-trip-management-redesign';
 
 // Firebase CLI 可以使用獨立 HOME，避免 update check 或 config
 // 寫入 runner 的真實使用者目錄。

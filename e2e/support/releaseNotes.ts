@@ -1,6 +1,9 @@
 import { expect, type Page } from '@playwright/test';
 
-export const CURRENT_RELEASE_VERSION = '2026.07-mobile-collaboration';
+export const CURRENT_RELEASE_VERSION = '2026.07-trip-management-redesign';
+export const CURRENT_RELEASE_TITLE = '行程規劃、地圖與記帳全面升級';
+export const CURRENT_RELEASE_PUBLISHED_AT = '2026-07-30';
+export const CURRENT_RELEASE_HIGHLIGHT_COUNT = 6;
 export const CURRENT_RELEASE_SEEN_KEY =
   `travel-app-seen-release-${CURRENT_RELEASE_VERSION}`;
 export const CURRENT_RELEASE_PENDING_TOUR_KEY =
