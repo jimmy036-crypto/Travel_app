@@ -66,8 +66,9 @@ async function openDeleteConfirmationForPlace(
     return;
   }
 
-  await placeCard.hover();
-  await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
+  // Desktop: navigate/edit/nearby/copy/delete all live in Place Details now.
+  await placeCard.click();
+  await page.getByTestId('place-detail-delete-button').click();
 }
 
 async function openTrip(page: Page, itinerary: Record<string, SeedPlace[]>) {
@@ -164,5 +165,11 @@ test('only shows the empty state on empty itinerary days', async ({ page }) => {
 
   await expect(placeCardByName(page, 'Day 1', 'E2E occupied place')).toBeVisible();
   await expect(dayCard(page, 'Day 1').getByTestId('itinerary-empty-state')).toHaveCount(0);
+  const mobileDayTwoSwitch = page.locator(
+    '[data-testid="itinerary-day-switch-button"][data-day-id="Day 2"]',
+  );
+  if (await mobileDayTwoSwitch.count()) {
+    await mobileDayTwoSwitch.click();
+  }
   await expect(dayCard(page, 'Day 2').getByTestId('itinerary-empty-state')).toBeVisible();
 });

@@ -57,8 +57,9 @@ async function openDeleteConfirmationForPlace(
     return;
   }
 
-  await placeCard.hover();
-  await placeCard.locator('[data-testid="delete-place-button"]:visible').click();
+  // Desktop: navigate/edit/nearby/copy/delete all live in Place Details now.
+  await placeCard.click();
+  await page.getByTestId('place-detail-delete-button').click();
 }
 
 async function addPlaceWithEmulatorHook(page: Page) {
@@ -686,6 +687,15 @@ test('mobile place action menu stays visible and closes on outside interaction',
 
   const desktopPlace = placeCardByName(page, 'Day 1', 'E2E Action first');
   await expect(desktopPlace.getByTestId('place-action-menu-trigger')).toBeHidden();
-  await desktopPlace.hover();
-  await expect(desktopPlace.getByTestId('desktop-place-actions')).toBeVisible();
+  // Desktop cards no longer expose a hover action row; navigate/edit/nearby/
+  // copy/delete all live in Place Details, opened by clicking the card.
+  await expect(desktopPlace.getByTestId('desktop-place-actions')).toHaveCount(0);
+  await desktopPlace.click();
+  const sheet = page.getByTestId('place-detail-sheet');
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-navigate-button')).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-nearby-button')).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-copy-button')).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-delete-button')).toBeVisible();
+  await expect(sheet.getByTestId('place-detail-edit-button')).toBeVisible();
 });

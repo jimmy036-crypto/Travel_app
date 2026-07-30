@@ -880,6 +880,7 @@ export default function TravelApp() {
           onBack={closeTrip}
           onUpdateTripMeta={handleUpdateTripMeta}
           onOpenReleaseNotes={openReleaseNotes}
+          onOpenFeatureIntroduction={openFeatureIntroduction}
           onStartFeatureTour={startFeatureTour}
           onCheckUpdates={handleCheckAppUpdate}
           isCheckingUpdates={isCheckingAppUpdate}

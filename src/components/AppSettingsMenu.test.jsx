@@ -50,6 +50,19 @@ function setInstallSnapshot(overrides = {}) {
   }
 }
 
+function setMobileViewport(matches) {
+  window.matchMedia.mockImplementation((query) => ({
+    matches: query === '(max-width: 767px)' ? matches : false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 function renderMenu(props = {}) {
   return render(
     <AppSettingsMenu
@@ -71,6 +84,7 @@ async function openMenu(user) {
 
 describe('AppSettingsMenu', () => {
   beforeEach(() => {
+    setMobileViewport(false);
     setInstallSnapshot();
     toastMock.info.mockClear();
     toastMock.error.mockClear();
@@ -426,5 +440,75 @@ describe('AppSettingsMenu', () => {
     expect(menu.style.maxHeight).toBe('calc(100dvh - 24px)');
     expect(menu).toHaveClass('overflow-y-auto');
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight });
+  });
+
+  it('shows trip actions only when TripDetail provides them', async () => {
+    const user = userEvent.setup();
+    const onShare = vi.fn();
+    const onChecklist = vi.fn();
+    const onExport = vi.fn();
+
+    const { unmount } = renderMenu();
+    await openMenu(user);
+    expect(screen.queryByTestId('app-settings-trip-section')).not.toBeInTheDocument();
+    expect(screen.getByTestId('app-settings-app-section')).toHaveTextContent('App 設定');
+    unmount();
+
+    renderMenu({
+      tripActions: [
+        { id: 'share', label: '分享共編', icon: '🔗', onSelect: onShare },
+        { id: 'checklist', label: '共享清單', icon: '✅', onSelect: onChecklist },
+        { id: 'export', label: '匯出行程', icon: '🖨️', onSelect: onExport },
+      ],
+    });
+    await openMenu(user);
+    expect(screen.getByTestId('app-settings-trip-section')).toHaveTextContent('旅程工具');
+    expect(screen.getByTestId('app-settings-trip-share')).toHaveTextContent('分享共編');
+    expect(screen.getByTestId('app-settings-trip-checklist')).toHaveTextContent('共享清單');
+    expect(screen.getByTestId('app-settings-trip-export')).toHaveTextContent('匯出行程');
+
+    await user.click(screen.getByTestId('app-settings-trip-share'));
+    expect(onShare).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('app-settings-menu')).not.toBeInTheDocument();
+  });
+
+  it('uses a named bottom sheet on mobile and restores trigger focus after closing', async () => {
+    const user = userEvent.setup();
+    setMobileViewport(true);
+    renderMenu({
+      triggerLabel: '開啟旅程工具與設定',
+      tripActions: [
+        { id: 'share', label: '分享共編', onSelect: vi.fn() },
+      ],
+    });
+
+    const trigger = screen.getByTestId('app-settings-trigger');
+    await user.click(trigger);
+
+    expect(screen.getByTestId('app-settings-menu')).toHaveAttribute('data-mode', 'mobile-sheet');
+    expect(screen.getByRole('dialog', { name: '旅程工具與設定' })).toBeInTheDocument();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByTestId('app-settings-appearance')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('app-settings-close'));
+    expect(screen.queryByTestId('app-settings-menu')).not.toBeInTheDocument();
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('keeps the anchored popover and Escape focus behavior on desktop', async () => {
+    const user = userEvent.setup();
+    renderMenu({
+      tripActions: [
+        { id: 'share', label: '分享共編', onSelect: vi.fn() },
+      ],
+    });
+
+    const trigger = screen.getByTestId('app-settings-trigger');
+    await user.click(trigger);
+    expect(screen.getByTestId('app-settings-menu')).toHaveAttribute('role', 'menu');
+    expect(screen.getByTestId('app-settings-menu')).toHaveClass('fixed');
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

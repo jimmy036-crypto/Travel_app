@@ -24,7 +24,14 @@ export default defineConfig([
     ],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      globals: {
+        ...globals.browser,
+        // Build-time constants injected via vite.config.js `define`, used by
+        // the opt-in (?qaDebug=1) build-identity badge.
+        __QA_BUILD_BRANCH__: 'readonly',
+        __QA_BUILD_SHA__: 'readonly',
+        __QA_BUILD_TIME__: 'readonly',
+      },
       parserOptions: {
         ecmaVersion: 'latest',
         ecmaFeatures: { jsx: true },
@@ -33,6 +40,12 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+  {
+    files: ['vite.config.js', 'vitest.config.js'],
+    languageOptions: {
+      globals: globals.node,
     },
   },
 ])
