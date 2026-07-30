@@ -83,6 +83,30 @@ for (const viewport of [
     await expect(page.getByTestId('mobile-day-switcher')).toBeVisible();
     await expect(page.getByTestId('back-to-lobby')).toBeVisible();
     await expect(page.getByTestId('app-settings-trigger')).toBeVisible();
+
+    // The map top bar is the only mobile header carrying the day switcher, so
+    // the sync badge must stay compact and must not squeeze the day buttons.
+    const syncBadge = page.getByTestId('sync-status-indicator');
+    if (await syncBadge.count()) {
+      await expect(syncBadge).toHaveAttribute('data-compact', 'true');
+      const badgeBox = await syncBadge.boundingBox();
+      expect(badgeBox?.width || 0).toBeLessThanOrEqual(40);
+    }
+
+    const switcherBox = await page.getByTestId('mobile-day-switcher').boundingBox();
+    expect(switcherBox).not.toBeNull();
+    // Budget: 24px padding + 24px gaps + 44px back + 44px settings + a compact
+    // badge under 40px. The old 96px badge left 88px at 320px and 158px at
+    // 390px, which clipped the day buttons.
+    expect(switcherBox?.width || 0).toBeGreaterThanOrEqual(viewport.width - 190);
+
+    // The first day button has to be fully inside the switcher, not clipped.
+    const firstDayButton = page.getByTestId('itinerary-day-switch-button').first();
+    const dayBox = await firstDayButton.boundingBox();
+    expect(dayBox).not.toBeNull();
+    expect((dayBox?.x || 0) + (dayBox?.width || 0)).toBeLessThanOrEqual(
+      (switcherBox?.x || 0) + (switcherBox?.width || 0) + 1,
+    );
     await expect(page.getByTestId('mobile-trip-map-view')).toBeVisible();
     await expect(page.getByTestId('map-itinerary-sheet')).toBeVisible();
     await expect(page.getByTestId('map-itinerary-sheet')).toHaveAttribute('data-state', 'cards');

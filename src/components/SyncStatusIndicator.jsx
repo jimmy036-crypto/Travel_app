@@ -31,21 +31,28 @@ const STATUS_CONFIG = {
   },
 };
 
-export const SyncStatusIndicator = ({ status = 'idle' }) => {
+// `compact` keeps the dot and the accessible label but drops the visible text,
+// for headers that also have to fit the day switcher on a narrow screen.
+export const SyncStatusIndicator = ({ status = 'idle', compact = false }) => {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.idle;
 
   return (
     <span
       data-testid="sync-status-indicator"
+      data-compact={compact ? 'true' : undefined}
       title={config.label}
       aria-live="polite"
-      className="inline-flex min-h-7 min-w-24 shrink-0 items-center justify-center gap-1.5 rounded-full border border-slate-500/15 bg-white/70 px-2.5 text-[10px] font-bold shadow-sm backdrop-blur-md dark:bg-slate-950/45"
+      className={`inline-flex min-h-7 shrink-0 items-center justify-center rounded-full border border-slate-500/15 bg-white/70 shadow-sm backdrop-blur-md dark:bg-slate-950/45 ${
+        compact
+          ? 'w-7'
+          : 'min-w-24 gap-1.5 px-2.5 text-[10px] font-bold'
+      }`}
     >
       <span
         data-testid="sync-status-dot"
-        className={`h-2 w-2 shrink-0 rounded-full ${config.dotClass}`}
+        className={`shrink-0 rounded-full ${compact ? 'h-2.5 w-2.5' : 'h-2 w-2'} ${config.dotClass}`}
       />
-      <span className={`whitespace-nowrap ${config.textClass}`}>
+      <span className={compact ? 'sr-only' : `whitespace-nowrap ${config.textClass}`}>
         {config.label}
       </span>
     </span>
