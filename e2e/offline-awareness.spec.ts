@@ -28,7 +28,7 @@ test.describe('Offline Awareness', () => {
     await createBtn.click();
     
     await page.getByTestId('trip-name-input').fill('Offline Trip Test');
-    await page.getByTestId('trip-destination-field').getByRole('textbox').fill('Taipei');
+    await page.getByTestId('trip-destination-field').getByRole('combobox').fill('Taipei');
     // We don't really have to select Google Places, we can just click "確認儲存" and expect it to be blocked
     await page.getByRole('button', { name: '確認建立' }).click();
     

@@ -30,7 +30,7 @@ export function DesktopDayNavigator({
     <nav
       data-testid="desktop-day-navigator"
       aria-label="桌面行程日期導覽"
-      className={`hidden shrink-0 items-center gap-2 border-b px-4 py-2 md:flex ${t.headerBg} ${t.cardBorder}`}
+      className={`hidden shrink-0 items-center gap-2 border-b px-4 py-1 md:flex ${t.headerBg} ${t.cardBorder}`}
     >
       <button
         type="button"

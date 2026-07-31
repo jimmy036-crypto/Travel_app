@@ -42,7 +42,7 @@ async function prepare(page: Page): Promise<void> {
 async function openDestination(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: '建立新旅程', exact: true }).first().click();
-  return page.getByRole('combobox');
+  return page.getByTestId('trip-destination-field').getByRole('combobox');
 }
 
 async function completeLatestDetails(page: Page, status = 'OK'): Promise<void> {

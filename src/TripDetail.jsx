@@ -3606,7 +3606,7 @@ const TripDetail = ({
                 className={`scrollbar-hide flex-1 ${
                   isMobileViewport
                     ? 'overflow-y-auto overflow-x-hidden'
-                    : 'overflow-x-auto overscroll-x-contain p-4 gap-4 items-start'
+                    : 'overflow-x-auto overscroll-x-contain p-3 gap-3 items-start'
                 } ${(activeTab === 'plan' || (!isMobileViewport && activeTab === 'map')) ? (isMobileViewport ? 'block' : 'flex') : 'hidden'}`}
               >
                 {isMobileViewport ? (activeTab === 'plan' ? (
@@ -3698,7 +3698,7 @@ const TripDetail = ({
                       data-testid="itinerary-day-card"
                       data-day-id={String(dayId)}
                       onClick={(event) => handleDaySwitch(dayId, event)}
-                      className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-4 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}
+                      className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-3 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}
                     >
                       <div className="mb-3 flex flex-col gap-1 group">
                         <div className="flex items-center gap-1.5 min-w-0">

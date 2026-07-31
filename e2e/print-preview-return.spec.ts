@@ -5,6 +5,17 @@ import { markCurrentReleaseSeen } from './support/releaseNotes';
 
 const ROOM_ID = 'e2eprintpreviewreturn0001';
 
+async function openExportDialog(page: Page): Promise<void> {
+  const desktopExportButton = page.getByTitle('匯出完整行程或單日圖片');
+  if (await desktopExportButton.isVisible()) {
+    await desktopExportButton.click();
+    return;
+  }
+
+  await page.getByRole('button', { name: '開啟旅程工具與設定' }).click();
+  await page.getByTestId('app-settings-trip-export').click();
+}
+
 test.beforeEach(async ({ page }) => {
   await clearEmulatorDatabase();
   await seedTestTrip(ROOM_ID, { title: '列印返回測試' });
@@ -17,7 +28,7 @@ test.beforeEach(async ({ page }) => {
 test('generated preview keeps opener isolated and provides a safe return path', async ({ page }) => {
   await page.goto(`/?room=${ROOM_ID}`);
   const returnUrl = page.url();
-  await page.getByTitle('匯出完整行程或單日圖片').click();
+  await openExportDialog(page);
   const popupPromise = page.waitForEvent('popup');
   await page.getByRole('button', { name: '開啟列印預覽' }).click();
   const preview = await popupPromise;
