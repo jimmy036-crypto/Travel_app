@@ -121,6 +121,22 @@ describe('local example trip repository', () => {
     expect(recordStore.inspect().snapshot.settlements).toEqual([transferRecord]);
   });
 
+  it('persists parkingPlan locally across reloads without a cloud write', async () => {
+    const recordStore = createMemoryRecordStore();
+    const template = {
+      meta: { title: 'Tokyo' },
+      itinerary: { 'Day 1': [{ id: 'place-1', name: '景點' }] },
+      expenses: [], settlements: [], tickets: [], checklist: [],
+    };
+    const first = createLocalExampleTripRepository({ recordStore, attachmentStore: createAttachmentStore(), createTemplate: () => template });
+    const itinerary = (await first.loadTrip()).itinerary;
+    itinerary['Day 1'][0].parkingPlan = { schemaVersion: 1, provider: 'google', googlePlaceId: 'G1' };
+    await first.updateItinerary(itinerary);
+    const second = createLocalExampleTripRepository({ recordStore, attachmentStore: createAttachmentStore(), createTemplate: () => template });
+    expect((await second.loadTrip()).itinerary['Day 1'][0].parkingPlan).toEqual({ schemaVersion: 1, provider: 'google', googlePlaceId: 'G1' });
+    expect(recordStore.inspect().snapshot).not.toHaveProperty('parkingPlan');
+  });
+
   it('recovers corrupted and incompatible records from the immutable template', async () => {
     const incompatibleStore = createMemoryRecordStore({
       schemaVersion: '999',
