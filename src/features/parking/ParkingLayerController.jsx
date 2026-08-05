@@ -22,6 +22,7 @@ export function ParkingLayerController({
   onRemovePlan,
   t,
   searchParking = searchNearbyParking,
+  enableE2EProvider = false,
 }) {
   const [radius, setRadius] = useState(500);
   const [facilities, setFacilities] = useState([]);
@@ -52,7 +53,11 @@ export function ParkingLayerController({
     requestRef.current = controller;
     setStatus('searching');
     try {
-      const result = await searchParking({
+      const e2eProvider = enableE2EProvider
+        ? globalThis.window?.__TRAVEL_E2E__?.searchParking
+        : null;
+      const searchImplementation = typeof e2eProvider === 'function' ? e2eProvider : searchParking;
+      const result = await searchImplementation({
         anchor: { lat: Number(anchor.lat), lng: Number(anchor.lng) },
         radius,
         placesLib,

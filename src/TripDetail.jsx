@@ -4132,6 +4132,7 @@ const TripDetail = ({
                 onSavePlan={persistSelectedParkingPlan}
                 onRemovePlan={removeSelectedParkingPlan}
                 t={t}
+                enableE2EProvider={IS_FIREBASE_EMULATOR}
               >
                 {({ markers, overlays }) => (
                   <>
