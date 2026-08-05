@@ -7,6 +7,7 @@ export function TripCard({
   onOpen,
   onEdit,
   onDelete,
+  onRemove,
   onReset,
   offlineSummary,
   titleTestId = 'trip-card-title',
@@ -50,6 +51,19 @@ export function TripCard({
               className={`p-1 text-xs transition-colors hover:text-red-500 ${theme.subText}`}
             >
               刪除
+            </button>
+          ) : null}
+          {onRemove ? (
+            <button
+              type="button"
+              data-testid="remove-example-trip"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRemove(event);
+              }}
+              className={`min-h-11 px-2 text-xs font-bold transition-colors hover:text-red-500 ${theme.subText}`}
+            >
+              從大廳移除
             </button>
           ) : null}
           {onReset ? (

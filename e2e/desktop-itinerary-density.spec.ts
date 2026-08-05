@@ -9,7 +9,7 @@ test.beforeEach(async () => {
   await seedTestTrip(ROOM_ID, {
     title: 'E2E Desktop Density',
     startDate: '2026-09-20',
-    endDate: '2026-09-20',
+    endDate: '2026-09-25',
     itinerary: {
       'Day 1': Array.from({ length: 6 }, (_, index) => ({
         id: `density-${index + 1}`,
@@ -19,8 +19,34 @@ test.beforeEach(async () => {
         stayTime: 20,
         tags: [],
       })),
+      'Day 2': [],
+      'Day 3': [],
+      'Day 4': [],
+      'Day 5': [],
+      'Day 6': [],
     },
   });
+});
+
+test('desktop navigator reaches Day 6 and returns to Day 1 without losing earlier days', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`/?room=${ROOM_ID}`);
+  const navigator = page.getByTestId('desktop-day-navigator');
+  await expect(navigator).toBeVisible();
+  const dayButtons = navigator.getByTestId('desktop-day-button');
+  await expect(dayButtons).toHaveCount(6);
+
+  await dayButtons.nth(5).click();
+  await expect(dayButtons.nth(5)).toHaveAttribute('aria-current', 'date');
+  await expect(page.locator('[data-testid="itinerary-day-card"][data-day-id="Day 6"]')).toBeInViewport();
+  await expect(navigator.getByTestId('desktop-day-next')).toBeDisabled();
+
+  while (await navigator.getByTestId('desktop-day-previous').isEnabled()) {
+    await navigator.getByTestId('desktop-day-previous').click();
+  }
+  await expect(dayButtons.first()).toHaveAttribute('aria-current', 'date');
+  await expect(page.locator('[data-testid="itinerary-day-card"][data-day-id="Day 1"]')).toBeInViewport();
+  await expect(navigator.getByTestId('desktop-day-previous')).toBeDisabled();
 });
 
 test('1440x900 shows at least 4 basic desktop cards per day column without oversized padding', async ({ page }) => {

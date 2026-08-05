@@ -2,10 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { CATEGORIES } from '../../constants';
 import { getDayDisplay } from '../../helpers';
 import { calculateCategoryStats, calculateMemberCategoryStats } from './expenseCalculations';
-import {
-  partitionSettlementTransfers,
-  settlementTransferKey,
-} from './settlementTransferRecords.js';
+import { SettlementPanel } from './SettlementPanel.jsx';
 
 const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
   const safeTotal = Number(total) || 0;
@@ -103,10 +100,10 @@ export const ExpenseSection = ({
   t,
   isActive,
   expenses = [],
-  settlements = [],
   membersList = [],
   meta = {},
   expenseStats,
+  settlementModel,
   onCreateExpense,
   onEditExpense,
   onMarkTransferPaid,
@@ -126,14 +123,6 @@ export const ExpenseSection = ({
   const memberCategoryStats = useMemo(
     () => calculateMemberCategoryStats(expenses, membersList, CATEGORIES),
     [expenses, membersList]
-  );
-  const transferState = useMemo(
-    () => partitionSettlementTransfers({
-      suggestions: expenseStats?.transfers,
-      records: settlements,
-      currency: 'TWD',
-    }),
-    [expenseStats?.transfers, settlements],
   );
 
   const safeExpenseChartOwner =
@@ -356,154 +345,15 @@ export const ExpenseSection = ({
             })}
             {(!Array.isArray(expenses) || expenses.length === 0) ? <p className={`text-center mt-10 font-bold ${t.subText}`}>尚無記帳紀錄</p> : null}
           </div>
-        ) : (
-          <div className="space-y-6">
-            <div className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-                <div>
-                  <h3 className={`text-sm font-bold flex items-center gap-2 ${t.mainText}`}>🧳 行前結算</h3>
-                  <p className={`text-[10px] mt-1 ${t.subText}`}>行前支出會納入下方全程結算建議；完成紀錄不會修改原始支出。</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>行前支出</p><p className={`font-mono font-black mt-1 ${t.mainText}`}>NT${Math.round(expenseStats?.preTripTotal || 0).toLocaleString()}</p></div>
-                <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>全部已轉帳</p><p className="font-mono font-black mt-1 text-indigo-500">NT${Math.round(expenseStats?.preTripSettlementTotal || 0).toLocaleString()}</p></div>
-                <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>行前剩餘應收</p><p className="font-mono font-black mt-1 text-emerald-500">NT${Math.round(expenseStats?.preTripSettlementSummary?.receivableTotal || 0).toLocaleString()}</p></div>
-                <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><p className={`text-[9px] font-bold ${t.subText}`}>行前建議轉帳筆數</p><p className={`font-mono font-black mt-1 ${t.mainText}`}>{expenseStats?.preTripSettlementSummary?.transferCount || 0} 筆</p></div>
-              </div>
-              {expenseStats?.preTripTransfers?.length > 0 ? (
-                <div className="space-y-2">
-                  {expenseStats.preTripTransfers.map((item, index) => <div key={`pretrip-${index}`} className={`flex justify-between items-center p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}><span className={`text-xs ${t.mainText}`}><b className="text-red-500">{item.from}</b> → <b className="text-emerald-500">{item.to}</b></span><b className={`font-mono ${t.mainText}`}>NT${Math.round(item.amount).toLocaleString()}</b></div>)}
-                </div>
-              ) : <p className={`text-center py-3 text-xs font-bold ${t.subText}`}>{expenseStats?.preTripTotal > 0 ? "行前款項已結清 🎉" : "尚未新增行前支出"}</p>}
-            </div>
-
-            <div className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
-              <h3 className={`text-sm font-bold mb-4 flex items-center gap-2 ${t.mainText}`}>👤 各自收支總覽</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
-                  <p className={`text-[9px] font-bold ${t.subText}`}>全程應收</p>
-                  <p className="font-mono font-black mt-1 text-emerald-500">NT${Math.round(expenseStats?.settlementSummary?.receivableTotal || 0).toLocaleString()}</p>
-                </div>
-                <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
-                  <p className={`text-[9px] font-bold ${t.subText}`}>全程應付</p>
-                  <p className="font-mono font-black mt-1 text-red-500">NT${Math.round(expenseStats?.settlementSummary?.payableTotal || 0).toLocaleString()}</p>
-                </div>
-                <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
-                  <p className={`text-[9px] font-bold ${t.subText}`}>最少轉帳筆數</p>
-                  <p className={`font-mono font-black mt-1 ${t.mainText}`}>{expenseStats?.settlementSummary?.transferCount || 0} 筆</p>
-                </div>
-                <div className={`p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
-                  <p className={`text-[9px] font-bold ${t.subText}`}>已結清人數</p>
-                  <p className={`font-mono font-black mt-1 ${t.mainText}`}>{expenseStats?.settlementSummary?.balancedMemberCount || 0} 人</p>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {Object.entries(expenseStats?.balances || {}).map(([member, balance]) => {
-                  const isPositive = balance > 0.01;
-                  const isNegative = balance < -0.01;
-                  return (
-                    <div key={String(member)} className={`flex justify-between items-center p-3 rounded-xl border ${t.itemBg} ${t.cardBorder}`}>
-                      <span className={`font-bold ${t.mainText}`}>{String(member)}</span>
-                      {isPositive ? (
-                        <span className="text-emerald-500 font-mono font-bold">應收回 +NT${balance.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})}</span>
-                      ) : isNegative ? (
-                        <span className="text-red-500 font-mono font-bold">須支付 -NT${Math.abs(balance).toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 1})}</span>
-                      ) : (
-                        <span className={`font-mono font-bold ${t.subText}`}>已結清 $0</span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
-              <h3 className="text-sm font-bold text-blue-500 mb-4 flex items-center gap-2">💸 結算轉帳</h3>
-
-              <section aria-labelledby="pending-settlement-title">
-                <h4 id="pending-settlement-title" className={`text-xs font-black ${t.mainText}`}>待轉帳</h4>
-                {transferState.pending.length > 0 ? (
-                  <div className="mt-3 space-y-3" data-testid="pending-settlement-list">
-                    {transferState.pending.map((transfer) => {
-                      const transferKey = settlementTransferKey(transfer);
-                      const isSaving = settlementMutationId === transferKey;
-                      return (
-                        <div
-                          key={transferKey}
-                          data-testid="pending-settlement-transfer"
-                          className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border p-4 ${t.isLight ? 'bg-blue-50 border-blue-200' : 'bg-blue-900/20 border-blue-500/30'}`}
-                        >
-                          <div className="min-w-0">
-                            <p className={`truncate text-sm font-black ${t.mainText}`}>
-                              {transfer.fromParticipantId} → {transfer.toParticipantId}
-                            </p>
-                            <p className={`mt-1 font-mono text-lg font-black ${t.mainText}`}>
-                              NT${transfer.amount.toLocaleString()}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            data-testid="mark-settlement-paid"
-                            disabled={isSaving}
-                            onClick={() => onMarkTransferPaid?.(transfer)}
-                            className="min-h-11 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-black text-white shadow-md transition-transform active:scale-95 disabled:cursor-wait disabled:opacity-60"
-                          >
-                            {isSaving ? '儲存中…' : '標記為已轉帳'}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className={`py-4 text-center text-xs font-bold ${t.subText}`}>目前沒有待完成的轉帳</p>
-                )}
-              </section>
-
-              <section className={`mt-5 border-t pt-5 ${t.cardBorder}`} aria-labelledby="completed-settlement-title">
-                <h4 id="completed-settlement-title" className={`text-xs font-black ${t.mainText}`}>已完成</h4>
-                {transferState.completed.length > 0 ? (
-                  <div className="mt-3 space-y-3" data-testid="completed-settlement-list">
-                    {transferState.completed.map((record) => {
-                      const isSaving = settlementMutationId === record.id;
-                      return (
-                        <div
-                          key={record.id}
-                          data-testid="completed-settlement-transfer"
-                          className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border p-4 ${t.itemBg} ${t.cardBorder}`}
-                        >
-                          <div className="min-w-0">
-                            <p className={`truncate text-sm font-black ${t.mainText}`}>
-                              {record.fromParticipantId} → {record.toParticipantId}
-                            </p>
-                            <p className={`mt-1 font-mono text-base font-black ${t.mainText}`}>
-                              {record.currency === 'TWD' ? 'NT$' : `${record.currency} `}
-                              {record.amount.toLocaleString()}
-                            </p>
-                            <p className={`mt-1 text-[10px] font-bold ${t.subText}`}>
-                              已轉帳 · {new Date(record.paidAt).toLocaleString('zh-TW')}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            data-testid="cancel-settlement-paid"
-                            disabled={isSaving}
-                            onClick={() => onCancelTransferPaid?.(record.id)}
-                            className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-bold transition-colors disabled:cursor-wait disabled:opacity-60 ${t.cardBorder} ${t.subText}`}
-                          >
-                            {isSaving ? '儲存中…' : '取消已轉帳'}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className={`py-4 text-center text-xs font-bold ${t.subText}`}>尚無已轉帳紀錄</p>
-                )}
-              </section>
-            </div>
-          </div>
-        )}
+        ) : settlementModel ? (
+          <SettlementPanel
+            model={settlementModel}
+            t={t}
+            settlementMutationId={settlementMutationId}
+            onMarkTransferPaid={onMarkTransferPaid}
+            onCancelTransferPaid={onCancelTransferPaid}
+          />
+        ) : null}
       </div>
     </div>
   );

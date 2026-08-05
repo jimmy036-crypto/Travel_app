@@ -87,7 +87,7 @@ test('editing uses the versioned IndexedDB envelope instead of legacy localStora
 
   expect(record).toMatchObject({
     schemaVersion: '1.0.0',
-    templateVersion: '1.0.0',
+    templateVersion: '2.0.0',
     tripId: EXAMPLE_ID,
   });
   expect(

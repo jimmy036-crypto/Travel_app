@@ -19,6 +19,9 @@ const createMemoryRecordStore = (initial = null) => {
       value = structuredClone(next);
       return next;
     }),
+    clear: vi.fn(async () => {
+      value = null;
+    }),
     close: vi.fn(),
     inspect: () => value,
   };
@@ -105,6 +108,7 @@ describe('local example trip repository', () => {
       toParticipantId: '朋友',
       amount: 500,
       currency: 'TWD',
+      scope: 'pretrip',
       status: 'paid',
       paidAt: '2026-07-28T04:30:00.000Z',
       createdAt: '2026-07-28T04:30:00.000Z',
@@ -147,6 +151,58 @@ describe('local example trip repository', () => {
     });
   });
 
+  it('migrates the v1 template without overwriting edited fields or restoring deleted items', async () => {
+    const recordStore = createMemoryRecordStore({
+      schemaVersion: LOCAL_EXAMPLE_SCHEMA_VERSION,
+      templateVersion: '1.0.0',
+      tripId: LOCAL_EXAMPLE_TRIP_ID,
+      revision: 7,
+      updatedAt: '2026-07-28T04:30:00.000Z',
+      snapshot: {
+        meta: { title: '我的東京版本（範例）' },
+        itinerary: {
+          'Day 2': [{
+            id: 'demo-place-day2-meiji',
+            name: '我改過的神宮',
+            nextLeg: { mode: 'DEMO', mins: 18 },
+          }],
+        },
+        expenses: [{
+          id: 'demo-expense-hotel',
+          dayId: 'Day 1',
+          item: '我改過的住宿',
+          cost: 1,
+        }],
+        settlements: [],
+        tickets: [],
+        checklist: [],
+      },
+    });
+    const repository = createLocalExampleTripRepository({
+      recordStore,
+      attachmentStore: createAttachmentStore(),
+    });
+
+    const migrated = await repository.loadTrip();
+
+    expect(migrated.meta.title).toBe('我的東京版本（範例）');
+    expect(migrated.itinerary['Day 2']).toHaveLength(1);
+    expect(migrated.itinerary['Day 2'][0]).toMatchObject({
+      name: '我改過的神宮',
+      lat: 35.67505,
+      lng: 139.69948,
+      nextLeg: { mode: 'AUTO', mins: 18 },
+    });
+    expect(migrated.expenses.find((expense) => expense.id === 'demo-expense-hotel')?.item)
+      .toBe('我改過的住宿');
+    expect(migrated.expenses.filter((expense) => expense.dayId === 'PRE_TRIP')).toHaveLength(3);
+    expect(repository.getPersistenceState().recoveryReason).toBe('template-migrated');
+    expect(recordStore.inspect()).toMatchObject({
+      templateVersion: LOCAL_EXAMPLE_TEMPLATE_VERSION,
+      revision: 8,
+    });
+  });
+
   it('resets only local data and attachments', async () => {
     const recordStore = createMemoryRecordStore();
     const attachmentStore = createAttachmentStore();
@@ -170,6 +226,27 @@ describe('local example trip repository', () => {
     expect(reset.expenses).toEqual([]);
     expect(reset.meta.title).toBe('Original（範例）');
     expect(attachmentStore.clear).toHaveBeenCalledOnce();
+  });
+
+  it('removes the local snapshot and attachments, then restores the current template', async () => {
+    const recordStore = createMemoryRecordStore();
+    const attachmentStore = createAttachmentStore();
+    const repository = createLocalExampleTripRepository({
+      recordStore,
+      attachmentStore,
+    });
+    await repository.loadTrip();
+    await repository.updateMeta({ title: 'Edited（範例）' });
+
+    await repository.removeLocalData();
+
+    expect(recordStore.clear).toHaveBeenCalledOnce();
+    expect(attachmentStore.clear).toHaveBeenCalledOnce();
+    expect(recordStore.inspect()).toBeNull();
+
+    const restored = await repository.restoreCurrentTemplate();
+    expect(restored.meta.title).toBe('東京三日自由行（範例）');
+    expect(restored.expenses.filter((expense) => expense.dayId === 'PRE_TRIP')).toHaveLength(3);
   });
 
   it('stores Blob attachments locally and never calls a cloud adapter', async () => {

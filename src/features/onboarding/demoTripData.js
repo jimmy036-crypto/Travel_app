@@ -1,4 +1,5 @@
 import { normalizeTicket } from '../tickets/ticketModel.js';
+import { PRE_TRIP_ID } from '../expenses/expenseConstants.js';
 
 export const DEMO_TRIP_ID = 'demo-getting-started';
 export const DEMO_TRIP_VERSION = 1;
@@ -45,7 +46,18 @@ function formatLocalDate(date) {
   return `${year}-${month}-${day}`;
 }
 
-function createPlace({ id, dayId, name, time, address, notes, category }) {
+function createPlace({
+  id,
+  dayId,
+  name,
+  time,
+  address,
+  notes,
+  category,
+  lat,
+  lng,
+  coordinateSource,
+}) {
   return {
     id,
     name,
@@ -58,8 +70,10 @@ function createPlace({ id, dayId, name, time, address, notes, category }) {
     memo: notes,
     category,
     dayId,
+    ...(Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : {}),
+    ...(coordinateSource ? { coordinateSource } : {}),
     tags: ['示範資料'],
-    nextLeg: { mode: 'DEMO', mins: 30 },
+    nextLeg: { mode: 'AUTO', mins: 30 },
   };
 }
 
@@ -98,10 +112,12 @@ export function createTokyoDemoTrip(options = {}) {
       createPlace({ id: 'demo-place-day1-skytree', dayId: 'Day 1', name: '東京晴空塔（示範）', time: '17:00', address: '押上地區（範例）', notes: '範例夜景安排，不代表即時營運或售票資訊。', category: 'sightseeing' }),
     ],
     'Day 2': [
-      createPlace({ id: 'demo-place-day2-meiji', dayId: 'Day 2', name: '明治神宮（示範）', time: '09:00', address: '代代木地區（範例）', notes: '範例景點，參訪規範請以現場公告為準。', category: 'sightseeing' }),
-      createPlace({ id: 'demo-place-day2-harajuku', dayId: 'Day 2', name: '原宿散步（示範）', time: '11:30', address: '原宿地區（範例）', notes: '範例自由活動，不含即時店家推薦。', category: 'sightseeing' }),
-      createPlace({ id: 'demo-place-day2-shibuya', dayId: 'Day 2', name: '澀谷（示範）', time: '15:00', address: '澀谷地區（範例）', notes: '範例市區行程，請依當日狀況調整。', category: 'sightseeing' }),
-      createPlace({ id: 'demo-place-day2-tower', dayId: 'Day 2', name: '東京鐵塔夜景（示範）', time: '19:00', address: '芝公園地區（範例）', notes: '範例夜景行程，不代表精確營業時間。', category: 'sightseeing' }),
+      createPlace({ id: 'demo-place-day2-meiji', dayId: 'Day 2', name: '明治神宮（示範）', time: '09:00', address: '東京都渋谷区代々木神園町1-1', notes: '範例景點，參訪規範請以現場公告為準。', category: 'sightseeing', lat: 35.67505, lng: 139.69948, coordinateSource: 'Wikidata Q287165 / OpenStreetMap' }),
+      // This intentionally puts Shibuya before nearby Harajuku so the existing
+      // optimizer has a visible, service-backed reorder to demonstrate.
+      createPlace({ id: 'demo-place-day2-shibuya', dayId: 'Day 2', name: '澀谷十字路口（示範）', time: '11:30', address: '東京都渋谷区道玄坂2丁目1', notes: '範例市區行程，請依當日狀況調整。', category: 'sightseeing', lat: 35.65952, lng: 139.7005, coordinateSource: 'Wikidata Q21083961 / OpenStreetMap' }),
+      createPlace({ id: 'demo-place-day2-harajuku', dayId: 'Day 2', name: '原宿站周邊散步（示範）', time: '15:00', address: '東京都渋谷区神宮前1丁目18-20', notes: '範例自由活動，不含即時店家推薦。', category: 'sightseeing', lat: 35.67022, lng: 139.70243, coordinateSource: 'Wikidata Q800894 / OpenStreetMap' }),
+      createPlace({ id: 'demo-place-day2-tower', dayId: 'Day 2', name: '東京鐵塔夜景（示範）', time: '19:00', address: '東京都港区芝公園4丁目2-8', notes: '範例夜景行程，不代表精確營業時間。', category: 'sightseeing', lat: 35.65861, lng: 139.74541, coordinateSource: 'Wikidata Q183536 / OpenStreetMap' }),
     ],
     'Day 3': [
       createPlace({ id: 'demo-place-day3-tsukiji', dayId: 'Day 3', name: '築地場外市場（示範）', time: '08:30', address: '築地地區（範例）', notes: '範例早餐安排，店家營業狀況請自行確認。', category: 'food' }),
@@ -164,6 +180,9 @@ export function createTokyoDemoTrip(options = {}) {
   ];
 
   const expenses = [
+    { id: 'demo-expense-pretrip-deposit', dayId: PRE_TRIP_ID, item: '住宿訂金（示範金額）', cost: 6000, localCost: 6000, currency: 'TWD', exchangeRate: 1, category: 'stay', payer: '自己', split: { 自己: 2000, '旅伴 A': 2000, '旅伴 B': 2000 }, note: '行前共同預付款示範；不是實際價格。', createdAt: timestamp - 3, updatedAt: timestamp - 3 },
+    { id: 'demo-expense-pretrip-pass', dayId: PRE_TRIP_ID, item: '交通周遊券（示範金額）', cost: 3600, localCost: 3600, currency: 'TWD', exchangeRate: 1, category: 'transport', payer: '旅伴 A', split: { 自己: 1200, '旅伴 A': 1200, '旅伴 B': 1200 }, note: '行前購票分帳示範；不是實際票價。', createdAt: timestamp - 2, updatedAt: timestamp - 2 },
+    { id: 'demo-expense-pretrip-insurance', dayId: PRE_TRIP_ID, item: '旅遊保險與網路（示範金額）', cost: 2400, localCost: 2400, currency: 'TWD', exchangeRate: 1, category: 'other', payer: '旅伴 B', split: { 自己: 800, '旅伴 A': 800, '旅伴 B': 800 }, note: '行前採購分帳示範；不是實際保費或網路方案價格。', createdAt: timestamp - 1, updatedAt: timestamp - 1 },
     { id: 'demo-expense-hotel', dayId: 'Day 1', item: '飯店（示範金額）', cost: 12000, localCost: 12000, currency: 'TWD', exchangeRate: 1, category: 'stay', payer: '自己', split: { 自己: 4000, '旅伴 A': 4000, '旅伴 B': 4000 }, note: '以下金額為示範資料，不代表東京實際價格。', createdAt: timestamp, updatedAt: timestamp },
     { id: 'demo-expense-transport', dayId: 'Day 1', item: '交通（示範金額）', cost: 3000, localCost: 3000, currency: 'TWD', exchangeRate: 1, category: 'transport', payer: '旅伴 A', split: { 自己: 1000, '旅伴 A': 1000, '旅伴 B': 1000 }, note: '示範共同分帳。', createdAt: timestamp + 1, updatedAt: timestamp + 1 },
     { id: 'demo-expense-food', dayId: 'Day 2', item: '餐飲（示範金額）', cost: 1800, localCost: 1800, currency: 'TWD', exchangeRate: 1, category: 'food', payer: '旅伴 B', split: { 自己: 600, '旅伴 A': 600, '旅伴 B': 600 }, note: '示範共同分帳。', createdAt: timestamp + 2, updatedAt: timestamp + 2 },

@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ExpenseSection } from './ExpenseSection.jsx';
+import { buildSettlementBalanceModel } from './settlementBalanceModel.js';
 
 // 模擬 Firebase 模組確保不直接呼叫 Firebase
 vi.mock('../../firebase', () => ({
@@ -44,6 +45,11 @@ const defaultProps = {
     transfers: [],
     groupedExpenses: [],
   },
+  settlementModel: buildSettlementBalanceModel({
+    expenses: [],
+    settlements: [],
+    members: ['Alice', 'Bob'],
+  }),
   onCreateExpense: vi.fn(),
   onEditExpense: vi.fn(),
   onMarkTransferPaid: vi.fn(),
@@ -101,8 +107,21 @@ describe('ExpenseSection', () => {
   });
 
   it('顯示 Settlement Summary', () => {
+    const expenses = [{
+      id: 'day-1',
+      dayId: 'Day 1',
+      cost: 200,
+      payer: 'Alice',
+      split: { Alice: 100, Bob: 100 },
+    }];
     const settleProps = {
       ...defaultProps,
+      expenses,
+      settlementModel: buildSettlementBalanceModel({
+        expenses,
+        settlements: [],
+        members: ['Alice', 'Bob'],
+      }),
       expenseStats: {
         ...defaultProps.expenseStats,
         balances: { Alice: 100, Bob: -100 },
@@ -115,19 +134,31 @@ describe('ExpenseSection', () => {
     fireEvent.click(screen.getByTestId('expense-settlement-view-button'));
     
     // 檢查結算總覽
-    expect(screen.getByText('應收回 +NT$100')).toBeInTheDocument();
-    expect(screen.getByText('須支付 -NT$100')).toBeInTheDocument();
+    expect(screen.getAllByText('剩餘應收 +NT$100').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('剩餘應付 -NT$100').length).toBeGreaterThan(0);
     expect(screen.getAllByText('NT$100').length).toBeGreaterThan(0); // transfer amount and others
   });
 
   it('顯示待轉帳並可標記為已轉帳', () => {
-    const transfer = { from: 'Bob', to: 'Alice', amount: 1250 };
+    const expenses = [{
+      id: 'day-1',
+      dayId: 'Day 1',
+      cost: 2500,
+      payer: 'Alice',
+      split: { Alice: 1250, Bob: 1250 },
+    }];
     render(<ExpenseSection
       {...defaultProps}
+      expenses={expenses}
+      settlementModel={buildSettlementBalanceModel({
+        expenses,
+        settlements: [],
+        members: ['Alice', 'Bob'],
+      })}
       expenseStats={{
         ...defaultProps.expenseStats,
         balances: { Alice: 1250, Bob: -1250 },
-        transfers: [transfer],
+        transfers: [],
       }}
     />);
 
@@ -140,23 +171,38 @@ describe('ExpenseSection', () => {
       toParticipantId: 'Alice',
       amount: 1250,
       currency: 'TWD',
+      scope: 'intrip',
     }));
   });
 
   it('顯示已完成紀錄並可取消已轉帳', () => {
+    const expenses = [{
+      id: 'day-1',
+      dayId: 'Day 1',
+      cost: 200,
+      payer: 'Alice',
+      split: { Alice: 100, Bob: 100 },
+    }];
+    const settlements = [{
+      id: 'transfer-1',
+      fromParticipantId: 'Bob',
+      toParticipantId: 'Alice',
+      amount: 100,
+      currency: 'TWD',
+      scope: 'intrip',
+      status: 'paid',
+      paidAt: '2026-07-28T04:30:00.000Z',
+      createdAt: '2026-07-28T04:30:00.000Z',
+      updatedAt: '2026-07-28T04:30:00.000Z',
+    }];
     render(<ExpenseSection
       {...defaultProps}
-      settlements={[{
-        id: 'transfer-1',
-        fromParticipantId: 'Bob',
-        toParticipantId: 'Alice',
-        amount: 100,
-        currency: 'TWD',
-        status: 'paid',
-        paidAt: '2026-07-28T04:30:00.000Z',
-        createdAt: '2026-07-28T04:30:00.000Z',
-        updatedAt: '2026-07-28T04:30:00.000Z',
-      }]}
+      expenses={expenses}
+      settlementModel={buildSettlementBalanceModel({
+        expenses,
+        settlements,
+        members: ['Alice', 'Bob'],
+      })}
       expenseStats={{
         ...defaultProps.expenseStats,
         transfers: [{ from: 'Bob', to: 'Alice', amount: 100 }],
@@ -177,14 +223,27 @@ describe('ExpenseSection', () => {
       toParticipantId: 'Alice',
       amount: 100,
       currency: 'TWD',
+      scope: 'intrip',
       status: 'paid',
       paidAt: '2026-07-28T04:30:00.000Z',
       createdAt: '2026-07-28T04:30:00.000Z',
       updatedAt: '2026-07-28T04:30:00.000Z',
     };
+    const expenses = [{
+      id: 'day-1',
+      dayId: 'Day 1',
+      cost: 240,
+      payer: 'Alice',
+      split: { Alice: 120, Bob: 120 },
+    }];
     render(<ExpenseSection
       {...defaultProps}
-      settlements={[paidRecord]}
+      expenses={expenses}
+      settlementModel={buildSettlementBalanceModel({
+        expenses,
+        settlements: [paidRecord],
+        members: ['Alice', 'Bob'],
+      })}
       expenseStats={{
         ...defaultProps.expenseStats,
         transfers: [
@@ -195,8 +254,9 @@ describe('ExpenseSection', () => {
     />);
 
     fireEvent.click(screen.getByTestId('expense-settlement-view-button'));
-    expect(screen.getAllByTestId('pending-settlement-transfer')).toHaveLength(2);
+    expect(screen.getAllByTestId('pending-settlement-transfer')).toHaveLength(1);
     expect(screen.getByTestId('completed-settlement-transfer')).toHaveTextContent('NT$100');
+    expect(screen.getByTestId('completed-settlement-transfer')).toHaveTextContent('未抵銷剩餘款項');
   });
 
   it('點新增費用呼叫 onCreateExpense', () => {

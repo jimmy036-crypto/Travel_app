@@ -68,6 +68,10 @@ import {
   readFirstRunEligibilitySnapshot,
   shouldShowFirstRunOnboarding,
 } from './features/onboarding/onboardingState.js';
+import {
+  isExampleTripHidden,
+  setExampleTripHidden,
+} from './features/onboarding/exampleTripVisibility.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -132,6 +136,9 @@ export default function TravelApp() {
   );
   const firstRunCompletionRef = useRef(false);
   const [customBgColor, setCustomBgColor] = useState(() => readStorage('google-travel-custom-bg', '#d8b4e2'));
+  const [exampleTripHidden, setExampleTripHiddenState] = useState(
+    () => isExampleTripHidden(),
+  );
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showFeatureTour, setShowFeatureTour] = useState(false);
   const [releasePromptDeferred, setReleasePromptDeferred] = useState(false);
@@ -416,14 +423,58 @@ export default function TravelApp() {
     setTripModalMode('create');
   }, []);
 
-  const openBuiltInDemo = useCallback(() => {
+  const openBuiltInDemo = useCallback(async () => {
+    if (exampleTripHidden) {
+      try {
+        await exampleRepository.restoreCurrentTemplate();
+        setExampleTripHidden(false);
+        setExampleTripHiddenState(false);
+      } catch (error) {
+        console.error('Restore example trip failed:', error);
+        toast.error({ title: LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE });
+        return;
+      }
+    }
     setShowWhatsNew(false);
     setShowFeatureIntroduction(false);
     setOfflinePreviewData(null);
     window.history.pushState(null, '', window.location.pathname);
     setActiveTripSource('example');
     setActiveRoomId(LOCAL_EXAMPLE_TRIP_ID);
-  }, []);
+  }, [exampleRepository, exampleTripHidden, toast]);
+
+  const handleRemoveBuiltInDemo = useCallback(async () => {
+    const ok = await confirm({
+      title: '從這台裝置的大廳移除示範旅程？',
+      description: '這會清除示範旅程在此裝置上的修改內容。正式旅程不受影響。',
+      confirmLabel: '從大廳移除',
+      cancelLabel: '取消',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await exampleRepository.removeLocalData();
+      setExampleTripHidden(true);
+      setExampleTripHiddenState(true);
+      toast.success({ title: '已從大廳移除示範旅程' });
+    } catch (error) {
+      console.error('Remove example trip failed:', error);
+      toast.error({ title: LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE });
+    }
+  }, [confirm, exampleRepository, toast]);
+
+  const handleRestoreBuiltInDemo = useCallback(async (trigger) => {
+    try {
+      await exampleRepository.restoreCurrentTemplate();
+      setExampleTripHidden(false);
+      setExampleTripHiddenState(false);
+      toast.success({ title: '已恢復示範旅程' });
+      window.requestAnimationFrame(() => trigger?.focus?.());
+    } catch (error) {
+      console.error('Restore example trip failed:', error);
+      toast.error({ title: LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE });
+    }
+  }, [exampleRepository, toast]);
 
   const handleResetBuiltInDemo = useCallback(async () => {
     if (!window.confirm('確定要清除目前修改，並恢復原始內容嗎？')) return;
@@ -918,6 +969,9 @@ export default function TravelApp() {
               onOpenReleaseNotes={openReleaseNotes}
               onOpenFeatureIntroduction={openFeatureIntroduction}
               onStartFeatureTour={startFeatureTour}
+              showDemoEntry
+              onOpenDemo={exampleTripHidden ? handleRestoreBuiltInDemo : openBuiltInDemo}
+              demoEntryLabel={exampleTripHidden ? '恢復示範旅程' : '查看示範旅程'}
               onCheckUpdates={handleCheckAppUpdate}
               isCheckingUpdates={isCheckingAppUpdate}
             />
@@ -1035,11 +1089,14 @@ export default function TravelApp() {
                 onClick: () => setShowImportModal(true),
               }}
             />
-            <DemoTripEntryCard
-              trip={{ ...BUILT_IN_EXAMPLE_TRIP.meta, roomId: LOCAL_EXAMPLE_TRIP_ID }}
-              onOpenDemo={openBuiltInDemo}
-              onReset={handleResetBuiltInDemo}
-            />
+            {!exampleTripHidden ? (
+              <DemoTripEntryCard
+                trip={{ ...BUILT_IN_EXAMPLE_TRIP.meta, roomId: LOCAL_EXAMPLE_TRIP_ID }}
+                onOpenDemo={openBuiltInDemo}
+                onRemove={handleRemoveBuiltInDemo}
+                onReset={handleResetBuiltInDemo}
+              />
+            ) : null}
             <FeatureIntroductionButton
               onOpen={openFeatureIntroduction}
               className="w-full"
@@ -1047,11 +1104,14 @@ export default function TravelApp() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <DemoTripEntryCard
-              trip={{ ...BUILT_IN_EXAMPLE_TRIP.meta, roomId: LOCAL_EXAMPLE_TRIP_ID }}
-              onOpenDemo={openBuiltInDemo}
-              onReset={handleResetBuiltInDemo}
-            />
+            {!exampleTripHidden ? (
+              <DemoTripEntryCard
+                trip={{ ...BUILT_IN_EXAMPLE_TRIP.meta, roomId: LOCAL_EXAMPLE_TRIP_ID }}
+                onOpenDemo={openBuiltInDemo}
+                onRemove={handleRemoveBuiltInDemo}
+                onReset={handleResetBuiltInDemo}
+              />
+            ) : null}
             {myTrips.map((trip) => (
               <TripCard
                 key={String(trip.roomId)}

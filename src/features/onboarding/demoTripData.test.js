@@ -86,11 +86,30 @@ describe('createTokyoDemoTrip content', () => {
       '抵達東京（示範）', '飯店寄放行李（示範）', '淺草寺（示範）', '東京晴空塔（示範）',
     ]));
     expect(demo.itinerary['Day 2'].map((place) => place.name)).toEqual(expect.arrayContaining([
-      '明治神宮（示範）', '原宿散步（示範）', '澀谷（示範）', '東京鐵塔夜景（示範）',
+      '明治神宮（示範）', '原宿站周邊散步（示範）', '澀谷十字路口（示範）', '東京鐵塔夜景（示範）',
     ]));
     expect(demo.itinerary['Day 3'].map((place) => place.name)).toEqual(expect.arrayContaining([
       '築地場外市場（示範）', '銀座散步（示範）', '機場返程（示範）',
     ]));
+  });
+
+  it('uses verified route coordinates and an intentionally non-optimal demo order', () => {
+    const day = createDemo().itinerary['Day 2'];
+
+    expect(day.map((place) => place.id)).toEqual([
+      'demo-place-day2-meiji',
+      'demo-place-day2-shibuya',
+      'demo-place-day2-harajuku',
+      'demo-place-day2-tower',
+    ]);
+    day.forEach((place) => {
+      expect(place).toMatchObject({
+        lat: expect.any(Number),
+        lng: expect.any(Number),
+        coordinateSource: expect.stringContaining('OpenStreetMap'),
+        nextLeg: expect.objectContaining({ mode: 'AUTO' }),
+      });
+    });
   });
 
   it('gives every place a unique demo ID and display fields', () => {
@@ -152,6 +171,9 @@ describe('createTokyoDemoTrip content', () => {
       expect(expense.note).toContain('示範');
     });
     expect(expenses.map((expense) => expense.category)).toEqual(expect.arrayContaining(['stay', 'transport', 'food', 'ticket']));
+    expect(expenses.filter((expense) => expense.dayId === 'PRE_TRIP')).toHaveLength(3);
+    expect(new Set(expenses.filter((expense) => expense.dayId === 'PRE_TRIP').map((expense) => expense.payer)))
+      .toEqual(new Set(['自己', '旅伴 A', '旅伴 B']));
   });
 
   it('contains unique canonical checklist IDs and mixed states/scopes', () => {

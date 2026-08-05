@@ -8,7 +8,14 @@ export function AppearanceDialog({
   onColorChange,
   onClose,
   t,
+  context = 'lobby',
 }) {
+  const isTrip = context === 'trip';
+  const colorLabel = isTrip ? '旅程主題顏色' : '主頁背景顏色';
+  const description = isTrip
+    ? '選擇旅程主題顏色；變更會立即預覽並隨旅程保存。'
+    : '選擇主頁背景顏色；變更會立即預覽並保存在這台裝置。';
+
   return createPortal(
     <ResponsiveBottomSheet
       onClose={onClose}
@@ -23,7 +30,7 @@ export function AppearanceDialog({
             自訂外觀
           </h2>
           <p className={`mt-1 text-xs font-bold ${t.subText}`}>
-            選擇主頁背景顏色；變更會立即預覽並保存在這台裝置。
+            {description}
           </p>
         </div>
         <button
@@ -39,7 +46,7 @@ export function AppearanceDialog({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
         <label htmlFor="appearance-color-input" className={`text-xs font-black ${t.mainText}`}>
-          主頁背景顏色
+          {colorLabel}
         </label>
         <div className={`mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-2xl border p-4 ${t.cardBg} ${t.cardBorder}`}>
           <input
@@ -49,7 +56,7 @@ export function AppearanceDialog({
             value={String(color)}
             onChange={(event) => onColorChange(event.target.value)}
             className="h-16 w-full min-w-0 cursor-pointer rounded-xl border-0 bg-transparent p-0"
-            aria-label="選擇主頁背景顏色"
+            aria-label={`選擇${colorLabel}`}
           />
           <output className={`font-mono text-sm font-black ${t.mainText}`}>
             {String(color).toUpperCase()}

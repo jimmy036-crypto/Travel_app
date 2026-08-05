@@ -4,7 +4,7 @@ export const LOCAL_EXAMPLE_DATABASE_VERSION = 1;
 export const LOCAL_EXAMPLE_TRIP_STORE = 'tripRecords';
 export const LOCAL_EXAMPLE_ATTACHMENT_STORE = 'attachments';
 export const LOCAL_EXAMPLE_SCHEMA_VERSION = '1.0.0';
-export const LOCAL_EXAMPLE_TEMPLATE_VERSION = '1.0.0';
+export const LOCAL_EXAMPLE_TEMPLATE_VERSION = '2.0.0';
 export const LOCAL_EXAMPLE_TITLE_SUFFIX = '（範例）';
 
 export const LOCAL_EXAMPLE_SAVE_ERROR_MESSAGE = '無法保存目前的修改，請稍後再試。';
