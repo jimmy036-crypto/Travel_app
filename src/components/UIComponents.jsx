@@ -390,6 +390,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
   const rootRef = useRef(null);
   const inputRef = useRef(null);
   const selectionRequestRef = useRef(0);
+  const selectionPendingRef = useRef(false);
   const listboxId = React.useId();
   if (inputState.externalValue !== val) {
     const isCommittedSelection = inputState.committedValue === val;
@@ -412,6 +413,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
   const handleSearch = (event) => {
     const nextValue = String(event.target.value);
     selectionRequestRef.current += 1;
+    selectionPendingRef.current = false;
     setInputState({
       externalValue: val,
       displayValue: nextValue,
@@ -426,7 +428,8 @@ export const DestinationSearch = ({ value, onChange, t }) => {
   };
 
   const select = (prediction) => {
-    if (!placesLibrary || !prediction?.place_id || isPending) return;
+    if (!placesLibrary || !prediction?.place_id || selectionPendingRef.current) return;
+    selectionPendingRef.current = true;
     const selectedText = String(prediction.description || '');
     const requestId = selectionRequestRef.current + 1;
     selectionRequestRef.current = requestId;
@@ -446,6 +449,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
     const service = new placesLibrary.PlacesService(document.createElement('div'));
     service.getDetails({ placeId: prediction.place_id, fields: ['geometry'] }, (result, status) => {
       if (requestId !== selectionRequestRef.current) return;
+      selectionPendingRef.current = false;
       const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK;
       const location = result?.geometry?.location;
       setIsPending(false);
@@ -486,7 +490,13 @@ export const DestinationSearch = ({ value, onChange, t }) => {
   const handleBlur = (event) => {
     if (rootRef.current?.contains(event.relatedTarget)) return;
     setIsOpen(false);
+    setActiveIndex(-1);
   };
+
+  useEffect(() => () => {
+    selectionRequestRef.current += 1;
+    selectionPendingRef.current = false;
+  }, []);
 
   return (
     <div ref={rootRef} className="relative">
@@ -532,6 +542,10 @@ export const DestinationSearch = ({ value, onChange, t }) => {
               role="option"
               aria-selected={index === safeActiveIndex}
               disabled={isPending}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                select(suggestion);
+              }}
               onClick={() => select(suggestion)}
               className={`block min-h-11 w-full cursor-pointer border-b p-3 text-left transition-colors hover:bg-blue-500 hover:text-white disabled:cursor-wait disabled:opacity-60 ${index === safeActiveIndex ? 'bg-blue-500 text-white' : t.mainText} ${t.cardBorder}`}
             >

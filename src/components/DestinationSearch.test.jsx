@@ -58,7 +58,7 @@ describe('DestinationSearch event diagnostics', () => {
     delete window.google;
   });
 
-  it('records pointer, blur, click, details, and state-update order for one interaction', async () => {
+  it('selects on pointerdown before blur can remove the option', async () => {
     const events = [];
     const onChange = vi.fn((text, coordinates) => {
       events.push(coordinates ? 'onChange coordinates' : `onChange text:${text}`);
@@ -78,28 +78,50 @@ describe('DestinationSearch event diagnostics', () => {
 
     render(<DestinationSearch value="東京" onChange={onChange} t={theme} />);
 
-    const input = screen.getByRole('combobox');
     await waitFor(() => expect(screen.getByRole('option', { name: '日本東京都' })).toBeVisible(), {
       timeout: 1_000,
     });
     const option = screen.getByRole('option', { name: '日本東京都' });
-    input.addEventListener('blur', () => events.push('input blur'));
     option.addEventListener('pointerdown', () => events.push('pointerdown'));
-    option.addEventListener('touchstart', () => events.push('touchstart'));
-    option.addEventListener('click', () => events.push('option click'), { capture: true });
 
-    fireEvent.pointerDown(option);
-    fireEvent.blur(input, { relatedTarget: option });
-    fireEvent.click(option);
+    expect(fireEvent.pointerDown(option)).toBe(false);
 
     expect(events).toEqual([
       'pointerdown',
-      'input blur',
-      'option click',
       'getDetails start',
       'onChange coordinates',
       'getDetails callback',
     ]);
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not wait for click after a mobile pointer selection', async () => {
+    const onChange = vi.fn();
+    mapsMocks.getDetails.mockImplementation((_request, callback) => {
+      callback({
+        geometry: {
+          location: {
+            lat: () => 35.6762,
+            lng: () => 139.6503,
+          },
+        },
+      }, 'OK');
+    });
+
+    render(<DestinationSearch value="東京" onChange={onChange} t={theme} />);
+
+    const input = screen.getByRole('combobox');
+    const option = await screen.findByRole('option', { name: '日本東京都' });
+
+    // Mobile Safari may blur the input with a null relatedTarget and suppress
+    // click after a prevented pointerdown. Selection must already be complete.
+    expect(fireEvent.pointerDown(option)).toBe(false);
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(
+      '日本東京都',
+      { lat: 35.6762, lng: 139.6503 },
+    ));
+    expect(input).toHaveValue('日本東京都');
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 

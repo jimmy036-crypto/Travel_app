@@ -67,12 +67,16 @@ test.beforeEach(async ({ page }) => {
   await prepare(page);
 });
 
-test('one pointer selection shows loading and applies destination once', async ({ page }) => {
+test('one pointer selection shows loading and applies destination once', async ({ page }, testInfo) => {
   const input = await openDestination(page);
   await input.fill('東京');
   const option = page.getByRole('option', { name: '日本東京都' });
   await expect(option).toBeVisible();
-  await option.click();
+  if (testInfo.project.name === 'Mobile Safari') {
+    await option.tap();
+  } else {
+    await option.click();
+  }
   await expect(page.getByRole('status')).toContainText('正在取得地點資料');
   await completeLatestDetails(page);
   await expect(input).toHaveValue('日本東京都');
