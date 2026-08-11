@@ -113,6 +113,77 @@ const usePlacePredictions = ({ input, placesLibrary, types = undefined }) => {
   return [visiblePredictions, clearPredictions];
 };
 
+const useDestinationPredictions = ({ input, placesLibrary }) => {
+  const [resultState, setResultState] = useState({ query: '', items: [], status: 'idle' });
+  const requestIdRef = useRef(0);
+  const sessionTokenRef = useRef(null);
+  const query = String(input || '').trim();
+  const autocompleteApi = placesLibrary?.AutocompleteSuggestion;
+  const SessionToken = placesLibrary?.AutocompleteSessionToken;
+  const canSearch = Boolean(
+    autocompleteApi?.fetchAutocompleteSuggestions
+    && SessionToken
+    && query.length >= 2
+  );
+
+  const clearPredictions = useCallback(() => {
+    requestIdRef.current += 1;
+    setResultState({ query: '', items: [], status: 'idle' });
+  }, []);
+
+  const finishSession = useCallback(() => {
+    sessionTokenRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    requestIdRef.current += 1;
+    const requestId = requestIdRef.current;
+    if (!canSearch) return undefined;
+
+    const timer = window.setTimeout(() => {
+      if (!sessionTokenRef.current) {
+        sessionTokenRef.current = new SessionToken();
+      }
+
+      void autocompleteApi.fetchAutocompleteSuggestions({
+        input: query,
+        includedPrimaryTypes: REGION_AUTOCOMPLETE_TYPES,
+        language: 'zh-TW',
+        sessionToken: sessionTokenRef.current,
+      }).then(({ suggestions }) => {
+        if (requestId !== requestIdRef.current) return;
+        const predictions = Array.isArray(suggestions)
+          ? suggestions
+            .map((suggestion) => suggestion?.placePrediction)
+            .filter((prediction) => prediction?.placeId && prediction?.text)
+          : [];
+        setResultState({
+          query,
+          items: predictions,
+          status: predictions.length > 0 ? 'ready' : 'empty',
+        });
+      }).catch(() => {
+        if (requestId !== requestIdRef.current) return;
+        setResultState({ query, items: [], status: 'error' });
+      });
+    }, AUTOCOMPLETE_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [autocompleteApi, canSearch, query, SessionToken]);
+
+  const status = !canSearch
+    ? 'idle'
+    : (resultState.query === query ? resultState.status : 'loading');
+  const visiblePredictions = status === 'ready' ? resultState.items : [];
+
+  return {
+    clearPredictions,
+    finishSession,
+    status,
+    suggestions: visiblePredictions,
+  };
+};
+
 const sanitizeFileName = (name) => String(name || 'ticket')
   .normalize('NFKC')
   .replace(/[^a-zA-Z0-9._-]+/g, '_')
@@ -390,6 +461,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
   const rootRef = useRef(null);
   const inputRef = useRef(null);
   const selectionRequestRef = useRef(0);
+  const selectionPendingRef = useRef(false);
   const listboxId = React.useId();
   if (inputState.externalValue !== val) {
     const isCommittedSelection = inputState.committedValue === val;
@@ -400,10 +472,14 @@ export const DestinationSearch = ({ value, onChange, t }) => {
       committedValue: '',
     });
   }
-  const [sug, clearSug] = usePlacePredictions({
+  const {
+    clearPredictions: clearSug,
+    finishSession,
+    status: predictionStatus,
+    suggestions: sug,
+  } = useDestinationPredictions({
     input: inputState.query,
     placesLibrary,
-    types: REGION_AUTOCOMPLETE_TYPES,
   });
   const safeActiveIndex = sug.length === 0
     ? -1
@@ -412,6 +488,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
   const handleSearch = (event) => {
     const nextValue = String(event.target.value);
     selectionRequestRef.current += 1;
+    selectionPendingRef.current = false;
     setInputState({
       externalValue: val,
       displayValue: nextValue,
@@ -425,9 +502,10 @@ export const DestinationSearch = ({ value, onChange, t }) => {
     onChange(nextValue, null);
   };
 
-  const select = (prediction) => {
-    if (!placesLibrary || !prediction?.place_id || isPending) return;
-    const selectedText = String(prediction.description || '');
+  const select = async (prediction) => {
+    if (!prediction?.placeId || !prediction?.toPlace || selectionPendingRef.current) return;
+    selectionPendingRef.current = true;
+    const selectedText = String(prediction.text || '');
     const requestId = selectionRequestRef.current + 1;
     selectionRequestRef.current = requestId;
     setInputState({
@@ -441,26 +519,40 @@ export const DestinationSearch = ({ value, onChange, t }) => {
     setIsPending(true);
     setErrorMessage('');
     clearSug();
+    finishSession();
 
-    // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
-    const service = new placesLibrary.PlacesService(document.createElement('div'));
-    service.getDetails({ placeId: prediction.place_id, fields: ['geometry'] }, (result, status) => {
+    try {
+      const place = prediction.toPlace();
+      await place.fetchFields({ fields: ['location'] });
       if (requestId !== selectionRequestRef.current) return;
-      const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK;
-      const location = result?.geometry?.location;
+      selectionPendingRef.current = false;
+      const location = place.location;
       setIsPending(false);
       setInputState((previous) => ({
         ...previous,
         committedValue: selectedText,
       }));
-      if (ok && location) {
+      if (location) {
         onChange(selectedText, { lat: location.lat(), lng: location.lng() });
       } else {
         onChange(selectedText, null);
         setErrorMessage('無法取得此目的地的座標，請重新搜尋並選擇。');
       }
-      window.requestAnimationFrame(() => inputRef.current?.focus?.());
-    });
+    } catch {
+      if (requestId !== selectionRequestRef.current) return;
+      selectionPendingRef.current = false;
+      setIsPending(false);
+      setInputState((previous) => ({
+        ...previous,
+        committedValue: selectedText,
+      }));
+      onChange(selectedText, null);
+      setErrorMessage('無法取得此目的地的座標，請重新搜尋並選擇。');
+    } finally {
+      if (requestId === selectionRequestRef.current) {
+        window.requestAnimationFrame(() => inputRef.current?.focus?.());
+      }
+    }
   };
 
   const handleKeyDown = (event) => {
@@ -479,14 +571,20 @@ export const DestinationSearch = ({ value, onChange, t }) => {
       setActiveIndex((index) => (index <= 0 ? sug.length - 1 : index - 1));
     } else if (event.key === 'Enter' && safeActiveIndex >= 0) {
       event.preventDefault();
-      select(sug[safeActiveIndex]);
+      void select(sug[safeActiveIndex]);
     }
   };
 
   const handleBlur = (event) => {
     if (rootRef.current?.contains(event.relatedTarget)) return;
     setIsOpen(false);
+    setActiveIndex(-1);
   };
+
+  useEffect(() => () => {
+    selectionRequestRef.current += 1;
+    selectionPendingRef.current = false;
+  }, []);
 
   return (
     <div ref={rootRef} className="relative">
@@ -497,7 +595,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
          aria-expanded={isOpen && sug.length > 0}
          aria-controls={listboxId}
          aria-activedescendant={safeActiveIndex >= 0 ? `${listboxId}-option-${safeActiveIndex}` : undefined}
-         aria-describedby={errorMessage ? `${listboxId}-error` : undefined}
+         aria-describedby={errorMessage || predictionStatus === 'error' ? `${listboxId}-error` : undefined}
          className={`w-full p-3.5 rounded-xl border outline-none focus:ring-2 focus:ring-blue-500 transition-colors text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
          placeholder="請搜尋並選擇城市 (例如：日本大阪)"
          value={inputState.displayValue}
@@ -507,14 +605,19 @@ export const DestinationSearch = ({ value, onChange, t }) => {
          onBlur={handleBlur}
          autoComplete="off"
       />
-      {isPending ? (
+      {isPending || predictionStatus === 'loading' ? (
         <p role="status" className={`mt-2 text-xs font-bold ${t.subText}`}>
-          正在取得地點資料…
+          {isPending ? '正在取得地點資料…' : '正在搜尋地點…'}
         </p>
       ) : null}
-      {errorMessage ? (
+      {predictionStatus === 'empty' ? (
+        <p role="status" className={`mt-2 text-xs font-bold ${t.subText}`}>
+          找不到符合的地點，請嘗試其他關鍵字。
+        </p>
+      ) : null}
+      {errorMessage || predictionStatus === 'error' ? (
         <p id={`${listboxId}-error`} role="alert" className="mt-2 text-xs font-bold text-red-500">
-          {errorMessage}
+          {errorMessage || '無法載入地點建議，請稍後再試。'}
         </p>
       ) : null}
       {isOpen && sug.length > 0 ? (
@@ -527,15 +630,19 @@ export const DestinationSearch = ({ value, onChange, t }) => {
           {sug.map((suggestion, index) => (
             <button
               id={`${listboxId}-option-${index}`}
-              key={String(suggestion.place_id)}
+              key={String(suggestion.placeId)}
               type="button"
               role="option"
               aria-selected={index === safeActiveIndex}
               disabled={isPending}
-              onClick={() => select(suggestion)}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                void select(suggestion);
+              }}
+              onClick={() => void select(suggestion)}
               className={`block min-h-11 w-full cursor-pointer border-b p-3 text-left transition-colors hover:bg-blue-500 hover:text-white disabled:cursor-wait disabled:opacity-60 ${index === safeActiveIndex ? 'bg-blue-500 text-white' : t.mainText} ${t.cardBorder}`}
             >
-              {String(suggestion.description)}
+              {String(suggestion.text)}
             </button>
           ))}
         </div>
