@@ -952,13 +952,13 @@ export default function TravelApp() {
     <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex w-full max-w-[100vw] flex-col overflow-x-hidden overscroll-none font-sans transition-colors duration-500 ${t.mainText}`}>
       <div className="mx-auto w-full max-w-6xl overflow-y-auto p-4 pb-[max(2rem,env(safe-area-inset-bottom))] md:p-8 lg:p-10">
         <header className={`mb-8 flex flex-col gap-5 rounded-3xl border p-4 shadow-[var(--travel-shadow-card)] backdrop-blur-xl md:p-6 ${t.headerBg} ${t.cardBorder}`}>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1 basis-64">
               <div className="mb-2 flex min-w-0 items-center gap-3 md:gap-4">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 md:h-14 md:w-14">
                   <Icon name="plane" size={28} strokeWidth={2} />
                 </div>
-                <h1 className={`min-w-0 truncate text-3xl font-black tracking-tight md:text-4xl ${t.mainText}`}>智の旅行</h1>
+                <h1 className={`min-w-0 text-3xl font-black leading-tight tracking-tight md:text-4xl ${t.mainText}`}>智の旅行</h1>
               </div>
               <p className={`text-sm font-semibold leading-6 md:text-base ${t.subText}`}>集中規劃行程、地圖、票券與旅費</p>
             </div>
@@ -994,20 +994,22 @@ export default function TravelApp() {
             >
               <span className="whitespace-nowrap">建立新旅程</span>
             </Button>
-            <div className="grid grid-cols-2 gap-3 md:flex md:w-auto">
+            <div className="flex w-full flex-wrap gap-3 md:w-auto">
               <Button
                 data-testid="import-trip-button"
                 onClick={() => setShowImportModal(true)}
+                variant="themed"
                 leadingIcon={<Icon name="download" />}
-                className={`${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                className={`min-w-36 flex-1 md:flex-none ${t.cardBg} ${t.cardBorder} ${t.mainText} ${t.cardHover}`}
               >
                 <span className="whitespace-nowrap">匯入旅程</span>
               </Button>
               <Button
                 data-testid="lobby-appearance-button"
                 onClick={(event) => openLobbyAppearance(event.currentTarget)}
+                variant="themed"
                 leadingIcon={<Icon name="palette" />}
-                className={`${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                className={`min-w-36 flex-1 md:flex-none ${t.cardBg} ${t.cardBorder} ${t.mainText} ${t.cardHover}`}
               >
                 <span className="whitespace-nowrap">自訂外觀</span>
               </Button>

@@ -1273,9 +1273,9 @@ const TripDetailSkeleton = ({
                 >
                   ◀ 返回
                 </button>
-                <SkeletonText lines={1} className="w-40 md:w-56" />
+                <SkeletonText lines={1} className="w-40 md:w-56" isLight={t.isLight} />
               </div>
-              <SkeletonText lines={1} className="mt-2 w-56 md:w-72" />
+              <SkeletonText lines={1} className="mt-2 w-56 md:w-72" isLight={t.isLight} />
             </div>
             <AppSettingsMenu
               key="trip-skeleton-settings"
@@ -1293,9 +1293,9 @@ const TripDetailSkeleton = ({
 
         <div className={`md:hidden shrink-0 border-b px-4 py-3 ${t.headerBg} ${t.cardBorder}`}>
           <div className="flex gap-2 overflow-hidden">
-            <SkeletonButton className="h-11 w-20 shrink-0" />
-            <SkeletonButton className="h-11 w-20 shrink-0" />
-            <SkeletonButton className="h-11 w-20 shrink-0" />
+            <SkeletonButton className="h-11 w-20 shrink-0" isLight={t.isLight} />
+            <SkeletonButton className="h-11 w-20 shrink-0" isLight={t.isLight} />
+            <SkeletonButton className="h-11 w-20 shrink-0" isLight={t.isLight} />
           </div>
         </div>
 
@@ -1311,9 +1311,9 @@ const TripDetailSkeleton = ({
               >
                 <div className="mb-4 flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <SkeletonText lines={2} className="w-52" />
+                    <SkeletonText lines={2} className="w-52" isLight={t.isLight} />
                   </div>
-                  <SkeletonButton className="h-8 w-24 shrink-0" />
+                  <SkeletonButton className="h-8 w-24 shrink-0" isLight={t.isLight} />
                 </div>
                 <div className="space-y-3">
                   {Array.from({ length: 3 }).map((_, index) => (
@@ -1323,12 +1323,12 @@ const TripDetailSkeleton = ({
                       className={`rounded-2xl border p-4 shadow-sm ${t.itemBg} ${t.cardBorder}`}
                     >
                       <div className="flex gap-4">
-                        <div className="h-10 w-10 shrink-0 rounded-xl bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                        <div className={`h-10 w-10 shrink-0 rounded-xl motion-safe:animate-pulse ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} />
                         <div className="min-w-0 flex-1">
-                          <SkeletonText lines={2} />
+                          <SkeletonText lines={2} isLight={t.isLight} />
                           <div className="mt-3 flex gap-2">
-                            <div className="h-5 w-16 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
-                            <div className="h-5 w-20 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                            <div className={`h-5 w-16 rounded-full motion-safe:animate-pulse ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} />
+                            <div className={`h-5 w-20 rounded-full motion-safe:animate-pulse ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} />
                           </div>
                         </div>
                       </div>
@@ -3390,13 +3390,13 @@ const TripDetail = ({
   }
 
   const mobileSyncStatusNode = capabilities.cloudSync ? (
-    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} />
+    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} isLight={t.isLight} />
   ) : null;
 
   // The map top bar is the only mobile header that also carries the day
   // switcher, so the badge goes compact there to stop it squeezing the days.
   const mobileCompactSyncStatusNode = capabilities.cloudSync ? (
-    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} compact />
+    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} compact isLight={t.isLight} />
   ) : null;
 
   const mobileSettingsMenu = (
@@ -3504,7 +3504,7 @@ const TripDetail = ({
                   <div className="flex min-w-0 items-center gap-2">
                     <button onClick={onBack} data-testid="back-to-lobby" aria-label="返回旅程大廳" className={`mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.subText}`}><Icon name="arrowLeft" /></button>
                     <h1 data-testid="trip-detail-title" className={`max-w-48 truncate text-xl font-black tracking-tight md:max-w-75 ${t.mainText}`}>{String(meta.title)}</h1>
-                    {capabilities.cloudSync ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
+                    {capabilities.cloudSync ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} isLight={t.isLight} /> : null}
                   </div>
                   <p className={`ml-13 flex items-center gap-1.5 text-xs font-semibold ${t.subText}`}><Icon name="location" size={15} /><span className="truncate">{String(meta.destination)} · {String(meta.transport)}</span></p>
                 </div>
@@ -3711,7 +3711,7 @@ const TripDetail = ({
                          ) : null}
                          <div className="flex items-center gap-2 mt-0.5">
                           {weatherInfo[dayId] && (
-                            <span className="text-[10px] font-semibold opacity-90 bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold opacity-90 ${t.cardMetaBg}`}>
                               🌡️ {weatherInfo[dayId].temp} | 🌧️ {weatherInfo[dayId].rain}%
                             </span>
                           )}
@@ -4024,7 +4024,7 @@ const TripDetail = ({
               <div className="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-125 z-20 flex flex-col gap-2">
                 <div className={`flex items-center gap-2 p-2 rounded-2xl shadow-lg backdrop-blur-xl border ${t.headerBg} ${t.cardBorder}`}>
                   <input value={String(exploreQuery)} onChange={e => setExploreQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleExploreSearch(exploreQuery, null); }} placeholder="探索周邊美食地標..." className={`flex-1 bg-transparent px-2 outline-none text-sm font-bold ${t.mainText} placeholder:opacity-50`} />
-                  <button onClick={() => handleExploreSearch(exploreQuery, null)} className="bg-orange-500 hover:bg-orange-400 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 whitespace-nowrap">🍽️ 探索</button>
+                  <button onClick={() => handleExploreSearch(exploreQuery, null)} className="whitespace-nowrap rounded-xl bg-orange-700 px-4 py-2 text-xs font-bold text-white shadow-md transition-all hover:bg-orange-800 active:scale-95">🍽️ 探索</button>
                   {exploreResults.length > 0 ? (
                     <button onClick={() => {setExploreResults([]); setSelectedExploreItem(null); setExploreQuery(""); setExploreOriginItem(null);}} className={`px-2 py-2 text-xs font-bold hover:text-red-500 transition-colors ${t.subText}`}>清除</button>
                   ) : null}
@@ -4169,7 +4169,7 @@ const TripDetail = ({
           {exploreOriginItem ? (
             <div className="flex gap-2 mt-2">
               <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'before')} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在前面</button>
-              <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在後面</button>
+              <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 rounded-xl bg-emerald-700 py-2.5 text-[11px] font-bold text-white shadow-md active:scale-95">加在後面</button>
             </div>
           ) : (
             <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'end')} className="w-full mt-2 bg-blue-600 text-white py-2.5 rounded-xl text-xs font-bold shadow-md active:scale-95">加入行程最後</button>

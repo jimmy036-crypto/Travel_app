@@ -252,6 +252,35 @@ describe('TicketWalletSection', () => {
     expect(screen.getByText('請提前確認已登入原 App')).toBeInTheDocument();
   });
 
+  it.each([
+    { isLight: true, sourceText: 'text-amber-900', warningText: 'text-amber-900', linkText: 'text-blue-800' },
+    { isLight: false, sourceText: 'text-amber-100', warningText: 'text-amber-100', linkText: 'text-blue-100' },
+  ])('uses the custom $isLight theme for ticket tones without OS dark overrides', ({ isLight, sourceText, warningText, linkText }) => {
+    renderWallet({
+      t: { isLight },
+      tickets: [{
+        ...commonTicket,
+        id: 'themed',
+        title: '主題票券',
+        ticketType: 'external-app',
+        appName: 'Rail App',
+        appUrl: 'https://app.example/ticket',
+        fallbackUrl: 'https://fallback.example/ticket',
+        dynamicCode: true,
+      }],
+    });
+
+    const source = screen.getByText('外部 App 票券');
+    const warning = screen.getByText('⚠️ 動態條碼，請勿依賴截圖').parentElement;
+    const fallback = screen.getByText('開啟備用網頁');
+
+    expect(source).toHaveClass(sourceText);
+    expect(warning).toHaveClass(warningText);
+    expect(fallback).toHaveClass(linkText);
+    [source, warning, fallback].forEach((element) => expect(element.className).not.toContain('dark:'));
+    expect(screen.getByTestId('add-ticket-button')).toHaveClass('bg-amber-700', 'hover:bg-amber-800');
+  });
+
   it('uses callbacks for edit and delete, and blocks only a deleting ticket', () => {
     const { callbacks } = renderWallet({ deletingTicketId: 'private-a' });
     const card = cardFor('王泓文票券');

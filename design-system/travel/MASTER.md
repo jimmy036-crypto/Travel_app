@@ -32,6 +32,13 @@ UI UX Pro Max 的全站搜尋曾建議 scroll storytelling / Aurora UI；前者�
 
 Spacing follows a 4px base. Controls use 12px or 16px radii; cards use 20–24px. Shadows are low contrast and never replace a boundary.
 
+## Theme ownership
+
+- Inside the lobby and trip shell, `getThemeClasses()` and `t.isLight` are the single source of truth for foregrounds, surfaces, borders, hover states, and semantic status tones.
+- Never combine a `t.*` custom-theme class with Tailwind's `dark:` variant in the same visual state. The `dark:` variant follows the device preference and can disagree with the selected App background.
+- Standalone dialogs that do not receive `t` may continue to follow the device color scheme.
+- Normal text and button labels must keep at least 4.5:1 contrast in both theme branches. White labels use blue-600, emerald-700, amber-700, orange-700, or darker semantic action colors.
+
 ## Component rules
 
 ### Button

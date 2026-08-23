@@ -23,4 +23,19 @@ describe('Button', () => {
     expect(screen.getByRole('button', { name: '儲存中' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '儲存中' })).toHaveAttribute('aria-busy', 'true');
   });
+
+  it('lets the app theme own a themed button without an OS dark override', () => {
+    render(
+      <Button
+        variant="themed"
+        className="border-black/10 bg-white/60 text-slate-900 hover:bg-white/80"
+      >
+        匯入旅程
+      </Button>,
+    );
+
+    const button = screen.getByRole('button', { name: '匯入旅程' });
+    expect(button).toHaveClass('border-black/10', 'bg-white/60', 'text-slate-900', 'hover:bg-white/80');
+    expect(button.className).not.toContain('dark:');
+  });
 });
