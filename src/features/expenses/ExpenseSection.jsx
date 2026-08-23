@@ -164,7 +164,7 @@ export const ExpenseSection = ({
             type="button"
             data-testid="add-expense-button"
             onClick={onCreateExpense}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-2xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all"
+            className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-700/25 transition-all hover:bg-emerald-800 active:scale-95"
           >
             ➕ 新增記帳
           </button>
@@ -182,7 +182,7 @@ export const ExpenseSection = ({
                 key={`budget-${m}`}
                 data-testid="member-budget-row"
                 data-member={String(m)}
-                className={`p-3 rounded-xl border bg-black/5 dark:bg-white/5 ${t.cardBorder}`}
+                className={`rounded-xl border p-3 ${t.expenseBlockBg} ${t.cardBorder}`}
               >
                 <div className="flex justify-between items-center mb-2">
                   <span className={`text-xs font-bold ${t.mainText}`}>{String(m)}</span>

@@ -53,12 +53,18 @@ const reminderText = (minutes) => {
   return minutes > 0 ? `建議提前 ${minutes} 分鐘開啟` : '';
 };
 
-const ActionAnchor = ({ href, children, secondary = false }) => (
+const ActionAnchor = ({ href, children, secondary = false, isLight }) => (
   <a
     href={href}
     target="_blank"
     rel="noopener noreferrer"
-    className={`inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2 text-center text-xs font-black ${secondary ? 'border border-blue-500/30 text-blue-600 dark:text-blue-300' : 'bg-blue-600 text-white'}`}
+    className={`inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2 text-center text-xs font-black ${secondary
+      ? typeof isLight === 'boolean'
+        ? isLight
+          ? 'border border-blue-700/30 bg-blue-50/80 text-blue-800'
+          : 'border border-blue-200/30 bg-blue-950/60 text-blue-100'
+        : 'border border-blue-500/30 text-blue-600 dark:text-blue-300'
+      : 'bg-blue-600 text-white'}`}
   >
     {children}
   </a>
@@ -87,6 +93,16 @@ function TicketCard({
   const manual = action.mode === 'manual';
   const hasInstructions = Boolean(ticket.instructions);
   const showDetailToggle = manual || hasInstructions;
+  const sourceTone = typeof t?.isLight === 'boolean'
+    ? t.isLight
+      ? 'bg-amber-100 text-amber-900'
+      : 'bg-amber-950/70 text-amber-100'
+    : 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+  const warningTone = typeof t?.isLight === 'boolean'
+    ? t.isLight
+      ? 'bg-amber-100/80 text-amber-900'
+      : 'bg-amber-950/70 text-amber-100'
+    : 'bg-amber-500/10 text-amber-800 dark:text-amber-200';
 
   return (
     <article
@@ -96,7 +112,7 @@ function TicketCard({
     >
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <span className="inline-flex rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-black text-amber-700 dark:text-amber-300">
+          <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${sourceTone}`}>
             {sourceLabel(ticket)}
           </span>
           <h3 className={`mt-2 break-words text-base font-black ${t?.mainText || 'text-slate-950 dark:text-white'}`}>
@@ -125,7 +141,7 @@ function TicketCard({
           {ticket.orderNumber ? <p className="break-all">訂單編號：{ticket.orderNumber}</p> : null}
           {ticket.usageDetails ? <p className="break-words">座位／車次／班次：{ticket.usageDetails}</p> : null}
           {ticket.dynamicCode || ticket.requiresNetwork || ticket.requiresLogin ? (
-            <div className="space-y-1 rounded-xl bg-amber-500/10 p-3 text-amber-800 dark:text-amber-200">
+            <div className={`space-y-1 rounded-xl p-3 ${warningTone}`}>
               {ticket.dynamicCode ? <p>⚠️ 動態條碼，請勿依賴截圖</p> : null}
               {ticket.requiresNetwork ? <p>使用時需要網路</p> : null}
               {ticket.requiresLogin ? <p>請提前確認已登入原 App</p> : null}
@@ -138,14 +154,14 @@ function TicketCard({
         {action.mode === 'fullscreen-image' ? (
           <button type="button" onClick={() => onOpenImage(ticket)} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">全螢幕查看票券</button>
         ) : null}
-        {action.mode === 'pdf' ? <ActionAnchor href={action.url}>開啟 PDF 票券</ActionAnchor> : null}
-        {action.mode === 'web' ? <ActionAnchor href={action.url}>開啟票券網站</ActionAnchor> : null}
-        {action.mode === 'app-link' ? <ActionAnchor href={action.url}>在 App 中開啟票券</ActionAnchor> : null}
+        {action.mode === 'pdf' ? <ActionAnchor href={action.url} isLight={t?.isLight}>開啟 PDF 票券</ActionAnchor> : null}
+        {action.mode === 'web' ? <ActionAnchor href={action.url} isLight={t?.isLight}>開啟票券網站</ActionAnchor> : null}
+        {action.mode === 'app-link' ? <ActionAnchor href={action.url} isLight={t?.isLight}>在 App 中開啟票券</ActionAnchor> : null}
         {manual ? (
           <button type="button" onClick={() => setDetailsOpen((open) => !open)} className="min-h-11 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white">查看開啟方式</button>
         ) : null}
         {action.mode === 'invalid' ? <button type="button" disabled className="min-h-11 rounded-xl bg-slate-300 px-4 py-2 text-xs font-black text-slate-600">{ticket.ticketType === TICKET_TYPES.ATTACHMENT ? '票券附件無法開啟' : '票券網址無法開啟'}</button> : null}
-        {showFallback ? <ActionAnchor href={fallbackUrl} secondary>開啟備用網頁</ActionAnchor> : null}
+        {showFallback ? <ActionAnchor href={fallbackUrl} secondary isLight={t?.isLight}>開啟備用網頁</ActionAnchor> : null}
         {ticket.orderNumber ? <button type="button" onClick={() => onCopyOrderNumber(ticket.orderNumber)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-xs font-black">複製訂單編號</button> : null}
         {showDetailToggle && !manual ? <button type="button" onClick={() => setDetailsOpen((open) => !open)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-xs font-black">查看使用說明</button> : null}
       </div>
@@ -222,7 +238,7 @@ export function TicketWalletSection({
             <p className={`text-xs font-bold uppercase tracking-widest ${t?.subText || ''}`}>隨身協作大廳</p>
             <h2 className={`mt-1 truncate text-xl font-black sm:text-2xl ${t?.mainText || ''}`}>共同票券夾 🎟️</h2>
           </div>
-          <button type="button" data-testid="add-ticket-button" onClick={onCreateTicket} disabled={isSavingTicket} className="shrink-0 rounded-2xl bg-amber-600 px-3 py-2.5 text-sm font-bold text-white disabled:opacity-50 sm:px-5">新增票券</button>
+          <button type="button" data-testid="add-ticket-button" onClick={onCreateTicket} disabled={isSavingTicket} className="shrink-0 rounded-2xl bg-amber-700 px-3 py-2.5 text-sm font-bold text-white hover:bg-amber-800 disabled:opacity-50 sm:px-5">新增票券</button>
         </div>
 
         {!normalizedActiveMember && validMembers.length > 0 ? (
@@ -265,7 +281,7 @@ export function TicketWalletSection({
             </p>
             <div className="mt-4 flex gap-2">
               {normalizedTickets.length > 0 ? <button type="button" onClick={() => setView({ type: 'all' })} className="rounded-xl border px-3 py-2 text-xs font-black">查看全部票券</button> : null}
-              <button type="button" onClick={onCreateTicket} disabled={isSavingTicket} className="rounded-xl bg-amber-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">新增票券</button>
+              <button type="button" onClick={onCreateTicket} disabled={isSavingTicket} className="rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white hover:bg-amber-800 disabled:opacity-50">新增票券</button>
             </div>
           </div>
         ) : (

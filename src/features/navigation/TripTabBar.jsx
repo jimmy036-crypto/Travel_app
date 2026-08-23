@@ -16,6 +16,10 @@ const DESKTOP_TABS = [
 ];
 
 export function TripTabBar({ activeTab, layout, onSelect, t }) {
+  const inactiveHoverClass = t?.isLight === false
+    ? 'hover:bg-white/10'
+    : 'hover:bg-slate-900/5';
+
   if (layout === 'mobile') {
     return (
       <nav
@@ -36,8 +40,8 @@ export function TripTabBar({ activeTab, layout, onSelect, t }) {
               onClick={() => onSelect(tab.id)}
               className={`mx-1 flex min-h-11 min-w-11 flex-col items-center justify-center gap-1 rounded-2xl px-2 text-xs font-extrabold transition-[background-color,color,transform] duration-200 ${
                 isActive
-                  ? 'bg-blue-600/12 text-blue-600 dark:bg-blue-400/15 dark:text-blue-300'
-                  : `${t.subText} hover:bg-slate-900/5 dark:hover:bg-white/10`
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : `${t.subText} ${inactiveHoverClass}`
               }`}
             >
               <Icon name={tab.icon} size={22} strokeWidth={isActive ? 2.2 : 1.8} />
@@ -69,7 +73,7 @@ export function TripTabBar({ activeTab, layout, onSelect, t }) {
             className={`flex min-h-9 items-center gap-2 rounded-lg px-3 text-xs font-extrabold transition-[background-color,color,box-shadow] duration-200 ${
               isActive
                 ? 'bg-blue-600 text-white shadow-sm'
-                : `${t.subText} hover:bg-slate-900/5 dark:hover:bg-white/10`
+                : `${t.subText} ${inactiveHoverClass}`
             }`}
           >
             <Icon name={tab.icon} size={17} />

@@ -215,7 +215,7 @@ export function MobileTripMapView({
             />
             <button
               type="submit"
-              className="min-h-10 rounded-xl bg-orange-500 px-3 text-[10px] font-black text-white"
+              className="min-h-10 rounded-xl bg-orange-700 px-3 text-[10px] font-black text-white hover:bg-orange-800"
             >
               搜尋
             </button>

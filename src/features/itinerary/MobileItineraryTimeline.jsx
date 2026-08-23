@@ -163,12 +163,12 @@ export function MobileTimelineSkeleton({ t }) {
       {Array.from({ length: 3 }).map((_, index) => (
         <div key={`timeline-skeleton-${index}`} className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-2">
           <div className="relative flex justify-center">
-            <span className="mt-2 h-7 w-7 rounded-full bg-slate-300/60 motion-safe:animate-pulse dark:bg-slate-700/60" />
-            {index < 2 ? <span className="absolute top-9 -bottom-12 w-px bg-slate-300/60 dark:bg-slate-700/60" /> : null}
+            <span className={`mt-2 h-7 w-7 rounded-full motion-safe:animate-pulse ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} />
+            {index < 2 ? <span className={`absolute top-9 -bottom-12 w-px ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} /> : null}
           </div>
           <div className={`mb-10 h-20 rounded-2xl border p-3 ${t.itemBg} ${t.cardBorder}`}>
-            <div className="h-4 w-3/4 rounded bg-slate-300/60 motion-safe:animate-pulse dark:bg-slate-700/60" />
-            <div className="mt-3 h-3 w-1/2 rounded bg-slate-300/60 motion-safe:animate-pulse dark:bg-slate-700/60" />
+            <div className={`h-4 w-3/4 rounded motion-safe:animate-pulse ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} />
+            <div className={`mt-3 h-3 w-1/2 rounded motion-safe:animate-pulse ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} />
           </div>
         </div>
       ))}

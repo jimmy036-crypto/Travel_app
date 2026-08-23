@@ -3,7 +3,8 @@ import React, { forwardRef } from 'react';
 const VARIANTS = {
   primary: 'border-transparent bg-blue-600 text-white shadow-md shadow-blue-600/20 hover:bg-blue-700',
   secondary: 'border-slate-300/70 bg-white/75 text-slate-800 shadow-sm hover:border-blue-400 hover:bg-white dark:border-white/15 dark:bg-white/10 dark:text-slate-100 dark:hover:bg-white/15',
-  ghost: 'border-transparent bg-transparent text-current hover:bg-slate-900/5 dark:hover:bg-white/10',
+  themed: 'shadow-sm',
+  ghost: 'border-transparent bg-transparent text-current hover:bg-slate-500/10',
   danger: 'border-red-300/60 bg-red-50/80 text-red-700 hover:bg-red-100 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-300',
 };
 

@@ -644,7 +644,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
                 void select(suggestion);
               }}
               onClick={() => void select(suggestion)}
-              className={`block min-h-11 w-full cursor-pointer border-b p-3 text-left transition-colors hover:bg-blue-500 hover:text-white disabled:cursor-wait disabled:opacity-60 ${index === safeActiveIndex ? 'bg-blue-500 text-white' : t.mainText} ${t.cardBorder}`}
+              className={`block min-h-11 w-full cursor-pointer border-b p-3 text-left transition-colors hover:bg-blue-600 hover:text-white disabled:cursor-wait disabled:opacity-60 ${index === safeActiveIndex ? 'bg-blue-600 text-white' : t.mainText} ${t.cardBorder}`}
             >
               {String(suggestion.text)}
             </button>
@@ -1286,7 +1286,7 @@ export const ExpenseModal = ({
             data-testid="expense-save-button"
             onClick={() => void handleSave()}
             disabled={saving}
-            className="min-h-12 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-6 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all flex-[1.4]"
+            className="min-h-12 flex-[1.4] rounded-xl bg-emerald-700 px-6 text-sm font-bold text-white shadow-lg shadow-emerald-700/25 transition-all hover:bg-emerald-800 active:scale-95 disabled:opacity-50"
           >
             {saving ? "儲存中…" : (isEditing ? "儲存變更" : "確認新增")}
           </button>
@@ -2168,7 +2168,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                       className={`h-11 flex-1 min-w-0 px-3 rounded-xl border text-sm ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                     />
                     {normalizeHttpUrl(navigationUrl) ? (
-                      <button type="button" onClick={() => openExternalUrl(normalizeHttpUrl(navigationUrl))} className="min-h-11 px-3 rounded-xl bg-emerald-600 text-white text-xs font-bold shrink-0">
+                      <button type="button" onClick={() => openExternalUrl(normalizeHttpUrl(navigationUrl))} className="min-h-11 shrink-0 rounded-xl bg-emerald-700 px-3 text-xs font-bold text-white hover:bg-emerald-800">
                         預覽
                       </button>
                     ) : null}
@@ -2248,7 +2248,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                       type="button"
                       data-testid="place-resource-mode-pdf-button"
                       onClick={() => { resetResourceDrafts(); setResourceAddMode('pdf'); }}
-                      className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'pdf' ? 'bg-red-500 text-white shadow-sm' : t.subText}`}
+                      className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'pdf' ? 'bg-red-600 text-white shadow-sm' : t.subText}`}
                     >
                       📄 PDF
                     </button>
@@ -2334,7 +2334,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
 
                       <div className="flex gap-2">
                         {editingResourceId && editingResourceKind === 'file' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
-                        <button type="button" data-testid="place-resource-pdf-add-button" onClick={handleSavePdfResource} className="flex-1 min-h-11 rounded-xl bg-red-500 text-white text-xs font-bold">
+                        <button type="button" data-testid="place-resource-pdf-add-button" onClick={handleSavePdfResource} className="min-h-11 flex-1 rounded-xl bg-red-600 text-xs font-bold text-white hover:bg-red-700">
                           {editingResourceId && editingResourceKind === 'file' ? '更新 PDF 資料' : '＋ 加入 PDF'}
                         </button>
                       </div>
@@ -2603,7 +2603,7 @@ export const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, da
                   <button onClick={() => onAdd(place, 'before')} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm md:text-[11px] font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
                     加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」前
                   </button>
-                  <button onClick={() => onAdd(place, 'after')} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl text-sm md:text-[11px] font-bold shadow-lg shadow-emerald-500/30 transition-all active:scale-95">
+                  <button onClick={() => onAdd(place, 'after')} className="flex-1 rounded-xl bg-emerald-700 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-700/25 transition-all hover:bg-emerald-800 active:scale-95 md:text-[11px]">
                     加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」後
                   </button>
                 </div>
@@ -3163,7 +3163,7 @@ export const ChecklistModal = ({
                         aria-label={item.completed ? '標記為未完成' : '標記為已完成'}
                         className="min-w-11 min-h-11 shrink-0 flex items-center justify-center"
                       >
-                        <span className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-black transition-all ${item.completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-400/60 hover:border-emerald-500'}`}>
+                        <span className={`flex h-7 w-7 items-center justify-center rounded-full border-2 text-sm font-black transition-all ${item.completed ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-400/60 hover:border-emerald-500'}`}>
                           {item.completed ? '✓' : ''}
                         </span>
                       </button>
