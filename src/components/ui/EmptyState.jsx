@@ -18,9 +18,9 @@ export const EmptyState = ({
         {icon}
       </div>
     ) : null}
-    <h2 className="text-xl font-black text-slate-900 dark:text-slate-50">{String(title || '')}</h2>
+    <h2 className="text-xl font-black text-current">{String(title || '')}</h2>
     {description ? (
-      <p className="mt-2 text-sm font-semibold leading-6 text-slate-500 dark:text-slate-300">
+      <p className="mt-2 text-sm font-semibold leading-6 text-current opacity-70">
         {String(description)}
       </p>
     ) : null}
@@ -41,7 +41,7 @@ export const EmptyState = ({
             type="button"
             data-testid={secondaryAction.testId || 'empty-state-secondary'}
             onClick={secondaryAction.onClick}
-            className="min-h-11 rounded-xl border border-slate-400/40 px-5 text-sm font-black text-slate-700 dark:text-slate-100"
+            className="min-h-11 rounded-xl border border-current/25 px-5 text-sm font-black text-current transition-colors hover:border-blue-400 hover:text-blue-500"
           >
             {String(secondaryAction.label || '')}
           </button>
