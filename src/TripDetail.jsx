@@ -86,6 +86,11 @@ import {
   MobileTimelineSkeleton,
 } from './features/itinerary/MobileItineraryTimeline.jsx';
 import { MobileTripMapView } from './features/map/MobileTripMapView.jsx';
+import {
+  computeDrivingRouteOptimization,
+  getRouteLegMinutes,
+  getRouteTotals,
+} from './features/map/googleRoutes.js';
 import { isDndDebugEnabled, traceDnd, traceDndNextFrame } from './features/itinerary/dndDebugTrace.js';
 import { DndDebugPanel } from './features/itinerary/DndDebugPanel.jsx';
 import { buildPrintPreviewToolbar } from './features/export/itineraryPrintPreview.js';
@@ -861,14 +866,6 @@ const PlaceItemDetailModal = ({
       </div>
     </div>
   );
-};
-
-const getRouteTotals = (route) => {
-  const legs = Array.isArray(route?.legs) ? route.legs : [];
-  return legs.reduce((totals, leg) => ({
-    minutes: totals.minutes + Math.max(0, Math.round(Number(leg?.duration?.value || 0) / 60)),
-    meters: totals.meters + Math.max(0, Number(leg?.distance?.value || 0)),
-  }), { minutes: 0, meters: 0 });
 };
 
 const formatRouteMinutes = (minutes) => {
@@ -2792,52 +2789,25 @@ const TripDetail = ({
       alert(`「${itemName}」之後使用了自訂交通方式。為避免把飛機、鐵路或步行路段打亂，目前智慧排路線只支援整天皆為自動車程的行程。`);
       return;
     }
-    if (!routesLib) {
+    if (!routesLib?.Route) {
       alert("地圖引擎載入中，請稍候...");
       return;
     }
 
     setIsOptimizing(true);
     setOptimizationPreview(null);
-    // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
-    const service = new routesLib.DirectionsService();
-    const origin = { lat: Number(items[0].lat), lng: Number(items[0].lng) };
-    const destination = {
-      lat: Number(items[items.length - 1].lat),
-      lng: Number(items[items.length - 1].lng),
-    };
-    const waypoints = items.slice(1, -1).map((item) => ({
-      location: { lat: Number(item.lat), lng: Number(item.lng) },
-      stopover: true,
-    }));
-
-    const requestBase = {
-      origin,
-      destination,
-      waypoints,
-      travelMode: window.google.maps.TravelMode.DRIVING,
-    };
 
     try {
-      const [currentResponse, optimizedResponse] = await Promise.all([
-        service.route({ ...requestBase, optimizeWaypoints: false }),
-        service.route({ ...requestBase, optimizeWaypoints: true }),
-      ]);
-
-      const currentRoute = currentResponse.routes?.[0];
-      const optimizedRoute = optimizedResponse.routes?.[0];
+      const { currentRoute, optimizedRoute, order } = await computeDrivingRouteOptimization(
+        routesLib.Route,
+        items,
+      );
       if (!currentRoute?.legs?.length || !optimizedRoute?.legs?.length) {
         console.warn("Google Maps did not return a usable route for optimization.");
         alert("找不到可用的路線，請確認所有景點都能以汽車抵達。");
         return;
       }
 
-      const returnedOrder = Array.isArray(optimizedRoute.waypoint_order)
-        ? optimizedRoute.waypoint_order
-        : [];
-      const order = returnedOrder.length === waypoints.length
-        ? returnedOrder
-        : waypoints.map((_, index) => index);
       const originalItems = cloneRouteItems(items);
       const middleItems = order.map((index) => originalItems[index + 1]);
       const optimizedItems = [
@@ -2851,7 +2821,7 @@ const TripDetail = ({
 
       for (let index = 1; index < optimizedItems.length; index += 1) {
         const leg = optimizedRoute.legs[index - 1];
-        const travelTime = Math.max(1, Math.round(Number(leg?.duration?.value || 0) / 60));
+        const travelTime = getRouteLegMinutes(leg);
         currentMinutes += travelTime;
         optimizedItems[index] = {
           ...optimizedItems[index],

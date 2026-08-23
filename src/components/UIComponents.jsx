@@ -15,6 +15,10 @@ import {
   rebalanceCustomAmounts,
   validateCustomSplit,
 } from "../features/expenses/expenseCalculations";
+import {
+  buildDrivingRouteRequest,
+  getRouteLegMinutes,
+} from '../features/map/googleRoutes.js';
 
 const AUTOCOMPLETE_DELAY_MS = 300;
 const REGION_AUTOCOMPLETE_TYPES = Object.freeze(['(regions)']);
@@ -2372,7 +2376,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
 export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
   const map = useMap('main-map');
   const routesLib = useMapsLibrary('routes');
-  const renderersRef = useRef([]);
+  const polylinesRef = useRef([]);
 
   const routeKey = useMemo(() => {
     const items = Array.isArray(itinerary?.[dayId]) ? itinerary[dayId] : [];
@@ -2386,23 +2390,23 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
 
   useEffect(() => {
     const routeInputs = JSON.parse(routeKey);
-    renderersRef.current.forEach((renderer) => renderer.setMap(null));
-    renderersRef.current = [];
+    polylinesRef.current.forEach((polyline) => polyline.setMap(null));
+    polylinesRef.current = [];
 
-    if (!routesLib || !map || !dayId) return undefined;
+    if (!routesLib?.Route || !map || !dayId) return undefined;
     let isCancelled = false;
-    const activeRenderers = [];
+    const activePolylines = [];
 
-    const createRenderer = (result) => {
-      // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
-      const renderer = new routesLib.DirectionsRenderer({
-        map,
-        suppressMarkers: true,
-        preserveViewport: true,
-        polylineOptions: { strokeColor: '#3b82f6', strokeWeight: 5, strokeOpacity: 0.8 },
+    const renderRoute = (route) => {
+      const polylines = route.createPolylines({
+        polylineOptions: {
+          strokeColor: '#3b82f6',
+          strokeWeight: 5,
+          strokeOpacity: 0.8,
+        },
       });
-      renderer.setDirections(result);
-      activeRenderers.push(renderer);
+      polylines.forEach((polyline) => polyline.setMap(map));
+      activePolylines.push(...polylines);
     };
 
     const fetchRoute = async () => {
@@ -2411,38 +2415,26 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
         return;
       }
 
-      // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
-      const service = new routesLib.DirectionsService();
       const allCoordinatesValid = routeInputs.every((item) => isValidCoordinates(item.lat, item.lng));
       const allAutomaticDriving = routeInputs.slice(0, -1).every((item) => item.mode === 'AUTO');
       const canUseSingleRequest = allCoordinatesValid && allAutomaticDriving && routeInputs.length <= 25;
 
       if (canUseSingleRequest) {
         try {
-          const result = await service.route({
-            origin: { lat: routeInputs[0].lat, lng: routeInputs[0].lng },
-            destination: {
-              lat: routeInputs[routeInputs.length - 1].lat,
-              lng: routeInputs[routeInputs.length - 1].lng,
-            },
-            waypoints: routeInputs.slice(1, -1).map((item) => ({
-              location: { lat: item.lat, lng: item.lng },
-              stopover: true,
-            })),
-            optimizeWaypoints: false,
-            travelMode: window.google.maps.TravelMode.DRIVING,
-          });
+          const result = await routesLib.Route.computeRoutes(
+            buildDrivingRouteRequest(routeInputs, { includePath: true }),
+          );
           if (isCancelled) return;
 
           const route = result.routes?.[0];
           if (route?.legs?.length) {
-            createRenderer(result);
+            renderRoute(route);
             const durations = route.legs.map((leg) => ({
-              text: String(leg?.duration?.text || ''),
-              value: Math.max(1, Math.round(Number(leg?.duration?.value || 0) / 60)),
+              text: formatStayTime(getRouteLegMinutes(leg)),
+              value: getRouteLegMinutes(leg),
               mode: 'AUTO',
             }));
-            renderersRef.current = activeRenderers;
+            polylinesRef.current = activePolylines;
             onRouteCalculated?.(dayId, durations);
             return;
           }
@@ -2471,24 +2463,23 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
         }
 
         try {
-          const result = await service.route({
-            origin: { lat: origin.lat, lng: origin.lng },
-            destination: { lat: destination.lat, lng: destination.lng },
-            travelMode: window.google.maps.TravelMode.DRIVING,
-          });
+          const result = await routesLib.Route.computeRoutes(
+            buildDrivingRouteRequest([origin, destination], { includePath: true }),
+          );
           if (isCancelled) return;
 
           const leg = result.routes?.[0]?.legs?.[0];
-          if (!leg?.duration) {
+          if (!leg?.durationMillis) {
             console.warn('Route response did not contain a duration.');
             durations.push({ text: '無法計算', value: 30, mode: 'ERROR' });
             continue;
           }
 
-          createRenderer(result);
+          renderRoute(result.routes[0]);
+          const minutes = getRouteLegMinutes(leg);
           durations.push({
-            text: String(leg.duration.text || ''),
-            value: Math.max(1, Math.round(Number(leg.duration.value) / 60)),
+            text: formatStayTime(minutes),
+            value: minutes,
             mode: 'AUTO',
           });
         } catch (error) {
@@ -2499,7 +2490,7 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
       }
 
       if (!isCancelled) {
-        renderersRef.current = activeRenderers;
+        polylinesRef.current = activePolylines;
         onRouteCalculated?.(dayId, durations);
       }
     };
@@ -2507,8 +2498,8 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
     void fetchRoute();
     return () => {
       isCancelled = true;
-      activeRenderers.forEach((renderer) => renderer.setMap(null));
-      renderersRef.current = [];
+      activePolylines.forEach((polyline) => polyline.setMap(null));
+      polylinesRef.current = [];
     };
   }, [dayId, map, onRouteCalculated, routeKey, routesLib]);
 
