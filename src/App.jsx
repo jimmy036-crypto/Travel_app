@@ -42,7 +42,9 @@ import { FeatureTour } from './components/FeatureTour.jsx';
 import { WhatsNewDialog } from './components/WhatsNewDialog.jsx';
 import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 import { AppearanceDialog } from './components/AppearanceDialog.jsx';
+import { Button } from './components/ui/Button.jsx';
 import { EmptyState } from './components/ui/EmptyState.jsx';
+import { Icon } from './components/ui/Icon.jsx';
 import { useToast } from './components/ui/useToast.js';
 import { useConfirm } from './components/ui/useConfirm.js';
 import { checkForPwaUpdate } from './pwaUpdateController.js';
@@ -947,19 +949,18 @@ export default function TravelApp() {
 
   return (
     <>
-    <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex flex-col font-sans overflow-x-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
-      <div className="max-w-5xl w-full mx-auto p-6 md:p-12 overflow-y-auto">
-        <header className="mb-10 flex flex-col gap-5 md:mb-12">
+    <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex w-full max-w-[100vw] flex-col overflow-x-hidden overscroll-none font-sans transition-colors duration-500 ${t.mainText}`}>
+      <div className="mx-auto w-full max-w-6xl overflow-y-auto p-4 pb-[max(2rem,env(safe-area-inset-bottom))] md:p-8 lg:p-10">
+        <header className={`mb-8 flex flex-col gap-5 rounded-3xl border p-4 shadow-[var(--travel-shadow-card)] backdrop-blur-xl md:p-6 ${t.headerBg} ${t.cardBorder}`}>
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="mb-2 flex min-w-0 items-center gap-3 md:gap-4">
-                {/* 💡 已將 bg-gradient 修正為 Tailwind v4 的 bg-linear */}
-                <div className="shrink-0 bg-linear-to-br from-blue-500 to-emerald-500 text-white p-2.5 rounded-2xl shadow-lg transform -rotate-12 hover:rotate-0 transition-transform cursor-pointer">
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" /></svg>
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 md:h-14 md:w-14">
+                  <Icon name="plane" size={28} strokeWidth={2} />
                 </div>
-                <h1 className="min-w-0 truncate text-4xl font-black text-transparent bg-clip-text bg-linear-to-r from-blue-500 to-emerald-400 tracking-tight md:text-5xl">智の旅行</h1>
+                <h1 className={`min-w-0 truncate text-3xl font-black tracking-tight md:text-4xl ${t.mainText}`}>智の旅行</h1>
               </div>
-              <p className={`font-bold tracking-wide ${t.subText}`}>你的專屬旅程管理中心</p>
+              <p className={`text-sm font-semibold leading-6 md:text-base ${t.subText}`}>集中規劃行程、地圖、票券與旅費</p>
             </div>
             <AppSettingsMenu
               key={activeRoomId || 'lobby-settings'}
@@ -983,34 +984,33 @@ export default function TravelApp() {
               onOpen={openFeatureIntroduction}
               className="w-full md:w-auto"
             />
-            <button
-              type="button"
+            <Button
               data-testid="create-trip-button"
               onClick={openCreateModal}
-              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-500/30 transition-all active:scale-95 hover:bg-blue-500 md:w-auto md:min-w-40"
+              variant="primary"
+              size="lg"
+              leadingIcon={<Icon name="plus" />}
+              className="w-full md:w-auto md:min-w-40"
             >
-              <span aria-hidden="true">＋</span>
               <span className="whitespace-nowrap">建立新旅程</span>
-            </button>
+            </Button>
             <div className="grid grid-cols-2 gap-3 md:flex md:w-auto">
-              <button
-                type="button"
+              <Button
                 data-testid="import-trip-button"
                 onClick={() => setShowImportModal(true)}
-                className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                leadingIcon={<Icon name="download" />}
+                className={`${t.cardBg} ${t.cardBorder} ${t.mainText}`}
               >
-                <span aria-hidden="true">⇩</span>
                 <span className="whitespace-nowrap">匯入旅程</span>
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
                 data-testid="lobby-appearance-button"
                 onClick={(event) => openLobbyAppearance(event.currentTarget)}
-                className={`flex min-h-11 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-black transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                leadingIcon={<Icon name="palette" />}
+                className={`${t.cardBg} ${t.cardBorder} ${t.mainText}`}
               >
-                <span className="h-4 w-4 shrink-0 rounded-full border border-white/70 shadow-sm" style={{ backgroundColor: customBgColor }} aria-hidden="true" />
                 <span className="whitespace-nowrap">自訂外觀</span>
-              </button>
+              </Button>
             </div>
           </div>
           ) : null}
@@ -1103,7 +1103,17 @@ export default function TravelApp() {
             />
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <section aria-labelledby="trip-list-heading">
+            <div className="mb-4 flex items-end justify-between gap-4 px-1">
+              <div>
+                <p className="mb-1 text-xs font-extrabold uppercase tracking-[0.16em] text-blue-600">Travel workspace</p>
+                <h2 id="trip-list-heading" className={`text-2xl font-black tracking-tight ${t.mainText}`}>你的旅程</h2>
+              </div>
+              <span className={`rounded-full border px-3 py-1 text-xs font-extrabold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
+                {myTrips.length + (exampleTripHidden ? 0 : 1)} 個旅程
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
             {!exampleTripHidden ? (
               <DemoTripEntryCard
                 trip={{ ...BUILT_IN_EXAMPLE_TRIP.meta, roomId: LOCAL_EXAMPLE_TRIP_ID }}
@@ -1130,16 +1140,18 @@ export default function TravelApp() {
                 )}
               />
             ))}
-          </div>
+            </div>
+          </section>
         )}
       </div>
 
       {!showFirstRunWelcome && showImportModal && (
         <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setShowImportModal(false)}>
           <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
-            <h2 className={`text-xl font-black mb-2 ${t.mainText}`}>📥 匯入雲端行程</h2>
-            <input value={String(importInput)} onChange={e => setImportInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !isImporting) void handleImportTrip(); }} placeholder="貼上網址或房間 ID..." className={`w-full p-3 rounded-xl outline-none border mb-6 text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
-            <div className="flex justify-end gap-3"><button onClick={() => setShowImportModal(false)} className={`px-4 py-2 text-sm font-bold ${t.subText}`}>取消</button><button onClick={() => void handleImportTrip()} disabled={isImporting} className="bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-6 py-2 rounded-xl text-sm font-bold shadow-md">{isImporting ? "匯入中..." : "確認匯入"}</button></div>
+            <h2 className={`mb-2 flex items-center gap-2 text-xl font-black ${t.mainText}`}><Icon name="download" />匯入雲端行程</h2>
+            <p className={`mb-4 text-sm font-semibold leading-6 ${t.subText}`}>貼上朋友分享的旅程網址或房間 ID。</p>
+            <input aria-label="旅程網址或房間 ID" value={String(importInput)} onChange={e => setImportInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !isImporting) void handleImportTrip(); }} placeholder="貼上網址或房間 ID..." className={`mb-6 min-h-12 w-full rounded-xl border p-3 text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <div className="flex justify-end gap-3"><Button onClick={() => setShowImportModal(false)} variant="ghost" className={t.subText}>取消</Button><Button onClick={() => void handleImportTrip()} loading={isImporting} variant="primary">{isImporting ? "匯入中..." : "確認匯入"}</Button></div>
           </div>
         </div>
       )}
@@ -1148,7 +1160,7 @@ export default function TravelApp() {
         <APIProvider apiKey={API_KEY}>
           <div data-testid="trip-modal" style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setTripModalMode(null)}>
             <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl overflow-y-auto overflow-x-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
-              <h2 data-testid="trip-modal-title" className={`text-2xl font-black mb-6 ${t.mainText}`}>{tripModalMode === 'create' ? '建立新旅程 🛫' : '編輯旅程設定 ⚙️'}</h2>
+              <h2 data-testid="trip-modal-title" className={`mb-6 flex items-center gap-3 text-2xl font-black ${t.mainText}`}><Icon name={tripModalMode === 'create' ? 'plane' : 'edit'} size={24} />{tripModalMode === 'create' ? '建立新旅程' : '編輯旅程設定'}</h2>
               <div className="space-y-5">
                 <div>
                   <label className={`block text-xs font-bold mb-1.5 uppercase ${t.subText}`}>旅程專屬顏色</label>

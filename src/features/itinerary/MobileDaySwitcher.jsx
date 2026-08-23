@@ -14,7 +14,7 @@ export function MobileDaySwitcher({
     <nav
       data-testid="mobile-day-switcher"
       aria-label="選擇行程日期"
-      className={wrapperClassName ?? `shrink-0 border-b px-3 py-2 ${t.headerBg} ${t.cardBorder}`}
+      className={wrapperClassName ?? `shrink-0 border-b px-3 py-2.5 ${t.headerBg} ${t.cardBorder}`}
     >
       <div className="scrollbar-hide flex gap-2 overflow-x-auto overscroll-x-contain">
         {(Array.isArray(days) ? days : []).map((dayId) => {
@@ -30,10 +30,10 @@ export function MobileDaySwitcher({
               aria-pressed={isCurrent}
               aria-current={isCurrent ? 'date' : undefined}
               onClick={(event) => onSelectDay(dayId, event)}
-              className={`min-h-11 shrink-0 rounded-full border px-4 text-xs font-black transition-[background-color,border-color,color,transform] active:scale-95 ${
+              className={`min-h-11 shrink-0 rounded-xl border px-4 text-xs font-black transition-[background-color,border-color,color,box-shadow,transform] duration-200 active:scale-[0.98] ${
                 isCurrent
-                  ? 'border-blue-500 bg-blue-600 text-white ring-2 ring-blue-500/25'
-                  : `${t.cardBg} ${t.cardBorder} ${t.mainText}`
+                  ? 'border-blue-600 bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                  : `${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-blue-400`
               }`}
             >
               <span>{String(title)}</span>

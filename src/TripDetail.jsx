@@ -22,6 +22,7 @@ import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 import { AppearanceDialog } from './components/AppearanceDialog.jsx';
 import { CURRENT_RELEASE_NOTES } from './config/releaseNotes.js';
 import { EmptyState } from './components/ui/EmptyState.jsx';
+import { Icon } from './components/ui/Icon.jsx';
 import { SkeletonButton, SkeletonText } from './components/ui/Skeleton.jsx';
 
 import {
@@ -81,6 +82,7 @@ import { DesktopDayNavigator } from './features/itinerary/DesktopDayNavigator.js
 import { MobileTripHeader } from './features/itinerary/MobileTripHeader.jsx';
 import { MobileMapTopBar } from './features/map/MobileMapTopBar.jsx';
 import { MobileCompactUtilityBar } from './components/MobileCompactUtilityBar.jsx';
+import { TripTabBar } from './features/navigation/TripTabBar.jsx';
 import {
   MobileItineraryTimeline,
   MobileTimelineSkeleton,
@@ -3497,51 +3499,39 @@ const TripDetail = ({
 
             <div className={`flex-col border-r transition-opacity duration-300 backdrop-blur-xl ${t.sidebarBg} ${t.cardBorder} ${activeTab === 'map' ? 'hidden md:flex md:w-2/3 lg:w-1/2' : 'flex w-full md:w-2/3 lg:w-1/2'}`}>
               {!isMobileViewport ? (
-              <div className={`relative z-40 flex p-4 flex-col justify-between items-start gap-3 shadow-md shrink-0 border-b backdrop-blur-2xl md:flex-row md:items-center ${t.headerBg} ${t.cardBorder}`}>
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <button onClick={onBack} data-testid="back-to-lobby" className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
-                    <h1 data-testid="trip-detail-title" className="text-xl font-black text-blue-500 truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
+              <div className={`relative z-40 flex shrink-0 flex-col items-start justify-between gap-3 border-b p-4 shadow-sm backdrop-blur-2xl md:flex-row md:items-center ${t.headerBg} ${t.cardBorder}`}>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <button onClick={onBack} data-testid="back-to-lobby" aria-label="返回旅程大廳" className={`mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.subText}`}><Icon name="arrowLeft" /></button>
+                    <h1 data-testid="trip-detail-title" className={`max-w-48 truncate text-xl font-black tracking-tight md:max-w-75 ${t.mainText}`}>{String(meta.title)}</h1>
                     {capabilities.cloudSync ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
                   </div>
-                  <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
+                  <p className={`ml-13 flex items-center gap-1.5 text-xs font-semibold ${t.subText}`}><Icon name="location" size={15} /><span className="truncate">{String(meta.destination)} · {String(meta.transport)}</span></p>
                 </div>
                 <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-                  <div className={`hidden md:flex p-1 rounded-lg border shadow-inner ${t.cardBg} ${t.cardBorder}`}>
-                    <button onClick={() => setActiveTab('plan')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${(activeTab === 'plan' || activeTab === 'map') ? 'bg-blue-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>📋 行程</button>
-                    <button
-                      type="button"
-                      data-testid="expense-tab-button"
-                      data-layout="desktop"
-                      onClick={() => setActiveTab('expense')}
-                      className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'expense' ? 'bg-emerald-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}
-                    >
-                      💰 記帳
-                    </button>
-                    <button type="button" data-testid="ticket-tab-button" data-layout="desktop" onClick={() => setActiveTab('ticket')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'ticket' ? 'bg-amber-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>🎟️ 票券</button>
-                  </div>
+                  <TripTabBar activeTab={activeTab} layout="desktop" onSelect={setActiveTab} t={t} />
                   <button
                     onClick={() => setShowExportModal(true)}
-                    className={`px-3 py-2 rounded-lg text-[10px] font-bold border shadow-sm transition-all active:scale-95 hover:border-purple-500 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                    className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-extrabold shadow-sm transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                     title="匯出完整行程或單日圖片"
                   >
-                    🖨️ <span className="ml-1">匯出</span>
+                    <Icon name="print" size={17} /><span>匯出</span>
                   </button>
                   <button
                     onClick={() => setShowChecklistModal(true)}
-                    className={`relative px-3 py-2 rounded-lg text-[10px] font-bold border shadow-sm transition-all active:scale-95 hover:border-blue-500 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                    className={`relative flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-extrabold shadow-sm transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                     title={`共享清單：${sharedChecklistStats.completed}/${sharedChecklistStats.total} 已完成`}
                   >
-                    <span>✅</span>
-                    <span className="ml-1">清單</span>
+                    <Icon name="checkCircle" size={17} />
+                    <span>清單</span>
                     {sharedChecklistStats.total > 0 ? (
                       <span className={`ml-1 px-1.5 py-0.5 rounded-md font-mono ${sharedChecklistStats.open === 0 ? 'bg-emerald-500/15 text-emerald-500' : 'bg-blue-500/15 text-blue-500'}`}>
                         {sharedChecklistStats.completed}/{sharedChecklistStats.total}
                       </span>
                     ) : null}
                   </button>
-                  <button onClick={handleShareLink} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-[10px] font-bold transition-transform active:scale-95 shadow-md">
-                    🔗 共編
+                  <button onClick={handleShareLink} className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700">
+                    <Icon name="link" size={17} /> 共編
                   </button>
                   <AppSettingsMenu
                     key={`trip-settings-${roomId}`}
@@ -4071,20 +4061,7 @@ const TripDetail = ({
             </div>
           </div>
 
-          <div style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0.5rem)' }} className={`grid grid-cols-4 border-t h-20 shrink-0 z-30 shadow-lg md:hidden ${t.headerBg} ${t.cardBorder}`}>
-            <button type="button" data-testid="mobile-nav-plan" aria-current={activeTab === "plan" ? "page" : undefined} onClick={() => setActiveTab("plan")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "plan" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>📋<span className="text-[10px] mt-1 font-bold">行程</span></button>
-            <button type="button" data-testid="mobile-nav-map" aria-current={activeTab === "map" ? "page" : undefined} onClick={() => setActiveTab("map")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "map" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>🗺️<span className="text-[10px] mt-1 font-bold">地圖</span></button>
-            <button type="button" data-testid="ticket-tab-button" data-layout="mobile" onClick={() => setActiveTab("ticket")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "ticket" ? "text-amber-500 font-bold -translate-y-1" : t.subText}`}>🎟️<span className="text-[10px] mt-1 font-bold">票券</span></button>
-            <button
-              type="button"
-              data-testid="expense-tab-button"
-              data-layout="mobile"
-              onClick={() => setActiveTab("expense")}
-              className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "expense" ? "text-emerald-500 font-bold -translate-y-1" : t.subText}`}
-            >
-              💰<span className="text-[10px] mt-1 font-bold">記帳</span>
-            </button>
-          </div>
+          <TripTabBar activeTab={activeTab} layout="mobile" onSelect={setActiveTab} t={t} />
         </div>
         )}
       </DragDropContext>
