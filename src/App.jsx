@@ -30,6 +30,7 @@ import {
 
 // 引入拆分出去的核心元件與 UI
 const TripDetail = lazy(() => import('./TripDetail.jsx'));
+const LobbyRouteArc = lazy(() => import('./features/lobby/LobbyRouteArc.jsx'));
 const UXFoundationDemo = import.meta.env.DEV
   ? lazy(() => import('./components/ui/UXFoundationDemo.jsx'))
   : null;
@@ -952,30 +953,47 @@ export default function TravelApp() {
     <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex w-full max-w-[100vw] flex-col overflow-x-hidden overscroll-none font-sans transition-colors duration-500 ${t.mainText}`}>
       <div className="mx-auto w-full max-w-6xl overflow-y-auto p-4 pb-[max(2rem,env(safe-area-inset-bottom))] md:p-8 lg:p-10">
         <header className={`mb-8 flex flex-col gap-5 rounded-3xl border p-4 shadow-[var(--travel-shadow-card)] backdrop-blur-xl md:p-6 ${t.headerBg} ${t.cardBorder}`}>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0 flex-1 basis-64">
-              <div className="mb-2 flex min-w-0 items-center gap-3 md:gap-4">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 md:h-14 md:w-14">
-                  <Icon name="plane" size={28} strokeWidth={2} />
+          <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(320px,380px)_auto] md:items-center md:gap-5">
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-4 md:contents">
+              <div className="min-w-0 flex-1 basis-52 md:col-start-1 md:row-start-1">
+                <div className="mb-2 flex min-w-0 items-center gap-3 md:gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 md:h-14 md:w-14">
+                    <Icon name="plane" size={28} strokeWidth={2} />
+                  </div>
+                  <h1 className={`min-w-0 text-3xl font-black leading-tight tracking-tight md:text-4xl ${t.mainText}`}>智の旅行</h1>
                 </div>
-                <h1 className={`min-w-0 text-3xl font-black leading-tight tracking-tight md:text-4xl ${t.mainText}`}>智の旅行</h1>
+                <p className={`text-sm font-semibold leading-6 md:text-base ${t.subText}`}>集中規劃行程、地圖、票券與旅費</p>
               </div>
-              <p className={`text-sm font-semibold leading-6 md:text-base ${t.subText}`}>集中規劃行程、地圖、票券與旅費</p>
+              <div className="shrink-0 md:col-start-3 md:row-start-1 md:self-start">
+                <AppSettingsMenu
+                  key={activeRoomId || 'lobby-settings'}
+                  t={t}
+                  version={CURRENT_RELEASE_NOTES.version}
+                  onOpenAppearance={openLobbyAppearance}
+                  onOpenReleaseNotes={openReleaseNotes}
+                  onOpenFeatureIntroduction={openFeatureIntroduction}
+                  onStartFeatureTour={startFeatureTour}
+                  showDemoEntry
+                  onOpenDemo={exampleTripHidden ? handleRestoreBuiltInDemo : openBuiltInDemo}
+                  demoEntryLabel={exampleTripHidden ? '恢復示範旅程' : '查看示範旅程'}
+                  onCheckUpdates={handleCheckAppUpdate}
+                  isCheckingUpdates={isCheckingAppUpdate}
+                />
+              </div>
             </div>
-            <AppSettingsMenu
-              key={activeRoomId || 'lobby-settings'}
-              t={t}
-              version={CURRENT_RELEASE_NOTES.version}
-              onOpenAppearance={openLobbyAppearance}
-              onOpenReleaseNotes={openReleaseNotes}
-              onOpenFeatureIntroduction={openFeatureIntroduction}
-              onStartFeatureTour={startFeatureTour}
-              showDemoEntry
-              onOpenDemo={exampleTripHidden ? handleRestoreBuiltInDemo : openBuiltInDemo}
-              demoEntryLabel={exampleTripHidden ? '恢復示範旅程' : '查看示範旅程'}
-              onCheckUpdates={handleCheckAppUpdate}
-              isCheckingUpdates={isCheckingAppUpdate}
-            />
+            <div className="min-w-0 md:col-start-2 md:row-start-1">
+              <Suspense
+                fallback={(
+                  <div
+                    data-testid="lobby-route-arc-loading"
+                    aria-hidden="true"
+                    className={`pointer-events-none h-[96px] w-full rounded-2xl border md:h-[144px] ${t.isLight ? 'border-blue-200/70 bg-blue-50/60' : 'border-blue-300/20 bg-slate-950/55'}`}
+                  />
+                )}
+              >
+                <LobbyRouteArc mode={t.isLight ? 'light' : 'dark'} />
+              </Suspense>
+            </div>
           </div>
 
           {hasTrips ? (
