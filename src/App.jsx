@@ -1011,7 +1011,7 @@ export default function TravelApp() {
           </div>
 
           {hasTrips ? (
-          <div className="grid w-full grid-cols-2 gap-2 md:flex md:items-center md:justify-end md:gap-3">
+          <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-2 md:flex md:items-center md:justify-end md:gap-3">
             <Button
               data-testid="create-trip-button"
               onClick={openCreateModal}

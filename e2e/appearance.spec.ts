@@ -93,6 +93,7 @@ test('lobby theme controls reflow without clipping at 200% text size', async ({ 
 
   const controls = [
     page.getByRole('heading', { level: 1, name: '智の旅行' }),
+    page.getByTestId('create-trip-button'),
     page.getByTestId('import-trip-button'),
     page.getByTestId('app-settings-trigger'),
   ];
@@ -107,6 +108,10 @@ test('lobby theme controls reflow without clipping at 200% text size', async ({ 
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
     .toBeLessThanOrEqual(1);
+
+  const createBox = await page.getByTestId('create-trip-button').boundingBox();
+  const importBox = await page.getByTestId('import-trip-button').boundingBox();
+  expect(importBox?.y || 0).toBeGreaterThan((createBox?.y || 0) + (createBox?.height || 0) - 1);
 
   await page.setViewportSize({ width: 844, height: 390 });
   await page.reload();
