@@ -33,12 +33,13 @@ test.beforeEach(async ({ page }) => {
   await seedLobby(page);
 });
 
-test('home appearance button opens the existing color selector and restores focus', async ({ page }) => {
+test('home settings opens the existing color selector and restores focus', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
 
-  const trigger = page.getByTestId('lobby-appearance-button');
+  const trigger = page.getByTestId('app-settings-trigger');
   await trigger.click();
+  await page.getByTestId('app-settings-appearance').click();
   const dialog = page.getByTestId('appearance-dialog');
   const input = page.getByTestId('appearance-color-input');
   await expect(dialog).toBeVisible();
@@ -62,10 +63,7 @@ test('custom light surfaces stay readable when the device prefers dark mode', as
   await writeEmulatorData('rooms/appearance-room/meta/themeColor', '#d9f3fb');
 
   await page.goto('/');
-  for (const button of [
-    page.getByTestId('import-trip-button'),
-    page.getByTestId('lobby-appearance-button'),
-  ]) {
+  for (const button of [page.getByTestId('import-trip-button')]) {
     await expect(button).toHaveCSS('color', /^oklch\(0\.208 0\.042 265\.755/);
     await expect(button).toHaveClass(/bg-white\/60/);
     await expect(button).toHaveCSS('background-color', /^oklab\(.+ \/ 0\.6\)$/);
@@ -96,7 +94,7 @@ test('lobby theme controls reflow without clipping at 200% text size', async ({ 
   const controls = [
     page.getByRole('heading', { level: 1, name: '智の旅行' }),
     page.getByTestId('import-trip-button'),
-    page.getByTestId('lobby-appearance-button'),
+    page.getByTestId('app-settings-trigger'),
   ];
   for (const control of controls) {
     await expect(control).toBeVisible();
@@ -113,7 +111,7 @@ test('lobby theme controls reflow without clipping at 200% text size', async ({ 
   await page.setViewportSize({ width: 844, height: 390 });
   await page.reload();
   await expect(page.getByTestId('import-trip-button')).toBeVisible();
-  await expect(page.getByTestId('lobby-appearance-button')).toBeVisible();
+  await expect(page.getByTestId('app-settings-trigger')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
     .toBeLessThanOrEqual(1);
 });

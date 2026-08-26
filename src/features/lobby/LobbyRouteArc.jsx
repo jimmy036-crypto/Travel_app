@@ -164,12 +164,12 @@ function drawRouteFrame(context, {
   const palette = ROUTE_PALETTES[mode];
   const horizontalInset = Math.max(18, width * 0.07);
   const mainRoute = {
-    start: { x: horizontalInset, y: height * 0.9 },
+    start: { x: horizontalInset, y: height * 0.8 },
     control: {
       x: width * 0.51,
-      y: height * 0.58,
+      y: height * 0.2,
     },
-    end: { x: width - horizontalInset, y: height * 0.84 },
+    end: { x: width - horizontalInset, y: height * 0.74 },
   };
   const beacon = journeyState === 'empty'
     ? null
@@ -179,9 +179,9 @@ function drawRouteFrame(context, {
   context.save();
 
   drawDottedCurve(context, {
-    start: { x: width * 0.14, y: height * 0.95 },
-    control: { x: width * 0.6, y: height * 0.72 },
-    end: { x: width * 0.9, y: height * 0.58 },
+    start: { x: width * 0.14, y: height * 0.94 },
+    control: { x: width * 0.6, y: height * 0.6 },
+    end: { x: width * 0.9, y: height * 0.28 },
     count: compact ? 26 : 38,
     color: palette.secondary,
     baseAlpha: mode === 'light' ? 0.1 : 0.14,
@@ -254,7 +254,11 @@ function getMediaQuery(query) {
  * This dependency-free Travel renderer is independently authored around a
  * dotted quadratic route and destination nodes. No ThreeUI source code was copied.
  */
-export function LobbyRouteArc({ mode = 'light', journeyState = 'upcoming' }) {
+export function LobbyRouteArc({
+  mode = 'light',
+  journeyState = 'upcoming',
+  embedded = false,
+}) {
   const hostRef = useRef(null);
   const canvasRef = useRef(null);
   const fallbackRef = useRef(null);
@@ -488,9 +492,9 @@ export function LobbyRouteArc({ mode = 'light', journeyState = 'upcoming' }) {
   const fallbackColor = resolvedMode === 'light' ? 'text-blue-600' : 'text-blue-400';
   const secondaryFallbackColor = resolvedMode === 'light' ? 'text-indigo-500' : 'text-indigo-400';
   const fallbackMarkerRoute = {
-    start: { x: 24, y: 126 },
-    control: { x: 182, y: 81 },
-    end: { x: 336, y: 118 },
+    start: { x: 24, y: 112 },
+    control: { x: 182, y: 28 },
+    end: { x: 336, y: 104 },
   };
   const fallbackMarker = pointOnQuadratic(
     fallbackMarkerRoute.start,
@@ -514,7 +518,7 @@ export function LobbyRouteArc({ mode = 'light', journeyState = 'upcoming' }) {
       data-journey-state={resolvedJourneyState}
       data-canvas-state="fallback"
       aria-hidden="true"
-      className={`pointer-events-none relative isolate h-full min-h-[96px] min-w-0 w-full select-none overflow-hidden rounded-2xl border md:min-h-[144px] ${SURFACE_CLASSES[resolvedMode]}`}
+      className={`pointer-events-none relative isolate h-full min-w-0 w-full select-none overflow-hidden ${embedded ? 'min-h-0' : `min-h-[96px] rounded-2xl border md:min-h-[144px] ${SURFACE_CLASSES[resolvedMode]}`}`}
     >
       <svg
         ref={fallbackRef}
@@ -526,7 +530,7 @@ export function LobbyRouteArc({ mode = 'light', journeyState = 'upcoming' }) {
         className="pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-200"
       >
         <path
-          d="M24 126 Q182 81 336 118"
+          d="M24 112 Q182 28 336 104"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
@@ -535,7 +539,7 @@ export function LobbyRouteArc({ mode = 'light', journeyState = 'upcoming' }) {
           className={`${fallbackColor} opacity-55`}
         />
         <path
-          d="M50 132 Q216 101 326 81"
+          d="M50 132 Q216 84 326 39"
           fill="none"
           stroke="currentColor"
           strokeWidth="1.4"
@@ -544,9 +548,9 @@ export function LobbyRouteArc({ mode = 'light', journeyState = 'upcoming' }) {
           className={`${secondaryFallbackColor} opacity-20`}
         />
         <g fill="currentColor" className={resolvedMode === 'light' ? 'text-cyan-600' : 'text-cyan-400'}>
-          <circle cx="35" cy="123" r="4" opacity="0.82" />
-          <circle cx="187" cy="101" r="4.5" opacity="0.88" />
-          <circle cx="325" cy="115" r="4" opacity="0.82" />
+          <circle cx="35" cy="107" r="4" opacity="0.82" />
+          <circle cx="187" cy="69" r="4.5" opacity="0.88" />
+          <circle cx="325" cy="99" r="4" opacity="0.82" />
         </g>
         {resolvedJourneyState !== 'empty' ? (
           <path

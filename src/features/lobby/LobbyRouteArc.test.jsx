@@ -204,6 +204,15 @@ describe('LobbyRouteArc', () => {
     expect(screen.getByTestId('lobby-route-arc')).toHaveClass('from-slate-950/70');
   });
 
+  it('can render inside the summary surface without adding a nested card', () => {
+    render(<LobbyRouteArc embedded />);
+
+    const visual = screen.getByTestId('lobby-route-arc');
+    expect(visual).toHaveClass('min-h-0');
+    expect(visual).not.toHaveClass('rounded-2xl');
+    expect(visual).not.toHaveClass('border');
+  });
+
   it('draws one directional travel beacon along the route during normal motion', () => {
     render(<LobbyRouteArc journeyState="upcoming" />);
     const initialPosition = canvasContext.translate.mock.calls.at(-1);

@@ -5,11 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { LobbyNextTripSummary } from './LobbyNextTripSummary.jsx';
 
 vi.mock('./LobbyRouteArc.jsx', () => ({
-  LobbyRouteArc: ({ mode, journeyState }) => (
+  LobbyRouteArc: ({ mode, journeyState, embedded }) => (
     <div
       data-testid="mock-lobby-route-arc"
       data-mode={mode}
       data-journey-state={journeyState}
+      data-embedded={String(Boolean(embedded))}
       aria-hidden="true"
       className="pointer-events-none"
     />
@@ -40,13 +41,32 @@ describe('LobbyNextTripSummary', () => {
     expect(screen.getByText('下一趟旅程')).toBeVisible();
     expect(screen.getByText('沖繩六日自由行')).toBeVisible();
     expect(screen.getByText('日本沖繩縣 · 9/20（日） · 26 天後')).toBeVisible();
-    expect(screen.getByText('開啟行程')).toBeVisible();
+    expect(screen.queryByText('開啟行程')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lobby-next-trip-summary-chevron')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
     expect(screen.getByTestId('mock-lobby-route-arc')).toHaveAttribute(
       'data-journey-state',
       'upcoming',
     );
     expect(action).toHaveAccessibleDescription(
       '日本沖繩縣，2026/09/20 至 2026/09/25，共 6 天，26 天後。',
+    );
+  });
+
+  it('keeps trip copy and the decorative route in separate layout regions', () => {
+    render(<LobbyNextTripSummary summary={UPCOMING_SUMMARY} onOpen={() => {}} />);
+
+    const info = screen.getByTestId('lobby-next-trip-summary-info');
+    const route = screen.getByTestId('lobby-next-trip-summary-route');
+    expect(info).toHaveTextContent('沖繩六日自由行');
+    expect(info).not.toContainElement(screen.getByTestId('mock-lobby-route-arc'));
+    expect(route).toContainElement(screen.getByTestId('mock-lobby-route-arc'));
+    expect(route).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('mock-lobby-route-arc')).toHaveAttribute(
+      'data-embedded',
+      'true',
     );
   });
 

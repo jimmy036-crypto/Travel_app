@@ -8,16 +8,18 @@ const THEME_CLASSES = {
     label: 'text-blue-700',
     text: 'text-slate-950',
     subText: 'text-slate-600',
-    fade: 'from-blue-50 via-blue-50/95 to-transparent',
-    affordance: 'border-blue-200/80 bg-white/80 text-blue-700 shadow-sm',
+    surface: 'border-blue-200/70 bg-gradient-to-br from-blue-50/80 via-cyan-50/55 to-indigo-100/65',
+    divider: 'border-blue-200/60',
+    chevron: 'border-blue-200/80 bg-white/75 text-blue-700 shadow-sm',
     focusOffset: 'focus-visible:ring-offset-white',
   },
   dark: {
     label: 'text-cyan-300',
     text: 'text-white',
     subText: 'text-slate-300',
-    fade: 'from-slate-950 via-slate-950/95 to-transparent',
-    affordance: 'border-white/15 bg-slate-950/75 text-cyan-300 shadow-sm',
+    surface: 'border-blue-300/20 bg-gradient-to-br from-slate-950/70 via-blue-950/45 to-indigo-950/55',
+    divider: 'border-white/10',
+    chevron: 'border-white/15 bg-slate-950/65 text-cyan-300 shadow-sm',
     focusOffset: 'focus-visible:ring-offset-slate-950',
   },
 };
@@ -124,14 +126,14 @@ function SummaryContent({ mode, summary, hasTrips }) {
   );
 }
 
-function OpenTripAffordance({ mode }) {
+function SummaryChevron({ mode }) {
   return (
     <span
       aria-hidden="true"
-      className={`pointer-events-none inline-flex h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-xl border px-2.5 text-xs font-extrabold transition-transform duration-200 group-hover:translate-x-0.5 ${THEME_CLASSES[mode].affordance}`}
+      data-testid="lobby-next-trip-summary-chevron"
+      className={`pointer-events-none inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-transform duration-200 group-hover:translate-x-0.5 ${THEME_CLASSES[mode].chevron}`}
     >
-      開啟行程
-      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5">
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5">
         <path d="m9 18 6-6-6-6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </span>
@@ -150,22 +152,26 @@ export function LobbyNextTripSummary({
   const hasAction = Boolean(summary && typeof onOpen === 'function');
 
   const sharedContent = (
-    <>
-      <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+    <div className="grid min-h-[168px] w-full grid-rows-[auto_minmax(84px,1fr)] md:min-h-[144px] md:grid-rows-[auto_minmax(72px,1fr)]">
+      <div
+        data-testid="lobby-next-trip-summary-info"
+        className="relative z-10 flex min-w-0 items-center gap-3 px-4 pb-2 pt-3 md:px-5 md:pb-2 md:pt-4"
+      >
+        <SummaryContent mode={resolvedMode} summary={summary} hasTrips={hasTrips} />
+        {hasAction ? <SummaryChevron mode={resolvedMode} /> : null}
+      </div>
+      <div
+        data-testid="lobby-next-trip-summary-route"
+        aria-hidden="true"
+        className={`pointer-events-none relative min-h-[84px] overflow-hidden border-t md:min-h-[72px] ${theme.divider}`}
+      >
         <LobbyRouteArc
           mode={resolvedMode}
           journeyState={summary?.timing || 'empty'}
+          embedded
         />
       </div>
-      <div
-        aria-hidden="true"
-        className={`pointer-events-none absolute inset-y-px left-px z-[1] w-[58%] rounded-l-[15px] bg-gradient-to-r ${theme.fade}`}
-      />
-      <div className="relative z-10 flex min-h-[96px] w-full flex-wrap items-center gap-x-2 gap-y-2 px-4 py-3 md:min-h-[144px] md:px-5">
-        <SummaryContent mode={resolvedMode} summary={summary} hasTrips={hasTrips} />
-        {hasAction ? <OpenTripAffordance mode={resolvedMode} /> : null}
-      </div>
-    </>
+    </div>
   );
 
   if (!hasAction) {
@@ -174,7 +180,7 @@ export function LobbyNextTripSummary({
         data-testid="lobby-next-trip-summary"
         data-mode={resolvedMode}
         data-state={summary?.timing || 'empty'}
-        className="relative isolate min-h-[96px] min-w-0 w-full select-none overflow-hidden rounded-2xl md:min-h-[144px]"
+        className={`relative isolate min-h-[168px] min-w-0 w-full select-none overflow-hidden rounded-2xl border md:min-h-[144px] ${theme.surface}`}
       >
         {sharedContent}
       </div>
@@ -197,7 +203,7 @@ export function LobbyNextTripSummary({
       aria-label={actionLabel}
       aria-describedby={descriptionId}
       onClick={onOpen}
-      className={`group relative isolate min-h-[96px] min-w-0 w-full touch-manipulation select-none overflow-hidden rounded-2xl text-left transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 md:min-h-[144px] ${theme.focusOffset}`}
+      className={`group relative isolate min-h-[168px] min-w-0 w-full touch-manipulation select-none overflow-hidden rounded-2xl border text-left transition-transform duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 md:min-h-[144px] ${theme.surface} ${theme.focusOffset}`}
     >
       {sharedContent}
       <span id={descriptionId} className="sr-only">

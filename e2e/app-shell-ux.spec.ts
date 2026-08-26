@@ -102,24 +102,32 @@ test('mobile lobby actions use a consistent responsive layout', async ({
 
   const createButton = page.getByTestId('create-trip-button');
   const importButton = page.getByTestId('import-trip-button');
-  const appearanceButton = page.getByTestId('lobby-appearance-button');
 
   await expect(page.getByTestId('travel-lobby')).toBeVisible();
   await expect(page.getByTestId('app-settings-trigger')).toBeVisible();
   await expect(createButton).toBeVisible();
   await expect(importButton).toBeVisible();
-  await expect(appearanceButton).toBeVisible();
+  await expect(page.getByTestId('lobby-appearance-button')).toHaveCount(0);
   await expect(page.getByTestId('release-notes-trigger')).toHaveCount(0);
 
   const createBox = await createButton.boundingBox();
   const importBox = await importButton.boundingBox();
-  const appearanceBox = await appearanceButton.boundingBox();
+  const summaryBox = await page.getByTestId('lobby-next-trip-summary').boundingBox();
+  const infoBox = await page.getByTestId('lobby-next-trip-summary-info').boundingBox();
+  const routeBox = await page.getByTestId('lobby-next-trip-summary-route').boundingBox();
+  const headerBox = await page.locator('header').first().boundingBox();
 
-  expect(createBox?.height).toBeGreaterThanOrEqual(48);
+  expect(createBox?.height).toBeGreaterThanOrEqual(44);
   expect(importBox?.height).toBeGreaterThanOrEqual(44);
-  expect(appearanceBox?.height).toBeGreaterThanOrEqual(44);
-  expect(Math.abs((importBox?.width || 0) - (appearanceBox?.width || 0))).toBeLessThanOrEqual(4);
-  expect(createBox?.width || 0).toBeGreaterThan(importBox?.width || 0);
+  expect(Math.abs((createBox?.width || 0) - (importBox?.width || 0))).toBeLessThanOrEqual(4);
+  expect(summaryBox?.height).toBeGreaterThanOrEqual(168);
+  expect(routeBox?.height).toBeGreaterThanOrEqual(84);
+  expect((infoBox?.y || 0) + (infoBox?.height || 0)).toBeLessThanOrEqual((routeBox?.y || 0) + 1);
+  expect(headerBox?.height || Number.POSITIVE_INFINITY).toBeLessThan(430);
+
+  await page.getByTestId('app-settings-trigger').click();
+  await expect(page.getByTestId('app-settings-feature-introduction')).toBeVisible();
+  await expect(page.getByTestId('app-settings-appearance')).toBeVisible();
 });
 
 test('opens release notes and feature tour from the settings menu', async ({

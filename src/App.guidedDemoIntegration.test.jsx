@@ -244,7 +244,8 @@ describe('App unified example trip integration', () => {
     const user = await renderLobby([REAL_TRIP]);
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
 
-    await user.click(screen.getByTestId('feature-introduction-button'));
+    await user.click(screen.getByTestId('app-settings-trigger'));
+    await user.click(screen.getByTestId('app-settings-feature-introduction'));
 
     const dialog = await screen.findByTestId('feature-introduction-dialog');
     expect(dialog).toHaveAttribute('data-mode', 'replay');
