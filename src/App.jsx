@@ -30,7 +30,7 @@ import {
 
 // 引入拆分出去的核心元件與 UI
 const TripDetail = lazy(() => import('./TripDetail.jsx'));
-const LobbyRouteArc = lazy(() => import('./features/lobby/LobbyRouteArc.jsx'));
+const LobbyNextTripSummary = lazy(() => import('./features/lobby/LobbyNextTripSummary.jsx'));
 const UXFoundationDemo = import.meta.env.DEV
   ? lazy(() => import('./components/ui/UXFoundationDemo.jsx'))
   : null;
@@ -75,6 +75,8 @@ import {
   isExampleTripHidden,
   setExampleTripHidden,
 } from './features/onboarding/exampleTripVisibility.js';
+import { selectLobbyTripSummary } from './features/lobby/lobbyTripSummary.js';
+import { useLobbyTodayKey } from './features/lobby/useLobbyTodayKey.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -808,6 +810,11 @@ export default function TravelApp() {
     && typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
   const hasTrips = Array.isArray(myTrips) && myTrips.length > 0;
+  const lobbyTodayKey = useLobbyTodayKey(!activeRoomId && !offlinePreviewData);
+  const lobbyTripSummary = useMemo(
+    () => selectLobbyTripSummary(myTrips, { now: lobbyTodayKey }),
+    [lobbyTodayKey, myTrips],
+  );
   const tourCtaMode = activeRoomId
     ? 'trip'
     : (hasTrips ? 'lobby-trips' : 'lobby-empty');
@@ -952,7 +959,7 @@ export default function TravelApp() {
     <>
     <div data-testid="travel-lobby" style={{ backgroundColor: customBgColor }} className={`fixed inset-0 flex w-full max-w-[100vw] flex-col overflow-x-hidden overscroll-none font-sans transition-colors duration-500 ${t.mainText}`}>
       <div className="mx-auto w-full max-w-6xl overflow-y-auto p-4 pb-[max(2rem,env(safe-area-inset-bottom))] md:p-8 lg:p-10">
-        <header className={`mb-8 flex flex-col gap-5 rounded-3xl border p-4 shadow-[var(--travel-shadow-card)] backdrop-blur-xl md:p-6 ${t.headerBg} ${t.cardBorder}`}>
+        <header className={`mb-8 flex flex-col gap-4 rounded-3xl border p-4 shadow-[var(--travel-shadow-card)] backdrop-blur-xl md:gap-5 md:p-6 ${t.headerBg} ${t.cardBorder}`}>
           <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(320px,380px)_auto] md:items-center md:gap-5">
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-4 md:contents">
               <div className="min-w-0 flex-1 basis-52 md:col-start-1 md:row-start-1">
@@ -985,53 +992,44 @@ export default function TravelApp() {
               <Suspense
                 fallback={(
                   <div
-                    data-testid="lobby-route-arc-loading"
+                    data-testid="lobby-next-trip-summary-loading"
                     aria-hidden="true"
-                    className={`pointer-events-none h-[96px] w-full rounded-2xl border md:h-[144px] ${t.isLight ? 'border-blue-200/70 bg-blue-50/60' : 'border-blue-300/20 bg-slate-950/55'}`}
+                    className={`pointer-events-none min-h-[168px] w-full rounded-2xl border md:min-h-[144px] ${t.isLight ? 'border-blue-200/70 bg-blue-50/60' : 'border-blue-300/20 bg-slate-950/55'}`}
                   />
                 )}
               >
-                <LobbyRouteArc mode={t.isLight ? 'light' : 'dark'} />
+                <LobbyNextTripSummary
+                  mode={t.isLight ? 'light' : 'dark'}
+                  summary={lobbyTripSummary}
+                  hasTrips={hasTrips}
+                  onOpen={lobbyTripSummary
+                    ? () => openTripRoom(lobbyTripSummary.roomId)
+                    : undefined}
+                />
               </Suspense>
             </div>
           </div>
 
           {hasTrips ? (
-          <div className="grid w-full gap-3 md:flex md:items-center md:justify-end">
-            <FeatureIntroductionButton
-              onOpen={openFeatureIntroduction}
-              className="w-full md:w-auto"
-            />
+          <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-2 md:flex md:items-center md:justify-end md:gap-3">
             <Button
               data-testid="create-trip-button"
               onClick={openCreateModal}
               variant="primary"
-              size="lg"
               leadingIcon={<Icon name="plus" />}
-              className="w-full md:w-auto md:min-w-40"
+              className="min-w-0 w-full md:w-auto md:min-w-40"
             >
               <span className="whitespace-nowrap">建立新旅程</span>
             </Button>
-            <div className="flex w-full flex-wrap gap-3 md:w-auto">
-              <Button
-                data-testid="import-trip-button"
-                onClick={() => setShowImportModal(true)}
-                variant="themed"
-                leadingIcon={<Icon name="download" />}
-                className={`min-w-36 flex-1 md:flex-none ${t.cardBg} ${t.cardBorder} ${t.mainText} ${t.cardHover}`}
-              >
-                <span className="whitespace-nowrap">匯入旅程</span>
-              </Button>
-              <Button
-                data-testid="lobby-appearance-button"
-                onClick={(event) => openLobbyAppearance(event.currentTarget)}
-                variant="themed"
-                leadingIcon={<Icon name="palette" />}
-                className={`min-w-36 flex-1 md:flex-none ${t.cardBg} ${t.cardBorder} ${t.mainText} ${t.cardHover}`}
-              >
-                <span className="whitespace-nowrap">自訂外觀</span>
-              </Button>
-            </div>
+            <Button
+              data-testid="import-trip-button"
+              onClick={() => setShowImportModal(true)}
+              variant="themed"
+              leadingIcon={<Icon name="download" />}
+              className={`min-w-0 w-full md:w-auto md:min-w-36 ${t.cardBg} ${t.cardBorder} ${t.mainText} ${t.cardHover}`}
+            >
+              <span className="whitespace-nowrap">匯入旅程</span>
+            </Button>
           </div>
           ) : null}
         </header>

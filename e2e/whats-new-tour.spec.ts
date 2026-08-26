@@ -377,9 +377,10 @@ test('offers trip creation instead of starting the tour when no trips exist', as
   await clearCurrentReleaseSeen(page);
   await page.goto('/');
 
-  await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
+  const dialog = page.getByTestId('whats-new-dialog');
+  await expect(dialog).toBeVisible();
   await expect(page.getByTestId('whats-new-create-trip')).toBeVisible();
-  const helper = page.getByText(/^建立旅程後/);
+  const helper = dialog.getByText(/^建立旅程後/);
   await expect(helper).toBeVisible();
   for (const fragment of ['行程', '地圖', '票券', '記帳', '結算', '共編']) {
     await expect(helper).toContainText(fragment);

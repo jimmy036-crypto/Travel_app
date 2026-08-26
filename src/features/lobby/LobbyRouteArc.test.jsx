@@ -27,10 +27,15 @@ function createCanvasContext() {
     arc: vi.fn(),
     beginPath: vi.fn(),
     clearRect: vi.fn(),
+    closePath: vi.fn(),
     fill: vi.fn(),
+    lineTo: vi.fn(),
+    moveTo: vi.fn(),
     restore: vi.fn(),
+    rotate: vi.fn(),
     save: vi.fn(),
     setTransform: vi.fn(),
+    translate: vi.fn(),
     fillStyle: '',
     shadowBlur: 0,
     shadowColor: '',
@@ -199,6 +204,62 @@ describe('LobbyRouteArc', () => {
     expect(screen.getByTestId('lobby-route-arc')).toHaveClass('from-slate-950/70');
   });
 
+  it('can render inside the summary surface without adding a nested card', () => {
+    render(<LobbyRouteArc embedded />);
+
+    const visual = screen.getByTestId('lobby-route-arc');
+    expect(visual).toHaveClass('min-h-0');
+    expect(visual).not.toHaveClass('rounded-2xl');
+    expect(visual).not.toHaveClass('border');
+  });
+
+  it('draws one directional travel beacon along the route during normal motion', () => {
+    render(<LobbyRouteArc journeyState="upcoming" />);
+    const initialPosition = canvasContext.translate.mock.calls.at(-1);
+    const initialCallCount = canvasContext.translate.mock.calls.length;
+
+    let timestamp = 1_000;
+    for (let index = 0; index < 24; index += 1) {
+      const pendingTick = requestAnimationFrameMock.mock.calls.at(-1)[0];
+      act(() => pendingTick(timestamp));
+      timestamp += 100;
+    }
+
+    expect(canvasContext.translate.mock.calls.length).toBeGreaterThan(10);
+    expect(canvasContext.rotate).toHaveBeenCalled();
+    const firstAnimatedPosition = canvasContext.translate.mock.calls[initialCallCount];
+    const lastPosition = canvasContext.translate.mock.calls.at(-1);
+    expect(firstAnimatedPosition[0]).toBeCloseTo(initialPosition[0], 5);
+    expect(firstAnimatedPosition[1]).toBeCloseTo(initialPosition[1], 5);
+    expect(lastPosition[0]).toBeGreaterThan(firstAnimatedPosition[0] + 10);
+  });
+
+  it('keeps the compact draw cadence near 24 FPS on a 60Hz RAF clock', () => {
+    mediaQueries.get(COMPACT_VIEWPORT_QUERY).matches = true;
+    render(<LobbyRouteArc />);
+    const drawsBeforeTicks = canvasContext.clearRect.mock.calls.length;
+
+    act(() => {
+      for (let frame = 0; frame <= 60; frame += 1) {
+        const pendingTick = requestAnimationFrameMock.mock.calls.at(-1)[0];
+        pendingTick(frame * (1_000 / 60));
+      }
+    });
+
+    const drawsDuringSecond = canvasContext.clearRect.mock.calls.length - drawsBeforeTicks;
+    expect(drawsDuringSecond).toBeGreaterThanOrEqual(23);
+    expect(drawsDuringSecond).toBeLessThanOrEqual(25);
+  });
+
+  it('keeps an empty trip state static without a travel beacon loop', () => {
+    render(<LobbyRouteArc journeyState="empty" />);
+
+    const visual = screen.getByTestId('lobby-route-arc');
+    expect(visual).toHaveAttribute('data-journey-state', 'empty');
+    expect(screen.queryByTestId('lobby-route-arc-fallback-beacon')).not.toBeInTheDocument();
+    expect(requestAnimationFrameMock).not.toHaveBeenCalled();
+  });
+
   it('disconnects ResizeObserver on unmount', () => {
     const { unmount } = render(<LobbyRouteArc />);
     const observer = resizeObservers[0];
@@ -263,6 +324,7 @@ describe('LobbyRouteArc', () => {
     render(<LobbyRouteArc />);
 
     expect(canvasContext.clearRect).toHaveBeenCalled();
+    expect(canvasContext.translate).toHaveBeenCalled();
     expect(requestAnimationFrameMock).not.toHaveBeenCalled();
   });
 
@@ -296,6 +358,16 @@ describe('LobbyRouteArc', () => {
     expect(requestAnimationFrameMock).not.toHaveBeenCalled();
     expect(resizeObservers).toHaveLength(0);
     expect(intersectionObservers).toHaveLength(0);
+  });
+
+  it('uses an available 2D context even without a global Canvas constructor', () => {
+    vi.stubGlobal('CanvasRenderingContext2D', undefined);
+
+    render(<LobbyRouteArc />);
+
+    expect(getContextMock).toHaveBeenCalledWith('2d');
+    expect(screen.getByTestId('lobby-route-arc')).toHaveAttribute('data-canvas-state', 'ready');
+    expect(requestAnimationFrameMock).toHaveBeenCalled();
   });
 
   it('stops offscreen and resumes only after re-entering the viewport', () => {
