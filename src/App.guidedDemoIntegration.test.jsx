@@ -13,9 +13,11 @@ const firebaseMocks = vi.hoisted(() => ({
 }));
 
 const offlineMocks = vi.hoisted(() => ({
+  build: vi.fn(),
   list: vi.fn(() => []),
   read: vi.fn(),
   remove: vi.fn(),
+  write: vi.fn(),
 }));
 
 vi.mock('./firebase.js', () => ({ db: {}, storage: {} }));
@@ -59,9 +61,11 @@ vi.mock('./features/offline/OfflineTripPreview.jsx', () => ({
   OfflineTripPreview: () => <div data-testid="mock-offline-trip-preview" />,
 }));
 vi.mock('./features/offline/offlineTripCache.js', () => ({
+  buildOfflineTripSnapshot: offlineMocks.build,
   listOfflineTripSummaries: offlineMocks.list,
   readOfflineTripSnapshot: offlineMocks.read,
   removeOfflineTripSnapshot: offlineMocks.remove,
+  writeOfflineTripSnapshot: offlineMocks.write,
 }));
 vi.mock('./components/UIComponents.jsx', () => ({
   DestinationSearch: ({ value }) => <input value={value} readOnly />,
@@ -110,6 +114,15 @@ const REAL_TRIP = {
   themeColor: '#3b82f6',
 };
 
+const NEXT_TRIP = {
+  ...REAL_TRIP,
+  roomId: 'next-real-trip',
+  title: '北海道雪季旅行',
+  destination: '日本北海道',
+  startDate: '2099-10-01',
+  endDate: '2099-10-06',
+};
+
 const seedTrips = (trips) => {
   localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
   localStorage.setItem('google-travel-my-trips', JSON.stringify(trips));
@@ -140,12 +153,34 @@ describe('App unified example trip integration', () => {
   it('shows the example with the shared TripCard in an empty lobby', async () => {
     await renderLobby();
     expect(within(screen.getByTestId('demo-trip-entry-card')).getByTestId('trip-card')).toBeVisible();
+    expect(await screen.findByTestId('lobby-next-trip-summary')).toHaveAttribute('data-state', 'empty');
+    expect(screen.queryByRole('button', { name: /開啟下一趟旅程/ })).not.toBeInTheDocument();
   });
 
   it('keeps the example card beside regular trip cards', async () => {
     await renderLobby([REAL_TRIP]);
     expect(screen.getAllByTestId('trip-card')).toHaveLength(2);
     expect(screen.getByTestId('demo-trip-entry-card')).toBeInTheDocument();
+  });
+
+  it('opens the earliest real upcoming trip from the Lobby summary', async () => {
+    const user = await renderLobby([
+      { ...NEXT_TRIP, roomId: 'later-real-trip', startDate: '2099-11-01', endDate: '2099-11-03' },
+      NEXT_TRIP,
+    ]);
+    const summary = await screen.findByRole('button', {
+      name: '開啟下一趟旅程：北海道雪季旅行',
+    });
+
+    expect(summary).toHaveAttribute('data-room-id', 'next-real-trip');
+    await user.click(summary);
+
+    await waitFor(() => expect(screen.getByTestId('mock-trip-detail')).toHaveAttribute(
+      'data-trip-id',
+      'next-real-trip',
+    ));
+    expect(window.location.search).toBe('?room=next-real-trip');
+    expect(screen.queryByTestId('lobby-next-trip-summary')).not.toBeInTheDocument();
   });
 
   it('opens the example through the shared TripDetail route', async () => {

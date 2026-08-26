@@ -30,7 +30,7 @@ import {
 
 // 引入拆分出去的核心元件與 UI
 const TripDetail = lazy(() => import('./TripDetail.jsx'));
-const LobbyRouteArc = lazy(() => import('./features/lobby/LobbyRouteArc.jsx'));
+const LobbyNextTripSummary = lazy(() => import('./features/lobby/LobbyNextTripSummary.jsx'));
 const UXFoundationDemo = import.meta.env.DEV
   ? lazy(() => import('./components/ui/UXFoundationDemo.jsx'))
   : null;
@@ -75,6 +75,8 @@ import {
   isExampleTripHidden,
   setExampleTripHidden,
 } from './features/onboarding/exampleTripVisibility.js';
+import { selectLobbyTripSummary } from './features/lobby/lobbyTripSummary.js';
+import { useLobbyTodayKey } from './features/lobby/useLobbyTodayKey.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
@@ -808,6 +810,11 @@ export default function TravelApp() {
     && typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
   const hasTrips = Array.isArray(myTrips) && myTrips.length > 0;
+  const lobbyTodayKey = useLobbyTodayKey(!activeRoomId && !offlinePreviewData);
+  const lobbyTripSummary = useMemo(
+    () => selectLobbyTripSummary(myTrips, { now: lobbyTodayKey }),
+    [lobbyTodayKey, myTrips],
+  );
   const tourCtaMode = activeRoomId
     ? 'trip'
     : (hasTrips ? 'lobby-trips' : 'lobby-empty');
@@ -985,13 +992,20 @@ export default function TravelApp() {
               <Suspense
                 fallback={(
                   <div
-                    data-testid="lobby-route-arc-loading"
+                    data-testid="lobby-next-trip-summary-loading"
                     aria-hidden="true"
-                    className={`pointer-events-none h-[96px] w-full rounded-2xl border md:h-[144px] ${t.isLight ? 'border-blue-200/70 bg-blue-50/60' : 'border-blue-300/20 bg-slate-950/55'}`}
+                    className={`pointer-events-none min-h-[96px] w-full rounded-2xl border md:min-h-[144px] ${t.isLight ? 'border-blue-200/70 bg-blue-50/60' : 'border-blue-300/20 bg-slate-950/55'}`}
                   />
                 )}
               >
-                <LobbyRouteArc mode={t.isLight ? 'light' : 'dark'} />
+                <LobbyNextTripSummary
+                  mode={t.isLight ? 'light' : 'dark'}
+                  summary={lobbyTripSummary}
+                  hasTrips={hasTrips}
+                  onOpen={lobbyTripSummary
+                    ? () => openTripRoom(lobbyTripSummary.roomId)
+                    : undefined}
+                />
               </Suspense>
             </div>
           </div>
