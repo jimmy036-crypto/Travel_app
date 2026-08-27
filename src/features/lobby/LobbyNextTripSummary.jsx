@@ -1,7 +1,7 @@
 import { useId } from 'react';
 
 import { parseDateOnlyLocal } from '../../helpers.js';
-import { LobbyRouteArc } from './LobbyRouteArc.jsx';
+import { LobbyTripStatusVisual } from './LobbyTripStatusVisual.jsx';
 
 const THEME_CLASSES = {
   light: {
@@ -117,9 +117,7 @@ function SummaryContent({ mode, summary, hasTrips }) {
       <span className={`line-clamp-2 [overflow-wrap:anywhere] text-base font-black leading-tight ${theme.text}`}>
         {summary.title}
       </span>
-      <span className={`line-clamp-2 [overflow-wrap:anywhere] text-xs font-bold leading-snug ${theme.subText}`}>
-        {summary.destination}
-        {' · '}
+      <span className={`truncate text-xs font-bold leading-snug ${theme.subText}`}>
         {timing.meta}
       </span>
     </div>
@@ -161,15 +159,11 @@ export function LobbyNextTripSummary({
         {hasAction ? <SummaryChevron mode={resolvedMode} /> : null}
       </div>
       <div
-        data-testid="lobby-next-trip-summary-route"
+        data-testid="lobby-next-trip-summary-visual-region"
         aria-hidden="true"
         className={`pointer-events-none relative min-h-[84px] overflow-hidden border-t md:min-h-[72px] ${theme.divider}`}
       >
-        <LobbyRouteArc
-          mode={resolvedMode}
-          journeyState={summary?.timing || 'empty'}
-          embedded
-        />
+        <LobbyTripStatusVisual mode={resolvedMode} summary={summary} />
       </div>
     </div>
   );
