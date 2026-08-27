@@ -114,15 +114,15 @@ test('mobile lobby actions use a consistent responsive layout', async ({
   const importBox = await importButton.boundingBox();
   const summaryBox = await page.getByTestId('lobby-next-trip-summary').boundingBox();
   const infoBox = await page.getByTestId('lobby-next-trip-summary-info').boundingBox();
-  const routeBox = await page.getByTestId('lobby-next-trip-summary-route').boundingBox();
+  const visualBox = await page.getByTestId('lobby-next-trip-summary-visual-region').boundingBox();
   const headerBox = await page.locator('header').first().boundingBox();
 
   expect(createBox?.height).toBeGreaterThanOrEqual(44);
   expect(importBox?.height).toBeGreaterThanOrEqual(44);
   expect(Math.abs((createBox?.width || 0) - (importBox?.width || 0))).toBeLessThanOrEqual(4);
   expect(summaryBox?.height).toBeGreaterThanOrEqual(168);
-  expect(routeBox?.height).toBeGreaterThanOrEqual(84);
-  expect((infoBox?.y || 0) + (infoBox?.height || 0)).toBeLessThanOrEqual((routeBox?.y || 0) + 1);
+  expect(visualBox?.height).toBeGreaterThanOrEqual(84);
+  expect((infoBox?.y || 0) + (infoBox?.height || 0)).toBeLessThanOrEqual((visualBox?.y || 0) + 1);
   expect(headerBox?.height || Number.POSITIVE_INFINITY).toBeLessThan(430);
 
   await page.getByTestId('app-settings-trigger').click();
