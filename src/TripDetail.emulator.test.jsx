@@ -35,7 +35,9 @@ vi.mock('@hello-pangea/dnd', () => ({
 }));
 
 vi.mock('./firebase', () => ({
+  auth: null,
   db: null,
+  functions: null,
   storage: null,
 }));
 
@@ -84,13 +86,21 @@ describe('TripDetail Emulator 景點流程', () => {
   });
 
   it('可透過 Emulator hook 新增、查看並編輯景點', async () => {
-    const { default: App } = await import('./App.jsx');
+    const { default: TripDetail } = await import('./TripDetail.jsx');
+    const { createLocalExampleTripRepository } = await import('./features/trip-data/localExampleTripRepository.js');
     const { GlobalModalProvider } = await import('./components/ui/GlobalModalProvider.jsx');
     const { ToastProvider } = await import('./components/ui/ToastProvider.jsx');
+    const repository = createLocalExampleTripRepository();
     const view = render(
       <GlobalModalProvider>
         <ToastProvider>
-          <App />
+          <TripDetail
+            tripId="local-example-trip"
+            repository={repository}
+            capabilities={repository.getCapabilities()}
+            onBack={() => {}}
+            isOnline
+          />
         </ToastProvider>
       </GlobalModalProvider>,
     );
@@ -107,7 +117,9 @@ describe('TripDetail Emulator 景點流程', () => {
       window.__TRAVEL_E2E__.addTestPlace();
     });
 
-    const placeCard = await view.findByTestId('place-card');
+    const placeTitle = await view.findByText('E2E 測試餐廳');
+    const placeCard = placeTitle.closest('[data-testid="place-card"]');
+    expect(placeCard).not.toBeNull();
     expect(placeCard).toHaveTextContent('E2E 測試餐廳');
     expect(await view.findByText('景點已加入行程')).toBeInTheDocument();
 
@@ -141,5 +153,6 @@ describe('TripDetail Emulator 景點流程', () => {
     await waitFor(() => {
       expect(view.queryByTestId('edit-place-modal')).not.toBeInTheDocument();
     });
+    repository.dispose();
   });
 });

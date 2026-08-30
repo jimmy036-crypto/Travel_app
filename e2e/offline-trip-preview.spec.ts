@@ -1,15 +1,15 @@
 import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import {
-  writeEmulatorData,
   clearEmulatorDatabase,
+  E2E_AUTH_UID,
   readEmulatorData,
+  seedTestTrip,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
 
 const ROOM_ID = 'offline-preview-room';
 const UNCACHED_ROOM_ID = 'uncached-room';
-const CACHE_KEY = 'google-travel-offline-trip-cache-v1';
-const MY_TRIPS_KEY = 'google-travel-my-trips';
+const CACHE_KEY = `google-travel-offline-trip-cache-v2:${E2E_AUTH_UID}`;
 
 const testRoomData = {
   meta: {
@@ -93,64 +93,39 @@ type OfflineCacheSnapshot = {
 
 async function seedOfflinePreviewRoom(): Promise<void> {
   await clearEmulatorDatabase();
-  await writeEmulatorData(`rooms/${ROOM_ID}`, testRoomData);
-  await writeEmulatorData(`rooms/${UNCACHED_ROOM_ID}`, {
-    meta: {
-      title: 'Uncached Trip',
-      destination: 'Nowhere',
-      startDate: '2026-08-01',
-      endDate: '2026-08-02',
-      members: ['Una'],
-      memberBudgets: { Una: 10000 },
-      transport: 'Walk',
-      themeColor: '#64748b',
-      dayThemes: {},
-      createdAt: 1_785_100_001,
-      updatedAt: 1_785_100_002,
-    },
+  await seedTestTrip(ROOM_ID, {
+    title: testRoomData.meta.title,
+    destination: testRoomData.meta.destination,
+    startDate: testRoomData.meta.startDate,
+    endDate: testRoomData.meta.endDate,
+    members: testRoomData.meta.members,
+    memberBudgets: testRoomData.meta.memberBudgets,
+    transport: testRoomData.meta.transport,
+    themeColor: testRoomData.meta.themeColor,
+    itinerary: testRoomData.itinerary,
+    expenses: testRoomData.expenses,
+    settlements: testRoomData.settlements,
+    checklist: testRoomData.checklist,
+    tickets: testRoomData.tickets,
+  });
+  await seedTestTrip(UNCACHED_ROOM_ID, {
+    title: 'Uncached Trip',
+    destination: 'Nowhere',
+    startDate: '2026-08-01',
+    endDate: '2026-08-02',
+    members: ['Una'],
+    memberBudgets: { Una: 10000 },
+    transport: 'Walk',
+    themeColor: '#64748b',
     itinerary: { 'Day 1': [] },
-    expenses: [],
-    settlements: [],
-    checklist: {},
-    tickets: [],
   });
 }
 
-async function installTripShortcuts(page: Page): Promise<void> {
+async function prepareAccountCache(page: Page): Promise<void> {
   await markCurrentReleaseSeen(page);
-  await page.addInitScript(
-    ({ roomId, uncachedRoomId, myTripsKey, cacheKey }) => {
-      window.localStorage.removeItem(cacheKey);
-      window.localStorage.setItem(myTripsKey, JSON.stringify([
-        {
-          roomId,
-          title: 'Test Offline Trip',
-          destination: 'Taipei',
-          startDate: '2026-07-15',
-          endDate: '2026-07-16',
-          members: ['Alice', 'Bob'],
-          transport: 'Train',
-          themeColor: '#3b82f6',
-        },
-        {
-          roomId: uncachedRoomId,
-          title: 'Uncached Trip',
-          destination: 'Nowhere',
-          startDate: '2026-08-01',
-          endDate: '2026-08-02',
-          members: ['Una'],
-          transport: 'Walk',
-          themeColor: '#64748b',
-        },
-      ]));
-    },
-    {
-      roomId: ROOM_ID,
-      uncachedRoomId: UNCACHED_ROOM_ID,
-      myTripsKey: MY_TRIPS_KEY,
-      cacheKey: CACHE_KEY,
-    },
-  );
+  await page.addInitScript((cacheKey) => {
+    window.localStorage.removeItem(cacheKey);
+  }, CACHE_KEY);
 }
 
 function tripCard(page: Page, roomId: string): Locator {
@@ -228,7 +203,7 @@ async function openTripAndWaitForCache(page: Page): Promise<OfflineCacheSnapshot
 }
 
 async function setupLobby(page: Page): Promise<void> {
-  await installTripShortcuts(page);
+  await prepareAccountCache(page);
   await page.goto('/');
   await expect(page.getByTestId('travel-lobby')).toBeVisible();
   await expect(tripCard(page, ROOM_ID)).toBeVisible();
@@ -413,10 +388,8 @@ test.describe('Offline Trip Preview', () => {
     cache = await readOfflineCache(page);
     expect(cache[ROOM_ID]).toBeUndefined();
 
-    const shortcuts = await page.evaluate((key) => {
-      return JSON.parse(window.localStorage.getItem(key) || '[]');
-    }, MY_TRIPS_KEY) as Array<{ roomId?: string }>;
-    expect(shortcuts.some((trip) => trip.roomId === ROOM_ID)).toBe(true);
+    expect(await readEmulatorData(`userTrips/${E2E_AUTH_UID}/${ROOM_ID}`))
+      .toEqual(expect.objectContaining({ role: 'owner', status: 'active' }));
 
     const afterClearData = await readEmulatorData(`rooms/${ROOM_ID}`);
     expect(afterClearData).toEqual(beforeClearData);

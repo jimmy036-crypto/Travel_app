@@ -2,7 +2,7 @@ export const FIRST_RUN_ONBOARDING_VERSION = 1;
 export const FIRST_RUN_ONBOARDING_SEEN_KEY = 'travel-app-seen-onboarding-v1';
 
 const DEFAULT_APPEARANCE = '#d8b4e2';
-const OFFLINE_CACHE_KEY = 'google-travel-offline-trip-cache-v1';
+const OFFLINE_CACHE_KEY_PREFIX = 'google-travel-offline-trip-cache-v2:';
 
 function getStorage() {
   try {
@@ -71,7 +71,12 @@ function hasValidOfflineContent(raw) {
 function readRoomDeepLink() {
   try {
     if (typeof window === 'undefined') return false;
-    return Boolean(new URLSearchParams(window.location.search).get('room')?.trim());
+    const params = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/u, ''));
+    return Boolean(
+      params.get('room')?.trim()
+      || hashParams.get('invite')?.trim(),
+    );
   } catch {
     return false;
   }
@@ -92,22 +97,14 @@ export function readFirstRunEligibilitySnapshot() {
     const storage = getStorage();
     if (!storage) return snapshot;
 
-    const tripsRaw = storage.getItem('google-travel-my-trips');
-    if (String(tripsRaw || '').trim()) {
-      try {
-        const trips = JSON.parse(tripsRaw);
-        snapshot.hasNonEmptyTrips = Array.isArray(trips) && trips.length > 0;
-      } catch {
-        snapshot.hasNonEmptyTrips = false;
-      }
-    }
-
     const appearance = String(storage.getItem('google-travel-custom-bg') || '').trim().toLowerCase();
     snapshot.hasMeaningfulAppearancePreference = Boolean(appearance && appearance !== DEFAULT_APPEARANCE);
-    snapshot.hasOfflineTripData = hasValidOfflineContent(storage.getItem(OFFLINE_CACHE_KEY));
 
     for (let index = 0; index < storage.length; index += 1) {
       const key = String(storage.key(index) || '');
+      if (key.startsWith(OFFLINE_CACHE_KEY_PREFIX) && hasValidOfflineContent(storage.getItem(key))) {
+        snapshot.hasOfflineTripData = true;
+      }
       if (key.startsWith('travel-app-seen-release-')) snapshot.hasReleaseHistory = true;
       if (key.startsWith('travel-active-member-') || key.startsWith('travel-checklist-actor-')) {
         snapshot.hasMemberIdentityHistory = true;

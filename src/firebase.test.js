@@ -21,10 +21,16 @@ const firebaseStorageMocks = vi.hoisted(() => ({
   connectStorageEmulator: vi.fn(),
 }));
 
+const firebaseFunctionsMocks = vi.hoisted(() => ({
+  getFunctions: vi.fn((app, region) => ({ service: 'functions', app, region })),
+  connectFunctionsEmulator: vi.fn(),
+}));
+
 vi.mock('firebase/app', () => firebaseAppMocks);
 vi.mock('firebase/auth', () => firebaseAuthMocks);
 vi.mock('firebase/database', () => firebaseDatabaseMocks);
 vi.mock('firebase/storage', () => firebaseStorageMocks);
+vi.mock('firebase/functions', () => firebaseFunctionsMocks);
 
 const completeEnv = {
   VITE_FIREBASE_API_KEY: 'test-api-key',
@@ -67,6 +73,7 @@ describe('firebase auth emulator foundation', () => {
     expect(firebaseModule.auth).toMatchObject({ service: 'auth' });
     expect(firebaseModule.db).toMatchObject({ service: 'database' });
     expect(firebaseModule.storage).toMatchObject({ service: 'storage' });
+    expect(firebaseModule.functions).toMatchObject({ service: 'functions', region: 'us-central1' });
     expect(firebaseAppMocks.initializeApp).toHaveBeenCalledWith(
       expect.objectContaining({
         apiKey: 'test-api-key',
@@ -76,6 +83,7 @@ describe('firebase auth emulator foundation', () => {
     expect(firebaseAuthMocks.getAuth).toHaveBeenCalledTimes(1);
     expect(firebaseDatabaseMocks.getDatabase).toHaveBeenCalledTimes(1);
     expect(firebaseStorageMocks.getStorage).toHaveBeenCalledTimes(1);
+    expect(firebaseFunctionsMocks.getFunctions).toHaveBeenCalledTimes(1);
   });
 
   it('FIREBASE-AUTH-02 connects all Firebase emulators in emulator mode', async () => {
@@ -101,6 +109,11 @@ describe('firebase auth emulator foundation', () => {
       '127.0.0.1',
       9199,
     );
+    expect(firebaseFunctionsMocks.connectFunctionsEmulator).toHaveBeenCalledWith(
+      expect.objectContaining({ service: 'functions' }),
+      '127.0.0.1',
+      5001,
+    );
   });
 
   it('FIREBASE-AUTH-03 does not connect emulators in production mode', async () => {
@@ -111,6 +124,7 @@ describe('firebase auth emulator foundation', () => {
     expect(firebaseAuthMocks.connectAuthEmulator).not.toHaveBeenCalled();
     expect(firebaseDatabaseMocks.connectDatabaseEmulator).not.toHaveBeenCalled();
     expect(firebaseStorageMocks.connectStorageEmulator).not.toHaveBeenCalled();
+    expect(firebaseFunctionsMocks.connectFunctionsEmulator).not.toHaveBeenCalled();
   });
 
   it('FIREBASE-AUTH-04 returns null services when required config is incomplete', async () => {
@@ -122,6 +136,7 @@ describe('firebase auth emulator foundation', () => {
     expect(firebaseModule.auth).toBeNull();
     expect(firebaseModule.db).toBeNull();
     expect(firebaseModule.storage).toBeNull();
+    expect(firebaseModule.functions).toBeNull();
     expect(firebaseAppMocks.initializeApp).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
       'Firebase config is incomplete.',
@@ -145,6 +160,7 @@ describe('firebase auth emulator foundation', () => {
     expect(firebaseModule.auth).toBeNull();
     expect(firebaseModule.db).toBeNull();
     expect(firebaseModule.storage).toBeNull();
+    expect(firebaseModule.functions).toBeNull();
     expect(warnSpy).toHaveBeenCalledWith(
       'Firebase initialization failed.',
       expect.objectContaining({ message: 'auth init failed' }),
@@ -163,5 +179,6 @@ describe('firebase auth emulator foundation', () => {
     expect(firebaseAuthMocks.connectAuthEmulator).toHaveBeenCalledTimes(1);
     expect(firebaseDatabaseMocks.connectDatabaseEmulator).toHaveBeenCalledTimes(1);
     expect(firebaseStorageMocks.connectStorageEmulator).toHaveBeenCalledTimes(1);
+    expect(firebaseFunctionsMocks.connectFunctionsEmulator).toHaveBeenCalledTimes(1);
   });
 });

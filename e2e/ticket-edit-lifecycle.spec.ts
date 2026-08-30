@@ -306,8 +306,9 @@ test('replaces image with PDF and preserves the old record when a later upload f
   expect(await storageObjectExists(String(image.storagePath))).toBe(false);
   expect(await storageObjectExists(String(pdf.storagePath))).toBe(true);
   const pdfCard = ticketCard(page, 'PDF replacement');
-  await expect(pdfCard.getByRole('link', { name: '開啟 PDF 票券' }))
-    .toHaveAttribute('rel', /noopener.*noreferrer|noreferrer.*noopener/);
+  const protectedPdfButton = pdfCard.getByRole('button', { name: '開啟 PDF 票券' });
+  await expect(protectedPdfButton).toBeVisible();
+  await expect(protectedPdfButton).not.toHaveAttribute('href');
   await expect(pdfCard.getByRole('button', { name: '全螢幕查看票券' })).toHaveCount(0);
 
   const objectsBeforeFailure = await listEmulatorStorageObjects(STORAGE_PREFIX);

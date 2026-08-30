@@ -15,6 +15,7 @@ const firebaseCliEnv = {
 
 const e2eFirebaseEnv = {
   VITE_USE_FIREBASE_EMULATOR: 'true',
+  VITE_E2E_AUTH_UID: 'e2e-owner',
   VITE_FIREBASE_API_KEY: 'emulator-api-key',
   VITE_FIREBASE_AUTH_DOMAIN: 'demo-travel-e2e.firebaseapp.com',
   VITE_FIREBASE_DATABASE_URL:
@@ -25,11 +26,9 @@ const e2eFirebaseEnv = {
   VITE_FIREBASE_APP_ID: '1:000000000000:web:e2e',
 };
 
-if (isCI) {
-  // CI 測試與 helper 需要 Firebase Emulator 設定，
-  // 但不可在全域覆寫 HOME，否則 Playwright 會改變瀏覽器快取位置。
-  Object.assign(process.env, e2eFirebaseEnv);
-}
+// Playwright runner、E2E helper 與 Vite 必須指向同一個 demo project。
+// 只注入無敏感度的 Emulator 設定，不覆寫 HOME。
+Object.assign(process.env, e2eFirebaseEnv);
 
 const inheritedEnv = Object.fromEntries(
   Object.entries(process.env).filter(
@@ -46,15 +45,17 @@ const currentReleaseSeenKey =
 const firebaseEmulatorEnv = {
   ...inheritedEnv,
   ...firebaseCliEnv,
+  // Demo project 沒有遠端 Admin SDK config 可供 CLI 查詢。
+  // 明確對齊 Functions Admin SDK 與 Web SDK 的 RTDB namespace。
+  DATABASE_URL: e2eFirebaseEnv.VITE_FIREBASE_DATABASE_URL,
+  STORAGE_BUCKET_URL: e2eFirebaseEnv.VITE_FIREBASE_STORAGE_BUCKET,
 };
 
 // Vite 與 Playwright 不應繼承 Firebase CLI 的假 HOME。
-const e2eDevServerEnv = isCI
-  ? {
-      ...inheritedEnv,
-      ...e2eFirebaseEnv,
-    }
-  : inheritedEnv;
+const e2eDevServerEnv = {
+  ...inheritedEnv,
+  ...e2eFirebaseEnv,
+};
 
 export default defineConfig({
   testDir: './e2e',
@@ -117,7 +118,9 @@ export default defineConfig({
       name: 'Firebase Emulator',
       command: firebaseEmulatorCommand,
       env: firebaseEmulatorEnv,
-      url: 'http://127.0.0.1:4000',
+      // 等 callable endpoint 完成發現與註冊，避免 UI 先就緒時
+      // 第一個 Functions preflight 落在尚未初始化的 handler。
+      url: 'http://127.0.0.1:5001/demo-travel-e2e/us-central1/createTrip',
       reuseExistingServer: false,
       stdout: 'pipe',
       stderr: 'pipe',
@@ -125,7 +128,7 @@ export default defineConfig({
     },
     {
       name: 'Vite E2E',
-      command: 'npm run dev:e2e',
+      command: 'node e2e/support/seed-auth-emulator.mjs && npm run dev:e2e',
       env: e2eDevServerEnv,
       url: 'http://127.0.0.1:4174',
       reuseExistingServer: false,

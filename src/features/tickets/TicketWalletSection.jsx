@@ -78,10 +78,14 @@ function TicketCard({
   onEdit,
   onDelete,
   onOpenImage,
+  onOpenAttachment,
   onCopyOrderNumber,
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const action = getTicketLaunchAction(ticket);
+  const protectedAttachment = ticket.ticketType === TICKET_TYPES.ATTACHMENT
+    && Boolean(ticket.storagePath)
+    && typeof onOpenAttachment === 'function';
   const fallbackUrl = normalizeTicketHttpUrl(ticket.fallbackUrl);
   const showFallback = ticket.ticketType === TICKET_TYPES.EXTERNAL_APP
     && action.mode === 'app-link'
@@ -151,16 +155,20 @@ function TicketCard({
       ) : null}
 
       <div className="mt-4 flex min-w-0 flex-wrap gap-2">
-        {action.mode === 'fullscreen-image' ? (
+        {protectedAttachment ? (
+          <button type="button" onClick={() => onOpenAttachment(ticket)} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">
+            {ticket.attachmentKind === 'pdf' ? '開啟 PDF 票券' : '全螢幕查看票券'}
+          </button>
+        ) : action.mode === 'fullscreen-image' ? (
           <button type="button" onClick={() => onOpenImage(ticket)} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">全螢幕查看票券</button>
         ) : null}
-        {action.mode === 'pdf' ? <ActionAnchor href={action.url} isLight={t?.isLight}>開啟 PDF 票券</ActionAnchor> : null}
+        {!protectedAttachment && action.mode === 'pdf' ? <ActionAnchor href={action.url} isLight={t?.isLight}>開啟 PDF 票券</ActionAnchor> : null}
         {action.mode === 'web' ? <ActionAnchor href={action.url} isLight={t?.isLight}>開啟票券網站</ActionAnchor> : null}
         {action.mode === 'app-link' ? <ActionAnchor href={action.url} isLight={t?.isLight}>在 App 中開啟票券</ActionAnchor> : null}
         {manual ? (
           <button type="button" onClick={() => setDetailsOpen((open) => !open)} className="min-h-11 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white">查看開啟方式</button>
         ) : null}
-        {action.mode === 'invalid' ? <button type="button" disabled className="min-h-11 rounded-xl bg-slate-300 px-4 py-2 text-xs font-black text-slate-600">{ticket.ticketType === TICKET_TYPES.ATTACHMENT ? '票券附件無法開啟' : '票券網址無法開啟'}</button> : null}
+        {!protectedAttachment && action.mode === 'invalid' ? <button type="button" disabled className="min-h-11 rounded-xl bg-slate-300 px-4 py-2 text-xs font-black text-slate-600">{ticket.ticketType === TICKET_TYPES.ATTACHMENT ? '票券附件無法開啟' : '票券網址無法開啟'}</button> : null}
         {showFallback ? <ActionAnchor href={fallbackUrl} secondary isLight={t?.isLight}>開啟備用網頁</ActionAnchor> : null}
         {ticket.orderNumber ? <button type="button" onClick={() => onCopyOrderNumber(ticket.orderNumber)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-xs font-black">複製訂單編號</button> : null}
         {showDetailToggle && !manual ? <button type="button" onClick={() => setDetailsOpen((open) => !open)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-xs font-black">查看使用說明</button> : null}
@@ -197,6 +205,7 @@ export function TicketWalletSection({
   onEditTicket,
   onDeleteTicket,
   onOpenImage,
+  onOpenAttachment,
   onCopyOrderNumber,
 }) {
   const validMembers = useMemo(() => normalizeMembers(members), [members]);
@@ -296,6 +305,7 @@ export function TicketWalletSection({
                 onEdit={onEditTicket}
                 onDelete={onDeleteTicket}
                 onOpenImage={onOpenImage}
+                onOpenAttachment={onOpenAttachment}
                 onCopyOrderNumber={onCopyOrderNumber}
               />
             ))}

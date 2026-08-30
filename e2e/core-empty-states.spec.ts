@@ -1,8 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import {
+  E2E_AUTH_UID,
   clearEmulatorDatabase,
+  readEmulatorData,
+  readEmulatorFirestoreDocument,
   seedTestTrip,
+  seedTestTripInvite,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
 
@@ -90,10 +94,8 @@ async function openTrip(page: Page, itinerary: Record<string, SeedPlace[]>) {
 test('shows a useful lobby empty state when there are no trips', async ({
   page,
 }) => {
+  await clearEmulatorDatabase();
   await markCurrentReleaseSeen(page);
-  await page.addInitScript(() => {
-    window.localStorage.setItem('google-travel-my-trips', '[]');
-  });
 
   await page.goto('/');
 
@@ -114,7 +116,53 @@ test('shows a useful lobby empty state when there are no trips', async ({
   await page.reload();
   await expect(page.getByTestId('lobby-empty-state')).toBeVisible();
   await page.getByTestId('lobby-empty-import-trip').click();
-  await expect(page.getByText('匯入雲端行程')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '加入朋友的旅程' })).toBeVisible();
+  await expect(page.getByText('房間 ID 本身不會授予權限。')).toBeVisible();
+});
+
+test('joins a trip only after redeeming a secure invite link', async ({ page }) => {
+  const inviteOwnerUid = 'e2e-invite-owner';
+  await clearEmulatorDatabase();
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E secure invite trip',
+    ownerUid: inviteOwnerUid,
+  });
+  const token = await seedTestTripInvite(ROOM_ID, {
+    createdByUid: inviteOwnerUid,
+  });
+
+  await markCurrentReleaseSeen(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
+  });
+  await page.goto('/');
+  await expect(page.getByTestId('lobby-empty-state')).toBeVisible();
+
+  await page.getByTestId('lobby-empty-import-trip').click();
+  await page.getByRole('textbox', { name: '旅程邀請連結' })
+    .fill(`https://example.test/#invite=${token}`);
+  await page.getByRole('button', { name: '驗證並加入' }).click();
+
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId('trip-detail-title')).toContainText(
+    'E2E secure invite trip',
+  );
+  await expect(page.getByTestId('toast').filter({ hasText: '已加入旅程' }))
+    .toBeVisible();
+  expect(await readEmulatorData(
+    `roomAccess/${ROOM_ID}/members/${E2E_AUTH_UID}/role`,
+  )).toBe('editor');
+  expect(await readEmulatorData(`userTrips/${E2E_AUTH_UID}/${ROOM_ID}`))
+    .toEqual(expect.objectContaining({ role: 'editor', status: 'active' }));
+  const acl = await readEmulatorFirestoreDocument(
+    `tripAccess/${ROOM_ID}/members/${E2E_AUTH_UID}`,
+  );
+  expect(acl?.fields).toEqual(expect.objectContaining({
+    role: { stringValue: 'editor' },
+    status: { stringValue: 'active' },
+  }));
 });
 
 test('shows an itinerary empty state for a day without places', async ({

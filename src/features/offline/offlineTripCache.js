@@ -1,9 +1,17 @@
 import { extractRoomId, sortDayIds, getDayDisplay } from '../../helpers.js';
 
-const CACHE_KEY = 'google-travel-offline-trip-cache-v1';
+const CACHE_KEY_PREFIX = 'google-travel-offline-trip-cache-v2';
 const MAX_TRIPS = 3;
 const MAX_SIZE_BYTES = 1000 * 1024; // roughly 1MB
 const DANGEROUS_ROOM_IDS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function getScopedCacheKey(ownerUid = 'local') {
+  const normalizedUid = typeof ownerUid === 'string' ? ownerUid.trim() : '';
+  const safeUid = normalizedUid && !/[.#$[\]/\\]/u.test(normalizedUid)
+    ? normalizedUid.slice(0, 160)
+    : 'local';
+  return `${CACHE_KEY_PREFIX}:${safeUid}`;
+}
 
 function isPlainObject(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -138,17 +146,17 @@ function classifyStorageError(error) {
   return /quota/i.test(`${name} ${message}`) ? 'quota-error' : 'storage-unavailable';
 }
 
-function safeGetCacheRaw() {
+function safeGetCacheRaw(ownerUid) {
   try {
-    return { ok: true, value: localStorage.getItem(CACHE_KEY) };
+    return { ok: true, value: localStorage.getItem(getScopedCacheKey(ownerUid)) };
   } catch (error) {
     return { ok: false, reason: classifyStorageError(error) };
   }
 }
 
-function safeSetCacheRaw(value) {
+function safeSetCacheRaw(value, ownerUid) {
   try {
-    localStorage.setItem(CACHE_KEY, value);
+    localStorage.setItem(getScopedCacheKey(ownerUid), value);
     return { ok: true };
   } catch (error) {
     return { ok: false, reason: classifyStorageError(error) };
@@ -172,8 +180,8 @@ function parseCacheContainer(raw) {
   }
 }
 
-function readCacheContainer() {
-  const raw = safeGetCacheRaw();
+function readCacheContainer(ownerUid) {
+  const raw = safeGetCacheRaw(ownerUid);
   if (!raw.ok) return raw;
   return { ok: true, cache: parseCacheContainer(raw.value) };
 }
@@ -321,7 +329,7 @@ export function buildOfflineTripSnapshot({
   return snapshot;
 }
 
-export function writeOfflineTripSnapshot(snapshot) {
+export function writeOfflineTripSnapshot(snapshot, ownerUid = 'local') {
   const canonical = canonicalizeSnapshot(snapshot, { fillCachedAt: true });
   if (!canonical.ok) return { ok: false, reason: canonical.reason };
 
@@ -332,23 +340,23 @@ export function writeOfflineTripSnapshot(snapshot) {
     return { ok: false, reason: 'too-large' };
   }
 
-  const cacheRead = readCacheContainer();
+  const cacheRead = readCacheContainer(ownerUid);
   if (!cacheRead.ok) return { ok: false, reason: 'storage-unavailable' };
 
   const existingEntries = getCanonicalCacheEntries(cacheRead.cache)
     .filter(entry => entry.roomId !== canonical.snapshot.roomId);
   const nextEntries = evictCacheEntries([...existingEntries, canonical.snapshot], canonical.snapshot.roomId);
-  const setResult = safeSetCacheRaw(JSON.stringify(buildCacheObject(nextEntries)));
+  const setResult = safeSetCacheRaw(JSON.stringify(buildCacheObject(nextEntries)), ownerUid);
   if (!setResult.ok) return { ok: false, reason: setResult.reason };
 
   return { ok: true };
 }
 
-export function readOfflineTripSnapshot(roomId) {
+export function readOfflineTripSnapshot(roomId, ownerUid = 'local') {
   const normId = validateRoomId(roomId);
   if (!normId) return null;
 
-  const cacheRead = readCacheContainer();
+  const cacheRead = readCacheContainer(ownerUid);
   if (!cacheRead.ok) return null;
   if (!Object.hasOwn(cacheRead.cache, normId)) return null;
 
@@ -359,8 +367,8 @@ export function readOfflineTripSnapshot(roomId) {
   return JSON.parse(JSON.stringify(canonical.snapshot));
 }
 
-export function listOfflineTripSummaries() {
-  const cacheRead = readCacheContainer();
+export function listOfflineTripSummaries(ownerUid = 'local') {
+  const cacheRead = readCacheContainer(ownerUid);
   if (!cacheRead.ok) return [];
 
   return getCanonicalCacheEntries(cacheRead.cache)
@@ -373,17 +381,17 @@ export function listOfflineTripSummaries() {
     }));
 }
 
-export function removeOfflineTripSnapshot(roomId) {
+export function removeOfflineTripSnapshot(roomId, ownerUid = 'local') {
   const normId = validateRoomId(roomId);
   if (!normId) return { ok: false, reason: 'invalid-room-id' };
 
-  const cacheRead = readCacheContainer();
+  const cacheRead = readCacheContainer(ownerUid);
   if (!cacheRead.ok) return { ok: false, reason: 'storage-unavailable' };
   if (!Object.hasOwn(cacheRead.cache, normId)) return { ok: true };
 
   const nextEntries = getCanonicalCacheEntries(cacheRead.cache)
     .filter(entry => entry.roomId !== normId);
-  const setResult = safeSetCacheRaw(JSON.stringify(buildCacheObject(nextEntries)));
+  const setResult = safeSetCacheRaw(JSON.stringify(buildCacheObject(nextEntries)), ownerUid);
   if (!setResult.ok) return { ok: false, reason: setResult.reason };
 
   return { ok: true };

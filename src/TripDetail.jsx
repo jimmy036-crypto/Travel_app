@@ -96,6 +96,7 @@ import {
 import { isDndDebugEnabled, traceDnd, traceDndNextFrame } from './features/itinerary/dndDebugTrace.js';
 import { DndDebugPanel } from './features/itinerary/DndDebugPanel.jsx';
 import { buildPrintPreviewToolbar } from './features/export/itineraryPrintPreview.js';
+import { AccountSection } from './features/auth/AccountSection.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -123,6 +124,36 @@ const isPdfPlaceResource = (resource) => (
   || String(resource?.fileName || '').toLowerCase().endsWith('.pdf')
   || String(resource?.kind || '') === 'pdf'
 );
+
+const hydrateProtectedPlaceImages = async (itinerary, repository) => {
+  const entries = await Promise.all(Object.entries(itinerary || {}).map(async ([dayId, items]) => {
+    const hydratedItems = await Promise.all((Array.isArray(items) ? items : []).map(async (item) => {
+      const hydrateImage = async (attachment, assumeImage = false) => {
+        if (!attachment?.storagePath || (!assumeImage && !isImagePlaceResource(attachment))) {
+          return attachment;
+        }
+        try {
+          const url = await repository.readAttachment(attachment);
+          return url ? { ...attachment, url } : attachment;
+        } catch (error) {
+          console.warn('Protected place image could not be loaded.', error);
+          return attachment;
+        }
+      };
+      return {
+        ...item,
+        placePhoto: await hydrateImage(item?.placePhoto, true),
+        resources: await Promise.all(
+          (Array.isArray(item?.resources) ? item.resources : []).map(
+            (resource) => hydrateImage(resource),
+          ),
+        ),
+      };
+    }));
+    return [dayId, hydratedItems];
+  }));
+  return Object.fromEntries(entries);
+};
 
 const getPlaceResourceMeta = (resourceOrType) => {
   const resource = typeof resourceOrType === 'object' && resourceOrType !== null
@@ -245,9 +276,9 @@ const PlacePhotoLightbox = ({ photo, onClose }) => {
 };
 
 
-const PlaceResourcesModal = ({ item, mode = 'menu', onClose }) => {
+const PlaceResourcesModal = ({ item, mode = 'menu', onClose, onOpenResource }) => {
   const allResources = Array.isArray(item?.resources)
-    ? item.resources.filter((resource) => resource?.url)
+    ? item.resources.filter((resource) => resource?.url || resource?.storagePath)
     : [];
   const resources = allResources.filter((resource) => (
     mode === 'menu' ? resource.type === 'menu' : resource.type !== 'menu'
@@ -422,7 +453,7 @@ const PlaceResourcesModal = ({ item, mode = 'menu', onClose }) => {
                   <button
                     key={String(resource.id || resource.url)}
                     type="button"
-                    onClick={() => openExternalUrl(resource.url)}
+                    onClick={() => onOpenResource?.(resource)}
                     className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 text-left active:scale-[0.99]"
                   >
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-xl">{meta.icon}</span>
@@ -460,6 +491,7 @@ const PlaceItemDetailModal = ({
   onDelete,
   onViewMenu,
   onViewPhoto,
+  onOpenResource,
   t,
 }) => {
   const [showGoogleSection, setShowGoogleSection] = useState(false);
@@ -486,7 +518,7 @@ const PlaceItemDetailModal = ({
     ? String(item.name)
     : '';
   const allResources = Array.isArray(item.resources)
-    ? item.resources.filter((resource) => resource?.url)
+    ? item.resources.filter((resource) => resource?.url || resource?.storagePath)
     : [];
   const menuResources = allResources.filter((resource) => resource.type === 'menu');
   const nonMenuResources = allResources.filter((resource) => resource.type !== 'menu');
@@ -704,7 +736,7 @@ const PlaceItemDetailModal = ({
                     <button
                       key={String(resource.id || resource.url)}
                       type="button"
-                      onClick={() => openExternalUrl(resource.url)}
+                      onClick={() => onOpenResource?.(resource)}
                       className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border px-4 text-left active:scale-[0.99] ${t.cardBg} ${t.cardBorder}`}
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-xl">{meta.icon}</span>
@@ -746,7 +778,7 @@ const PlaceItemDetailModal = ({
                       <button
                         key={String(resource.id || resource.url)}
                         type="button"
-                        onClick={() => openExternalUrl(resource.url)}
+                        onClick={() => onOpenResource?.(resource)}
                         className={`flex min-h-13 w-full items-center gap-3 rounded-2xl border px-4 text-left active:scale-[0.99] ${t.cardBg} ${t.cardBorder}`}
                       >
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-500/10 text-lg">{meta.icon}</span>
@@ -1245,12 +1277,6 @@ const TripDetailSkeleton = ({
   t,
   tripThemeColor,
   onBack,
-  onOpenReleaseNotes,
-  onOpenFeatureIntroduction,
-  onStartFeatureTour,
-  onCheckUpdates,
-  isCheckingUpdates,
-  onOpenAppearance,
 }) => {
   const isMobileViewport = useMobileViewport();
 
@@ -1277,16 +1303,9 @@ const TripDetailSkeleton = ({
               </div>
               <SkeletonText lines={1} className="mt-2 w-56 md:w-72" isLight={t.isLight} />
             </div>
-            <AppSettingsMenu
-              key="trip-skeleton-settings"
-              t={t}
-              version={CURRENT_RELEASE_NOTES.version}
-              onOpenAppearance={onOpenAppearance}
-              onOpenReleaseNotes={onOpenReleaseNotes}
-              onOpenFeatureIntroduction={onOpenFeatureIntroduction}
-              onStartFeatureTour={onStartFeatureTour}
-              onCheckUpdates={onCheckUpdates}
-              isCheckingUpdates={isCheckingUpdates}
+            <SkeletonButton
+              className="h-11 w-11 shrink-0 rounded-2xl"
+              isLight={t.isLight}
             />
           </div>
         </div>
@@ -1360,6 +1379,14 @@ const TripDetail = ({
   isCheckingUpdates,
   onTourAvailabilityChange,
   isOnline = true,
+  tripAccessRole = '',
+  onOpenSharing,
+  accountUser,
+  authLoading = false,
+  authBusy = false,
+  authError = '',
+  onSignIn,
+  onSignOut,
 }) => {
   const roomId = String(tripId || legacyRoomId || '');
   const isExampleTrip = roomId === LOCAL_EXAMPLE_TRIP_ID;
@@ -1403,6 +1430,7 @@ const TripDetail = ({
   const expenseDeleteConfirmRef = useRef(false);
   const ticketMutationRef = useRef(false);
   const ticketLoadedRoomRef = useRef('');
+  const attachmentHydrationVersionRef = useRef(0);
 
   const setMeta = useCallback((updater) => {
     dirtyBranchesRef.current.meta = true;
@@ -1582,6 +1610,7 @@ const TripDetail = ({
     let cancelled = false;
 
     ticketLoadedRoomRef.current = '';
+    attachmentHydrationVersionRef.current += 1;
     dirtyBranchesRef.current = { meta: false, itinerary: false, expenses: false, settlements: false, tickets: false };
     writeVersionRef.current = { meta: 0, itinerary: 0, expenses: 0, settlements: 0, tickets: 0 };
     hasLoadedRoomRef.current = false;
@@ -1641,7 +1670,19 @@ const TripDetail = ({
         ticketLoadedRoomRef.current = roomId;
 
         if (!dirtyBranchesRef.current.meta) setMetaState(loadedMeta);
-        if (!dirtyBranchesRef.current.itinerary) setItineraryState(loadedItinerary);
+        if (!dirtyBranchesRef.current.itinerary) {
+          setItineraryState(loadedItinerary);
+          const hydrationVersion = attachmentHydrationVersionRef.current + 1;
+          attachmentHydrationVersionRef.current = hydrationVersion;
+          void hydrateProtectedPlaceImages(loadedItinerary, repository).then((hydrated) => {
+            if (
+              cancelled
+              || dirtyBranchesRef.current.itinerary
+              || attachmentHydrationVersionRef.current !== hydrationVersion
+            ) return;
+            setItineraryState(hydrated);
+          });
+        }
         if (!dirtyBranchesRef.current.expenses) setExpensesState(loadedExpenses);
         if (!dirtyBranchesRef.current.settlements) setSettlementsState(loadedSettlements);
         if (!dirtyBranchesRef.current.tickets) setTicketsState(loadedTickets);
@@ -2693,28 +2734,82 @@ const TripDetail = ({
     commitChecklistPatch(Object.fromEntries(idsToDelete.map(itemId => [itemId, null])));
   }, [checklistItems, commitChecklistPatch]);
 
-  const handleShareLink = useCallback(async () => {
+  const resolveAttachmentUrl = useCallback(async (attachment) => {
+    if (attachment?.storagePath) {
+      if (!repository) throw new Error('Trip repository is not available.');
+      return repository.readAttachment(attachment);
+    }
+    return String(attachment?.url || '');
+  }, [repository]);
+
+  const openAttachmentDocument = useCallback(async (attachment) => {
+    const pendingWindow = attachment?.storagePath
+      ? window.open('about:blank', '_blank')
+      : null;
+    if (pendingWindow) pendingWindow.opener = null;
+    try {
+      const url = await resolveAttachmentUrl(attachment);
+      if (!url) throw new Error('Attachment URL is unavailable.');
+      if (pendingWindow) {
+        pendingWindow.location.replace(url);
+      } else if (attachment?.storagePath) {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.click();
+      } else {
+        openExternalUrl(url);
+      }
+    } catch (error) {
+      pendingWindow?.close();
+      console.error('Open protected attachment failed:', error);
+      toast.error({
+        title: '無法開啟附件',
+        description: '請確認網路連線與旅程權限後再試。',
+      });
+    }
+  }, [resolveAttachmentUrl, toast]);
+
+  const handleOpenTicketAttachment = useCallback(async (ticket) => {
+    if (ticket?.attachmentKind === 'pdf') {
+      await openAttachmentDocument(ticket);
+      return;
+    }
+    try {
+      const url = await resolveAttachmentUrl(ticket);
+      if (!url) throw new Error('Attachment URL is unavailable.');
+      setFullscreenTicket({ ...ticket, url });
+    } catch (error) {
+      console.error('Open protected ticket failed:', error);
+      toast.error({
+        title: '無法開啟票券',
+        description: '請確認網路連線與旅程權限後再試。',
+      });
+    }
+  }, [openAttachmentDocument, resolveAttachmentUrl, toast]);
+
+  const handleShareLink = useCallback(() => {
     if (!capabilities.sharing) {
       alert(CLOUD_FEATURE_UNAVAILABLE_MESSAGE);
       return;
     }
-
-    const url = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      alert(`🔗 已複製 ${meta?.title || "旅程"} 的共編連結！`);
-    } catch {
-      window.prompt("請手動複製共編連結：", url);
+    if (tripAccessRole !== 'owner') {
+      alert(tripAccessRole === 'editor'
+        ? '只有旅程擁有者可以邀請或管理成員。'
+        : '正在確認旅程權限，請稍後再試。');
+      return;
     }
-  }, [capabilities.sharing, meta, roomId]);
+    onOpenSharing?.();
+  }, [capabilities.sharing, onOpenSharing, tripAccessRole]);
 
   const tripSettingsActions = useMemo(() => ([
-    {
+    ...(!capabilities.sharing || tripAccessRole === 'owner' ? [{
       id: 'share',
       label: '分享共編',
       icon: '🔗',
       onSelect: handleShareLink,
-    },
+    }] : []),
     {
       id: 'checklist',
       label: '共享清單',
@@ -2727,7 +2822,7 @@ const TripDetail = ({
       icon: '🖨️',
       onSelect: () => setShowExportModal(true),
     },
-  ]), [handleShareLink]);
+  ]), [capabilities.sharing, handleShareLink, tripAccessRole]);
 
   const handleExploreSearch = (customQuery = null, customLocation = null) => {
     const q = typeof customQuery === 'string' ? customQuery : String(exploreQuery);
@@ -3412,6 +3507,17 @@ const TripDetail = ({
       onStartFeatureTour={onStartFeatureTour}
       onCheckUpdates={onCheckUpdates}
       isCheckingUpdates={isCheckingUpdates}
+      accountNode={(
+        <AccountSection
+          user={accountUser}
+          loading={authLoading}
+          busy={authBusy}
+          error={authError}
+          onSignIn={onSignIn}
+          onSignOut={onSignOut}
+          t={t}
+        />
+      )}
     />
   );
 
@@ -3442,12 +3548,6 @@ const TripDetail = ({
             t={t}
             tripThemeColor={tripThemeColor}
             onBack={onBack}
-            onOpenReleaseNotes={onOpenReleaseNotes}
-            onOpenFeatureIntroduction={onOpenFeatureIntroduction}
-            onStartFeatureTour={onStartFeatureTour}
-            onCheckUpdates={onCheckUpdates}
-            isCheckingUpdates={isCheckingUpdates}
-            onOpenAppearance={openAppearanceDialog}
           />
         ) : (
         <div data-testid="active-trip-view" style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
@@ -3530,9 +3630,11 @@ const TripDetail = ({
                       </span>
                     ) : null}
                   </button>
-                  <button onClick={handleShareLink} className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700">
-                    <Icon name="link" size={17} /> 共編
-                  </button>
+                  {!capabilities.sharing || tripAccessRole === 'owner' ? (
+                    <button onClick={handleShareLink} className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700">
+                      <Icon name="link" size={17} /> 共編
+                    </button>
+                  ) : null}
                   <AppSettingsMenu
                     key={`trip-settings-${roomId}`}
                      t={t}
@@ -3545,6 +3647,17 @@ const TripDetail = ({
                      onStartFeatureTour={onStartFeatureTour}
                     onCheckUpdates={onCheckUpdates}
                     isCheckingUpdates={isCheckingUpdates}
+                    accountNode={(
+                      <AccountSection
+                        user={accountUser}
+                        loading={authLoading}
+                        busy={authBusy}
+                        error={authError}
+                        onSignIn={onSignIn}
+                        onSignOut={onSignOut}
+                        t={t}
+                      />
+                    )}
                   />
                 </div>
               </div>
@@ -3991,6 +4104,7 @@ const TripDetail = ({
                 onEditTicket={openTicketEditor}
                 onDeleteTicket={deleteTicket}
                 onOpenImage={setFullscreenTicket}
+                onOpenAttachment={handleOpenTicketAttachment}
                 onCopyOrderNumber={handleCopyTicketOrderNumber}
               />
 
@@ -4180,7 +4294,7 @@ const TripDetail = ({
       {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
 
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
-      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onSaveError={() => {
+      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onOpenAttachment={openAttachmentDocument} onSaveError={() => {
         setSyncStatus('error');
         toast.error({
           title: '無法更新景點',
@@ -4297,6 +4411,7 @@ const TripDetail = ({
           }}
           onViewMenu={(item) => setViewingPlaceResources({ item, mode: 'menu' })}
           onViewPhoto={(photo) => setViewingPlacePhoto(photo)}
+          onOpenResource={openAttachmentDocument}
           t={t}
         />
       ) : null}
@@ -4312,6 +4427,7 @@ const TripDetail = ({
           key={`place-resources-${String(viewingPlaceResources.item?.id || 'item')}-${viewingPlaceResources.mode}`}
           item={viewingPlaceResources.item}
           mode={viewingPlaceResources.mode}
+          onOpenResource={openAttachmentDocument}
           onClose={() => setViewingPlaceResources(null)}
         />
       ) : null}

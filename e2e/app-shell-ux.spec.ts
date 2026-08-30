@@ -8,39 +8,6 @@ import { markCurrentReleaseSeen } from './support/releaseNotes';
 
 const SHELL_ROOM_ID = 'e2eappshelluxroom0001';
 
-type LobbyTrip = {
-  roomId: string;
-  title: string;
-  destination: string;
-  startDate: string;
-  endDate: string;
-  members: string[];
-  transport: string;
-  themeColor: string;
-};
-
-function createLobbyTrip(): LobbyTrip {
-  return {
-    roomId: SHELL_ROOM_ID,
-    title: 'E2E app shell trip',
-    destination: 'E2E Shell destination',
-    startDate: '2026-09-20',
-    endDate: '2026-09-26',
-    members: ['E2E Alice'],
-    transport: 'E2E Transport',
-    themeColor: '#3b82f6',
-  };
-}
-
-async function seedLobbyTrips(page: Page, trips: LobbyTrip[]): Promise<void> {
-  await page.addInitScript((nextTrips) => {
-    window.localStorage.setItem(
-      'google-travel-my-trips',
-      JSON.stringify(nextTrips),
-    );
-  }, trips);
-}
-
 async function seedShellTrip(): Promise<void> {
   await clearEmulatorDatabase();
   await seedTestTrip(SHELL_ROOM_ID, {
@@ -96,7 +63,7 @@ test('mobile lobby actions use a consistent responsive layout', async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await markCurrentReleaseSeen(page);
-  await seedLobbyTrips(page, [createLobbyTrip()]);
+  await seedShellTrip();
 
   await page.goto('/');
 
@@ -135,7 +102,6 @@ test('opens release notes and feature tour from the settings menu', async ({
 }) => {
   await markCurrentReleaseSeen(page);
   await seedShellTrip();
-  await seedLobbyTrips(page, [createLobbyTrip()]);
 
   await page.goto('/');
 

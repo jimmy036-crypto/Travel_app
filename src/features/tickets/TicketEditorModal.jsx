@@ -572,7 +572,7 @@ export function TicketEditorModal({
                   id="ticket-editor-file"
                   data-testid="ticket-file-input"
                   type="file"
-                  accept="image/*,application/pdf"
+                  accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
                   onChange={handleFileChange}
                   aria-describedby={errors.file ? 'ticket-file-error' : undefined}
                   aria-invalid={Boolean(errors.file)}

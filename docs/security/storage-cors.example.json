@@ -1,0 +1,26 @@
+[
+  {
+    "origin": [
+      "https://YOUR_PRODUCTION_DOMAIN",
+      "https://YOUR_TRUSTED_PREVIEW_DOMAIN",
+      "http://localhost:4174"
+    ],
+    "method": [
+      "GET",
+      "HEAD",
+      "POST",
+      "PUT",
+      "DELETE"
+    ],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Disposition",
+      "ETag",
+      "x-goog-generation",
+      "x-goog-meta-roomid",
+      "x-goog-meta-ticketid",
+      "x-goog-meta-itemid"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
