@@ -8,7 +8,7 @@ import {
   removeOfflineTripSnapshot
 } from './offlineTripCache.js';
 
-const CACHE_KEY = 'google-travel-offline-trip-cache-v1';
+const CACHE_KEY = 'google-travel-offline-trip-cache-v2:local';
 
 describe('offlineTripCache', () => {
   beforeEach(() => {
@@ -175,7 +175,7 @@ describe('offlineTripCache', () => {
   });
 
   it('CACHE-06 malformed JSON handled safely', () => {
-    localStorage.setItem('google-travel-offline-trip-cache-v1', '{ bad json');
+    localStorage.setItem(CACHE_KEY, '{ bad json');
     const read = readOfflineTripSnapshot('r1');
     expect(read).toBeNull();
     const writeRes = writeOfflineTripSnapshot(buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T' } }));
@@ -289,21 +289,21 @@ describe('offlineTripCache', () => {
     // roomId mismatch
     const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T1' } });
     writeOfflineTripSnapshot(snap);
-    localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
       'r1': { ...snap, roomId: 'r2' }
     }));
     expect(readOfflineTripSnapshot('r1')).toBeNull();
 
     // cachedAt invalid
     const snap2 = { ...snap, cachedAt: -10 };
-    localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
       'r1': snap2
     }));
     expect(readOfflineTripSnapshot('r1')).toBeNull();
 
     // schema corrupted
     const snap3 = { ...snap, meta: 'corrupted' };
-    localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
       'r1': snap3
     }));
     expect(readOfflineTripSnapshot('r1')).toBeNull();
@@ -311,7 +311,7 @@ describe('offlineTripCache', () => {
 
   it('checks listOfflineTripSummaries filtering invalid snapshots', () => {
     const snap = buildOfflineTripSnapshot({ roomId: 'r1', meta: { title: 'T1' } });
-    localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
       'r1': { ...snap, roomId: 'r2' }, // mismatched roomId
       'r3': { ...snap, roomId: 'r3', cachedAt: 'invalid' } // invalid cachedAt
     }));

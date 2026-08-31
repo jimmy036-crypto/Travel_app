@@ -47,39 +47,6 @@ const TOUR_ROOM_ID = 'e2ewhatsnewtourroom0001';
 const EMPTY_TOUR_ROOM_ID = 'e2ewhatsnewemptyroom0001';
 const SECOND_TOUR_ROOM_ID = 'e2ewhatsnewtourroom0002';
 
-type LobbyTrip = {
-  roomId: string;
-  title: string;
-  destination?: string;
-  startDate?: string;
-  endDate?: string;
-  members?: string[];
-  transport?: string;
-  themeColor?: string;
-};
-
-function createLobbyTrip(roomId: string, title: string): LobbyTrip {
-  return {
-    roomId,
-    title,
-    destination: 'E2E Tour destination',
-    startDate: '2026-09-20',
-    endDate: '2026-09-21',
-    members: ['E2E Alice'],
-    transport: 'E2E Transport',
-    themeColor: '#3b82f6',
-  };
-}
-
-async function seedLobbyTrips(page: Page, trips: LobbyTrip[]): Promise<void> {
-  await page.addInitScript((nextTrips) => {
-    window.localStorage.setItem(
-      'google-travel-my-trips',
-      JSON.stringify(nextTrips),
-    );
-  }, trips);
-}
-
 async function seedTourTrip(): Promise<void> {
   await clearEmulatorDatabase();
   await seedTestTrip(TOUR_ROOM_ID, {
@@ -238,6 +205,13 @@ async function expectTargetInsideSpotlight(page: Page, targetTestId: string) {
   return spotlightBox;
 }
 
+test.beforeEach(async ({ page }) => {
+  await clearEmulatorDatabase();
+  await page.addInitScript(() => {
+    localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
+  });
+});
+
 test('shows release notes for an unseen version', async ({ page }) => {
   await clearCurrentReleaseSeen(page);
 
@@ -316,9 +290,6 @@ test('routes from the lobby into a trip before starting the tour', async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await clearCurrentReleaseSeen(page);
-  await seedLobbyTrips(page, [
-    createLobbyTrip(TOUR_ROOM_ID, 'E2E feature tour trip'),
-  ]);
   await seedTourTrip();
 
   await page.goto('/');
@@ -340,10 +311,6 @@ test('asks the user to choose a trip when multiple trips exist', async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await clearCurrentReleaseSeen(page);
-  await seedLobbyTrips(page, [
-    createLobbyTrip(TOUR_ROOM_ID, 'E2E feature tour trip'),
-    createLobbyTrip(SECOND_TOUR_ROOM_ID, 'E2E second feature tour trip'),
-  ]);
   await seedTwoTourTrips();
 
   await page.goto('/');
@@ -396,10 +363,6 @@ test('offers trip creation instead of starting the tour when no trips exist', as
 test('cancels a pending tour without starting it', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await clearCurrentReleaseSeen(page);
-  await seedLobbyTrips(page, [
-    createLobbyTrip(TOUR_ROOM_ID, 'E2E feature tour trip'),
-    createLobbyTrip(SECOND_TOUR_ROOM_ID, 'E2E second feature tour trip'),
-  ]);
   await seedTwoTourTrips();
 
   await page.goto('/');
@@ -632,9 +595,6 @@ test('uses instructional steps instead of spotlighting a hidden planner', async 
 test('ends the tour when navigating away from the trip', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await clearCurrentReleaseSeen(page);
-  await seedLobbyTrips(page, [
-    createLobbyTrip(TOUR_ROOM_ID, 'E2E feature tour trip'),
-  ]);
   await seedTourTrip();
 
   await page.goto('/');

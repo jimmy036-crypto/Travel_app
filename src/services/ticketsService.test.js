@@ -14,7 +14,6 @@ const firebaseMocks = vi.hoisted(() => ({
   update: vi.fn(async () => undefined),
   storageRef: vi.fn((_storage, path) => ({ path })),
   uploadBytesResumable: vi.fn(),
-  getDownloadURL: vi.fn(async () => 'https://storage.example/download'),
   deleteObject: vi.fn(async () => undefined),
   uploadTasks: [],
 }));
@@ -27,7 +26,6 @@ vi.mock('firebase/database', () => ({
 vi.mock('firebase/storage', () => ({
   ref: firebaseMocks.storageRef,
   uploadBytesResumable: firebaseMocks.uploadBytesResumable,
-  getDownloadURL: firebaseMocks.getDownloadURL,
   deleteObject: firebaseMocks.deleteObject,
 }));
 
@@ -68,8 +66,6 @@ describe('ticketsService filename and storage paths', () => {
     firebaseMocks.storageRef.mockClear();
     firebaseMocks.uploadBytesResumable.mockReset();
     firebaseMocks.uploadBytesResumable.mockImplementation(() => createUploadTask());
-    firebaseMocks.getDownloadURL.mockReset();
-    firebaseMocks.getDownloadURL.mockResolvedValue('https://storage.example/download');
     firebaseMocks.deleteObject.mockReset();
     firebaseMocks.deleteObject.mockResolvedValue(undefined);
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('revision-0001');
@@ -121,7 +117,7 @@ describe('ticketsService filename and storage paths', () => {
 
   it('SERVICE-07 uploads a supported image and returns canonical attachment metadata', async () => {
     await expect(upload()).resolves.toEqual({
-      url: 'https://storage.example/download',
+      url: '',
       storagePath: 'rooms/room-1/tickets/ticket-1/revision-0001_ticket.png',
       attachmentKind: 'image',
       fileName: 'ticket.png',
@@ -164,15 +160,14 @@ describe('ticketsService filename and storage paths', () => {
       file,
       {
         contentType: 'application/pdf',
+        cacheControl: 'private, no-store, max-age=0',
         customMetadata: { roomId: 'room-1', ticketId: 'ticket-1' },
       },
     );
   });
 
-  it('SERVICE-11 resolves the download URL from the completed upload snapshot', async () => {
-    await upload();
-
-    expect(firebaseMocks.getDownloadURL).toHaveBeenCalledWith({ path: 'uploaded-ref' });
+  it('SERVICE-11 does not mint or persist a long-lived download token URL', async () => {
+    await expect(upload()).resolves.toMatchObject({ url: '' });
   });
 
   it('SERVICE-12 cancels and rejects an upload after the timeout', async () => {
@@ -198,10 +193,8 @@ describe('ticketsService filename and storage paths', () => {
     await expect(upload()).rejects.toThrow('upload failed');
   });
 
-  it('SERVICE-14 propagates download URL errors', async () => {
-    firebaseMocks.getDownloadURL.mockRejectedValueOnce(new Error('download URL failed'));
-
-    await expect(upload()).rejects.toThrow('download URL failed');
+  it('SERVICE-14 remains independent from download URL minting', async () => {
+    await expect(upload()).resolves.toMatchObject({ storagePath: expect.any(String), url: '' });
   });
 
   it.each([

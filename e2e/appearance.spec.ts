@@ -12,16 +12,6 @@ async function seedLobby(page: Page): Promise<void> {
   await markCurrentReleaseSeen(page);
   await page.addInitScript(() => {
     localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
-    localStorage.setItem('google-travel-my-trips', JSON.stringify([{
-      roomId: 'appearance-room',
-      title: 'Appearance trip',
-      destination: 'Taipei',
-      startDate: '2026-09-20',
-      endDate: '2026-09-21',
-      members: ['自己'],
-      transport: '步行',
-      themeColor: '#3b82f6',
-    }]));
   });
 }
 

@@ -11,6 +11,10 @@ import {
   connectStorageEmulator,
   getStorage,
 } from "firebase/storage";
+import {
+  connectFunctionsEmulator,
+  getFunctions,
+} from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -51,7 +55,7 @@ const initFirebase = () => {
       "Firebase config is incomplete.",
       { missingConfigKeys },
     );
-    return { auth: null, db: null, storage: null };
+    return { auth: null, db: null, storage: null, functions: null };
   }
 
   try {
@@ -63,6 +67,7 @@ const initFirebase = () => {
     const auth = getAuth(firebaseApp);
     const db = getDatabase(firebaseApp);
     const storage = getStorage(firebaseApp);
+    const functions = getFunctions(firebaseApp, "us-central1");
 
     if (
       shouldUseEmulators &&
@@ -73,19 +78,20 @@ const initFirebase = () => {
       });
       connectDatabaseEmulator(db, "127.0.0.1", 9000);
       connectStorageEmulator(storage, "127.0.0.1", 9199);
+      connectFunctionsEmulator(functions, "127.0.0.1", 5001);
 
       globalThis.__TRAVEL_FIREBASE_EMULATORS_CONNECTED__ = true;
 
       console.info(
-        "Firebase Emulators connected: Auth 9099, Database 9000, Storage 9199.",
+        "Firebase Emulators connected: Auth 9099, Database 9000, Storage 9199, Functions 5001.",
       );
     }
 
-    return { auth, db, storage };
+    return { auth, db, storage, functions };
   } catch (error) {
     console.warn("Firebase initialization failed.", error);
-    return { auth: null, db: null, storage: null };
+    return { auth: null, db: null, storage: null, functions: null };
   }
 };
 
-export const { auth, db, storage } = initFirebase();
+export const { auth, db, storage, functions } = initFirebase();

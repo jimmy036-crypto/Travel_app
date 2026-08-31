@@ -1,0 +1,32 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: tripAccess/{roomId}/members/{uid}
+    // Purpose: server-managed authorization mirror used only by Cloud
+    //          Storage Security Rules.
+    // Fields:
+    //   - uid: string (required, equals document id)
+    //   - role: string (required, "owner" or "editor")
+    //   - status: string (required, "active" or "removed")
+    //   - aclVersion: integer (required, positive and monotonically increasing)
+    //   - updatedAt: timestamp (required)
+    //
+    // Cloud Functions writes these documents with the Admin SDK. Browser
+    // clients do not query Firestore, and Admin SDK operations bypass rules.
+    // The mirror intentionally contains no email, profile, or invite token.
+    // ===============================================================
+
+    match /tripAccess/{roomId}/members/{uid} {
+      allow read, create, update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

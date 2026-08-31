@@ -6,7 +6,7 @@ import { APIProvider } from '@vis.gl/react-google-maps';
 
 // 引入 Firebase 與 Helper
 import { db, storage } from "./firebase";
-import { get, ref as dbRef, set, update } from "firebase/database";
+import { get, onValue, ref as dbRef, update } from "firebase/database";
 import { API_KEY } from "./constants";
 import {
   CURRENT_RELEASE_NOTES,
@@ -77,9 +77,69 @@ import {
 } from './features/onboarding/exampleTripVisibility.js';
 import { selectLobbyTripSummary } from './features/lobby/lobbyTripSummary.js';
 import { useLobbyTodayKey } from './features/lobby/useLobbyTodayKey.js';
+import { useAuthSession } from './features/auth/useAuthSession.js';
+import { AccountSection } from './features/auth/AccountSection.jsx';
+import { SignInDialog } from './features/auth/SignInDialog.jsx';
+import { TripSharingDialog } from './features/trip-access/TripSharingDialog.jsx';
+import {
+  createTripAccessClient,
+  extractInviteToken,
+  getCallableErrorMessage,
+} from './features/trip-access/tripAccessClient.js';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.VITE_USE_FIREBASE_EMULATOR === "true";
+const PENDING_INVITE_SESSION_KEY = 'travel-pending-invite-v1';
+
+const captureInviteTokenFromLocation = () => {
+  if (typeof window === 'undefined') return '';
+  const url = new URL(window.location.href);
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/u, ''));
+  const hadQueryInvite = url.searchParams.has('invite');
+  const token = extractInviteToken(hashParams.get('invite'));
+  url.searchParams.delete('invite');
+  if (!token) {
+    if (hadQueryInvite) {
+      window.history.replaceState(
+        null,
+        '',
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    }
+    return '';
+  }
+  try {
+    window.sessionStorage.setItem(PENDING_INVITE_SESSION_KEY, token);
+  } catch {
+    // In-memory state still handles browsers that block sessionStorage.
+  }
+  if (hashParams.has('invite')) url.hash = '';
+  window.history.replaceState(
+    null,
+    '',
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+  return token;
+};
+
+const readPendingInviteToken = () => {
+  const captured = captureInviteTokenFromLocation();
+  if (captured) return captured;
+  try {
+    return extractInviteToken(window.sessionStorage.getItem(PENDING_INVITE_SESSION_KEY));
+  } catch {
+    return '';
+  }
+};
+
+const clearPendingInviteToken = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(PENDING_INVITE_SESSION_KEY);
+  } catch {
+    // Nothing else to clear when storage is unavailable.
+  }
+};
 
 const FIREBASE_DATABASE_NAMESPACE = (() => {
   try {
@@ -108,6 +168,9 @@ export default function TravelApp() {
   const { isOnline, hasBeenOffline } = useOnlineStatus();
   const toast = useToast();
   const confirm = useConfirm();
+  const authSession = useAuthSession();
+  const tripAccessClient = useMemo(() => createTripAccessClient(), []);
+  const accountUid = String(authSession.user?.uid || '');
   const toastRef = useRef(toast);
   toastRef.current = toast;
   
@@ -122,23 +185,48 @@ export default function TravelApp() {
     lastOnlineState.current = isOnline;
   }, [isOnline, hasBeenOffline, toast]);
 
+  useEffect(() => {
+    if (authSession.user) setShowSignInDialog(false);
+  }, [authSession.user]);
+
   const [firstRunSnapshot] = useState(() => readFirstRunEligibilitySnapshot());
 
-  const [myTrips, setMyTrips] = useState(() => {
-    const stored = readJsonStorage('google-travel-my-trips', []);
-    return Array.isArray(stored) ? stored : [];
+  const [myTrips, setMyTrips] = useState([]);
+  const [hiddenTripIds, setHiddenTripIds] = useState([]);
+  const [hiddenTripsOwnerUid, setHiddenTripsOwnerUid] = useState('');
+  const visibleTrips = useMemo(
+    () => myTrips.filter((trip) => (
+      hiddenTripsOwnerUid !== accountUid
+      || !hiddenTripIds.includes(String(trip.roomId))
+    )),
+    [accountUid, hiddenTripIds, hiddenTripsOwnerUid, myTrips],
+  );
+  // Keep the lobby in its hydration state until Auth and the account-scoped
+  // userTrips index have both resolved. Otherwise a returning cloud user can
+  // briefly be treated as a first-time user before the listener attaches.
+  const [tripsLoading, setTripsLoading] = useState(true);
+  const [showSignInDialog, setShowSignInDialog] = useState(false);
+  const [signInReason, setSignInReason] = useState('cloud');
+  const [showSharingDialog, setShowSharingDialog] = useState(false);
+  const [activeTripRole, setActiveTripRole] = useState('');
+  const [pendingRoomDeepLink, setPendingRoomDeepLink] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return extractRoomId(new URLSearchParams(window.location.search).get('room')) || '';
   });
-  const [suppressReleasePromptForFirstRunSession] = useState(
+  const [pendingInviteToken, setPendingInviteToken] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return readPendingInviteToken();
+  });
+  const inviteRedemptionRef = useRef('');
+  const previousAccountUidRef = useRef(accountUid);
+  const [suppressReleasePromptForFirstRunSession, setSuppressReleasePromptForFirstRunSession] = useState(
     () => shouldShowFirstRunOnboarding(firstRunSnapshot)
-      && myTrips.length === 0
       && !hasSeenCurrentRelease(),
   );
   const [firstRunResolved, setFirstRunResolved] = useState(
     () => !suppressReleasePromptForFirstRunSession,
   );
-  const [showFirstRunWelcome, setShowFirstRunWelcome] = useState(
-    () => suppressReleasePromptForFirstRunSession && !firstRunSnapshot.hasRoomDeepLink,
-  );
+  const [showFirstRunWelcome, setShowFirstRunWelcome] = useState(false);
   const firstRunCompletionRef = useRef(false);
   const [customBgColor, setCustomBgColor] = useState(() => readStorage('google-travel-custom-bg', '#d8b4e2'));
   const [exampleTripHidden, setExampleTripHiddenState] = useState(
@@ -197,16 +285,8 @@ export default function TravelApp() {
 
   const [showAddMember, setShowAddMember] = useState(false);
   const [tempMember, setTempMember] = useState("");
-  const [activeRoomId, setActiveRoomId] = useState(() => {
-    if (typeof window === 'undefined') return null;
-    return extractRoomId(new URLSearchParams(window.location.search).get('room')) || null;
-  });
-  const [activeTripSource, setActiveTripSource] = useState(() => (
-    typeof window !== 'undefined'
-    && extractRoomId(new URLSearchParams(window.location.search).get('room'))
-      ? 'firebase'
-      : null
-  ));
+  const [activeRoomId, setActiveRoomId] = useState(null);
+  const [activeTripSource, setActiveTripSource] = useState(null);
 
   const [offlinePreviewData, setOfflinePreviewData] = useState(null);
   const [offlineCacheSummaries, setOfflineCacheSummaries] = useState([]);
@@ -227,16 +307,111 @@ export default function TravelApp() {
       db,
       storage,
       tripId: activeRoomId,
+      cacheOwnerUid: accountUid,
     });
-  }, [activeRoomId, activeTripSource, exampleRepository]);
+  }, [accountUid, activeRoomId, activeTripSource, exampleRepository]);
+  useEffect(() => () => {
+    if (activeTripSource === 'firebase') activeRepository?.dispose?.();
+  }, [activeRepository, activeTripSource]);
 
   const refreshOfflineCacheSummaries = useCallback(() => {
-    setOfflineCacheSummaries(listOfflineTripSummaries());
-  }, []);
+    setOfflineCacheSummaries(accountUid ? listOfflineTripSummaries(accountUid) : []);
+  }, [accountUid]);
 
   useEffect(() => {
     refreshOfflineCacheSummaries();
   }, [activeRoomId, refreshOfflineCacheSummaries]);
+
+  useEffect(() => {
+    if (!accountUid) {
+      setHiddenTripIds([]);
+      setHiddenTripsOwnerUid('');
+      return;
+    }
+    const stored = readJsonStorage(`google-travel-hidden-trips-v1:${accountUid}`, []);
+    setHiddenTripIds(Array.isArray(stored) ? stored.map(String) : []);
+    setHiddenTripsOwnerUid(accountUid);
+  }, [accountUid]);
+
+  useEffect(() => {
+    if (!accountUid || hiddenTripsOwnerUid !== accountUid) return;
+    writeStorage(
+      `google-travel-hidden-trips-v1:${accountUid}`,
+      JSON.stringify(hiddenTripIds),
+    );
+  }, [accountUid, hiddenTripIds, hiddenTripsOwnerUid]);
+
+  useEffect(() => {
+    if (authSession.loading) return undefined;
+    if (!accountUid || !db) {
+      setMyTrips([]);
+      setTripsLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    let refreshId = 0;
+    setTripsLoading(true);
+    const unsubscribe = onValue(
+      dbRef(db, `userTrips/${accountUid}`),
+      async (snapshot) => {
+        const currentRefreshId = refreshId + 1;
+        refreshId = currentRefreshId;
+        const index = snapshot.val();
+        const roomIds = index && typeof index === 'object'
+          ? Object.entries(index)
+              .filter(([, access]) => (
+                access?.status === 'active'
+                && ['owner', 'editor'].includes(access?.role)
+                && Number.isSafeInteger(Number(access?.aclVersion))
+                && Number(access.aclVersion) > 0
+              ))
+              .map(([roomId]) => extractRoomId(roomId))
+              .filter(Boolean)
+          : [];
+        try {
+          const results = await Promise.all(roomIds.map(async (roomId) => {
+            const metaSnapshot = await get(dbRef(db, `rooms/${roomId}/meta`));
+            return metaSnapshot.exists() ? { ...metaSnapshot.val(), roomId } : null;
+          }));
+          if (!active || currentRefreshId !== refreshId) return;
+          setMyTrips(results.filter(Boolean));
+          setTripsLoading(false);
+        } catch (error) {
+          if (!active || currentRefreshId !== refreshId) return;
+          console.error('Load account trips failed:', error);
+          setMyTrips([]);
+          setTripsLoading(false);
+          toastRef.current.error({
+            title: '無法載入帳號旅程',
+            description: '請確認網路連線後再試。',
+          });
+        }
+      },
+      (error) => {
+        if (!active) return;
+        console.error('Listen account trips failed:', error);
+        setMyTrips([]);
+        setTripsLoading(false);
+      },
+    );
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [accountUid, authSession.loading]);
+
+  const requireGoogleAccount = useCallback((reason = 'cloud') => {
+    if (authSession.loading) {
+      toast.info({ title: '正在確認登入狀態' });
+      return false;
+    }
+    if (authSession.user) return true;
+    setSignInReason(reason);
+    setShowSignInDialog(true);
+    return false;
+  }, [authSession.loading, authSession.user, toast]);
 
   const setPendingFeatureTour = useCallback((isPending) => {
     setPendingFeatureTourRequested(Boolean(isPending));
@@ -250,6 +425,10 @@ export default function TravelApp() {
   const openTripRoom = useCallback((roomId) => {
     const safeRoomId = extractRoomId(roomId);
     if (!safeRoomId) return false;
+    if (!accountUid) {
+      requireGoogleAccount('cloud');
+      return false;
+    }
 
     if (!isOnline) {
       const hasCache = offlineCacheSummaries.some(s => s.roomId === safeRoomId);
@@ -261,7 +440,7 @@ export default function TravelApp() {
         return false;
       }
 
-      const fullSnap = readOfflineTripSnapshot(safeRoomId);
+      const fullSnap = readOfflineTripSnapshot(safeRoomId, accountUid);
       if (!fullSnap) {
         setOfflinePreviewData(null);
         refreshOfflineCacheSummaries();
@@ -279,15 +458,155 @@ export default function TravelApp() {
     }
 
     setOfflinePreviewData(null);
-    window.history.pushState(null, '', `?room=${encodeURIComponent(safeRoomId)}`);
+    const nextParams = new URLSearchParams({ room: safeRoomId });
+    if (
+      import.meta.env.DEV
+      && new URLSearchParams(window.location.search).get('dndDebug') === '1'
+    ) {
+      nextParams.set('dndDebug', '1');
+    }
+    window.history.pushState(null, '', `?${nextParams.toString()}`);
     setActiveTripSource('firebase');
     setActiveRoomId(safeRoomId);
     return true;
-  }, [isOnline, offlineCacheSummaries, refreshOfflineCacheSummaries, toast]);
+  }, [accountUid, isOnline, offlineCacheSummaries, refreshOfflineCacheSummaries, requireGoogleAccount, toast]);
 
   useEffect(() => {
-    writeStorage('google-travel-my-trips', JSON.stringify(myTrips));
-  }, [myTrips]);
+    if (authSession.loading) return;
+    const previousUid = previousAccountUidRef.current;
+    previousAccountUidRef.current = accountUid;
+    if (!previousUid || previousUid === accountUid) return;
+    setOfflinePreviewData(null);
+    setActiveRoomId(null);
+    setActiveTripSource(null);
+    setActiveTripRole('');
+    setShowSharingDialog(false);
+    window.history.replaceState(null, '', window.location.pathname);
+  }, [accountUid, authSession.loading]);
+
+  useEffect(() => {
+    if (authSession.loading || accountUid || activeTripSource !== 'firebase') return;
+    window.history.replaceState(null, '', window.location.pathname);
+    setActiveRoomId(null);
+    setActiveTripSource(null);
+    setActiveTripRole('');
+    setShowSharingDialog(false);
+    setOfflinePreviewData(null);
+  }, [accountUid, activeTripSource, authSession.loading]);
+
+  useEffect(() => {
+    if (!accountUid || !db || !activeRoomId || activeTripSource !== 'firebase') {
+      setActiveTripRole('');
+      return undefined;
+    }
+    const unsubscribe = onValue(
+      dbRef(db, `roomAccess/${activeRoomId}/members/${accountUid}`),
+      (snapshot) => {
+        const member = snapshot.val();
+        if (member?.status === 'active' && ['owner', 'editor'].includes(member?.role)) {
+          setActiveTripRole(member.role);
+          return;
+        }
+        setActiveTripRole('');
+        setShowSharingDialog(false);
+        setActiveRoomId(null);
+        setActiveTripSource(null);
+        setOfflinePreviewData(null);
+        window.history.replaceState(null, '', window.location.pathname);
+        toastRef.current.error({
+          title: '旅程權限已失效',
+          description: '請聯絡旅程擁有者恢復權限。',
+        });
+      },
+      (error) => {
+        console.error('Listen trip membership failed:', error);
+      },
+    );
+    return unsubscribe;
+  }, [accountUid, activeRoomId, activeTripSource]);
+
+  useEffect(() => {
+    if (!pendingInviteToken) return;
+    if (authSession.loading) return;
+    if (!accountUid) {
+      setSignInReason('invite');
+      setShowSignInDialog(true);
+      return;
+    }
+    if (!isOnline) {
+      toast.info({
+        title: '需要網路連線',
+        description: '邀請必須在線上驗證，恢復連線後會自動繼續。',
+      });
+      return;
+    }
+    if (inviteRedemptionRef.current === pendingInviteToken) return;
+    inviteRedemptionRef.current = pendingInviteToken;
+    setIsImporting(true);
+    void tripAccessClient.redeemTripInvite(pendingInviteToken)
+      .then((result) => {
+        const roomId = extractRoomId(result?.roomId);
+        if (!roomId) throw new Error('邀請回應缺少旅程 ID。');
+        setPendingInviteToken('');
+        clearPendingInviteToken();
+        setPendingRoomDeepLink('');
+        setShowSignInDialog(false);
+        window.history.replaceState(null, '', `?room=${encodeURIComponent(roomId)}`);
+        setActiveTripSource('firebase');
+        setActiveRoomId(roomId);
+        toast.info({ title: result?.joined ? '已加入旅程' : '已開啟旅程' });
+      })
+      .catch((error) => {
+        console.error('Redeem trip invite failed:', error);
+        setPendingInviteToken('');
+        clearPendingInviteToken();
+        window.history.replaceState(null, '', window.location.pathname);
+        toast.error({
+          title: '無法加入旅程',
+          description: getCallableErrorMessage(error),
+        });
+      })
+      .finally(() => {
+        inviteRedemptionRef.current = '';
+        setIsImporting(false);
+      });
+  }, [accountUid, authSession.loading, isOnline, pendingInviteToken, toast, tripAccessClient]);
+
+  useEffect(() => {
+    if (!pendingRoomDeepLink || pendingInviteToken || !db) return;
+    if (authSession.loading) return;
+    if (!accountUid) {
+      setSignInReason('cloud');
+      setShowSignInDialog(true);
+      return;
+    }
+    let cancelled = false;
+    const openAuthorizedRoom = async () => {
+      try {
+        const snapshot = await get(dbRef(db, `roomAccess/${pendingRoomDeepLink}/members/${accountUid}`));
+        const member = snapshot.val();
+        if (!member || member.status !== 'active' || !['owner', 'editor'].includes(member.role)) {
+          throw new Error('permission-denied');
+        }
+        if (cancelled) return;
+        const roomId = pendingRoomDeepLink;
+        setPendingRoomDeepLink('');
+        setShowSignInDialog(false);
+        openTripRoom(roomId);
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Open room deep link failed:', error);
+        setPendingRoomDeepLink('');
+        window.history.replaceState(null, '', window.location.pathname);
+        toast.error({
+          title: '無法開啟旅程',
+          description: '你尚未加入此旅程，請向擁有者索取有效邀請連結。',
+        });
+      }
+    };
+    void openAuthorizedRoom();
+    return () => { cancelled = true; };
+  }, [accountUid, authSession.loading, openTripRoom, pendingInviteToken, pendingRoomDeepLink, toast]);
 
   useEffect(() => {
     writeStorage('google-travel-custom-bg', customBgColor);
@@ -313,13 +632,27 @@ export default function TravelApp() {
     if (
       !suppressReleasePromptForFirstRunSession
       || firstRunResolved
-      || showFirstRunWelcome
+      || authSession.loading
+      || tripsLoading
+    ) return;
+    // A cloud index entry normally proves returning use. An initial room deep
+    // link is the exception: secure seeding/indexing makes that room appear in
+    // userTrips before the first-time visitor has actually seen the Lobby.
+    if (myTrips.length > 0 && !firstRunSnapshot.hasRoomDeepLink) {
+      setSuppressReleasePromptForFirstRunSession(false);
+      setFirstRunResolved(true);
+      return;
+    }
+    if (
+      showFirstRunWelcome
       || activeRoomId
       || offlinePreviewData
       || tripModalMode
       || showImportModal
       || showFeatureTour
       || showTripTourSelection
+      || pendingRoomDeepLink
+      || pendingInviteToken
     ) return;
     const isUxFoundationDemo = import.meta.env.DEV
       && typeof window !== 'undefined'
@@ -329,20 +662,28 @@ export default function TravelApp() {
     setShowFirstRunWelcome(true);
   }, [
     activeRoomId,
+    authSession.loading,
     firstRunResolved,
+    firstRunSnapshot.hasRoomDeepLink,
+    myTrips.length,
     offlinePreviewData,
+    pendingInviteToken,
+    pendingRoomDeepLink,
     showFeatureTour,
     showFirstRunWelcome,
     showImportModal,
     showTripTourSelection,
     suppressReleasePromptForFirstRunSession,
+    tripsLoading,
     tripModalMode,
   ]);
 
   useEffect(() => {
     const handlePopState = () => {
-      const roomId = extractRoomId(new URLSearchParams(window.location.search).get('room'));
-      if (!roomId) {
+      const params = new URLSearchParams(window.location.search);
+      const roomId = extractRoomId(params.get('room'));
+      const inviteToken = captureInviteTokenFromLocation();
+      if (!roomId && !inviteToken) {
         setOfflinePreviewData(null);
         setShowFeatureTour(false);
         setShowTripTourSelection(false);
@@ -353,9 +694,11 @@ export default function TravelApp() {
           failed: false,
         });
         setPendingFeatureTour(false);
+        setActiveRoomId(null);
+        setActiveTripSource(null);
       }
-      setActiveRoomId(roomId || null);
-      setActiveTripSource(roomId ? 'firebase' : null);
+      setPendingRoomDeepLink(roomId || '');
+      setPendingInviteToken(inviteToken || '');
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -379,6 +722,7 @@ export default function TravelApp() {
   }, []);
 
   const handleImportTrip = async () => {
+    if (!requireGoogleAccount('invite')) return;
     if (!isOnline) {
       toast.error({
         title: '目前離線',
@@ -387,46 +731,46 @@ export default function TravelApp() {
       return;
     }
 
-    const targetRoomId = extractRoomId(importInput);
-    if (!targetRoomId) {
-      alert("❌ 房間網址或 ID 格式不正確！");
-      return;
-    }
-    if (!db) {
-      alert("⚠️ 尚未連結 Firebase 雲端！");
+    const inviteToken = extractInviteToken(importInput);
+    if (!inviteToken) {
+      toast.error({
+        title: '邀請連結格式不正確',
+        description: '請貼上擁有者提供、包含 invite 參數的完整連結。',
+      });
       return;
     }
 
     setIsImporting(true);
     try {
-      const snapshot = await get(dbRef(db, `rooms/${targetRoomId}/meta`));
-      const remoteMeta = snapshot.val();
-      if (!remoteMeta) {
-        alert("❌ 找不到該旅程，或你沒有讀取權限！");
-        return;
-      }
-
-      setMyTrips((previousTrips) => {
-        const exists = previousTrips.some((trip) => trip.roomId === targetRoomId);
-        return exists ? previousTrips : [...previousTrips, { ...remoteMeta, roomId: targetRoomId }];
-      });
+      const result = await tripAccessClient.redeemTripInvite(inviteToken);
+      const targetRoomId = extractRoomId(result?.roomId);
+      if (!targetRoomId) throw new Error('邀請回應缺少旅程 ID。');
       setShowImportModal(false);
       setImportInput("");
-      alert(`🎉 成功同步雲端旅程：${remoteMeta.title || "未命名旅程"}！`);
+      window.history.replaceState(null, '', `?room=${encodeURIComponent(targetRoomId)}`);
+      setActiveTripSource('firebase');
+      setActiveRoomId(targetRoomId);
+      toast.info({ title: result?.joined ? '已加入旅程' : '已開啟旅程' });
     } catch (error) {
       console.error("Import trip failed:", error);
-      alert("❌ 匯入失敗，請檢查網路連線或 Firebase 權限！");
+      toast.error({ title: '無法加入旅程', description: getCallableErrorMessage(error) });
     } finally {
       setIsImporting(false);
     }
   };
 
   const openCreateModal = useCallback(() => {
+    if (!requireGoogleAccount('cloud')) return;
     setNewTitle(""); setNewDest(""); setNewDestCoords(null); setNewStart(""); setNewEnd("");
     setNewMembers(["自己"]); setTempMemberBudgets({"自己": 10000});
     setNewTransport("汽車 🚗"); setNewThemeColor("#3b82f6");
     setTripModalMode('create');
-  }, []);
+  }, [requireGoogleAccount]);
+
+  const openImportModal = useCallback(() => {
+    if (!requireGoogleAccount('invite')) return;
+    setShowImportModal(true);
+  }, [requireGoogleAccount]);
 
   const openBuiltInDemo = useCallback(async () => {
     if (exampleTripHidden) {
@@ -593,14 +937,14 @@ export default function TravelApp() {
     setIsSavingTrip(true);
     try {
       if (tripModalMode === 'create') {
+        if (!requireGoogleAccount('cloud')) return;
         const newRoomId = generateId();
-        await set(dbRef(db, `rooms/${newRoomId}`), {
-          meta: { ...newMeta, dayThemes: {}, createdAt: Date.now() },
-          itinerary: { "Day 1": [] },
-          expenses: [],
-          tickets: [],
-        });
-        setMyTrips((previousTrips) => [...previousTrips, { ...newMeta, roomId: newRoomId }]);
+        const result = await tripAccessClient.createTrip({ roomId: newRoomId, meta: newMeta });
+        setMyTrips((previousTrips) => [
+          ...previousTrips.filter((trip) => trip.roomId !== newRoomId),
+          { ...(result?.meta || newMeta), roomId: newRoomId },
+        ]);
+        setHiddenTripIds((previous) => previous.filter((roomId) => roomId !== newRoomId));
         setTripModalMode(null);
         window.history.pushState(null, '', `?room=${encodeURIComponent(newRoomId)}`);
         setActiveTripSource('firebase');
@@ -617,7 +961,12 @@ export default function TravelApp() {
       }
     } catch (error) {
       console.error("Save trip failed:", error);
-      alert("❌ 儲存失敗，請檢查網路連線或 Firebase 權限！");
+      toast.error({
+        title: '旅程儲存失敗',
+        description: tripModalMode === 'create'
+          ? getCallableErrorMessage(error)
+          : '請檢查網路連線或旅程權限後再試。',
+      });
     } finally {
       setIsSavingTrip(false);
     }
@@ -636,6 +985,8 @@ export default function TravelApp() {
     setPendingFeatureTour(false);
     setActiveTripSource(null);
     setActiveRoomId(null);
+    setActiveTripRole('');
+    setShowSharingDialog(false);
     setOfflinePreviewData(null);
   };
 
@@ -714,7 +1065,7 @@ export default function TravelApp() {
     setTourOpenError("");
 
     if (!activeRoomId) {
-      if (!Array.isArray(myTrips) || myTrips.length === 0) {
+      if (visibleTrips.length === 0) {
         setPendingFeatureTour(false);
         setShowTripTourSelection(false);
         openCreateModal();
@@ -722,9 +1073,9 @@ export default function TravelApp() {
       }
 
       setPendingFeatureTour(true);
-      if (myTrips.length === 1) {
+      if (visibleTrips.length === 1) {
         setShowTripTourSelection(false);
-        chooseTripForPendingTour(myTrips[0]);
+        chooseTripForPendingTour(visibleTrips[0]);
       } else {
         setShowTripTourSelection(true);
       }
@@ -750,7 +1101,7 @@ export default function TravelApp() {
   }, [
     activeRoomId,
     chooseTripForPendingTour,
-    myTrips,
+    visibleTrips,
     openCreateModal,
     setPendingFeatureTour,
     tripTourAvailability,
@@ -809,11 +1160,11 @@ export default function TravelApp() {
   const showUxFoundationDemo = import.meta.env.DEV
     && typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
-  const hasTrips = Array.isArray(myTrips) && myTrips.length > 0;
+  const hasTrips = visibleTrips.length > 0;
   const lobbyTodayKey = useLobbyTodayKey(!activeRoomId && !offlinePreviewData);
   const lobbyTripSummary = useMemo(
-    () => selectLobbyTripSummary(myTrips, { now: lobbyTodayKey }),
-    [lobbyTodayKey, myTrips],
+    () => selectLobbyTripSummary(visibleTrips, { now: lobbyTodayKey }),
+    [lobbyTodayKey, visibleTrips],
   );
   const tourCtaMode = activeRoomId
     ? 'trip'
@@ -873,6 +1224,16 @@ export default function TravelApp() {
     </>
   );
 
+  const closeSignInDialog = () => {
+    setShowSignInDialog(false);
+    if (pendingInviteToken || pendingRoomDeepLink) {
+      setPendingInviteToken('');
+      clearPendingInviteToken();
+      setPendingRoomDeepLink('');
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  };
+
   if (showUxFoundationDemo && UXFoundationDemo) {
     return (
       <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入 UX Foundation Demo...</div>}>
@@ -880,6 +1241,42 @@ export default function TravelApp() {
       </Suspense>
     );
   }
+
+  if (pendingRoomDeepLink && !activeRoomId && !offlinePreviewData) return (
+    <>
+      <main
+        data-testid="trip-access-loading"
+        role="status"
+        aria-live="polite"
+        aria-label="正在確認旅程存取權"
+        style={{ backgroundColor: customBgColor }}
+        className={`fixed inset-0 flex w-full max-w-[100vw] items-center justify-center overflow-hidden p-6 font-sans ${t.mainText}`}
+      >
+        <div className={`w-full max-w-sm rounded-3xl border p-7 text-center shadow-2xl backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>
+          <div
+            aria-hidden="true"
+            className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 motion-safe:animate-pulse"
+          >
+            <Icon name="plane" size={28} strokeWidth={2} />
+          </div>
+          <p className="mt-5 text-lg font-black">正在確認旅程存取權</p>
+          <p className={`mt-2 text-sm font-semibold leading-6 ${t.subText}`}>
+            驗證 Google 帳號與旅程權限後，會直接開啟旅程。
+          </p>
+        </div>
+      </main>
+      <OfflineBanner isOnline={isOnline} />
+      <SignInDialog
+        open={showSignInDialog}
+        reason={signInReason}
+        busy={authSession.busy}
+        error={authSession.error}
+        onSignIn={authSession.signInWithGoogle}
+        onClose={closeSignInDialog}
+        t={t}
+      />
+    </>
+  );
 
   if (offlinePreviewData && !showFirstRunWelcome) return (
     <>
@@ -896,7 +1293,7 @@ export default function TravelApp() {
           });
           if (!ok) return;
 
-          const res = removeOfflineTripSnapshot(offlinePreviewData.roomId);
+          const res = removeOfflineTripSnapshot(offlinePreviewData.roomId, accountUid);
           if (res?.ok) {
             refreshOfflineCacheSummaries();
             setOfflinePreviewData(null);
@@ -947,9 +1344,24 @@ export default function TravelApp() {
           isCheckingUpdates={isCheckingAppUpdate}
           onTourAvailabilityChange={setTripTourAvailability}
           isOnline={isOnline}
+          tripAccessRole={activeTripRole}
+          onOpenSharing={() => setShowSharingDialog(true)}
+          accountUser={authSession.user}
+          authLoading={authSession.loading}
+          authBusy={authSession.busy}
+          authError={authSession.error}
+          onSignIn={authSession.signInWithGoogle}
+          onSignOut={authSession.signOut}
         />
       </Suspense>
     </APIProvider>
+    <TripSharingDialog
+      open={showSharingDialog}
+      roomId={activeRoomId}
+      role={activeTripRole}
+      onClose={() => setShowSharingDialog(false)}
+      t={t}
+    />
     <OfflineBanner isOnline={isOnline} />
     {releaseExperience}
     </>
@@ -970,6 +1382,16 @@ export default function TravelApp() {
                   <h1 className={`min-w-0 text-3xl font-black leading-tight tracking-tight md:text-4xl ${t.mainText}`}>智の旅行</h1>
                 </div>
                 <p className={`text-sm font-semibold leading-6 md:text-base ${t.subText}`}>集中規劃行程、地圖、票券與旅費</p>
+                <p data-testid="lobby-account-status" className={`mt-2 inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-bold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
+                  <span aria-hidden="true" className={`h-2 w-2 rounded-full ${authSession.user ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                  <span className="truncate">
+                    {authSession.loading
+                      ? '正在確認 Google 帳號…'
+                      : authSession.user
+                        ? `${authSession.user.displayName || 'Google 使用者'} · ${tripsLoading ? '同步旅程中' : `${visibleTrips.length} 趟雲端旅程`}`
+                        : 'Google 未登入 · 示範模式'}
+                  </span>
+                </p>
               </div>
               <div className="shrink-0 md:col-start-3 md:row-start-1 md:self-start">
                 <AppSettingsMenu
@@ -985,6 +1407,17 @@ export default function TravelApp() {
                   demoEntryLabel={exampleTripHidden ? '恢復示範旅程' : '查看示範旅程'}
                   onCheckUpdates={handleCheckAppUpdate}
                   isCheckingUpdates={isCheckingAppUpdate}
+                  accountNode={(
+                    <AccountSection
+                      user={authSession.user}
+                      loading={authSession.loading}
+                      busy={authSession.busy}
+                      error={authSession.error}
+                      onSignIn={authSession.signInWithGoogle}
+                      onSignOut={authSession.signOut}
+                      t={t}
+                    />
+                  )}
                 />
               </div>
             </div>
@@ -1023,18 +1456,18 @@ export default function TravelApp() {
             </Button>
             <Button
               data-testid="import-trip-button"
-              onClick={() => setShowImportModal(true)}
+              onClick={openImportModal}
               variant="themed"
               leadingIcon={<Icon name="download" />}
               className={`min-w-0 w-full md:w-auto md:min-w-36 ${t.cardBg} ${t.cardBorder} ${t.mainText} ${t.cardHover}`}
             >
-              <span className="whitespace-nowrap">匯入旅程</span>
+              <span className="whitespace-nowrap">加入旅程</span>
             </Button>
           </div>
           ) : null}
         </header>
 
-        {showTripTourSelection && Array.isArray(myTrips) && myTrips.length > 0 ? (
+        {showTripTourSelection && visibleTrips.length > 0 ? (
           <section
             data-testid="trip-tour-selection"
             className={`mb-6 rounded-3xl border p-4 shadow-xl ${t.cardBg} ${t.cardBorder}`}
@@ -1056,7 +1489,7 @@ export default function TravelApp() {
               </button>
             </div>
             <div className="mt-4 grid gap-2 md:grid-cols-2">
-              {myTrips.map((trip) => (
+              {visibleTrips.map((trip) => (
                 <button
                   key={`tour-select-${String(trip.roomId)}`}
                   type="button"
@@ -1081,7 +1514,23 @@ export default function TravelApp() {
           </p>
         ) : null}
 
-        {!hasTrips ? (
+        {tripsLoading ? (
+          <section
+            data-testid="lobby-skeleton"
+            role="status"
+            aria-label="正在同步旅程"
+            className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3"
+          >
+            {[0, 1, 2].map((index) => (
+              <div
+                key={`lobby-skeleton-${index}`}
+                aria-hidden="true"
+                className={`h-56 animate-pulse rounded-3xl border ${t.cardBg} ${t.cardBorder}`}
+              />
+            ))}
+            <span className="sr-only">正在同步你的 Google 帳號旅程…</span>
+          </section>
+        ) : !hasTrips ? (
           <div className="mt-16 space-y-6 md:mt-24">
             <EmptyState
               testId="lobby-empty-state"
@@ -1102,9 +1551,9 @@ export default function TravelApp() {
                 onClick: openCreateModal,
               }}
               secondaryAction={{
-                label: '匯入旅程',
+                label: '加入旅程',
                 testId: 'lobby-empty-import-trip',
-                onClick: () => setShowImportModal(true),
+                onClick: openImportModal,
               }}
             />
             {!exampleTripHidden ? (
@@ -1128,7 +1577,7 @@ export default function TravelApp() {
                 <h2 id="trip-list-heading" className={`text-2xl font-black tracking-tight ${t.mainText}`}>你的旅程</h2>
               </div>
               <span className={`rounded-full border px-3 py-1 text-xs font-extrabold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
-                {myTrips.length + (exampleTripHidden ? 0 : 1)} 個旅程
+                {visibleTrips.length + (exampleTripHidden ? 0 : 1)} 個旅程
               </span>
             </div>
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
@@ -1140,7 +1589,7 @@ export default function TravelApp() {
                 onReset={handleResetBuiltInDemo}
               />
             ) : null}
-            {myTrips.map((trip) => (
+            {visibleTrips.map((trip) => (
               <TripCard
                 key={String(trip.roomId)}
                 trip={trip}
@@ -1148,8 +1597,10 @@ export default function TravelApp() {
                 onEdit={(event) => openEditModal(event, trip)}
                 onDelete={() => {
                   if (window.confirm('確定從大廳移除此捷徑？(雲端資料不會刪除)')) {
-                    setMyTrips((previousTrips) => previousTrips.filter(
-                      (item) => item.roomId !== trip.roomId,
+                    setHiddenTripIds((previous) => (
+                      previous.includes(String(trip.roomId))
+                        ? previous
+                        : [...previous, String(trip.roomId)]
                     ));
                   }
                 }}
@@ -1166,10 +1617,10 @@ export default function TravelApp() {
       {!showFirstRunWelcome && showImportModal && (
         <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-hidden w-full max-w-[100vw]" onClick={() => setShowImportModal(false)}>
           <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95 ${t.modalBg} ${t.cardBorder}`} onClick={e => e.stopPropagation()}>
-            <h2 className={`mb-2 flex items-center gap-2 text-xl font-black ${t.mainText}`}><Icon name="download" />匯入雲端行程</h2>
-            <p className={`mb-4 text-sm font-semibold leading-6 ${t.subText}`}>貼上朋友分享的旅程網址或房間 ID。</p>
-            <input aria-label="旅程網址或房間 ID" value={String(importInput)} onChange={e => setImportInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !isImporting) void handleImportTrip(); }} placeholder="貼上網址或房間 ID..." className={`mb-6 min-h-12 w-full rounded-xl border p-3 text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
-            <div className="flex justify-end gap-3"><Button onClick={() => setShowImportModal(false)} variant="ghost" className={t.subText}>取消</Button><Button onClick={() => void handleImportTrip()} loading={isImporting} variant="primary">{isImporting ? "匯入中..." : "確認匯入"}</Button></div>
+            <h2 className={`mb-2 flex items-center gap-2 text-xl font-black ${t.mainText}`}><Icon name="download" />加入朋友的旅程</h2>
+            <p className={`mb-4 text-sm font-semibold leading-6 ${t.subText}`}>貼上旅程擁有者提供的安全邀請連結。房間 ID 本身不會授予權限。</p>
+            <input aria-label="旅程邀請連結" value={String(importInput)} onChange={e => setImportInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !isImporting) void handleImportTrip(); }} placeholder="貼上含有 invite 的邀請連結…" className={`mb-6 min-h-12 w-full rounded-xl border p-3 text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <div className="flex justify-end gap-3"><Button onClick={() => setShowImportModal(false)} variant="ghost" className={t.subText}>取消</Button><Button onClick={() => void handleImportTrip()} loading={isImporting} variant="primary">{isImporting ? "驗證中…" : "驗證並加入"}</Button></div>
           </div>
         </div>
       )}
@@ -1254,7 +1705,7 @@ export default function TravelApp() {
                cancelText: "取消"
              });
              if (ok) {
-               const res = removeOfflineTripSnapshot(offlinePreviewData.roomId);
+               const res = removeOfflineTripSnapshot(offlinePreviewData.roomId, accountUid);
                if (res && res.ok) {
                  refreshOfflineCacheSummaries();
                  setOfflinePreviewData(null);
@@ -1286,6 +1737,15 @@ export default function TravelApp() {
         t={t}
       />
     ) : null}
+    <SignInDialog
+      open={showSignInDialog}
+      reason={signInReason}
+      busy={authSession.busy}
+      error={authSession.error}
+      onSignIn={authSession.signInWithGoogle}
+      onClose={closeSignInDialog}
+      t={t}
+    />
     {showFirstRunWelcome ? (
       <FirstRunWelcomeDialog
         t={t}

@@ -9,7 +9,7 @@ const databaseMocks = vi.hoisted(() => ({
 
 const storageMocks = vi.hoisted(() => ({
   deleteObject: vi.fn(),
-  getDownloadURL: vi.fn(),
+  getBlob: vi.fn(),
   ref: vi.fn((_storage, path) => ({ path })),
   uploadBytesResumable: vi.fn(),
 }));
@@ -33,6 +33,15 @@ import { createFirebaseTripRepository } from './firebaseTripRepository.js';
 describe('firebase trip repository', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    storageMocks.getBlob.mockResolvedValue(new Blob(['attachment']));
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:trip-attachment'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
   });
 
   it('normalizes Firebase snapshots before publishing them', () => {
@@ -117,6 +126,31 @@ describe('firebase trip repository', () => {
     });
   });
 
+  it('does not add undefined attachment fields to plain itinerary places', async () => {
+    const repository = createFirebaseTripRepository({
+      db: {},
+      storage: {},
+      tripId: 'room-1',
+    });
+
+    await repository.updateItinerary({
+      'Day 1': [{
+        id: 'place-1',
+        name: '早餐',
+        placePhoto: undefined,
+        resources: undefined,
+      }],
+    });
+
+    expect(placeServiceMocks.persistItinerary).toHaveBeenCalledWith({
+      db: {},
+      roomId: 'room-1',
+      itinerary: {
+        'Day 1': [{ id: 'place-1', name: '早餐' }],
+      },
+    });
+  });
+
   it('delegates ticket attachments without changing their storage contract', async () => {
     ticketServiceMocks.uploadTicketAttachment.mockResolvedValue({
       storagePath: 'rooms/room-1/tickets/ticket-1/revision/file.pdf',
@@ -142,6 +176,90 @@ describe('firebase trip repository', () => {
       file,
       onProgress: undefined,
     });
+  });
+
+  it('uploads place attachments with private no-store metadata', async () => {
+    storageMocks.uploadBytesResumable.mockReturnValue({
+      on: vi.fn((_event, _progress, _error, complete) => complete()),
+    });
+    const repository = createFirebaseTripRepository({
+      db: {},
+      storage: {},
+      tripId: 'room-1',
+    });
+    const file = new File(['image'], 'photo.png', { type: 'image/png' });
+
+    await expect(repository.uploadAttachment({
+      scope: 'place',
+      ownerId: 'place-1',
+      resourceId: 'resource-1',
+      resourceType: 'photo',
+      timestamp: 123,
+      file,
+    })).resolves.toMatchObject({
+      url: '',
+      storagePath: 'rooms/room-1/places/place-1/123_resource-1_photo.png',
+    });
+
+    expect(storageMocks.uploadBytesResumable).toHaveBeenCalledWith(
+      { path: 'rooms/room-1/places/place-1/123_resource-1_photo.png' },
+      file,
+      {
+        contentType: 'image/png',
+        cacheControl: 'private, no-store, max-age=0',
+        customMetadata: {
+          roomId: 'room-1',
+          itemId: 'place-1',
+          resourceId: 'resource-1',
+          resourceType: 'photo',
+        },
+      },
+    );
+  });
+
+  it('downloads protected attachments with a size cap and reuses the object URL', async () => {
+    const repository = createFirebaseTripRepository({
+      db: {},
+      storage: {},
+      tripId: 'room-1',
+    });
+
+    await expect(repository.readAttachment({ storagePath: 'rooms/room-1/file.pdf' }))
+      .resolves.toBe('blob:trip-attachment');
+    await expect(repository.readAttachment({ storagePath: 'rooms/room-1/file.pdf' }))
+      .resolves.toBe('blob:trip-attachment');
+
+    expect(storageMocks.getBlob).toHaveBeenCalledOnce();
+    expect(storageMocks.getBlob).toHaveBeenCalledWith(
+      { path: 'rooms/room-1/file.pdf' },
+      15 * 1024 * 1024,
+    );
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+
+    repository.dispose();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:trip-attachment');
+  });
+
+  it('deduplicates concurrent reads and refuses to publish an object URL after dispose', async () => {
+    let resolveBlob;
+    storageMocks.getBlob.mockReturnValue(new Promise((resolve) => {
+      resolveBlob = resolve;
+    }));
+    const repository = createFirebaseTripRepository({
+      db: {},
+      storage: {},
+      tripId: 'room-1',
+    });
+
+    const first = repository.readAttachment('rooms/room-1/file.pdf');
+    const second = repository.readAttachment('rooms/room-1/file.pdf');
+    expect(storageMocks.getBlob).toHaveBeenCalledOnce();
+    repository.dispose();
+    resolveBlob(new Blob(['attachment']));
+
+    await expect(first).rejects.toThrow('disposed');
+    await expect(second).rejects.toThrow('disposed');
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
   });
 
   it('writes offline snapshots only through the injected cache adapter', () => {

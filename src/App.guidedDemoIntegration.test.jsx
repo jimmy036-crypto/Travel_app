@@ -8,6 +8,7 @@ import App from './App.jsx';
 const firebaseMocks = vi.hoisted(() => ({
   ref: vi.fn((_db, path) => path),
   get: vi.fn(),
+  onValue: vi.fn(),
   set: vi.fn(),
   update: vi.fn(),
 }));
@@ -20,13 +21,24 @@ const offlineMocks = vi.hoisted(() => ({
   write: vi.fn(),
 }));
 
-vi.mock('./firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('./firebase.js', () => ({ auth: null, db: {}, functions: null, storage: {} }));
+vi.mock('./features/auth/useAuthSession.js', () => ({
+  useAuthSession: () => ({
+    user: { uid: 'test-user', displayName: '測試使用者', photoURL: '' },
+    loading: false,
+    busy: false,
+    error: '',
+    clearError: vi.fn(),
+    signInWithGoogle: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
 vi.mock('firebase/database', () => ({
   ref: firebaseMocks.ref,
   get: firebaseMocks.get,
   set: firebaseMocks.set,
   update: firebaseMocks.update,
-  onValue: vi.fn(),
+  onValue: firebaseMocks.onValue,
 }));
 vi.mock('@vis.gl/react-google-maps', () => ({
   APIProvider: ({ children }) => <div>{children}</div>,
@@ -130,6 +142,27 @@ const seedTrips = (trips) => {
 
 const renderLobby = async (trips = []) => {
   seedTrips(trips);
+  firebaseMocks.get.mockImplementation(async (path) => {
+    const match = String(path).match(/^rooms\/([^/]+)\/meta$/u);
+    const trip = match ? trips.find((candidate) => candidate.roomId === match[1]) : null;
+    return {
+      exists: () => Boolean(trip),
+      val: () => trip || null,
+    };
+  });
+  firebaseMocks.onValue.mockImplementation((path, callback) => {
+    if (path === 'userTrips/test-user') {
+      callback({
+        val: () => Object.fromEntries(trips.map((trip) => [
+          trip.roomId,
+          { role: 'owner', status: 'active', aclVersion: 1, updatedAt: 1 },
+        ])),
+      });
+    } else if (String(path).startsWith('roomAccess/')) {
+      callback({ val: () => ({ role: 'owner', status: 'active' }) });
+    }
+    return vi.fn();
+  });
   const user = userEvent.setup();
   render(<App />);
   await waitFor(() => expect(screen.getByTestId('travel-lobby')).toBeInTheDocument());

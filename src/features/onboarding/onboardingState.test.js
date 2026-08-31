@@ -62,14 +62,6 @@ describe('first-run eligibility', () => {
     expect(shouldShowFirstRunOnboarding(freshSnapshot())).toBe(true);
   });
 
-  it('treats non-empty trips as returning use and malformed trips safely', () => {
-    localStorage.setItem('google-travel-my-trips', JSON.stringify([{ roomId: 'room-1' }]));
-    expect(freshSnapshot().hasNonEmptyTrips).toBe(true);
-    expect(shouldShowFirstRunOnboarding(freshSnapshot())).toBe(false);
-    localStorage.setItem('google-travel-my-trips', 'not-json');
-    expect(freshSnapshot().hasNonEmptyTrips).toBe(false);
-  });
-
   it('detects current and old release history', () => {
     localStorage.setItem('travel-app-seen-release-current', 'true');
     expect(freshSnapshot().hasReleaseHistory).toBe(true);
@@ -86,9 +78,9 @@ describe('first-run eligibility', () => {
   });
 
   it('detects only non-empty valid offline cache', () => {
-    localStorage.setItem('google-travel-offline-trip-cache-v1', '{}');
+    localStorage.setItem('google-travel-offline-trip-cache-v2:user-1', '{}');
     expect(freshSnapshot().hasOfflineTripData).toBe(false);
-    localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+    localStorage.setItem('google-travel-offline-trip-cache-v2:user-1', JSON.stringify({
       room1: {
         version: 1,
         roomId: 'room1',
@@ -114,6 +106,16 @@ describe('first-run eligibility', () => {
     const snapshot = freshSnapshot();
     expect(snapshot.hasRoomDeepLink).toBe(true);
     expect(shouldShowFirstRunOnboarding(snapshot)).toBe(true);
+  });
+
+  it('records an invite deep link without exposing it as a room id', () => {
+    window.history.pushState({}, '', '/#invite=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(freshSnapshot().hasRoomDeepLink).toBe(true);
+  });
+
+  it('does not accept legacy query-string invite tokens as deep links', () => {
+    window.history.pushState({}, '', '/?invite=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    expect(freshSnapshot().hasRoomDeepLink).toBe(false);
   });
 
   it('rejects onboarding seen and each existing-use signal', () => {

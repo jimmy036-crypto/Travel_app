@@ -6,12 +6,26 @@ import * as offlineCache from './features/offline/offlineTripCache.js';
 import { set, update, get, onValue } from 'firebase/database';
 
 vi.mock('./firebase.js', () => ({
+  auth: null,
   db: {},
+  functions: null,
   storage: {},
 }));
 
+vi.mock('./features/auth/useAuthSession.js', () => ({
+  useAuthSession: () => ({
+    user: { uid: 'test-user', displayName: '測試使用者', photoURL: '' },
+    loading: false,
+    busy: false,
+    error: '',
+    clearError: vi.fn(),
+    signInWithGoogle: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
+
 vi.mock('firebase/database', () => ({
-  ref: vi.fn(),
+  ref: vi.fn((_db, path) => path),
   set: vi.fn(),
   update: vi.fn(),
   get: vi.fn(),
@@ -74,6 +88,7 @@ const validSnapshot = {
 };
 
 function seedTrip() {
+  localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
   localStorage.setItem('google-travel-my-trips', JSON.stringify([{
     roomId: 'room1',
     title: 'Trip 1',
@@ -102,8 +117,8 @@ function mockValidOfflineCache() {
 function expectFirebaseNotCalled() {
   expect(set).not.toHaveBeenCalled();
   expect(update).not.toHaveBeenCalled();
-  expect(get).not.toHaveBeenCalled();
-  expect(onValue).not.toHaveBeenCalled();
+  expect(get).toHaveBeenCalledTimes(1);
+  expect(onValue).toHaveBeenCalledTimes(1);
 }
 
 describe('App offline trip preview', () => {
@@ -122,6 +137,21 @@ describe('App offline trip preview', () => {
     update.mockReset();
     get.mockReset();
     onValue.mockReset();
+    get.mockImplementation(async (path) => {
+      const trip = JSON.parse(localStorage.getItem('google-travel-my-trips') || '[]')[0] || null;
+      return {
+        exists: () => String(path) === 'rooms/room1/meta' && Boolean(trip),
+        val: () => (String(path) === 'rooms/room1/meta' ? trip : null),
+      };
+    });
+    onValue.mockImplementation((path, callback) => {
+      if (path === 'userTrips/test-user') {
+        callback({ val: () => ({ room1: { role: 'owner', status: 'active', aclVersion: 1, updatedAt: 1 } }) });
+      } else if (String(path).startsWith('roomAccess/')) {
+        callback({ val: () => ({ role: 'owner', status: 'active' }) });
+      }
+      return vi.fn();
+    });
   });
 
   it('APP-01 OPEN-01 opens a valid online room and mounts TripDetail', async () => {
@@ -251,7 +281,7 @@ describe('App offline trip preview', () => {
     await waitFor(() => expect(screen.getByTestId('travel-lobby')).toBeInTheDocument());
     expect(screen.queryByTestId('offline-cache-status')).not.toBeInTheDocument();
     expect(mockToast.info).toHaveBeenCalledWith(expect.objectContaining({ title: '已清除離線資料' }));
-    expect(localStorage.getItem('google-travel-my-trips')).toContain('room1');
+    expect(getRoomCard()).toBeInTheDocument();
     expectFirebaseNotCalled();
   });
 

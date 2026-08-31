@@ -199,7 +199,7 @@ test('景點封面圖片會上傳、持久化並從 Database 與 Storage 一併�
       },
     )
     .toEqual({
-      hasDownloadUrl: true,
+      hasDownloadUrl: false,
       correctPrefix: true,
       correctFileName: true,
       fileName: PHOTO_FILE_NAME,
@@ -338,7 +338,7 @@ test('景點資料圖片會上傳、持久化並從 Database 與 Storage 一併�
     )
     .toEqual({
       hasId: true,
-      hasDownloadUrl: true,
+      hasDownloadUrl: false,
       correctPrefix: true,
       correctFileName: true,
       kind: 'file',
@@ -495,7 +495,7 @@ test('景點 PDF 附件會上傳、持久化並從 Database 與 Storage 一併�
     )
     .toEqual({
       hasId: true,
-      hasDownloadUrl: true,
+      hasDownloadUrl: false,
       correctPrefix: true,
       correctFileName: true,
       kind: 'file',

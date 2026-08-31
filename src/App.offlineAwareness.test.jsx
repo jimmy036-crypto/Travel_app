@@ -6,16 +6,50 @@ import { set, update, get } from 'firebase/database';
 import { checkForPwaUpdate } from './pwaUpdateController.js';
 import * as toastModule from './components/ui/useToast.js';
 
+const tripAccessMocks = vi.hoisted(() => ({
+  createTrip: vi.fn(async ({ meta }) => ({ meta })),
+  redeemTripInvite: vi.fn(),
+}));
+
 // Mock Firebase
 vi.mock('./firebase.js', () => ({
+  auth: null,
   db: {},
+  functions: null,
   storage: {},
 }));
+vi.mock('./features/auth/useAuthSession.js', () => ({
+  useAuthSession: () => ({
+    user: { uid: 'test-user', displayName: '測試使用者', photoURL: '' },
+    loading: false,
+    busy: false,
+    error: '',
+    clearError: vi.fn(),
+    signInWithGoogle: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
+vi.mock('./features/trip-access/tripAccessClient.js', () => ({
+  createTripAccessClient: () => ({
+    createTrip: tripAccessMocks.createTrip,
+    redeemTripInvite: tripAccessMocks.redeemTripInvite,
+  }),
+  extractInviteToken: vi.fn(() => ''),
+  getCallableErrorMessage: vi.fn(() => '操作失敗'),
+}));
 vi.mock('firebase/database', () => ({
-  ref: vi.fn(),
+  ref: vi.fn((_db, path) => path),
   set: vi.fn(),
   update: vi.fn(),
   get: vi.fn(),
+  onValue: vi.fn((path, callback) => {
+    if (path === 'userTrips/test-user') {
+      callback({ val: () => ({ 'existing-trip': { role: 'owner', status: 'active', aclVersion: 1, updatedAt: 1 } }) });
+    } else if (String(path).startsWith('roomAccess/')) {
+      callback({ val: () => ({ role: 'owner', status: 'active' }) });
+    }
+    return vi.fn();
+  }),
 }));
 
 // Mock PWA controller
@@ -98,6 +132,7 @@ describe('App - Offline Awareness', () => {
   let toastErrorMock;
 
   beforeEach(() => {
+    localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
     onLineGetter = vi.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(true);
     
     toastInfoMock = vi.fn();
@@ -110,6 +145,20 @@ describe('App - Offline Awareness', () => {
     });
 
     vi.clearAllMocks();
+    get.mockImplementation(async (path) => ({
+      exists: () => String(path) === 'rooms/existing-trip/meta',
+      val: () => (String(path) === 'rooms/existing-trip/meta' ? {
+        roomId: 'existing-trip',
+        title: 'Existing Trip',
+        destination: 'Test City',
+        destLat: 25,
+        destLng: 121.5,
+        startDate: '2026-01-01',
+        endDate: '2026-01-02',
+        members: ['自己'],
+      } : null),
+    }));
+    tripAccessMocks.createTrip.mockImplementation(async ({ meta }) => ({ meta }));
   });
 
   afterEach(() => {
@@ -131,7 +180,7 @@ describe('App - Offline Awareness', () => {
   };
 
   const fillCreateForm = async () => {
-    fireEvent.click(screen.getByTestId('create-trip-button'));
+    fireEvent.click(await screen.findByTestId('create-trip-button'));
     
     // Fill title
     fireEvent.change(screen.getByTestId('trip-name-input'), { target: { value: 'New Test Trip' } });
@@ -181,7 +230,7 @@ describe('App - Offline Awareness', () => {
     render(<App />);
     fireOfflineEvent();
 
-    fireEvent.click(screen.getByText('⚙️ 編輯'));
+    fireEvent.click(await screen.findByText('⚙️ 編輯'));
     fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
 
     expect(update).not.toHaveBeenCalled();
@@ -193,9 +242,10 @@ describe('App - Offline Awareness', () => {
     render(<App />);
     fireOfflineEvent();
 
-    fireEvent.click(screen.getByTestId('import-trip-button'));
-    fireEvent.change(screen.getByPlaceholderText('貼上網址或房間 ID...'), { target: { value: 'some-room-id' } });
-    fireEvent.click(screen.getByRole('button', { name: '確認匯入' }));
+    fireEvent.click(await screen.findByTestId('import-trip-button'));
+    get.mockClear();
+    fireEvent.change(screen.getByRole('textbox', { name: '旅程邀請連結' }), { target: { value: 'some-room-id' } });
+    fireEvent.click(screen.getByRole('button', { name: '驗證並加入' }));
 
     expect(get).not.toHaveBeenCalled();
     expect(toastErrorMock).toHaveBeenCalledWith(expect.objectContaining({ title: '目前離線' }));
@@ -231,7 +281,7 @@ describe('App - Offline Awareness', () => {
     expect(screen.queryByTestId('trip-name-input')).not.toBeInTheDocument();
   });
 
-  it('UT-15: 在線狀態下正常流程呼叫 Firebase mock', async () => {
+  it('UT-15: 在線狀態下正常流程呼叫受信任建立旅程 callable', async () => {
     render(<App />);
     
     await fillCreateForm();
@@ -239,18 +289,18 @@ describe('App - Offline Awareness', () => {
     // Need an online check just to be sure
     expect(window.navigator.onLine).toBe(true);
 
-    // Provide a mocked set return
-    set.mockResolvedValueOnce();
-
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '確認建立' }));
     });
 
-    expect(set).toHaveBeenCalledTimes(1);
-    const callArgs = set.mock.calls[0];
-    expect(callArgs[1].meta).toEqual(expect.objectContaining({
+    expect(tripAccessMocks.createTrip).toHaveBeenCalledTimes(1);
+    expect(tripAccessMocks.createTrip).toHaveBeenCalledWith(expect.objectContaining({
+      roomId: 'new-room-id',
+      meta: expect.objectContaining({
       title: 'New Test Trip',
       destination: 'Test Place'
+      }),
     }));
+    expect(set).not.toHaveBeenCalled();
   });
 });

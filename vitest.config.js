@@ -29,6 +29,9 @@ export default defineConfig({
       'test-results/**',
       'playwright-report/**',
 
+      // Firebase Rules 使用獨立的 Node/Emulator 設定執行。
+      'src/firebase.rules.test.js',
+
       // 避免未來的診斷包與安裝備份被誤掃。
       'travel-e2e-debug-current/**',
       'react-root-fix-backup-*/**',

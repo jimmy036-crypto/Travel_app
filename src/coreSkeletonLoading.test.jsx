@@ -48,8 +48,22 @@ vi.mock('@hello-pangea/dnd', () => ({
 }));
 
 vi.mock('./firebase', () => ({
+  auth: null,
   db: { app: 'mock-db' },
+  functions: null,
   storage: null,
+}));
+
+vi.mock('./features/auth/useAuthSession.js', () => ({
+  useAuthSession: () => ({
+    user: { uid: 'test-user', displayName: '測試使用者', photoURL: '' },
+    loading: false,
+    busy: false,
+    error: '',
+    clearError: vi.fn(),
+    signInWithGoogle: vi.fn(),
+    signOut: vi.fn(),
+  }),
 }));
 
 vi.mock('firebase/database', () => ({
@@ -143,37 +157,63 @@ describe('core skeleton loading states', () => {
     vi.restoreAllMocks();
   });
 
-  it('hydrates lobby trips synchronously without a skeleton flash', async () => {
-    localStorage.setItem(
-      'google-travel-my-trips',
-      JSON.stringify([{
-        roomId: 'skeleton-lobby-room',
-        title: 'Lobby loaded trip',
-        destination: '台北',
-        startDate: '2026-09-20',
-        endDate: '2026-09-21',
-        members: ['自己'],
-        transport: '汽車',
-        themeColor: '#3b82f6',
-      }]),
-    );
+  it('shows a skeleton instead of an empty-state flash while account trips hydrate', async () => {
+    const trip = {
+      roomId: 'skeleton-lobby-room',
+      title: 'Lobby loaded trip',
+      destination: '台北',
+      startDate: '2026-09-20',
+      endDate: '2026-09-21',
+      members: ['自己'],
+      transport: '汽車',
+      themeColor: '#3b82f6',
+    };
+    let resolveMeta;
+    firebaseMocks.get.mockReturnValueOnce(new Promise((resolve) => {
+      resolveMeta = resolve;
+    }));
+    firebaseMocks.onValue.mockImplementationOnce((_reference, callback) => {
+      callback({
+        val: () => ({
+          'skeleton-lobby-room': {
+            role: 'owner',
+            status: 'active',
+            aclVersion: 1,
+            updatedAt: 1,
+          },
+        }),
+      });
+      return firebaseMocks.unsubscribe;
+    });
 
     const { default: App } = await import('./App.jsx');
     const view = renderWithProviders(<App />);
 
-    expect(view.queryByTestId('lobby-skeleton')).not.toBeInTheDocument();
     expect(view.queryByTestId('lobby-empty-state')).not.toBeInTheDocument();
-    expect(view.getByTestId('trip-card-title')).toHaveTextContent('Lobby loaded trip');
+    expect(view.getByTestId('lobby-skeleton')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveMeta({ exists: () => true, val: () => trip });
+    });
+    await waitFor(() => {
+      expect(view.getByTestId('trip-card-title')).toHaveTextContent('Lobby loaded trip');
+    });
+    expect(view.queryByTestId('lobby-skeleton')).not.toBeInTheDocument();
   });
 
-  it('renders lobby empty state synchronously when stored trips are empty', async () => {
-    localStorage.setItem('google-travel-my-trips', '[]');
+  it('renders the lobby empty state after an empty account index resolves', async () => {
+    firebaseMocks.onValue.mockImplementationOnce((_reference, callback) => {
+      callback({ val: () => null });
+      return firebaseMocks.unsubscribe;
+    });
 
     const { default: App } = await import('./App.jsx');
     const view = renderWithProviders(<App />);
 
+    await waitFor(() => {
+      expect(view.getByTestId('lobby-empty-state')).toBeInTheDocument();
+    });
     expect(view.queryByTestId('lobby-skeleton')).not.toBeInTheDocument();
-    expect(view.getByTestId('lobby-empty-state')).toBeInTheDocument();
   });
 
   it('renders trip detail skeleton until the first room snapshot resolves', async () => {

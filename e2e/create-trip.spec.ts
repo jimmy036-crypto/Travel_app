@@ -1,5 +1,9 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
-import { clearEmulatorDatabase } from './support/emulator';
+import { expect, test, type Page } from "@playwright/test";
+import {
+  E2E_AUTH_UID,
+  clearEmulatorDatabase,
+  readEmulatorData,
+} from './support/emulator';
 
 async function closeUpdateNoticeIfVisible(page: Page) {
   const closeButton = page.getByRole("button", {
@@ -16,28 +20,16 @@ type TripMeta = {
 };
 
 async function readTripMeta(
-  request: APIRequestContext,
   roomId: string,
-  databaseNamespace: string,
 ): Promise<TripMeta | null> {
-  const response = await request.get(
-    `http://127.0.0.1:9000/rooms/${encodeURIComponent(
-      roomId,
-    )}/meta.json?ns=${encodeURIComponent(databaseNamespace)}`,
-  );
-
-  expect(response.ok()).toBe(true);
-  return (await response.json()) as TripMeta | null;
+  return await readEmulatorData<TripMeta>(`rooms/${roomId}/meta`);
 }
 
 test.beforeEach(async () => {
   await clearEmulatorDatabase();
 });
 
-test("建立旅程後，重新整理仍保留 Firebase Emulator 資料", async ({
-  page,
-  request,
-}) => {
+test("建立旅程後，重新整理仍保留 Firebase Emulator 資料", async ({ page }) => {
   const uniqueName = `E2E 測試旅程 ${Date.now()}`;
 
   await page.goto("/");
@@ -78,11 +70,13 @@ test("建立旅程後，重新整理仍保留 Firebase Emulator 資料", async (
   expect(databaseNamespace).toBeTruthy();
 
   const firstMeta = await readTripMeta(
-    request,
     String(roomId),
-    String(databaseNamespace),
   );
   expect(firstMeta?.title).toBe(uniqueName);
+  expect(await readEmulatorData(`userTrips/${E2E_AUTH_UID}/${roomId}`))
+    .toEqual(expect.objectContaining({ role: 'owner', status: 'active' }));
+  expect(await readEmulatorData(`roomAccess/${roomId}/members/${E2E_AUTH_UID}/role`))
+    .toBe('owner');
 
   // 重新整理只驗證這條測試的核心責任：
   // URL 仍指向同一旅程，而且 Emulator 中的資料沒有消失。
@@ -95,9 +89,7 @@ test("建立旅程後，重新整理仍保留 Firebase Emulator 資料", async (
   });
 
   const reloadedMeta = await readTripMeta(
-    request,
     String(roomId),
-    String(databaseNamespace),
   );
   expect(reloadedMeta?.title).toBe(uniqueName);
 

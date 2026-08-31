@@ -14,7 +14,7 @@ const firebaseMocks = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 
-vi.mock('./firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('./firebase.js', () => ({ auth: null, db: {}, functions: null, storage: {} }));
 vi.mock('firebase/database', () => ({
   ref: firebaseMocks.ref,
   get: firebaseMocks.get,

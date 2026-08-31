@@ -66,6 +66,7 @@ function SettingsMenuContent({
   t,
   version,
   tripActions,
+  accountNode,
   menuItem,
   onRunAction,
   onOpenAppearance,
@@ -111,6 +112,10 @@ function SettingsMenuContent({
           </div>
         </section>
       ) : null}
+
+      {React.isValidElement(accountNode)
+        ? React.cloneElement(accountNode, { menuItem })
+        : null}
 
       <section aria-labelledby="app-settings-app-section-title">
         <h3
@@ -229,6 +234,7 @@ export const AppSettingsMenu = ({
   version,
   triggerLabel = '開啟設定',
   tripActions = [],
+  accountNode = null,
   onOpenAppearance,
   onOpenReleaseNotes,
   onOpenFeatureIntroduction,
@@ -414,6 +420,7 @@ export const AppSettingsMenu = ({
     t,
     version,
     tripActions: safeTripActions,
+    accountNode,
     onRunAction: runAction,
     onOpenAppearance,
     onOpenReleaseNotes,

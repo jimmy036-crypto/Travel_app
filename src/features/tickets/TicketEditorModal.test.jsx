@@ -484,7 +484,7 @@ describe('TicketEditorModal progressive form', () => {
 
 describe('TicketEditorModal attachment safety and accessibility', () => {
   it('EDITOR-36 rejects SVG attachments near the file input', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ applyAccept: false });
     renderEditor();
     const file = new File(['<svg />'], 'ticket.svg', { type: 'image/svg+xml' });
 

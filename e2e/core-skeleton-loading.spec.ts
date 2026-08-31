@@ -40,9 +40,13 @@ test('renders stored lobby trips without a skeleton flash', async ({
   page,
 }) => {
   await markCurrentReleaseSeen(page);
-  await page.addInitScript((trip) => {
-    window.localStorage.setItem('google-travel-my-trips', JSON.stringify([trip]));
-  }, LOBBY_TRIP);
+  await clearEmulatorDatabase();
+  await seedTestTrip(LOBBY_TRIP.roomId, {
+    title: LOBBY_TRIP.title,
+    startDate: LOBBY_TRIP.startDate,
+    endDate: LOBBY_TRIP.endDate,
+    members: LOBBY_TRIP.members,
+  });
 
   await page.goto('/');
 
@@ -59,9 +63,7 @@ test('renders the lobby empty state without a skeleton flash when stored trips a
   page,
 }) => {
   await markCurrentReleaseSeen(page);
-  await page.addInitScript(() => {
-    window.localStorage.setItem('google-travel-my-trips', '[]');
-  });
+  await clearEmulatorDatabase();
 
   await page.goto('/');
 

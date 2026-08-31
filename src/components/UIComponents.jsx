@@ -6,7 +6,7 @@ import { ResponsiveBottomSheet } from './ResponsiveBottomSheet';
 import { APP_VERSION, CATEGORIES, TAG_OPTIONS } from "../constants";
 import { safeUrlFormatter, getDayDisplay, generateId, formatStayTime, parseDateOnlyLocal, extractRoomId, isValidCoordinates, openExternalUrl } from "../helpers";
 import { storage } from "../firebase";
-import { ref as sRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref as sRef, uploadBytesResumable, deleteObject } from "firebase/storage";
 import {
   buildEqualSplit,
   calculateCustomTotal,
@@ -194,17 +194,26 @@ const sanitizeFileName = (name) => String(name || 'ticket')
   .replace(/^_+|_+$/g, '')
   .slice(0, 120) || 'ticket';
 
+const ALLOWED_ATTACHMENT_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
+
 const isAllowedTicketFile = (file) => {
   if (!file) return false;
   const type = String(file.type || '').toLowerCase();
   const name = String(file.name || '').toLowerCase();
-  return type.startsWith('image/') || type === 'application/pdf' || name.endsWith('.pdf');
+  return ALLOWED_ATTACHMENT_IMAGE_TYPES.has(type)
+    || type === 'application/pdf'
+    || (!type && name.endsWith('.pdf'));
 };
 
 
 const isAllowedPlacePhoto = (file) => {
   if (!file) return false;
-  return String(file.type || '').toLowerCase().startsWith('image/');
+  return ALLOWED_ATTACHMENT_IMAGE_TYPES.has(String(file.type || '').toLowerCase());
 };
 
 const isAllowedPlacePdf = (file) => {
@@ -264,9 +273,10 @@ const normalizePlaceResources = (resources) => (
       const pendingFile = resource?.pendingFile || null;
       const fileResource = isFileResource(resource);
       const url = normalizeHttpUrl(resource?.url);
+      const storagePath = String(resource?.storagePath || '');
 
       if (fileResource) {
-        if (!url && !pendingFile) return null;
+        if (!url && !storagePath && !pendingFile) return null;
         const contentType = String(
           resource?.contentType
           || pendingFile?.type
@@ -280,7 +290,7 @@ const normalizePlaceResources = (resources) => (
           type,
           title: String(resource?.title || fallbackLabel).trim().slice(0, 60) || fallbackLabel,
           url,
-          storagePath: String(resource?.storagePath || ''),
+          storagePath,
           fileName: String(resource?.fileName || pendingFile?.name || ''),
           contentType,
           size: Number(resource?.size || pendingFile?.size || 0),
@@ -1350,10 +1360,11 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
         const fileRef = sRef(storage, storagePath);
         const uploadTask = uploadBytesResumable(fileRef, file, {
           contentType: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+          cacheControl: 'private, no-store, max-age=0',
           customMetadata: { roomId: safeRoomId, ticketId },
         });
 
-        const snapshot = await new Promise((resolve, reject) => {
+        await new Promise((resolve, reject) => {
           let timedOut = false;
           const timer = window.setTimeout(() => {
             timedOut = true;
@@ -1375,7 +1386,6 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
           );
         });
 
-        finalUrl = await getDownloadURL(snapshot.ref);
         if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) finalType = "pdf";
       } catch (error) {
         console.error('Ticket upload failed:', error);
@@ -1422,7 +1432,7 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
           </div>
           {type === 'image' ? (
              <div className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 border-dashed ${t.cardBg} ${t.cardBorder}`}>
-                <input data-testid="ticket-file-input" type="file" accept="image/*,application/pdf" onChange={handleFileChange} className={`text-xs ${t.mainText} w-full`} />
+                <input data-testid="ticket-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" onChange={handleFileChange} className={`text-xs ${t.mainText} w-full`} />
                 <p className={`text-[10px] ${t.subText}`}>僅限圖片或 PDF，單檔上限 10 MB</p>
                 {file ? <p className="text-[10px] text-emerald-500 font-bold">已選擇：{String(file.name)}（{(file.size / 1024 / 1024).toFixed(2)} MB）</p> : null}
              </div>
@@ -1496,7 +1506,7 @@ export const CopyItemModal = ({ item, existingDays, onClose, onCopy, t }) => {
   );
 };
 
-export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t }) => {
+export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachment, onClose, t }) => {
   useBodyScrollLock();
   const safeRoomId = extractRoomId(roomId);
   const [customName, setCustomName] = useState(item.customName || "");
@@ -1511,7 +1521,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
   const [navigationUrl, setNavigationUrl] = useState(item.navigationUrl || '');
 
   const [showResources, setShowResources] = useState(
-    Boolean(item.placePhoto?.url || (Array.isArray(item.resources) && item.resources.length > 0))
+    Boolean(item.placePhoto?.url || item.placePhoto?.storagePath || (Array.isArray(item.resources) && item.resources.length > 0))
   );
   const [resources, setResources] = useState(() => normalizePlaceResources(item.resources));
   const [resourceAddMode, setResourceAddMode] = useState('image');
@@ -1805,13 +1815,14 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
     const photoRef = sRef(storage, storagePath);
     const uploadTask = uploadBytesResumable(photoRef, photoFile, {
       contentType: photoFile.type || 'image/jpeg',
+      cacheControl: 'private, no-store, max-age=0',
       customMetadata: {
         roomId: safeRoomId,
         itemId: String(item.id),
       },
     });
 
-    const snapshot = await new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => {
         uploadTask.cancel();
         reject(new Error('照片上傳逾時，請檢查網路後重試。'));
@@ -1835,7 +1846,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
     });
 
     return {
-      url: await getDownloadURL(snapshot.ref),
+      url: '',
       storagePath,
       fileName: String(photoFile.name || 'place-photo'),
       contentType: String(photoFile.type || 'image/jpeg'),
@@ -1861,6 +1872,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
     const fileRef = sRef(storage, storagePath);
     const uploadTask = uploadBytesResumable(fileRef, file, {
       contentType,
+      cacheControl: 'private, no-store, max-age=0',
       customMetadata: {
         roomId: safeRoomId,
         itemId: String(item.id),
@@ -1869,7 +1881,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
       },
     });
 
-    const snapshot = await new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => {
         uploadTask.cancel();
         reject(new Error('附件上傳逾時，請檢查網路後重試。'));
@@ -1899,7 +1911,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
     return {
       ...resourceWithoutPending,
       kind: 'file',
-      url: await getDownloadURL(snapshot.ref),
+      url: '',
       storagePath,
       fileName: String(file.name || fallbackName),
       contentType,
@@ -2136,13 +2148,13 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                     <label className={`min-h-24 rounded-xl border border-dashed flex flex-col items-center justify-center cursor-pointer ${t.cardBorder} ${t.inputBg}`}>
                       <span className="text-2xl">📷</span>
                       <span className={`text-xs font-bold mt-1 ${t.mainText}`}>上傳店面、餐點或集合地點照片</span>
-                      <input data-testid="place-photo-input" type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      <input data-testid="place-photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handlePhotoChange} className="hidden" />
                     </label>
                   )}
                   {visiblePhotoUrl ? (
                     <label className={`mt-2 min-h-11 px-3 rounded-xl border flex items-center justify-center cursor-pointer text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                       更換照片
-                      <input data-testid="place-photo-input" type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      <input data-testid="place-photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handlePhotoChange} className="hidden" />
                     </label>
                   ) : null}
                 </div>
@@ -2210,16 +2222,25 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                           <div data-testid="place-resource-row" key={resource.id} className={`flex min-w-0 items-center gap-2 rounded-xl border p-3 sm:gap-3 ${t.itemBg} ${t.cardBorder}`}>
                             <button
                               type="button"
-                              onClick={() => { if (resource.url) openExternalUrl(resource.url); }}
-                              disabled={!resource.url}
+                              onClick={() => {
+                                if (pendingUpload) return;
+                                if (typeof onOpenAttachment === 'function') onOpenAttachment(resource);
+                                else if (resource.url) openExternalUrl(resource.url);
+                              }}
+                              disabled={pendingUpload || (!resource.url && !resource.storagePath)}
                               className={`w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center text-lg shrink-0 ${imageResource ? 'bg-slate-500/10' : pdfResource ? 'bg-red-500/10' : 'bg-blue-500/10'} disabled:opacity-60`}
-                              title={resource.url ? '開啟資料' : '儲存後即可開啟'}
+                              title={resource.url || resource.storagePath ? '開啟資料' : '儲存後即可開啟'}
                             >
                               {imageResource && resource.url ? <img src={resource.url} alt="" className="w-full h-full object-cover" /> : imageResource ? '🖼️' : pdfResource ? '📄' : typeMeta.icon}
                             </button>
                             <button
                               type="button"
-                              onClick={() => { if (resource.url) openExternalUrl(resource.url); else handleEditResource(resource); }}
+                              onClick={() => {
+                                if (pendingUpload) handleEditResource(resource);
+                                else if (typeof onOpenAttachment === 'function') onOpenAttachment(resource);
+                                else if (resource.url) openExternalUrl(resource.url);
+                                else handleEditResource(resource);
+                              }}
                               className="flex-1 min-w-0 text-left"
                             >
                               <p className={`text-xs font-bold truncate ${t.mainText}`}>{resource.title}</p>
@@ -2280,7 +2301,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                             {imageDraft.file ? `${formatFileSize(imageDraft.file.size)}・儲存景點時上傳` : 'JPG／PNG／WebP，最多 5 MB'}
                           </span>
                         </span>
-                        <input data-testid="place-resource-image-input" type="file" accept="image/*" onChange={handleImageResourceChange} className="hidden" />
+                        <input data-testid="place-resource-image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageResourceChange} className="hidden" />
                       </label>
 
                       <p className={`text-[10px] leading-relaxed ${t.subText}`}>菜單照片會合併成 App 內相簿，可左右滑動，不會當成景點封面。</p>
