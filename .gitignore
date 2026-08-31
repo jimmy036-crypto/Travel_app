@@ -46,6 +46,7 @@ build/
 
 .env.local
 .env.*.local
+/legacy-ticket-path-repair*.local.json
 
 .firebase/
 *-debug.log
