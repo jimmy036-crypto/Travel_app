@@ -4,7 +4,8 @@
     ".write": false,
     "rooms": {
       "$roomId": {
-        ".read": "auth != null && auth.token.firebase.sign_in_provider == 'google.com' && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('uid').val() == auth.uid && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('aclVersion').isNumber() && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('aclVersion').val() > 0 && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('status').val() == 'active' && (root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('role').val() == 'owner' || root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('role').val() == 'editor')",
+        ".read": "auth != null && auth.token.firebase.sign_in_provider == 'google.com' && root.child('roomAccess').child($roomId).child('state').val() == 'ready' && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('uid').val() == auth.uid && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('aclVersion').isNumber() && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('aclVersion').val() > 0 && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('status').val() == 'active' && (root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('role').val() == 'owner' || root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('role').val() == 'editor')",
+        ".validate": "root.child('roomAccess').child($roomId).child('state').val() == 'ready'",
         "meta": {
           ".write": "auth != null && auth.token.firebase.sign_in_provider == 'google.com' && !root.child('maintenanceRepairs').child('legacyTicketPath').child($roomId).exists() && data.exists() && newData.exists() && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('uid').val() == auth.uid && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('aclVersion').isNumber() && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('aclVersion').val() > 0 && root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('status').val() == 'active' && (root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('role').val() == 'owner' || root.child('roomAccess').child($roomId).child('members').child(auth.uid).child('role').val() == 'editor')",
           ".validate": "newData.hasChild('ownerUid') && newData.child('ownerUid').isString() && newData.child('ownerUid').val() == data.child('ownerUid').val() && newData.child('ownerUid').val() == root.child('roomAccess').child($roomId).child('ownerUid').val()",
@@ -92,7 +93,14 @@
         ".write": false
       }
     },
+    "tripDeletions": {
+      "$roomId": {
+        ".read": false,
+        ".write": false
+      }
+    },
     "tripInvites": {
+      ".indexOn": ["roomId"],
       "$tokenHash": {
         ".read": false,
         ".write": false

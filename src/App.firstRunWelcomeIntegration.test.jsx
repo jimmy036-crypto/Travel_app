@@ -288,10 +288,16 @@ describe('App first-run welcome integration', () => {
   });
 
   it('defers Welcome and What’s New for a room deep link until returning to Lobby', async () => {
-    let resolveRoomAccess;
-    firebaseMocks.get.mockImplementationOnce(() => new Promise((resolve) => {
-      resolveRoomAccess = resolve;
-    }));
+    let resolveTripIndex;
+    const defaultGet = firebaseMocks.get.getMockImplementation();
+    firebaseMocks.get.mockImplementation((path) => {
+      if (String(path) === 'userTrips/test-user/shared-room') {
+        return new Promise((resolve) => {
+          resolveTripIndex = resolve;
+        });
+      }
+      return defaultGet(path);
+    });
     window.history.pushState({}, '', '/?room=shared-room');
     const user = userEvent.setup();
     render(<App />);
@@ -299,11 +305,10 @@ describe('App first-run welcome integration', () => {
     expect(screen.queryByTestId('travel-lobby')).not.toBeInTheDocument();
     expect(screen.queryByTestId('app-settings-trigger')).not.toBeInTheDocument();
     await waitFor(() => expect(firebaseMocks.get).toHaveBeenCalledWith(
-      'roomAccess/shared-room/members/test-user',
+      'userTrips/test-user/shared-room',
     ));
     await act(async () => {
-      resolveRoomAccess({
-        exists: () => true,
+      resolveTripIndex({
         val: () => ({ role: 'owner', status: 'active' }),
       });
     });

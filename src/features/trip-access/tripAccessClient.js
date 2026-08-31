@@ -11,6 +11,7 @@ const CALLABLE_NAMES = Object.freeze([
   'listTripMembers',
   'removeTripMember',
   'restoreTripMember',
+  'deleteTrip',
 ]);
 
 const INVITE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
@@ -47,6 +48,7 @@ export function createTripAccessClient(functionsInstance = defaultFunctions) {
     listTripMembers: (roomId) => invoke('listTripMembers', { roomId }),
     removeTripMember: (roomId, uid) => invoke('removeTripMember', { roomId, uid }),
     restoreTripMember: (roomId, uid) => invoke('restoreTripMember', { roomId, uid }),
+    deleteTrip: (roomId) => invoke('deleteTrip', { roomId }),
   };
 }
 

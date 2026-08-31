@@ -8,8 +8,10 @@ service firebase.storage {
 
     function hasActiveTripAccess(roomId) {
       let memberPath = /databases/(default)/documents/tripAccess/$(roomId)/members/$(request.auth.uid);
+      let deletionGuardPath = /databases/(default)/documents/tripAccess/$(roomId);
       return request.auth != null
         && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && !firestore.exists(deletionGuardPath)
         && firestore.exists(memberPath)
         && firestore.get(memberPath).data.uid == request.auth.uid
         && firestore.get(memberPath).data.status == 'active'

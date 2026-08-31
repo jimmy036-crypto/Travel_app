@@ -149,6 +149,9 @@ class MemoryFirestore {
           data: () => clone(value),
         };
       },
+      delete: async () => {
+        this.documents.delete(path);
+      },
     };
   }
 
@@ -178,10 +181,16 @@ class MemoryFirestore {
         };
       },
       set: (reference, value) => {
-        writes.push([reference.path, value]);
+        writes.push(['set', reference.path, value]);
+      },
+      delete: (reference) => {
+        writes.push(['delete', reference.path]);
       },
     });
-    for (const [path, value] of writes) this.setValue(path, value);
+    for (const [type, path, value] of writes) {
+      if (type === 'delete') this.documents.delete(path);
+      else this.setValue(path, value);
+    }
     return result;
   }
 }
@@ -321,6 +330,47 @@ test('createTrip never reuses a permanently reserved Storage namespace', async (
   assert.equal(database.value(`userQuotas/${googleAuth.uid}/createTrip/totalCount`), 0);
 });
 
+test('createTrip preserves bounded pending deletion release claims', async () => {
+  const release = {
+    roomId: 'deleted-room',
+    deletionId: 'deletion-1',
+    releasedAt: 9_000,
+  };
+  const { database, service } = createFixture({
+    databaseState: {
+      userQuotas: {
+        [googleAuth.uid]: {
+          createTrip: {
+            totalCount: 1,
+            windowCount: 1,
+            windowStartedAt: 9_000,
+            pendingReleases: { 'deletion-1': release },
+          },
+        },
+      },
+    },
+  });
+
+  await service.createTrip({
+    roomId: 'new-room',
+    meta: {
+      title: 'New trip',
+      destination: 'Taipei',
+      destLat: 25.033,
+      destLng: 121.5654,
+      startDate: '2026-09-01',
+      endDate: '2026-09-02',
+      members: ['Owner'],
+    },
+  }, googleAuth);
+
+  assert.deepEqual(
+    database.value(`userQuotas/${googleAuth.uid}/createTrip/pendingReleases/deletion-1`),
+    release,
+  );
+  assert.equal(database.value(`userQuotas/${googleAuth.uid}/createTrip/totalCount`), 2);
+});
+
 test('getOrCreateTripInvite never exposes an existing raw token to an editor', async () => {
   const database = {
     ref(path = '') {
@@ -400,6 +450,7 @@ test('active access rejects a malformed member whose embedded uid does not match
 test('owner invite creation retries after the Admin SDK initial null transaction value', async () => {
   let access = {
     ownerUid: googleAuth.uid,
+    state: 'ready',
     inviteVersion: 0,
     members: {
       [googleAuth.uid]: {
@@ -952,4 +1003,139 @@ test('member cap and identity boundaries reject access without weakening canonic
     expectCollaborationError('permission-denied'),
   );
   assert.equal(database.value(`roomAccess/room-1/members/${googleAuth.uid}/status`), 'active');
+});
+
+test('collaboration operations reject a room once owner deletion has locked it', async () => {
+  const token = 'e'.repeat(43);
+  const tokenHash = hashInviteToken(token);
+  const lockedAccess = activeOwnerAccess({
+    state: 'deleting',
+    members: {
+      [googleAuth.uid]: ownerMember(),
+      [editorAuth.uid]: editorMember(),
+    },
+    invite: {
+      token,
+      tokenHash,
+      active: true,
+      version: 1,
+      createdAt: 1_000,
+      createdByUid: googleAuth.uid,
+    },
+  });
+  const { database, service } = createFixture({
+    databaseState: {
+      roomAccess: {
+        'room-1': lockedAccess,
+      },
+      tripInvites: {
+        [tokenHash]: {
+          roomId: 'room-1',
+          role: 'editor',
+          active: true,
+          version: 1,
+        },
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.listTripMembers({ roomId: 'room-1' }, googleAuth),
+    expectCollaborationError('permission-denied'),
+  );
+  await assert.rejects(
+    () => service.getOrCreateTripInvite({ roomId: 'room-1' }, googleAuth),
+    expectCollaborationError('permission-denied'),
+  );
+  await assert.rejects(
+    () => service.revokeTripInvite({ roomId: 'room-1' }, googleAuth),
+    expectCollaborationError('permission-denied'),
+  );
+  await assert.rejects(
+    () => service.redeemTripInvite({ token }, secondEditorAuth),
+    expectCollaborationError('not-found'),
+  );
+  await assert.rejects(
+    () => service.removeTripMember({ roomId: 'room-1', uid: editorAuth.uid }, googleAuth),
+    expectCollaborationError('permission-denied'),
+  );
+  await assert.rejects(
+    () => service.restoreTripMember({ roomId: 'room-1', uid: editorAuth.uid }, googleAuth),
+    expectCollaborationError('permission-denied'),
+  );
+  assert.deepEqual(database.value('roomAccess/room-1'), lockedAccess);
+  assert.equal(database.value(`tripInvites/${tokenHash}/active`), true);
+});
+
+test('member sync preserves the owner retry index during deletion and removes every ACL', async () => {
+  const deletion = {
+    ownerUid: googleAuth.uid,
+    deletionId: 'deletion-1',
+    state: 'deleting',
+    titleSnapshot: 'Tokyo',
+    updatedAt: 9_000,
+    members: {
+      [googleAuth.uid]: { role: 'owner', aclVersion: 4 },
+      [editorAuth.uid]: { role: 'editor', aclVersion: 2 },
+    },
+  };
+  const { database, firestore, service } = createFixture({
+    databaseState: {
+      tripDeletions: { 'room-1': deletion },
+      userTrips: {
+        [googleAuth.uid]: {
+          'room-1': { role: 'owner', status: 'active', aclVersion: 4 },
+        },
+        [editorAuth.uid]: {
+          'room-1': { role: 'editor', status: 'active', aclVersion: 2 },
+        },
+      },
+    },
+    firestoreState: {
+      [`tripAccess/room-1/members/${googleAuth.uid}`]: {
+        uid: googleAuth.uid,
+        role: 'owner',
+        status: 'active',
+        aclVersion: 4,
+      },
+      [`tripAccess/room-1/members/${editorAuth.uid}`]: {
+        uid: editorAuth.uid,
+        role: 'editor',
+        status: 'active',
+        aclVersion: 2,
+      },
+    },
+  });
+
+  assert.equal(await service.syncMemberAccess('room-1', googleAuth.uid, ownerMember()), null);
+  assert.equal(await service.syncMemberAccess('room-1', editorAuth.uid, editorMember()), null);
+  assert.deepEqual(database.value(`userTrips/${googleAuth.uid}/room-1`), {
+    role: 'owner',
+    status: 'deleting',
+    aclVersion: 5,
+    updatedAt: 9_000,
+    deletionId: 'deletion-1',
+    titleSnapshot: 'Tokyo',
+  });
+  assert.deepEqual(database.value(`userTrips/${editorAuth.uid}/room-1`), {
+    role: 'editor',
+    status: 'removed',
+    aclVersion: 3,
+    updatedAt: 9_000,
+  });
+  assert.equal(firestore.value(`tripAccess/room-1/members/${googleAuth.uid}`), undefined);
+  assert.equal(firestore.value(`tripAccess/room-1/members/${editorAuth.uid}`), undefined);
+
+  database.setValue('tripDeletions/room-1/phase', 'namespace-closed');
+  database.setValue(`userTrips/${editorAuth.uid}/room-1`, {
+    role: 'editor',
+    status: 'active',
+    aclVersion: 2,
+  });
+  assert.equal(await service.syncMemberAccess('room-1', editorAuth.uid, editorMember()), null);
+  assert.equal(database.value(`userTrips/${editorAuth.uid}/room-1`), undefined);
+
+  database.setValue('tripDeletions/room-1/state', 'deleted');
+  assert.equal(await service.syncMemberAccess('room-1', googleAuth.uid, ownerMember()), null);
+  assert.equal(database.value(`userTrips/${googleAuth.uid}/room-1`), undefined);
 });

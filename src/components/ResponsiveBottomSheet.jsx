@@ -15,6 +15,7 @@ export const ResponsiveBottomSheet = ({
   children,
   onClose,
   labelledBy,
+  describedBy,
   testId,
   dataMode,
   initialFocusSelector,
@@ -54,6 +55,12 @@ export const ResponsiveBottomSheet = ({
       const firstElement = focusableElements[0];
       const lastElement = focusableElements[focusableElements.length - 1];
 
+      if (!firstElement || !lastElement) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+
       if (event.shiftKey && document.activeElement === firstElement) {
         event.preventDefault();
         lastElement?.focus();
@@ -82,6 +89,8 @@ export const ResponsiveBottomSheet = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
+        aria-describedby={describedBy || undefined}
+        tabIndex={-1}
         style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}
         className={`border rounded-t-3xl sm:rounded-3xl w-full max-w-md shadow-2xl flex flex-col max-h-[94dvh] sm:max-h-[90vh] animate-in slide-in-from-bottom-4 sm:zoom-in-95 ${panelClassName}`}
       >

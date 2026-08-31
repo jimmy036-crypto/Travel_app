@@ -71,8 +71,10 @@ export function createCollaborationService({ database, firestore, clock = Date.n
 
   const roomAccessRef = (roomId) => database.ref(`roomAccess/${roomId}`);
   const memberRef = (roomId, uid) => database.ref(`roomAccess/${roomId}/members/${uid}`);
+  const deletionRef = (roomId) => database.ref(`tripDeletions/${roomId}`);
   const inviteLookupRef = (tokenHash) => database.ref(`tripInvites/${tokenHash}`);
   const aclRef = (roomId, uid) => firestore.doc(`tripAccess/${roomId}/members/${uid}`);
+  const aclGuardRef = (roomId) => firestore.doc(`tripAccess/${roomId}`);
 
   // The Admin RTDB SDK invokes a transaction callback with a local `null`
   // before it has fetched an existing server value. Returning `undefined` at
@@ -102,12 +104,18 @@ export function createCollaborationService({ database, firestore, clock = Date.n
         const windowStartedAt = resetWindow ? now : previousWindowStart;
         const windowCount = resetWindow ? 0 : Number(previous.windowCount) || 0;
         const totalCount = Number(previous.totalCount) || 0;
+        const pendingReleases = (
+          previous.pendingReleases
+          && typeof previous.pendingReleases === 'object'
+          && !Array.isArray(previous.pendingReleases)
+        ) ? previous.pendingReleases : null;
         if (windowCount >= limit) return undefined;
         if (totalLimit !== null && totalCount >= totalLimit) return undefined;
         return {
           windowStartedAt,
           windowCount: windowCount + 1,
           totalCount: totalCount + (totalLimit === null ? 0 : 1),
+          ...(pendingReleases ? { pendingReleases } : {}),
           updatedAt: now,
         };
       },
@@ -137,6 +145,8 @@ export function createCollaborationService({ database, firestore, clock = Date.n
     const access = await getAccess(roomId);
     const member = access?.members?.[profile.uid];
     if (
+      access?.state !== 'ready'
+      ||
       !isActiveMember(member)
       || member.uid !== profile.uid
       || !isValidAclVersion(member.aclVersion)
@@ -179,6 +189,12 @@ export function createCollaborationService({ database, firestore, clock = Date.n
   const syncAclMember = async (roomId, uid, member) => (
     firestore.runTransaction(async (transaction) => {
       const targetRef = aclRef(roomId, uid);
+      const guardSnapshot = await transaction.get(aclGuardRef(roomId));
+      const guard = guardSnapshot.exists ? guardSnapshot.data() : null;
+      if (guard?.state === 'deleting' || guard?.state === 'deleted') {
+        transaction.delete(targetRef);
+        return 'blocked';
+      }
       const snapshot = await transaction.get(targetRef);
       const current = snapshot.exists ? snapshot.data() : null;
       const currentVersion = Number(current?.aclVersion) || 0;
@@ -269,7 +285,50 @@ export function createCollaborationService({ database, firestore, clock = Date.n
     fail('aborted', '旅程權限修復發生衝突，請稍後再試。');
   };
 
+  const cleanupMemberDuringDeletion = async (roomId, uid, deletion) => {
+    const indexRef = database.ref(`userTrips/${uid}/${roomId}`);
+    if (
+      deletion.state === 'deleted'
+      || deletion.phase === 'namespace-closed' && uid !== deletion.ownerUid
+    ) {
+      await Promise.all([
+        indexRef.remove(),
+        aclRef(roomId, uid).delete(),
+      ]);
+      return;
+    }
+
+    const member = deletion?.members?.[uid] || {};
+    const updatedAt = Number(deletion.updatedAt) || nowValue(clock);
+    const index = uid === deletion.ownerUid
+      ? {
+          role: 'owner',
+          status: 'deleting',
+          aclVersion: memberAclVersion(member) + 1,
+          updatedAt,
+          deletionId: String(deletion.deletionId || ''),
+          titleSnapshot: String(deletion.titleSnapshot || '未命名旅程').slice(0, 120),
+        }
+      : {
+          role: member.role === MEMBER_ROLES.OWNER
+            ? MEMBER_ROLES.OWNER
+            : MEMBER_ROLES.EDITOR,
+          status: MEMBER_STATUSES.REMOVED,
+          aclVersion: memberAclVersion(member) + 1,
+          updatedAt,
+        };
+    await Promise.all([
+      indexRef.set(index),
+      aclRef(roomId, uid).delete(),
+    ]);
+  };
+
   const syncMemberAccess = async (roomId, uid, deletedMember = null) => {
+    const deletion = (await deletionRef(roomId).get()).val();
+    if (deletion?.state === 'deleting' || deletion?.state === 'deleted') {
+      await cleanupMemberDuringDeletion(roomId, uid, deletion);
+      return null;
+    }
     const currentSnapshot = await memberRef(roomId, uid).get();
     const rawMember = currentSnapshot.val() || deletedMember;
     if (!rawMember) return null;
@@ -287,6 +346,14 @@ export function createCollaborationService({ database, firestore, clock = Date.n
       syncIndexMember(roomId, uid, member),
       syncAclMember(roomId, uid, member),
     ]);
+    if (aclResult === 'blocked') {
+      const latestDeletion = (await deletionRef(roomId).get()).val();
+      if (latestDeletion?.state === 'deleting' || latestDeletion?.state === 'deleted') {
+        await cleanupMemberDuringDeletion(roomId, uid, latestDeletion);
+        return null;
+      }
+      fail('aborted', '旅程權限同步已被刪除防護中止，請稍後再試。');
+    }
     if (!indexResult.committed || aclResult === false) {
       const latest = (await memberRef(roomId, uid).get()).val();
       if (latest) {
@@ -342,7 +409,10 @@ export function createCollaborationService({ database, firestore, clock = Date.n
       roomAccessRef(roomId),
       (current) => {
         const owner = current?.members?.[profile.uid];
-        if (!isOwnerMember(owner, current?.ownerUid, profile.uid)) return undefined;
+        if (
+          current?.state !== 'ready'
+          || !isOwnerMember(owner, current?.ownerUid, profile.uid)
+        ) return undefined;
         const previousRate = current?.inviteRate || {};
         const previousWindowStart = Number(previousRate.windowStartedAt) || createdAt;
         const resetWindow = createdAt - previousWindowStart >= QUOTA_WINDOW_MS;
@@ -566,7 +636,10 @@ export function createCollaborationService({ database, firestore, clock = Date.n
         roomAccessRef(roomId),
         (current) => {
           const owner = current?.members?.[profile.uid];
-          if (!isOwnerMember(owner, current?.ownerUid, profile.uid)) return undefined;
+          if (
+            current?.state !== 'ready'
+            || !isOwnerMember(owner, current?.ownerUid, profile.uid)
+          ) return undefined;
           revokedTokenHash = String(current?.invite?.tokenHash || '');
           if (!current?.invite?.active) return current;
           const next = { ...current };
@@ -614,6 +687,8 @@ export function createCollaborationService({ database, firestore, clock = Date.n
         roomAccessRef(roomId),
         (current) => {
           if (
+            current?.state !== 'ready'
+            ||
             !current.invite?.active
             || current.invite.tokenHash !== tokenHash
             || Number(current.invite.version) !== inviteVersion
@@ -689,14 +764,17 @@ export function createCollaborationService({ database, firestore, clock = Date.n
         updatedAt: removedAt,
       };
       const aclRevoked = await syncAclMember(roomId, uid, normalizeMemberAccess(uid, removedTarget));
-      if (aclRevoked === false) {
+      if (aclRevoked !== true) {
         fail('aborted', '成員權限正在由另一個操作更新，請重新整理後再試。');
       }
       const removal = await transactExisting(
         roomAccessRef(roomId),
         (current) => {
           const owner = current?.members?.[profile.uid];
-          if (!isOwnerMember(owner, current?.ownerUid, profile.uid)) return undefined;
+          if (
+            current?.state !== 'ready'
+            || !isOwnerMember(owner, current?.ownerUid, profile.uid)
+          ) return undefined;
           if (uid === current.ownerUid) return undefined;
           const target = current?.members?.[uid];
           if (!target) return undefined;
@@ -747,7 +825,10 @@ export function createCollaborationService({ database, firestore, clock = Date.n
         roomAccessRef(roomId),
         (current) => {
           const owner = current?.members?.[profile.uid];
-          if (!isOwnerMember(owner, current?.ownerUid, profile.uid)) return undefined;
+          if (
+            current?.state !== 'ready'
+            || !isOwnerMember(owner, current?.ownerUid, profile.uid)
+          ) return undefined;
           if (uid === current.ownerUid) return undefined;
           const target = current?.members?.[uid];
           if (!target) return undefined;
