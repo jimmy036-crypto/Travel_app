@@ -191,9 +191,11 @@ Dry run 會在任何寫入前完成下列檢查：
 - 現有 owner、ACL、versioned `userTrips` 與 Firestore mirror 不可有衝突或不相容
   schema；
 - 盤點 RTDB `rooms/**` 的 tokenized Firebase download URL，以及 Storage `rooms/**`
-  每個 object 的 `firebaseStorageDownloadTokens` metadata。輸出只包含數量，不會列印
-  capability URL 或 token；若 URL 指向其他 bucket、room path 不一致，或和既有
-  `storagePath` 衝突，整批 fail closed。
+  每個 object 的 `firebaseStorageDownloadTokens` metadata。舊版票券若仍指向根目錄
+  `tickets/**`，dry-run 會規劃搬到 `rooms/{roomId}/tickets/**`；只接受由該 room 的
+  `tickets` record 明確引用的 object。輸出只包含數量，不會列印 capability URL 或
+  token；若 URL 指向其他 bucket、路徑無法安全歸屬、同一來源被不同 room 引用，或和
+  既有 `storagePath` 衝突，整批 fail closed。
 - 每個 Storage `rooms/{roomId}/**` namespace 必須對應現存 production room，或已有
   server-only 的永久 `roomReservations/{roomId}` 保留記錄。格式不合法的 object 或
   沒有 room/reservation 的孤兒 namespace 都會讓 dry-run 停止，避免日後用相同 room ID
@@ -282,13 +284,17 @@ Firestore ACL，並立即驗證三處沒有意外的 active grant。若延遲的
 留下較高版本 `removed` tombstone，腳本視為安全的 fail-closed 結果；相同 mapping
 下次執行會使用更高 `aclVersion`，不會讓舊事件覆蓋新授權。
 
-Membership 全數驗證後，apply 會以 metageneration precondition 清除 `rooms/**`
-object 的 `firebaseStorageDownloadTokens` metadata，並逐一匿名請求所有已盤點的舊
-capability URL；任何 2xx 都會讓 release gate 失敗。RTDB legacy URL 會保留到匿名
-拒絕驗證成功，作為失敗後可重跑的安全 journal，之後才改為相同 object 的
-`storagePath` 並把 `url` 清空。最後會重新盤點，要求 RTDB URL 與 Storage token 數都
-等於 0。腳本不刪除 legacy itinerary、expenses、tickets 或 Storage objects，也不會
-在輸出中列印 capability URL 或 token。
+Membership 全數驗證後，apply 會先以 generation／destination-create precondition
+把被引用的根目錄 `tickets/**` 搬到 `rooms/{roomId}/tickets/**`，驗證內容 fingerprint、
+移除目的地 download token 並留下可重跑的來源標記，確認成功後才刪除舊根目錄物件。
+接著以 metageneration precondition 清除其他 `rooms/**` object 的
+`firebaseStorageDownloadTokens` metadata，並逐一匿名請求所有已盤點的舊 capability
+URL；任何 2xx 都會讓 release gate 失敗。RTDB legacy URL 會保留到匿名拒絕驗證成功，
+作為失敗後可重跑的安全 journal，之後才改為房間專屬的 `storagePath` 並把 `url` 清空。
+最後會重新盤點，要求 RTDB URL、Storage token 與根目錄 `tickets/**` object 數都等於
+0。除已成功搬移且驗證的根目錄票券來源外，腳本不刪除 legacy itinerary、expenses、
+tickets records 或 `rooms/**` Storage objects，也不會在輸出中列印 capability URL 或
+token。
 
 Token 撤銷是刻意 forward-only 的安全清理。若這一段中斷，不可恢復長效 token；請
 維持 maintenance mode 與 strict Rules，重跑完全相同且雙重確認 project/bucket 的

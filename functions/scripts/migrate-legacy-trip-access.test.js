@@ -8,11 +8,14 @@ import {
   buildLegacyDownloadUrlPlan,
   buildMigrationUpdates,
   findUnreservedStorageRoomIds,
+  inspectLegacyStorageRelocations,
   normalizeOwnerMappings,
   parseCli,
   parseTokenizedFirebaseDownloadUrl,
   readFirebaseStorageDownloadTokens,
+  relocateLegacyStorageObjects,
   revokeStorageDownloadTokens,
+  scanLegacyRootTicketObjects,
   scanStorageDownloadTokens,
   validateDatabaseTargetUrl,
   validateStorageBucket,
@@ -244,6 +247,40 @@ test('legacy URL plan converts only target-bucket room URLs to storagePath', () 
   }), /storagePath 衝突/);
 });
 
+test('legacy URL plan relocates root tickets into the owning room namespace', () => {
+  const url = legacyDownloadUrl('tickets/1782114182078_ticket.png');
+  const plan = buildLegacyDownloadUrlPlan({
+    rooms: {
+      'room-a': {
+        tickets: [{ id: 'ticket-1', name: 'Ticket', url }],
+      },
+    },
+    targetBucket: STORAGE_BUCKET,
+  });
+
+  assert.deepEqual(plan.updates, {
+    'rooms/room-a/tickets/0/storagePath': 'rooms/room-a/tickets/1782114182078_ticket.png',
+    'rooms/room-a/tickets/0/url': '',
+  });
+  assert.deepEqual(plan.storageRelocations, [{
+    sourceObjectName: 'tickets/1782114182078_ticket.png',
+    destinationObjectName: 'rooms/room-a/tickets/1782114182078_ticket.png',
+  }]);
+  assert.throws(() => buildLegacyDownloadUrlPlan({
+    rooms: {
+      'room-a': { tickets: [{ url: legacyDownloadUrl('places/photo.png') }] },
+    },
+    targetBucket: STORAGE_BUCKET,
+  }), /object path 與 room 不一致/);
+  assert.throws(() => buildLegacyDownloadUrlPlan({
+    rooms: {
+      'room-a': { tickets: [{ url }] },
+      'room-b': { tickets: [{ url }] },
+    },
+    targetBucket: STORAGE_BUCKET,
+  }), /不同 room 引用/);
+});
+
 test('Storage token inventory and revocation update metadata without logging token material', async () => {
   const metadataWrites = [];
   const tokenizedFile = {
@@ -315,6 +352,118 @@ test('Storage namespace inventory rejects only rooms without a room or permanent
   });
   assert.equal(inventory.malformedObjectCount, 1);
   assert.deepEqual(inventory.roomIds, []);
+});
+
+test('legacy root Storage relocation is conditional, token-free, verified, and retry-safe', async () => {
+  const objects = new Map([[
+    'tickets/legacy.png',
+    {
+      size: '12',
+      crc32c: 'crc-value',
+      md5Hash: 'md5-value',
+      generation: '7',
+      metageneration: '2',
+      metadata: {
+        firebaseStorageDownloadTokens: 'secret-token',
+        retained: 'yes',
+      },
+    },
+  ]]);
+  const copyCalls = [];
+  const deleteCalls = [];
+  const notFound = () => Object.assign(new Error('not found'), { code: 404 });
+  const clone = (value) => structuredClone(value);
+  const bucket = {
+    file(name, fileOptions = {}) {
+      return {
+        name,
+        async getMetadata() {
+          const metadata = objects.get(name);
+          if (!metadata) throw notFound();
+          return [clone(metadata)];
+        },
+        async copy(destination, options) {
+          const metadata = objects.get(name);
+          if (!metadata) throw notFound();
+          assert.equal(fileOptions.generation, metadata.generation);
+          assert.equal(options.preconditionOpts.ifGenerationMatch, 0);
+          assert.equal(objects.has(destination.name), false);
+          copyCalls.push({ source: name, destination: destination.name, options });
+          objects.set(destination.name, {
+            ...clone(metadata),
+            generation: '8',
+            metageneration: '1',
+            metadata: clone(options.metadata),
+          });
+          return [destination, {}];
+        },
+        async delete() {
+          const metadata = objects.get(name);
+          if (!metadata) throw notFound();
+          assert.equal(fileOptions.generation, metadata.generation);
+          deleteCalls.push(name);
+          objects.delete(name);
+        },
+      };
+    },
+    async getFiles({ prefix }) {
+      return [[...objects.keys()]
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => this.file(name))];
+    },
+  };
+  const relocations = [{
+    sourceObjectName: 'tickets/legacy.png',
+    destinationObjectName: 'rooms/room-a/tickets/legacy.png',
+  }];
+
+  const dryRunStates = await inspectLegacyStorageRelocations({ bucket, relocations });
+  assert.equal(dryRunStates[0].source.file.name, 'tickets/legacy.png');
+  assert.equal(dryRunStates[0].destination, null);
+  assert.equal(copyCalls.length, 0);
+  assert.equal(deleteCalls.length, 0);
+
+  const rootInventory = await scanLegacyRootTicketObjects(bucket);
+  assert.equal(rootInventory.objectCount, 1);
+  assert.equal(rootInventory.tokenCount, 1);
+  assert.deepEqual(rootInventory.objectNames, ['tickets/legacy.png']);
+
+  await relocateLegacyStorageObjects({ bucket, relocations });
+  assert.equal(copyCalls.length, 1);
+  assert.deepEqual(deleteCalls, ['tickets/legacy.png']);
+  assert.equal(objects.has('tickets/legacy.png'), false);
+  const destination = objects.get('rooms/room-a/tickets/legacy.png');
+  assert.equal(destination.metadata.firebaseStorageDownloadTokens, null);
+  assert.equal(destination.metadata.retained, 'yes');
+  assert.equal(destination.metadata.travelAppLegacySourcePath, 'tickets/legacy.png');
+
+  await relocateLegacyStorageObjects({ bucket, relocations });
+  assert.equal(copyCalls.length, 1);
+  assert.equal(deleteCalls.length, 1);
+});
+
+test('legacy root Storage relocation rejects an untrusted existing destination', async () => {
+  const metadata = {
+    size: '12',
+    crc32c: 'same',
+    generation: '1',
+    metadata: {},
+  };
+  const bucket = {
+    file(name) {
+      return {
+        name,
+        async getMetadata() { return [metadata]; },
+      };
+    },
+  };
+  await assert.rejects(() => inspectLegacyStorageRelocations({
+    bucket,
+    relocations: [{
+      sourceObjectName: 'tickets/legacy.png',
+      destinationObjectName: 'rooms/room-a/tickets/legacy.png',
+    }],
+  }), /缺少可信任的來源標記/);
 });
 
 test('anonymous legacy URL verification rejects any remaining 2xx without leaking URLs', async () => {
