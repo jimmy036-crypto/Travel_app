@@ -174,6 +174,8 @@ export default function TravelApp() {
   const accountUid = String(authSession.user?.uid || '');
   const currentAccountUidRef = useRef(accountUid);
   currentAccountUidRef.current = accountUid;
+  const isOnlineRef = useRef(isOnline);
+  isOnlineRef.current = isOnline;
   const toastRef = useRef(toast);
   toastRef.current = toast;
   
@@ -439,7 +441,7 @@ export default function TravelApp() {
             .filter((entry) => entry.accessStatus === 'active')
             .map((entry) => entry.roomId),
         );
-        if (isOnline) {
+        if (isOnlineRef.current) {
           let removedOfflineData = false;
           listOfflineTripSummaries(accountUid).forEach((summary) => {
             if (readableRoomIds.has(String(summary.roomId))) return;
@@ -525,7 +527,6 @@ export default function TravelApp() {
   }, [
     accountUid,
     authSession.loading,
-    isOnline,
     refreshOfflineCacheSummaries,
     tripListRefreshVersion,
   ]);
