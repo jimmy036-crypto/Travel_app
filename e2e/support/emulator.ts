@@ -163,13 +163,14 @@ function normalizeDatabasePath(path: string): string {
     .replace(/\/+$/u, '');
 }
 
-function getDatabaseRestUrl(path = ''): string {
+function getDatabaseRestUrl(path = '', disableTriggers = false): string {
   const normalizedPath = normalizeDatabasePath(path);
   const suffix = normalizedPath ? `/${normalizedPath}.json` : '/.json';
 
   const query = new URLSearchParams({
     ns: getDatabaseNamespace(),
   });
+  if (disableTriggers) query.set('disableTriggers', 'true');
   return `http://127.0.0.1:9000${suffix}?${query.toString()}`;
 }
 
@@ -290,13 +291,14 @@ async function requestFirestore(
 async function requestDatabase(
   path: string,
   init?: RequestInit,
+  options: { disableTriggers?: boolean } = {},
 ): Promise<Response> {
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= 30; attempt += 1) {
     try {
       const response = await fetch(
-        getDatabaseRestUrl(path),
+        getDatabaseRestUrl(path, options.disableTriggers === true),
         withAdminAuthorization(init),
       );
 
@@ -318,67 +320,11 @@ async function requestDatabase(
 }
 
 export async function clearEmulatorDatabase(): Promise<void> {
-  const accessRoot = await readEmulatorData<Record<string, {
-    members?: Record<string, { aclVersion?: number }>;
-  }>>('roomAccess');
-  const previousMembers = Object.entries(accessRoot || {}).flatMap(
-    ([roomId, access]) => Object.entries(access?.members || {}).map(
-      ([uid, member]) => ({
-        roomId,
-        uid,
-        nextVersion: Math.max(1, Number(member?.aclVersion) || 1) + 1,
-      }),
-    ),
-  );
-
-  // RTDB member deletion invokes syncTripMemberAccess. Wait for each
-  // fail-closed tombstone before clearing mirrors, otherwise a delayed trigger
-  // from the previous test can overwrite the next test's version-1 seed.
-  await requestDatabase('', { method: 'DELETE' });
-  if (previousMembers.length > 0) {
-    let pending = previousMembers;
-    for (let attempt = 0; attempt < 100 && pending.length > 0; attempt += 1) {
-      const checks = await Promise.all(pending.map(async (member) => {
-        const [index, acl] = await Promise.all([
-          readEmulatorData<{ status?: string; aclVersion?: number }>(
-            `userTrips/${member.uid}/${member.roomId}`,
-          ),
-          readEmulatorFirestoreDocument(
-            `tripAccess/${member.roomId}/members/${member.uid}`,
-          ),
-        ]);
-        const firestoreStatus = String(
-          acl?.fields?.status && typeof acl.fields.status === 'object'
-            ? (acl.fields.status as { stringValue?: string }).stringValue || ''
-            : '',
-        );
-        const firestoreVersion = Number(
-          acl?.fields?.aclVersion && typeof acl.fields.aclVersion === 'object'
-            ? (acl.fields.aclVersion as { integerValue?: string }).integerValue
-            : 0,
-        );
-        return (
-          index?.status === 'removed'
-          && Number(index?.aclVersion) >= member.nextVersion
-          && firestoreStatus === 'removed'
-          && firestoreVersion >= member.nextVersion
-        ) ? null : member;
-      }));
-      pending = checks.filter((member): member is typeof previousMembers[number] => Boolean(member));
-      if (pending.length > 0) await wait(50);
-    }
-    if (pending.length > 0) {
-      throw new Error(
-        `Functions Emulator ACL cleanup did not converge for ${pending.length} member(s).`,
-      );
-    }
-  }
-
-  // No roomAccess records remain, so this second RTDB clear cannot enqueue a
-  // new member deletion event. It only removes trigger-created userTrips
-  // tombstones while Firestore is reset in the same test boundary.
+  // Firebase CLI uses this Emulator-only query flag for imports and resets.
+  // It prevents cleanup from invoking syncTripMemberAccess and recreating
+  // fail-closed tombstones after the next test has already started.
   await Promise.all([
-    requestDatabase('', { method: 'DELETE' }),
+    requestDatabase('', { method: 'DELETE' }, { disableTriggers: true }),
     requestFirestore(getFirestoreClearUrl(), { method: 'DELETE' }),
   ]);
 }
@@ -515,6 +461,26 @@ export async function seedTestTrip(
       : {},
   });
 
+  // Seed the derived mirrors before the canonical member record. Writing
+  // roomAccess starts syncTripMemberAccess asynchronously; putting it first
+  // races the trigger's Firestore transaction against this direct ACL seed
+  // and can exhaust the Emulator transaction lock during the full suite.
+  await writeEmulatorData(`userTrips/${ownerUid}/${roomId}`, {
+    role: 'owner',
+    status: 'active',
+    aclVersion: 1,
+    updatedAt: now,
+  });
+  await writeEmulatorFirestoreDocument(
+    `tripAccess/${roomId}/members/${ownerUid}`,
+    {
+      uid: { stringValue: ownerUid },
+      role: { stringValue: 'owner' },
+      status: { stringValue: 'active' },
+      aclVersion: { integerValue: '1' },
+      updatedAt: { timestampValue: new Date(now).toISOString() },
+    },
+  );
   await writeEmulatorData(`roomAccess/${roomId}`, {
     ownerUid,
     state: 'ready',
@@ -532,22 +498,6 @@ export async function seedTestTrip(
       },
     },
   });
-  await writeEmulatorData(`userTrips/${ownerUid}/${roomId}`, {
-    role: 'owner',
-    status: 'active',
-    aclVersion: 1,
-    updatedAt: now,
-  });
-  await writeEmulatorFirestoreDocument(
-    `tripAccess/${roomId}/members/${ownerUid}`,
-    {
-      uid: { stringValue: ownerUid },
-      role: { stringValue: 'owner' },
-      status: { stringValue: 'active' },
-      aclVersion: { integerValue: '1' },
-      updatedAt: { timestampValue: new Date(now).toISOString() },
-    },
-  );
 }
 
 export async function seedTestTripInvite(
