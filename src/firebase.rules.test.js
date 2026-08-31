@@ -50,6 +50,7 @@ async function seedAuthorization() {
       roomAccess: {
         [ROOM_ID]: {
           ownerUid: OWNER_UID,
+          state: 'ready',
           members: {
             [OWNER_UID]: { uid: OWNER_UID, role: 'owner', status: 'active', aclVersion: 1 },
             [EDITOR_UID]: { uid: EDITOR_UID, role: 'editor', status: 'active', aclVersion: 1 },
@@ -126,6 +127,36 @@ describe('Realtime Database authorization', () => {
       firebase: { sign_in_provider: 'password' },
     }).database();
     await assertFails(get(databaseRef(passwordUser, `rooms/${ROOM_ID}`)));
+  });
+
+  it('fails closed for every room read and write once owner deletion starts', async () => {
+    const owner = authContext(OWNER_UID).database();
+    const editor = authContext(EDITOR_UID).database();
+
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await update(databaseRef(context.database(), `roomAccess/${ROOM_ID}`), {
+        state: 'deleting',
+        deletionId: 'delete-operation',
+      });
+      await set(databaseRef(context.database(), `tripDeletions/${ROOM_ID}`), {
+        state: 'deleting',
+        ownerUid: OWNER_UID,
+        deletionId: 'delete-operation',
+      });
+    });
+
+    await assertFails(get(databaseRef(owner, `rooms/${ROOM_ID}`)));
+    await assertFails(get(databaseRef(editor, `rooms/${ROOM_ID}`)));
+    await assertFails(update(databaseRef(owner, `rooms/${ROOM_ID}/meta`), {
+      title: '刪除期間不可改名',
+    }));
+    await assertFails(set(databaseRef(editor, `rooms/${ROOM_ID}/expenses/0`), {
+      id: 'blocked-expense',
+      amount: 100,
+    }));
+    await assertFails(get(databaseRef(owner, `tripDeletions/${ROOM_ID}`)));
+    await assertFails(set(databaseRef(owner, `tripDeletions/${ROOM_ID}/state`), 'ready'));
+    await assertSucceeds(get(databaseRef(owner, `userTrips/${OWNER_UID}`)));
   });
 
   it('keeps ACL, invite state and account indexes server-managed', async () => {
@@ -388,8 +419,11 @@ describe('Firestore ACL mirror', () => {
   it('denies every browser read and write, including the matching uid', async () => {
     const owner = authContext(OWNER_UID).firestore();
     const target = doc(owner, `tripAccess/${ROOM_ID}/members/${OWNER_UID}`);
+    const deletionGuard = doc(owner, `tripAccess/${ROOM_ID}`);
     await assertFails(getDoc(target));
     await assertFails(setDoc(target, { uid: OWNER_UID, role: 'owner', status: 'active' }));
+    await assertFails(getDoc(deletionGuard));
+    await assertFails(setDoc(deletionGuard, { state: 'deleting' }));
   });
 });
 
@@ -407,6 +441,32 @@ describe('Cloud Storage authorization', () => {
     await assertSucceeds(getBytes(file));
     await assertFails(uploadBytes(file, new Uint8Array([4]), validMetadata));
     await assertSucceeds(deleteObject(file));
+  });
+
+  it('denies every room object operation after the server creates a deletion guard', async () => {
+    const path = `rooms/${ROOM_ID}/tickets/ticket-1/deletion-guard.png`;
+    const owner = authContext(OWNER_UID).storage();
+    const editor = authContext(EDITOR_UID).storage();
+    const file = storageRef(owner, path);
+    await assertSucceeds(uploadBytes(file, new Uint8Array([1, 2, 3]), validMetadata));
+
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), `tripAccess/${ROOM_ID}`), {
+        roomId: ROOM_ID,
+        ownerUid: OWNER_UID,
+        state: 'deleting',
+        deletionId: 'delete-operation',
+      });
+    });
+
+    await assertFails(getBytes(file));
+    await assertFails(getBytes(storageRef(editor, path)));
+    await assertFails(deleteObject(file));
+    await assertFails(uploadBytes(
+      storageRef(owner, `rooms/${ROOM_ID}/tickets/ticket-1/new-after-guard.png`),
+      new Uint8Array([4]),
+      validMetadata,
+    ));
   });
 
   it('denies even the owner access to the obsolete ticket path without a ticket id', async () => {

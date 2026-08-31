@@ -44,6 +44,7 @@ describe('createTripAccessClient', () => {
     ['listTripMembers', ['room-1'], { roomId: 'room-1' }],
     ['removeTripMember', ['room-1', 'member-1'], { roomId: 'room-1', uid: 'member-1' }],
     ['restoreTripMember', ['room-1', 'member-1'], { roomId: 'room-1', uid: 'member-1' }],
+    ['deleteTrip', ['room-1'], { roomId: 'room-1' }],
   ])('maps %s to its protected callable contract', async (method, args, payload) => {
     const client = createTripAccessClient(functionsInstance);
 
