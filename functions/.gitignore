@@ -2,3 +2,4 @@ node_modules/
 firebase-debug.log
 firebase-debug.*.log
 legacy-owner-map*.local.json
+legacy-ticket-path-repair*.local.json

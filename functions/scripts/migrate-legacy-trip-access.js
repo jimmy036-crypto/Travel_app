@@ -15,6 +15,17 @@ const FORBIDDEN_RTDB_KEY = /[.#$[\]/]/;
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const FIREBASE_DOWNLOAD_HOST = 'firebasestorage.googleapis.com';
 const LEGACY_SOURCE_METADATA_KEY = 'travelAppLegacySourcePath';
+const LEGACY_RELOCATION_VERSION_METADATA_KEY = 'travelAppLegacyRelocationVersion';
+const LEGACY_RELOCATION_STATE_METADATA_KEY = 'travelAppLegacyRelocationState';
+const LEGACY_SOURCE_GENERATION_METADATA_KEY = 'travelAppLegacySourceGeneration';
+const LEGACY_SOURCE_SIZE_METADATA_KEY = 'travelAppLegacySourceSize';
+const LEGACY_SOURCE_CRC32C_METADATA_KEY = 'travelAppLegacySourceCrc32c';
+const LEGACY_SOURCE_MD5_METADATA_KEY = 'travelAppLegacySourceMd5Hash';
+const LEGACY_RELOCATION_VERSION = '1';
+const LEGACY_RELOCATION_STATE_PREPARED = 'prepared';
+const LEGACY_RELOCATION_STATE_HELD = 'held';
+const LEGACY_RELOCATION_STATE_RELEASED = 'released';
+const PRIVATE_CACHE_CONTROL = 'private, no-store, max-age=0';
 
 const requireIdentifier = (value, label, maxLength) => {
   const normalized = String(value ?? '').trim();
@@ -27,6 +38,27 @@ const requireIdentifier = (value, label, maxLength) => {
     throw new Error(`${label} 格式不正確。`);
   }
   return normalized;
+};
+
+const requireStoragePathIdentifier = (value, label, maxLength) => {
+  if (typeof value !== 'string' || value.trim() !== value) {
+    throw new Error(`${label} 格式不正確。`);
+  }
+  return requireIdentifier(value, label, maxLength);
+};
+
+const requireStorageFileName = (value, label, maxLength) => {
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length > maxLength
+    || value.includes('\0')
+    || value === '.'
+    || value === '..'
+  ) {
+    throw new Error(`${label} 格式不正確。`);
+  }
+  return value;
 };
 
 const normalizeDisplayName = (value) => {
@@ -250,7 +282,7 @@ export const validateStorageBucket = (storageBucket, projectId) => {
 };
 
 export const parseTokenizedFirebaseDownloadUrl = (value) => {
-  if (typeof value !== 'string' || !value.includes('token=')) return null;
+  if (typeof value !== 'string') return null;
 
   let parsed;
   try {
@@ -299,12 +331,46 @@ export const parseTokenizedFirebaseDownloadUrl = (value) => {
   return { bucket, objectName };
 };
 
+const assertUniqueRoomTicketIds = ({ roomId, tickets }) => {
+  if (tickets === null || tickets === undefined) return;
+  if (typeof tickets !== 'object') {
+    throw new Error(`${roomId} 的 tickets 格式不正確。`);
+  }
+  const seenTicketIds = new Set();
+  for (const ticket of Object.values(tickets)) {
+    if (ticket === null || ticket === undefined) continue;
+    if (typeof ticket !== 'object' || Array.isArray(ticket)) {
+      throw new Error(`${roomId} 含格式不正確的 ticket 記錄。`);
+    }
+    const ticketId = requireStoragePathIdentifier(ticket.id, 'ticketId', 128);
+    if (seenTicketIds.has(ticketId)) {
+      throw new Error(`${roomId} 含重複 ticketId：${ticketId}`);
+    }
+    seenTicketIds.add(ticketId);
+  }
+};
+
 export const buildLegacyDownloadUrlPlan = ({ rooms, targetBucket }) => {
   const updates = {};
   const legacyUrls = [];
   const storageRelocations = [];
-  const relocationDestinationBySource = new Map();
+  const storagePathTransitions = [];
+  const relocationSources = new Set();
   let tokenizedUrlCount = 0;
+
+  const planStorageRelocation = ({
+    sourceObjectName,
+    destinationObjectName,
+    roomId,
+    ticketId,
+    safeLocation,
+  }) => {
+    if (relocationSources.has(sourceObjectName)) {
+      throw new Error(`同一個 legacy Storage object 被重複引用（位置：${safeLocation}）。`);
+    }
+    relocationSources.add(sourceObjectName);
+    storageRelocations.push({ sourceObjectName, destinationObjectName, roomId, ticketId });
+  };
 
   const visit = (value, pathSegments, roomId, parent) => {
     if (typeof value === 'string') {
@@ -319,36 +385,73 @@ export const buildLegacyDownloadUrlPlan = ({ rooms, targetBucket }) => {
       if (fieldName !== 'url' || !parent || Array.isArray(parent)) {
         throw new Error(`Firebase download URL 不在可安全轉換的 url 欄位（位置：${safeLocation}）。`);
       }
+      const rawExistingStoragePath = Object.hasOwn(parent, 'storagePath')
+        ? parent.storagePath
+        : null;
+      const existingStoragePath = String(parent.storagePath ?? '').trim();
       let destinationObjectName = parsed.objectName;
-      if (!parsed.objectName.startsWith(`rooms/${roomId}/`)) {
-        const legacySegments = parsed.objectName.split('/');
-        const isLegacyRootTicket = pathSegments[2] === 'tickets'
-          && legacySegments.length >= 2
-          && legacySegments[0] === 'tickets'
-          && legacySegments.every(Boolean);
-        if (!isLegacyRootTicket) {
+      let relocationSourceObjectName = '';
+      const objectSegments = parsed.objectName.split('/');
+      if (pathSegments[2] === 'tickets') {
+        if (pathSegments.length !== 5) {
+          throw new Error(`Firebase download URL 不在 ticket 直屬 url 欄位（位置：${safeLocation}）。`);
+        }
+        const canonicalRoomId = requireStoragePathIdentifier(roomId, 'roomId', 128);
+        const ticketId = requireStoragePathIdentifier(parent.id, 'ticketId', 128);
+        const fileName = requireStorageFileName(
+          objectSegments.at(-1),
+          'ticket fileName',
+          240,
+        );
+        const isLegacyRootTicket = objectSegments.length === 2
+          && objectSegments[0] === 'tickets'
+          && objectSegments.every(Boolean);
+        const isMalformedSameRoomTicket = objectSegments.length === 4
+          && objectSegments[0] === 'rooms'
+          && objectSegments[1] === canonicalRoomId
+          && objectSegments[2] === 'tickets'
+          && objectSegments.every(Boolean);
+        const isCanonicalTicket = objectSegments.length === 5
+          && objectSegments[0] === 'rooms'
+          && objectSegments[1] === canonicalRoomId
+          && objectSegments[2] === 'tickets'
+          && objectSegments[3] === ticketId
+          && objectSegments.every(Boolean);
+        if (!isLegacyRootTicket && !isMalformedSameRoomTicket && !isCanonicalTicket) {
           throw new Error(`Firebase download URL 的 object path 與 room 不一致（位置：${safeLocation}）。`);
         }
-        destinationObjectName = `rooms/${roomId}/${parsed.objectName}`;
-        const existingDestination = relocationDestinationBySource.get(parsed.objectName);
-        if (existingDestination && existingDestination !== destinationObjectName) {
-          throw new Error(`同一個 legacy Storage object 被不同 room 引用（位置：${safeLocation}）。`);
-        }
-        if (!existingDestination) {
-          relocationDestinationBySource.set(parsed.objectName, destinationObjectName);
-          storageRelocations.push({
+        if (isLegacyRootTicket || isMalformedSameRoomTicket) {
+          destinationObjectName = `rooms/${canonicalRoomId}/tickets/${ticketId}/${fileName}`;
+          planStorageRelocation({
             sourceObjectName: parsed.objectName,
             destinationObjectName,
+            roomId: canonicalRoomId,
+            ticketId,
+            safeLocation,
           });
+          relocationSourceObjectName = parsed.objectName;
         }
+      } else if (!parsed.objectName.startsWith(`rooms/${roomId}/`)) {
+        throw new Error(`Firebase download URL 的 object path 與 room 不一致（位置：${safeLocation}）。`);
       }
-      const existingStoragePath = String(parent.storagePath ?? '').trim();
-      if (existingStoragePath && existingStoragePath !== destinationObjectName) {
+      if (
+        existingStoragePath
+        && existingStoragePath !== destinationObjectName
+        && existingStoragePath !== relocationSourceObjectName
+      ) {
         throw new Error(`Firebase download URL 與既有 storagePath 衝突（位置：${safeLocation}）。`);
       }
       const parentPath = pathSegments.slice(0, -1).join('/');
       updates[`${parentPath}/storagePath`] = destinationObjectName;
       updates[safeLocation] = '';
+      storagePathTransitions.push({
+        roomId,
+        parentPathSegments: pathSegments.slice(2, -1),
+        expectedRecordId: pathSegments[2] === 'tickets' ? String(parent.id) : null,
+        expectedLegacyUrl: value,
+        expectedStoragePath: rawExistingStoragePath,
+        destinationObjectName,
+      });
       legacyUrls.push(value);
       return;
     }
@@ -359,6 +462,7 @@ export const buildLegacyDownloadUrlPlan = ({ rooms, targetBucket }) => {
   };
 
   for (const [roomId, room] of Object.entries(rooms || {})) {
+    assertUniqueRoomTicketIds({ roomId, tickets: room?.tickets });
     visit(room, ['rooms', roomId], roomId, rooms);
   }
 
@@ -366,8 +470,209 @@ export const buildLegacyDownloadUrlPlan = ({ rooms, targetBucket }) => {
     updates,
     legacyUrls,
     storageRelocations,
+    storagePathTransitions,
     tokenizedUrlCount,
   };
+};
+
+export const splitLegacyDownloadUrlUpdates = (updates) => {
+  const storagePathUpdates = {};
+  const urlCleanupUpdates = {};
+  for (const [path, value] of Object.entries(updates || {})) {
+    if (path.endsWith('/storagePath') && typeof value === 'string' && value) {
+      storagePathUpdates[path] = value;
+      continue;
+    }
+    if (path.endsWith('/url') && value === '') {
+      urlCleanupUpdates[path] = value;
+      continue;
+    }
+    throw new Error('legacy URL migration plan 含非預期的 RTDB update。');
+  }
+  return { storagePathUpdates, urlCleanupUpdates };
+};
+
+const validateStoragePathTransitions = (transitions) => {
+  const seenRecordPaths = new Set();
+  return (transitions || []).map((transition) => {
+    const roomId = requireIdentifier(transition?.roomId, 'transition roomId', 160);
+    if (
+      !Array.isArray(transition?.parentPathSegments)
+      || transition.parentPathSegments.length === 0
+      || transition.parentPathSegments.length > 32
+    ) {
+      throw new Error('legacy storagePath transition parent path 格式不正確。');
+    }
+    const parentPathSegments = transition.parentPathSegments.map(
+      (segment) => requireIdentifier(segment, 'transition path segment', 768),
+    );
+    const recordPath = [roomId, ...parentPathSegments].join('/');
+    if (seenRecordPaths.has(recordPath)) {
+      throw new Error('legacy storagePath transition 含重複 RTDB record。');
+    }
+    seenRecordPaths.add(recordPath);
+    const destinationObjectName = String(transition?.destinationObjectName ?? '');
+    if (!destinationObjectName || destinationObjectName.trim() !== destinationObjectName) {
+      throw new Error('legacy storagePath transition destination 格式不正確。');
+    }
+    if (typeof transition?.expectedLegacyUrl !== 'string' || !transition.expectedLegacyUrl) {
+      throw new Error('legacy storagePath transition 缺少 legacy URL journal。');
+    }
+    return {
+      ...transition,
+      roomId,
+      parentPathSegments,
+      destinationObjectName,
+    };
+  });
+};
+
+const getStoragePathTransitionRecord = ({ rooms, transition }) => {
+  let record = rooms?.[transition.roomId];
+  for (const segment of transition.parentPathSegments) {
+    if (!record || typeof record !== 'object' || !Object.hasOwn(record, segment)) {
+      throw new Error('legacy storagePath transition 的 RTDB record 不存在。');
+    }
+    record = record[segment];
+  }
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    throw new Error('legacy storagePath transition 的 RTDB record 格式不正確。');
+  }
+  if (
+    transition.expectedRecordId !== null
+    && transition.expectedRecordId !== undefined
+    && record.id !== transition.expectedRecordId
+  ) {
+    throw new Error('legacy storagePath transition 的 ticket identity 已漂移。');
+  }
+  return record;
+};
+
+const assertStoragePathTransitionState = ({
+  rooms,
+  transitions,
+  urlState,
+  allowExpectedStoragePath = false,
+}) => {
+  for (const transition of transitions) {
+    const record = getStoragePathTransitionRecord({ rooms, transition });
+    const expectedUrl = urlState === 'clean' ? '' : transition.expectedLegacyUrl;
+    if (record.url !== expectedUrl) {
+      throw new Error('legacy storagePath transition 的 URL journal 已漂移。');
+    }
+    const currentStoragePath = Object.hasOwn(record, 'storagePath')
+      ? record.storagePath
+      : null;
+    if (
+      currentStoragePath !== transition.destinationObjectName
+      && (!allowExpectedStoragePath || currentStoragePath !== transition.expectedStoragePath)
+    ) {
+      throw new Error('legacy storagePath transition 的 storagePath 已漂移。');
+    }
+  }
+};
+
+export const assertLegacyStoragePathTransitions = async ({
+  database,
+  transitions: rawTransitions,
+  urlState = 'legacy',
+}) => {
+  if (urlState !== 'legacy' && urlState !== 'clean') {
+    throw new Error('legacy storagePath transition URL state 格式不正確。');
+  }
+  const transitions = validateStoragePathTransitions(rawTransitions);
+  if (transitions.length === 0) return;
+  const snapshot = await database.ref('rooms').get();
+  assertStoragePathTransitionState({
+    rooms: snapshot.val(),
+    transitions,
+    urlState,
+  });
+};
+
+export const switchLegacyStoragePathTransitions = async ({
+  database,
+  transitions: rawTransitions,
+}) => {
+  const transitions = validateStoragePathTransitions(rawTransitions);
+  if (transitions.length === 0) return;
+  let abortReason = '';
+  const result = await database.ref('rooms').transaction((currentRooms) => {
+    if (currentRooms === null) return currentRooms;
+    const nextRooms = structuredClone(currentRooms);
+    try {
+      assertStoragePathTransitionState({
+        rooms: nextRooms,
+        transitions,
+        urlState: 'legacy',
+        allowExpectedStoragePath: true,
+      });
+      for (const transition of transitions) {
+        const record = getStoragePathTransitionRecord({ rooms: nextRooms, transition });
+        record.storagePath = transition.destinationObjectName;
+      }
+      assertStoragePathTransitionState({
+        rooms: nextRooms,
+        transitions,
+        urlState: 'legacy',
+      });
+      return nextRooms;
+    } catch (error) {
+      abortReason = error.message;
+      return undefined;
+    }
+  }, undefined, false);
+  if (!result.committed || result.snapshot.val() === null) {
+    throw new Error(abortReason || 'legacy storagePath transition transaction 未提交。');
+  }
+  assertStoragePathTransitionState({
+    rooms: result.snapshot.val(),
+    transitions,
+    urlState: 'legacy',
+  });
+  await assertLegacyStoragePathTransitions({ database, transitions, urlState: 'legacy' });
+};
+
+export const cleanupLegacyStoragePathTransitionUrls = async ({
+  database,
+  transitions: rawTransitions,
+}) => {
+  const transitions = validateStoragePathTransitions(rawTransitions);
+  if (transitions.length === 0) return;
+  let abortReason = '';
+  const result = await database.ref('rooms').transaction((currentRooms) => {
+    if (currentRooms === null) return currentRooms;
+    const nextRooms = structuredClone(currentRooms);
+    try {
+      assertStoragePathTransitionState({
+        rooms: nextRooms,
+        transitions,
+        urlState: 'legacy',
+      });
+      for (const transition of transitions) {
+        const record = getStoragePathTransitionRecord({ rooms: nextRooms, transition });
+        record.url = '';
+      }
+      assertStoragePathTransitionState({
+        rooms: nextRooms,
+        transitions,
+        urlState: 'clean',
+      });
+      return nextRooms;
+    } catch (error) {
+      abortReason = error.message;
+      return undefined;
+    }
+  }, undefined, false);
+  if (!result.committed || result.snapshot.val() === null) {
+    throw new Error(abortReason || 'legacy URL cleanup transaction 未提交。');
+  }
+  assertStoragePathTransitionState({
+    rooms: result.snapshot.val(),
+    transitions,
+    urlState: 'clean',
+  });
+  await assertLegacyStoragePathTransitions({ database, transitions, urlState: 'clean' });
 };
 
 export const readFirebaseStorageDownloadTokens = (fileMetadata) => {
@@ -415,14 +720,36 @@ export const scanStorageDownloadTokens = async (bucket) => {
   const [files] = await bucket.getFiles({ prefix: 'rooms/' });
   const tokenizedObjects = [];
   const roomIds = new Set();
+  const malformedObjectNames = [];
   let tokenCount = 0;
-  let malformedObjectCount = 0;
   for (const file of files) {
     const segments = String(file.name || '').split('/');
-    if (segments.length < 3 || segments[0] !== 'rooms' || !segments[1]) {
-      malformedObjectCount += 1;
+    const [, roomId, scope, ownerId, fileName] = segments;
+    const maxFileNameLength = scope === 'tickets' ? 240 : 300;
+    const isSafeIdentifier = (value, maxLength) => {
+      const normalized = String(value ?? '').trim();
+      return normalized === value
+        && normalized.length > 0
+        && normalized.length <= maxLength
+        && !FORBIDDEN_RTDB_KEY.test(normalized)
+        && !RESERVED_KEYS.has(normalized);
+    };
+    let isSafeFileName = true;
+    try {
+      requireStorageFileName(fileName, 'Storage fileName', maxFileNameLength);
+    } catch {
+      isSafeFileName = false;
+    }
+    const isCanonicalRoomObject = segments.length === 5
+      && segments[0] === 'rooms'
+      && (scope === 'tickets' || scope === 'places')
+      && isSafeIdentifier(roomId, 128)
+      && isSafeIdentifier(ownerId, 128)
+      && isSafeFileName;
+    if (!isCanonicalRoomObject) {
+      malformedObjectNames.push(file.name);
     } else {
-      roomIds.add(requireIdentifier(segments[1], 'Storage roomId', 160));
+      roomIds.add(roomId);
     }
     const [metadata] = await file.getMetadata();
     const tokens = readFirebaseStorageDownloadTokens(metadata);
@@ -433,7 +760,8 @@ export const scanStorageDownloadTokens = async (bucket) => {
   return {
     objectCount: files.length,
     roomIds: [...roomIds].sort(),
-    malformedObjectCount,
+    malformedObjectCount: malformedObjectNames.length,
+    malformedObjectNames: malformedObjectNames.sort(),
     tokenCount,
     tokenizedObjects,
   };
@@ -486,35 +814,99 @@ const storageObjectFingerprint = (metadata, label) => {
   return { size, crc32c, md5Hash };
 };
 
+const readRelocationSourceProof = (customMetadata) => {
+  const generation = String(
+    customMetadata?.[LEGACY_SOURCE_GENERATION_METADATA_KEY] ?? '',
+  ).trim();
+  const size = String(customMetadata?.[LEGACY_SOURCE_SIZE_METADATA_KEY] ?? '').trim();
+  const crc32c = String(customMetadata?.[LEGACY_SOURCE_CRC32C_METADATA_KEY] ?? '').trim();
+  const md5Hash = String(customMetadata?.[LEGACY_SOURCE_MD5_METADATA_KEY] ?? '').trim();
+  if (!generation || !size || (!crc32c && !md5Hash)) {
+    throw new Error('legacy Storage 搬移目的地缺少可信任的來源 fingerprint 證明。');
+  }
+  return { generation, size, crc32c, md5Hash };
+};
+
+const assertContentFingerprintMatches = ({ expected, actual, label }) => {
+  if (
+    expected.size !== actual.size
+    || (expected.crc32c && expected.crc32c !== actual.crc32c)
+    || (expected.md5Hash && expected.md5Hash !== actual.md5Hash)
+  ) {
+    throw new Error(`${label}內容不一致。`);
+  }
+};
+
 const assertRelocationDestination = ({ relocation, source, destination }) => {
-  const marker = String(
-    destination?.metadata?.metadata?.[LEGACY_SOURCE_METADATA_KEY] ?? '',
-  );
+  const customMetadata = destination?.metadata?.metadata || {};
+  const marker = String(customMetadata[LEGACY_SOURCE_METADATA_KEY] ?? '');
   if (marker !== relocation.sourceObjectName) {
     throw new Error('legacy Storage 搬移目的地已存在，但缺少可信任的來源標記。');
   }
   if (readFirebaseStorageDownloadTokens(destination.metadata).length > 0) {
     throw new Error('legacy Storage 搬移目的地仍含 download token。');
   }
-  if (!source) return;
-  const sourceFingerprint = storageObjectFingerprint(source.metadata, 'legacy Storage 來源');
+  if (destination?.metadata?.cacheControl !== PRIVATE_CACHE_CONTROL) {
+    throw new Error('legacy Storage 搬移目的地未使用 private cache policy。');
+  }
+  if (
+    customMetadata.roomId !== relocation.roomId
+    || customMetadata.ticketId !== relocation.ticketId
+  ) {
+    throw new Error('legacy Storage 搬移目的地缺少 canonical room/ticket metadata。');
+  }
+  if (customMetadata[LEGACY_RELOCATION_VERSION_METADATA_KEY] !== LEGACY_RELOCATION_VERSION) {
+    throw new Error('legacy Storage 搬移目的地缺少可信任的 relocation version。');
+  }
+  const relocationState = String(
+    customMetadata[LEGACY_RELOCATION_STATE_METADATA_KEY] ?? '',
+  );
+  const hasTemporaryHold = destination?.metadata?.temporaryHold === true;
+  if (hasTemporaryHold && relocationState !== LEGACY_RELOCATION_STATE_HELD) {
+    throw new Error('legacy Storage 搬移目的地受 foreign temporaryHold 保護，拒絕接管。');
+  }
+  if (
+    !hasTemporaryHold
+    && relocationState !== LEGACY_RELOCATION_STATE_PREPARED
+    && relocationState !== LEGACY_RELOCATION_STATE_RELEASED
+  ) {
+    throw new Error('legacy Storage 搬移目的地的 hold ownership state 不一致。');
+  }
+
+  const sourceProof = readRelocationSourceProof(customMetadata);
   const destinationFingerprint = storageObjectFingerprint(
     destination.metadata,
     'legacy Storage 搬移目的地',
   );
-  if (
-    sourceFingerprint.size !== destinationFingerprint.size
-    || (
-      sourceFingerprint.crc32c
-      && sourceFingerprint.crc32c !== destinationFingerprint.crc32c
-    )
-    || (
-      sourceFingerprint.md5Hash
-      && sourceFingerprint.md5Hash !== destinationFingerprint.md5Hash
-    )
-  ) {
-    throw new Error('legacy Storage 搬移目的地與來源內容不一致。');
+  assertContentFingerprintMatches({
+    expected: sourceProof,
+    actual: destinationFingerprint,
+    label: 'legacy Storage 搬移目的地與來源 fingerprint ',
+  });
+  if (source) {
+    if (source.metadata?.temporaryHold === true) {
+      throw new Error('legacy Storage 來源受 temporaryHold 保護，拒絕接管。');
+    }
+    const sourceGeneration = String(source.metadata?.generation ?? '').trim();
+    if (!sourceGeneration) {
+      throw new Error('legacy Storage 來源缺少 generation，無法驗證搬移。');
+    }
+    const sourceFingerprint = storageObjectFingerprint(source.metadata, 'legacy Storage 來源');
+    if (
+      sourceProof.generation !== sourceGeneration
+      || sourceProof.size !== sourceFingerprint.size
+      || sourceProof.crc32c !== sourceFingerprint.crc32c
+      || sourceProof.md5Hash !== sourceFingerprint.md5Hash
+    ) {
+      throw new Error('legacy Storage 搬移目的地的來源 fingerprint 證明不一致。');
+    }
+    assertContentFingerprintMatches({
+      expected: sourceFingerprint,
+      actual: destinationFingerprint,
+      label: 'legacy Storage 搬移目的地與來源',
+    });
   }
+  return { relocationState, sourceProof };
 };
 
 export const inspectLegacyStorageRelocations = async ({ bucket, relocations }) => {
@@ -540,37 +932,171 @@ export const inspectLegacyStorageRelocations = async ({ bucket, relocations }) =
     if (destination) {
       assertRelocationDestination({ relocation, source, destination });
     }
+    if (source?.metadata?.temporaryHold === true) {
+      throw new Error('legacy Storage 來源受 temporaryHold 保護，拒絕接管。');
+    }
     states.push({ relocation, source, destination });
   }
   return states;
 };
 
-export const relocateLegacyStorageObjects = async ({ bucket, relocations }) => {
-  const states = await inspectLegacyStorageRelocations({ bucket, relocations });
+const setRelocationDestinationHold = async ({
+  bucket,
+  state,
+  enabled,
+}) => {
+  const { relocation, source, destination } = state;
+  const { relocationState } = assertRelocationDestination({
+    relocation,
+    source,
+    destination,
+  });
+  const currentlyEnabled = destination.metadata?.temporaryHold === true;
+  if (
+    (currentlyEnabled && relocationState !== LEGACY_RELOCATION_STATE_HELD)
+    || (!currentlyEnabled && relocationState === LEGACY_RELOCATION_STATE_HELD)
+  ) {
+    throw new Error('legacy Storage 搬移目的地受 foreign temporaryHold 保護，拒絕接管。');
+  }
+  if (currentlyEnabled === enabled) {
+    if (
+      (enabled && relocationState === LEGACY_RELOCATION_STATE_HELD)
+      || (!enabled && relocationState === LEGACY_RELOCATION_STATE_RELEASED)
+    ) {
+      return destination;
+    }
+    throw new Error('legacy Storage 搬移目的地的 hold ownership state 不一致。');
+  }
+  if (!enabled && relocationState !== LEGACY_RELOCATION_STATE_HELD) {
+    throw new Error('legacy Storage 搬移目的地沒有可安全解除的 owned temporaryHold。');
+  }
+  const generation = String(destination.metadata?.generation ?? '').trim();
+  const metageneration = String(destination.metadata?.metageneration ?? '').trim();
+  if (!generation || !metageneration) {
+    throw new Error('legacy Storage 搬移目的地缺少 generation/metageneration。');
+  }
+  const nextState = enabled
+    ? LEGACY_RELOCATION_STATE_HELD
+    : LEGACY_RELOCATION_STATE_RELEASED;
+  await bucket.file(relocation.destinationObjectName, { generation }).setMetadata({
+    temporaryHold: enabled,
+    metadata: {
+      ...(destination.metadata?.metadata || {}),
+      [LEGACY_RELOCATION_STATE_METADATA_KEY]: nextState,
+    },
+  }, {
+    ifMetagenerationMatch: metageneration,
+  });
+  const updated = await getStorageObjectState(bucket, relocation.destinationObjectName);
+  if (!updated) {
+    throw new Error('legacy Storage 搬移目的地在 temporaryHold 更新後不存在。');
+  }
+  const verified = assertRelocationDestination({ relocation, source, destination: updated });
+  if (
+    (updated.metadata?.temporaryHold === true) !== enabled
+    || verified.relocationState !== nextState
+  ) {
+    throw new Error(`legacy Storage 搬移目的地 temporaryHold ${enabled ? '設定' : '解除'}後驗證失敗。`);
+  }
+  return updated;
+};
+
+const assertAllRelocationDestinationsHeld = (states) => {
+  for (const state of states) {
+    const verified = assertRelocationDestination(state);
+    if (
+      state.destination?.metadata?.temporaryHold !== true
+      || verified.relocationState !== LEGACY_RELOCATION_STATE_HELD
+    ) {
+      throw new Error('legacy Storage 搬移目的地未全部受 owned temporaryHold 保護。');
+    }
+  }
+};
+
+export const relocateLegacyStorageObjects = async ({
+  bucket,
+  relocations,
+  whileDestinationsHeld,
+  verifyDestinationReferences,
+}) => {
+  const relocationList = relocations || [];
+  if (relocationList.length > 0 && typeof whileDestinationsHeld !== 'function') {
+    throw new Error('legacy Storage 搬移 callback 格式不正確。');
+  }
+  if (relocationList.length > 0 && typeof verifyDestinationReferences !== 'function') {
+    throw new Error('legacy Storage 搬移 reference verifier 格式不正確。');
+  }
+  const switchReferences = typeof whileDestinationsHeld === 'function'
+    ? whileDestinationsHeld
+    : async () => {};
+  const verifyReferences = typeof verifyDestinationReferences === 'function'
+    ? verifyDestinationReferences
+    : async () => {};
+  let states = await inspectLegacyStorageRelocations({ bucket, relocations: relocationList });
   for (const state of states) {
     const { relocation, source } = state;
-    let destination = state.destination;
-    if (!destination) {
+    if (!state.destination) {
       const sourceGeneration = String(source.metadata?.generation ?? '').trim();
       if (!sourceGeneration) {
         throw new Error('legacy Storage 來源缺少 generation，無法安全搬移。');
       }
+      const sourceFingerprint = storageObjectFingerprint(source.metadata, 'legacy Storage 來源');
       const versionedSource = bucket.file(relocation.sourceObjectName, {
         generation: sourceGeneration,
       });
       const destinationFile = bucket.file(relocation.destinationObjectName);
-      await versionedSource.copy(destinationFile, {
+      const destinationMetadata = {
+        cacheControl: PRIVATE_CACHE_CONTROL,
         metadata: {
           ...(source.metadata?.metadata || {}),
           firebaseStorageDownloadTokens: null,
+          roomId: relocation.roomId,
+          ticketId: relocation.ticketId,
           [LEGACY_SOURCE_METADATA_KEY]: relocation.sourceObjectName,
+          [LEGACY_RELOCATION_VERSION_METADATA_KEY]: LEGACY_RELOCATION_VERSION,
+          [LEGACY_RELOCATION_STATE_METADATA_KEY]: LEGACY_RELOCATION_STATE_PREPARED,
+          [LEGACY_SOURCE_GENERATION_METADATA_KEY]: sourceGeneration,
+          [LEGACY_SOURCE_SIZE_METADATA_KEY]: sourceFingerprint.size,
+          [LEGACY_SOURCE_CRC32C_METADATA_KEY]: sourceFingerprint.crc32c,
+          [LEGACY_SOURCE_MD5_METADATA_KEY]: sourceFingerprint.md5Hash,
         },
+      };
+      for (const key of ['contentType', 'contentDisposition', 'contentEncoding', 'contentLanguage']) {
+        if (String(source.metadata?.[key] ?? '').trim()) {
+          destinationMetadata[key] = source.metadata[key];
+        }
+      }
+      await versionedSource.copy(destinationFile, {
+        ...destinationMetadata,
+        temporaryHold: false,
         preconditionOpts: { ifGenerationMatch: 0 },
       });
-      destination = await getStorageObjectState(bucket, relocation.destinationObjectName);
+      const destination = await getStorageObjectState(bucket, relocation.destinationObjectName);
       if (!destination) throw new Error('legacy Storage 搬移後找不到目的地。');
       assertRelocationDestination({ relocation, source, destination });
     }
+  }
+
+  states = await inspectLegacyStorageRelocations({ bucket, relocations: relocationList });
+  for (const state of states) {
+    await setRelocationDestinationHold({ bucket, state, enabled: true });
+  }
+  states = await inspectLegacyStorageRelocations({ bucket, relocations: relocationList });
+  assertAllRelocationDestinationsHeld(states);
+
+  // The callback must be idempotent. If it fails or its result is ambiguous,
+  // sources are retained and owned holds stay in place so the same migration
+  // can rediscover the tokenized RTDB URLs and retry safely.
+  await switchReferences();
+
+  states = await inspectLegacyStorageRelocations({ bucket, relocations: relocationList });
+  assertAllRelocationDestinationsHeld(states);
+  await verifyReferences();
+  for (const { relocation, source } of states) {
+    // Re-read the canonical RTDB references immediately before and after each
+    // cross-service source deletion. Any detected stale-client drift leaves all
+    // destination holds in place and aborts the migration.
+    await verifyReferences();
     if (source) {
       const sourceGeneration = String(source.metadata?.generation ?? '').trim();
       if (!sourceGeneration) {
@@ -580,13 +1106,58 @@ export const relocateLegacyStorageObjects = async ({ bucket, relocations }) => {
         generation: sourceGeneration,
       }).delete();
     }
+    await verifyReferences();
   }
 
-  const verifiedStates = await inspectLegacyStorageRelocations({ bucket, relocations });
-  if (verifiedStates.some(({ source, destination }) => source || !destination)) {
+  states = await inspectLegacyStorageRelocations({ bucket, relocations: relocationList });
+  assertAllRelocationDestinationsHeld(states);
+  if (states.some(({ source, destination }) => source || !destination)) {
     throw new Error('legacy Storage 搬移後驗證失敗。');
   }
-  return verifiedStates;
+  await verifyReferences();
+  try {
+    for (const state of states) {
+      await setRelocationDestinationHold({ bucket, state, enabled: false });
+    }
+
+    const verifiedStates = await inspectLegacyStorageRelocations({
+      bucket,
+      relocations: relocationList,
+    });
+    if (verifiedStates.some(
+      ({ source, destination }) => source
+        || !destination
+        || destination.metadata?.temporaryHold === true,
+    )) {
+      throw new Error('legacy Storage 搬移後驗證失敗。');
+    }
+    for (const state of verifiedStates) {
+      const { relocationState } = assertRelocationDestination(state);
+      if (relocationState !== LEGACY_RELOCATION_STATE_RELEASED) {
+        throw new Error('legacy Storage 搬移目的地 temporaryHold 未完整解除。');
+      }
+    }
+    await verifyReferences();
+    return verifiedStates;
+  } catch (error) {
+    try {
+      const recoveryStates = await inspectLegacyStorageRelocations({
+        bucket,
+        relocations: relocationList,
+      });
+      for (const state of recoveryStates) {
+        await setRelocationDestinationHold({ bucket, state, enabled: true });
+      }
+      const heldRecoveryStates = await inspectLegacyStorageRelocations({
+        bucket,
+        relocations: relocationList,
+      });
+      assertAllRelocationDestinationsHeld(heldRecoveryStates);
+    } catch (recoveryError) {
+      throw new Error(`${error.message}；此外 destination hold recovery 失敗：${recoveryError.message}`);
+    }
+    throw error;
+  }
 };
 
 export const findUnreservedStorageRoomIds = ({
@@ -954,9 +1525,11 @@ const run = async () => {
     productionRoomIds,
     reservationRoomIds: Object.keys(reservationsRoot),
   });
-  if (storageTokenInventory.malformedObjectCount > 0) {
+  const unplannedMalformedStorageObjects = storageTokenInventory.malformedObjectNames
+    .filter((objectName) => !plannedLegacySources.has(objectName));
+  if (unplannedMalformedStorageObjects.length > 0) {
     throw new Error(
-      `Storage rooms/** 含 ${storageTokenInventory.malformedObjectCount} 個無法安全歸屬旅程的物件。`,
+      `Storage rooms/** 含 ${unplannedMalformedStorageObjects.length} 個無法安全歸屬旅程的物件。`,
     );
   }
   if (orphanStorageRoomIds.length > 0) {
@@ -1103,10 +1676,28 @@ const run = async () => {
   await relocateLegacyStorageObjects({
     bucket,
     relocations: legacyUrlPlan.storageRelocations,
+    whileDestinationsHeld: async () => {
+      await switchLegacyStoragePathTransitions({
+        database,
+        transitions: legacyUrlPlan.storagePathTransitions,
+      });
+    },
+    verifyDestinationReferences: async () => {
+      await assertLegacyStoragePathTransitions({
+        database,
+        transitions: legacyUrlPlan.storagePathTransitions,
+        urlState: 'legacy',
+      });
+    },
   });
+  const relocatedSourceNames = new Set(
+    legacyUrlPlan.storageRelocations.map(({ sourceObjectName }) => sourceObjectName),
+  );
   const metadataLegacyUrls = await revokeStorageDownloadTokens({
     bucketName: options.storageBucket,
-    tokenizedObjects: storageTokenInventory.tokenizedObjects,
+    tokenizedObjects: storageTokenInventory.tokenizedObjects.filter(
+      ({ file }) => !relocatedSourceNames.has(file.name),
+    ),
   });
   // Keep RTDB legacy URLs available as a retry-safe verification journal until
   // every known capability URL has been denied anonymously. They are scrubbed
@@ -1115,9 +1706,10 @@ const run = async () => {
     ...legacyUrlPlan.legacyUrls,
     ...metadataLegacyUrls,
   ]);
-  if (Object.keys(legacyUrlPlan.updates).length > 0) {
-    await database.ref().update(legacyUrlPlan.updates);
-  }
+  await cleanupLegacyStoragePathTransitionUrls({
+    database,
+    transitions: legacyUrlPlan.storagePathTransitions,
+  });
 
   const [
     verifiedRoomsSnapshot,
@@ -1150,6 +1742,11 @@ const run = async () => {
   if (verifiedOrphanStorageRoomIds.length > 0) {
     throw new Error('Storage namespace 保留驗證失敗；請維持維護模式並人工檢查。');
   }
+  await assertLegacyStoragePathTransitions({
+    database,
+    transitions: legacyUrlPlan.storagePathTransitions,
+    urlState: 'clean',
+  });
 
   console.log(`Migration complete and verified for ${plans.length} room(s).`);
   console.log('Download token release gate passed: inventories are zero and legacy URLs are denied.');

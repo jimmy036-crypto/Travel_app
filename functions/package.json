@@ -9,8 +9,9 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/collaboration.js && node --check src/domain.js && node --check scripts/migrate-legacy-trip-access.js",
-    "migrate:legacy": "node scripts/migrate-legacy-trip-access.js"
+    "check": "node --check src/index.js && node --check src/collaboration.js && node --check src/domain.js && node --check scripts/migrate-legacy-trip-access.js && node --check scripts/repair-legacy-ticket-storage-path.js",
+    "migrate:legacy": "node scripts/migrate-legacy-trip-access.js",
+    "repair:legacy-ticket-path": "node scripts/repair-legacy-ticket-storage-path.js"
   },
   "dependencies": {
     "firebase-admin": "14.3.0",

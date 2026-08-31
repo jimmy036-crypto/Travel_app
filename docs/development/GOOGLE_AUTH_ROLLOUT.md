@@ -192,8 +192,9 @@ Dry run 會在任何寫入前完成下列檢查：
   schema；
 - 盤點 RTDB `rooms/**` 的 tokenized Firebase download URL，以及 Storage `rooms/**`
   每個 object 的 `firebaseStorageDownloadTokens` metadata。舊版票券若仍指向根目錄
-  `tickets/**`，dry-run 會規劃搬到 `rooms/{roomId}/tickets/**`；只接受由該 room 的
-  `tickets` record 明確引用的 object。輸出只包含數量，不會列印 capability URL 或
+  `tickets/{fileName}`，dry-run 會依 RTDB ticket record 的穩定 `id` 規劃搬到
+  `rooms/{roomId}/tickets/{ticketId}/{fileName}`；只接受由該 room 的 `tickets` record
+  明確引用的 object。輸出只包含數量，不會列印 capability URL 或
   token；若 URL 指向其他 bucket、路徑無法安全歸屬、同一來源被不同 room 引用，或和
   既有 `storagePath` 衝突，整批 fail closed。
 - 每個 Storage `rooms/{roomId}/**` namespace 必須對應現存 production room，或已有
@@ -254,6 +255,13 @@ npx -y firebase-tools@latest deploy --only storage --project travel-app-923ef
 均被拒絕。此時 ACL 尚未遷移，owner 暫時也無法使用旅程，這是預期的 fail-closed
 維護狀態。不要為了縮短中斷而暫時恢復公開 Rules。
 
+本版 RTDB Rules 也永久要求非空 ticket `storagePath` 使用
+`rooms/{roomId}/tickets/{ticketId}/{fileName}`，並拒絕把任何 Firebase Storage download
+URL 寫入 ticket 的 `url`、`appUrl` 或 `fallbackUrl`；附件只能保存受 Rules 保護的
+`storagePath`。Repair lease 存在時，該 room 的所有 client 寫入分支都會
+fail closed；Admin SDK 不受 client Rules 影響。這兩層防護用來阻擋已安裝 PWA 的延遲／
+離線寫入重新導入四段式路徑，不能從部署內容移除。
+
 ## 11. 人工：用 Admin SDK 執行可信任 migration
 
 final strict Rules 生效後，才從同一個已完成 dry-run 的受信任環境執行 apply：
@@ -285,12 +293,19 @@ Firestore ACL，並立即驗證三處沒有意外的 active grant。若延遲的
 下次執行會使用更高 `aclVersion`，不會讓舊事件覆蓋新授權。
 
 Membership 全數驗證後，apply 會先以 generation／destination-create precondition
-把被引用的根目錄 `tickets/**` 搬到 `rooms/{roomId}/tickets/**`，驗證內容 fingerprint、
-移除目的地 download token 並留下可重跑的來源標記，確認成功後才刪除舊根目錄物件。
-接著以 metageneration precondition 清除其他 `rooms/**` object 的
+把被引用的根目錄 `tickets/{fileName}` 複製到
+`rooms/{roomId}/tickets/{ticketId}/{fileName}`，驗證內容 fingerprint、移除目的地 download
+token 並留下來源 fingerprint proof。全部目的檔都由本次 relocation 的
+`temporaryHold` 保護後，腳本才原子切換 RTDB `storagePath`；舊 capability `url` 仍保留為
+可重跑 journal。RTDB transaction 會綁定原 record identity、URL 與 source/destination
+指標；每一個來源刪除前後都會重讀驗證 canonical 指標，漂移時停止且保留目的檔 hold。
+接著以原 generation precondition 刪除來源，再只解除本次 relocation 建立的 hold。任何
+foreign hold 都會 fail closed，不會被接管或解除。
+之後以 metageneration precondition 清除其他 `rooms/**` object 的
 `firebaseStorageDownloadTokens` metadata，並逐一匿名請求所有已盤點的舊 capability
-URL；任何 2xx 都會讓 release gate 失敗。RTDB legacy URL 會保留到匿名拒絕驗證成功，
-作為失敗後可重跑的安全 journal，之後才改為房間專屬的 `storagePath` 並把 `url` 清空。
+URL；任何 2xx 都會讓 release gate 失敗。只有匿名拒絕驗證成功後，才以同一組 exact
+record/pointer invariant transaction 清空 RTDB legacy `url`，並再次驗證 canonical
+`storagePath`。
 最後會重新盤點，要求 RTDB URL、Storage token 與根目錄 `tickets/**` object 數都等於
 0。除已成功搬移且驗證的根目錄票券來源外，腳本不刪除 legacy itinerary、expenses、
 tickets records 或 `rooms/**` Storage objects，也不會在輸出中列印 capability URL 或
@@ -304,6 +319,117 @@ Apply 後必須重新執行 verify/dry-run 或腳本內建驗證，確認所有 
 唯一可信 owner，且三處 membership 的 `aclVersion` 一致。未全數通過時維持維護
 模式，不可發佈前端。成功 migration 與所有新建旅程的 `roomReservations` 都是永久
 namespace 保留記錄；即使日後刪除旅程，也不可刪除或重用該 room ID。
+
+### 11.1 修復已遷移的四段式票券路徑
+
+若舊版 migration 已完成，但 RTDB ticket 的 `storagePath` 被寫成
+`rooms/{roomId}/tickets/{fileName}`，不要重跑完整 owner migration，也不要放寬
+Storage Rules。完整 migration 已清空舊 URL 並刪除根目錄來源，重跑不會重新發現這些
+紀錄，還會不必要地重新檢查全部 room membership 與 quota。
+
+請先合併含 `repair:legacy-ticket-path` 的修復 PR，保持 production 入口封鎖，並在
+Cloud Shell 從最新 `main` 執行。下例只修復已確認的單一 room 與三張票券；變數值必須
+以本次 dry-run 的實際目標為準：
+
+```bash
+project_id='travel-app-923ef'
+database_url='https://travel-app-923ef-default-rtdb.firebaseio.com'
+storage_bucket='travel-app-923ef.firebasestorage.app'
+room_id='id_1782055259578_uapiufh1s'
+repair_count='3'
+manifest_path="${HOME}/legacy-ticket-path-repair-20260831.local.json"
+
+npm --prefix functions run repair:legacy-ticket-path -- \
+  --project "$project_id" \
+  --database-url "$database_url" \
+  --storage-bucket "$storage_bucket" \
+  --room-id "$room_id" \
+  --expected-count "$repair_count" \
+  --manifest "$manifest_path"
+```
+
+預設模式只讀 Firebase，要求候選數精確相符，並以 exclusive create 建立權限 0600 的
+manifest。它會驗證每個來源 object 的 generation、size、CRC32C／MD5、零 download
+token 與原 migration marker，也會比對 RTDB `roomAccess`、`userTrips`、
+`roomReservations` 與 Firestore `tripAccess` 的 canonical owner／`aclVersion`；任何額外
+malformed object、重複 ticket/source、錯 room、不可信目的地或資料漂移都會 fail
+closed。輸出會顯示 `Manifest SHA256`，將其原樣保存：
+
+```bash
+manifest_sha='PASTE_THE_64_CHARACTER_SHA256_FROM_PLAN_OUTPUT'
+```
+
+確認 manifest 路徑、候選數與 SHA 後才執行 apply：
+
+```bash
+npm --prefix functions run repair:legacy-ticket-path -- \
+  --project "$project_id" \
+  --database-url "$database_url" \
+  --storage-bucket "$storage_bucket" \
+  --room-id "$room_id" \
+  --expected-count "$repair_count" \
+  --manifest "$manifest_path" \
+  --apply \
+  --confirm-project "$project_id" \
+  --confirm-storage-bucket "$storage_bucket" \
+  --confirm-room-id "$room_id" \
+  --confirm-count "$repair_count" \
+  --confirm-manifest-sha256 "$manifest_sha"
+```
+
+Apply 會先把全部來源複製到
+`rooms/{roomId}/tickets/{ticketId}/{fileName}`、驗證 fingerprint，並以本次 manifest 的
+`runId` 標記及 `temporaryHold` 保護全部目的檔；全部成功後才以單一 RTDB transaction
+切換三筆 `storagePath`。目的檔的 hold 會持續保留到 finalize 或 rollback，且此階段不刪除
+舊四段式來源。保持一般使用者入口封鎖，使用受信任的 owner session 驗證三張票券都可
+開啟，再以 anonymous、outsider 或 removed account 驗證仍被拒絕。
+
+Smoke test 通過後才執行 finalize；它會確認全部 canonical 目的檔仍由本次 repair 的
+`temporaryHold` 保護，再次驗證 owner ACL、RTDB、來源／目的 fingerprint、全 bucket
+malformed inventory 與 token inventory，最後才以原 generation precondition 刪除舊
+來源並解除自己建立的目的檔 hold。即使已安裝的 PWA 在維護期間從快取啟動，也不能在
+刪除來源的臨界區間刪掉受 hold 保護的目的檔；工具絕不接管或解除其他程序建立的 foreign
+hold：
+
+```bash
+npm --prefix functions run repair:legacy-ticket-path -- \
+  --project "$project_id" \
+  --database-url "$database_url" \
+  --storage-bucket "$storage_bucket" \
+  --room-id "$room_id" \
+  --expected-count "$repair_count" \
+  --manifest "$manifest_path" \
+  --finalize \
+  --confirm-project "$project_id" \
+  --confirm-storage-bucket "$storage_bucket" \
+  --confirm-room-id "$room_id" \
+  --confirm-count "$repair_count" \
+  --confirm-manifest-sha256 "$manifest_sha"
+```
+
+若 apply 後、finalize 前的 owner smoke test 失敗，可把 `--finalize` 改成 `--rollback`
+執行同一組確認參數。Rollback 會先以 temporary hold 保護並重驗全部來源，再把 RTDB
+路徑原子切回來源，驗證後才刪除新目的地；任何來源已被 finalize 刪除時會拒絕
+rollback。Plan、apply、finalize 與 rollback 都可在各自允許的中斷狀態安全重跑，工具
+也會處理前次中斷留下的 hold。Manifest 不含票券標題、URL 或 token，但仍是 production
+操作記錄，不可提交 Git；檔名必須符合
+`legacy-ticket-path-repair*.local.json`。
+
+Apply、finalize 與 rollback 會在 RTDB
+`maintenanceRepairs/legacyTicketPath/{roomId}` 取得單一 room repair lease，避免兩個
+Cloud Shell／終端同時修改同一批資料；已部署的 RTDB Rules 同時會在 lease 存在期間拒絕
+該 room 的 client 寫入。永久 canonical ticket validator 則會在兩個 phase 之間與 repair
+結束後，繼續拒絕舊 PWA 回寫四段式或錯 room/ticket path。若程序中斷而留下 lease，下一次執行會 fail closed
+並顯示既有 `invocationId`；工具不使用 TTL、不會自動搶鎖，也不提供 CLI takeover。
+先保持 production 暫停，使用 `ps` 等方式確認原 Node 程序已完全結束，再到 Firebase
+Console 精確讀取該 room 的 lease，備份其 JSON，並逐一比對 operation、roomId、manifest
+`runId`、SHA、phase 與錯誤顯示的 invocationId。全部相符後才人工刪除
+`maintenanceRepairs/legacyTicketPath/{roomId}` 這一個 leaf，絕不可刪除較上層 namespace；
+接著重跑原本 phase 的完整確認命令。若無法證明舊程序已終止或任一欄位不符，不得清除
+lease，應維持 production 暫停並先人工查明。
+
+只有 finalize 成功，且 owner/outsider smoke test 都符合預期後，才解除 production
+維護封鎖。
 
 ## 12. 人工：確認 download-token gate 並設定 Storage CORS
 

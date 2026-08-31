@@ -1,46 +1,62 @@
 # Task
 
-將 Travel App 改為使用 Google Authentication 的帳號系統，並以可撤銷邀請、owner/editor 成員權限及受保護附件存取取代「知道 room ID 即可進入」的公開模型。
+修正 Google Auth rollout 後舊版票券附件被遷移到非 canonical Storage 路徑，導致已授權 owner 仍無法開啟票券的問題，並提供可審核、可重跑且預設 dry-run 的 production repair 工具。
 
 ## Prerequisites
 
-- 使用者已授權 Cloud Functions、Cloud Firestore、Firebase Security Rules、相關套件與 lockfile，並採用 Blaze。
-- 正式資料 owner UID mapping、Google provider、authorized domains 與 Blaze 由人工在 rollout 時確認。
-- 不覆寫或 rebase 其他未合併 PR；如有相同核心檔案衝突，在 Draft PR 中揭露並等待人工決定。
+- PR #53 已合併至 `main`，Google Auth、strict Firebase Rules 與 legacy migration 已存在。
+- Production 在既有三個錯誤附件修復並完成 owner/outsider smoke test 前維持暫停。
+- 不修改或疊加 open PR #45 的停車功能與 `TripDetail.jsx` 區域。
 
 ## Scope
 
-- Google 登入、登出、帳號狀態與帳號範圍 Lobby、離線快取。
-- Callable Functions：建立旅程、邀請建立/換發/撤銷/兌換、成員列表/移除/恢復。
-- RTDB canonical ACL、Firestore Storage ACL mirror、strict RTDB/Firestore/Storage Rules。
-- 附件僅保存 `storagePath`，讀取改用逐次驗證的 Blob/object URL。
-- Legacy owner migration、download-token 盤點/撤銷、rollout 與 rollback 文件。
-- Auth、Functions、Rules、Emulator 與相關 UI/E2E 回歸測試。
+- Legacy root `tickets/{fileName}` 的目的路徑改為 `rooms/{roomId}/tickets/{ticketId}/{fileName}`。
+- 修補 migration focused tests，覆蓋 canonical ticketId namespace、衝突與重跑安全。
+- 提供只處理已知非 canonical `rooms/{roomId}/tickets/{fileName}` 的 production repair 規劃／工具。
+- Repair 必須驗證 RTDB ticket identity、來源與目的 object、metadata/checksum、ACL namespace，以及更新 `storagePath` 的一致性。
+- 補上 dry-run、明確 project confirmation、SHA-bound manifest、apply/finalize/rollback
+  三階段驗證，以及 RTDB／Firestore owner ACL mirror gate。
+- 強化 RTDB Rules，讓 repair lease 期間 client 寫入 fail closed，並永久拒絕非 canonical
+  ticket `storagePath` 與 URL 欄位中的 Firebase Storage download URL。
 
 ## Out of Scope
 
-- Codex 不執行 production deploy、Rules deploy、billing 變更或 Firebase Console 人工設定。
-- 不暫時恢復公開 Rules，不保留舊版無驗證 room-link 相容路徑。
-- App Check enforce 在 Preview 註冊與驗證前不直接啟用，但列為擴大分享前的 rollout gate。
+- Codex 不連線 production Firebase、不執行 deploy、不直接搬動或刪除正式 object。
+- 不放寬 RTDB、Firestore 或 Storage Rules。
+- 不修改 ticket UI、TripDetail、費用、旅程刪除或 participant identity schema。
+- Codex 不刪除 production 來源 object；只有人工在 smoke test 通過後明確執行
+  `--finalize`，工具才可依 generation precondition 清理來源。
 
 ## Acceptance Criteria
 
-- 只有有效 Google 帳號的 active owner/editor 可讀寫旅程；知道 room ID 的 outsider 被拒絕。
-- 邀請使用高熵 fragment token，撤銷/換發後舊 token 失效，removed 成員不能自動重加入。
-- RTDB、`userTrips`、Firestore ACL 使用單調 `aclVersion`，延遲 trigger 不得將 rollback/revocation 後的帳號重新授權。
-- Storage 每次讀取重新經過 Auth + Rules，不新增或持久化長效 download URL。
-- Legacy migration 預設 dry-run、需明確 project confirmation，並在 strict Rules 與維護模式中 fail closed。
-- Functions/Rules/unit/targeted E2E 與完整 `verify:full` 通過；不使用 skip、降低斷言或任意 timeout。
+- 新的 legacy migration 會把 root ticket object 放到 Storage Rules 允許的 canonical ticketId 路徑。
+- 同一來源不能對應多個目的；既有不同 `storagePath` 或不可信目的 object 時 fail closed。
+- 已遷移錯誤路徑可在 dry-run 中被精確辨識，不能掃描或修改不相關附件。
+- Apply 順序可重跑：先 copy/驗證並 hold 所有 canonical 目的檔，再原子更新 RTDB
+  `storagePath`，且保留來源供 smoke test 與 rollback；hold 持續到 finalize／rollback。
+- Finalize 重驗 hold ownership、ACL、RTDB、來源與目的 fingerprint，最後才依 generation
+  precondition 刪來源；中斷後可安全重跑，且工具不接管或解除 foreign hold。
+- Rollback 在任何來源已被 finalize 刪除時 fail closed，且跨階段留下的 temporary hold
+  不會造成雙邊 object 同時遺失。
+- Apply／finalize／rollback 以 per-room RTDB lease 序列化；中斷後只能在人工確認舊程序
+  已結束，並備份及精確確認既有 invocation ID、manifest `runId` 與 SHA 後，才可人工
+  清除該 room 的 lease；工具不提供 in-band takeover。
+- RTDB Rules 在 lease 存在時拒絕 owner/editor client 寫入；lease 解除後仍以永久 validator
+  拒絕 legacy root、四段式、跨 room、錯 ticket ID 與額外 path segment 的 attachment path。
+- Ticket create/update 不能把 Firebase Storage download URL 寫回 RTDB 的 `url`、
+  `appUrl` 或 `fallbackUrl`；合法 web link、空／缺省 storagePath 與 ticket deletion 維持正常。
+- 修復後 owner 可透過 Auth + Rules 讀取；removed/outsider/anonymous 仍被拒絕。
+- Functions migration tests、`npm run verify:fast` 與 `git diff --check` 通過。
 
 ## Related Tests
 
-- Unit/component/integration: Auth session、trip access client/dialog、account hydration、repository Blob 附件、Functions domain/collaboration/migration。
-- Rules: owner/editor/removed/outsider/non-Google 的 RTDB、Firestore、Storage Emulator matrix。
-- E2E: create/redeem、Lobby/appearance/first-run、Realtime、tickets/places Storage、完整 Desktop Chrome + Mobile Safari。
-- Manual QA: production Google provider/authorized domains、owner mapping、Functions/Rules/migration 順序、token/CORS、owner/editor/outsider smoke test。
+- Unit: `functions/scripts/migrate-legacy-trip-access.test.js`、
+  `functions/scripts/repair-legacy-ticket-storage-path.test.js`
+- Rules/Emulator: Storage owner/editor/removed/outsider path matrix（如既有 targeted suite 可直接覆蓋則沿用）。
+- E2E: 不新增；PR CI 執行完整 regression。Production 僅在人工維護窗口做 owner/outsider smoke test。
 
 ## Commit
 
 ```text
-feat: secure travel collaboration with Google accounts
+fix: repair canonical legacy ticket storage paths
 ```
