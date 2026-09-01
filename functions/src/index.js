@@ -99,6 +99,7 @@ export const processTripDeletion = onValueWritten(
 
 export const cleanupDeletedTripStorageObject = onObjectFinalized(
   {
+    region: 'us-east1',
     retry: true,
     maxInstances: 2,
     concurrency: 4,
