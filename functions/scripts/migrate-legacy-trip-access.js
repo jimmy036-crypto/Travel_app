@@ -106,12 +106,41 @@ const readAclVersion = (record, label) => {
   return value;
 };
 
+const readOptionalCreationId = (value, label) => {
+  if (value === null || value === undefined) return '';
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length > 200
+    || value.trim() !== value
+  ) {
+    throw new Error(`${label} 的 creationId 格式不正確。`);
+  }
+  return value;
+};
+
+const resolveLegacyCreationId = ({ mapping, access, reservation }) => {
+  const accessCreationId = readOptionalCreationId(
+    access?.creationId,
+    `${mapping.roomId} roomAccess`,
+  );
+  const reservationCreationId = readOptionalCreationId(
+    reservation?.creationId,
+    `${mapping.roomId} roomReservations`,
+  );
+  if (accessCreationId && reservationCreationId && accessCreationId !== reservationCreationId) {
+    throw new Error(`${mapping.roomId} 的 creationId 鏡像不一致。`);
+  }
+  return accessCreationId || reservationCreationId || `legacy-migration-${mapping.roomId}`;
+};
+
 export const assertCompatibleState = ({
   mapping,
   room,
   access,
   userTrip,
   acl,
+  reservation = null,
   unexpectedUserTripUids = [],
   unexpectedAclUids = [],
 }) => {
@@ -125,6 +154,16 @@ export const assertCompatibleState = ({
   const accessOwnerUid = String(access?.ownerUid ?? '').trim();
   if (accessOwnerUid && accessOwnerUid !== mapping.uid) {
     throw new Error(`${mapping.roomId} 的 roomAccess.ownerUid 已屬於其他 UID。`);
+  }
+
+  if (access) {
+    if (access.state && access.state !== 'ready') {
+      throw new Error(`${mapping.roomId} 的 roomAccess state 不是 ready。`);
+    }
+    const accessCreatedAt = Number(access.createdAt);
+    if (access.createdAt !== undefined && (!Number.isFinite(accessCreatedAt) || accessCreatedAt < 1)) {
+      throw new Error(`${mapping.roomId} 的 roomAccess createdAt 格式不正確。`);
+    }
   }
 
   const existingMember = access?.members?.[mapping.uid];
@@ -185,14 +224,50 @@ export const assertCompatibleState = ({
       throw new Error(`${mapping.roomId} 的 Firestore ACL 與 mapping 衝突。`);
     }
   }
+
+  if (reservation !== null) {
+    const reservationCreatedAt = Number(reservation?.createdAt);
+    if (
+      reservation?.roomId !== mapping.roomId
+      || reservation?.createdByUid !== mapping.uid
+      || reservation?.migrated !== true
+      || !Number.isFinite(reservationCreatedAt)
+      || reservationCreatedAt < 1
+      || !readOptionalCreationId(
+        reservation?.creationId,
+        `${mapping.roomId} roomReservations`,
+      )
+    ) {
+      throw new Error(`${mapping.roomId} 的 roomReservations 與 owner mapping 衝突。`);
+    }
+    if (
+      access?.createdAt !== undefined
+      && Number(access.createdAt) !== reservationCreatedAt
+    ) {
+      throw new Error(`${mapping.roomId} 的 createdAt 鏡像不一致。`);
+    }
+  } else if (readOptionalCreationId(access?.creationId, `${mapping.roomId} roomAccess`)) {
+    throw new Error(`${mapping.roomId} 有 creationId 但缺少 roomReservations。`);
+  }
+
+  resolveLegacyCreationId({ mapping, access, reservation });
 };
 
-export const buildMigrationUpdates = ({ mapping, room, access, userTrip = null, acl = null, now }) => {
+export const buildMigrationUpdates = ({
+  mapping,
+  room,
+  access,
+  userTrip = null,
+  acl = null,
+  reservation = null,
+  now,
+}) => {
   const existingMemberRecord = access?.members?.[mapping.uid];
   const existingMember = existingMemberRecord || {};
-  const createdAt = Number(access?.createdAt) || now;
+  const createdAt = Number(access?.createdAt) || Number(reservation?.createdAt) || now;
   const joinedAt = Number(existingMember.joinedAt) || now;
   const securityMigratedAt = Number(room?.meta?.securityMigratedAt) || now;
+  const creationId = resolveLegacyCreationId({ mapping, access, reservation });
   const previousVersion = Math.max(
     1,
     readAclVersion(existingMemberRecord, `${mapping.roomId} owner member`) || 0,
@@ -206,6 +281,7 @@ export const buildMigrationUpdates = ({ mapping, room, access, userTrip = null, 
     [`rooms/${mapping.roomId}/meta/ownerUid`]: mapping.uid,
     [`rooms/${mapping.roomId}/meta/securityMigratedAt`]: securityMigratedAt,
     [`roomAccess/${mapping.roomId}/ownerUid`]: mapping.uid,
+    [`roomAccess/${mapping.roomId}/creationId`]: creationId,
     [`roomAccess/${mapping.roomId}/createdAt`]: createdAt,
     [`roomAccess/${mapping.roomId}/state`]: 'ready',
     [`roomAccess/${mapping.roomId}/members/${mapping.uid}/uid`]: mapping.uid,
@@ -224,7 +300,7 @@ export const buildMigrationUpdates = ({ mapping, room, access, userTrip = null, 
     },
     [`roomReservations/${mapping.roomId}`]: {
       roomId: mapping.roomId,
-      creationId: `legacy-migration-${mapping.roomId}`,
+      creationId,
       createdByUid: mapping.uid,
       createdAt,
       migrated: true,
@@ -1367,7 +1443,7 @@ const inspectEntry = async ({
   return state;
 };
 
-const verifyEntry = async ({ database, firestore, mapping }) => {
+export const verifyEntry = async ({ database, firestore, mapping }) => {
   const [roomSnapshot, accessSnapshot, userTripSnapshot, reservationSnapshot, aclSnapshot] = await Promise.all([
     database.ref(`rooms/${mapping.roomId}`).get(),
     database.ref(`roomAccess/${mapping.roomId}`).get(),
@@ -1377,10 +1453,18 @@ const verifyEntry = async ({ database, firestore, mapping }) => {
   ]);
   const room = roomSnapshot.val();
   const access = accessSnapshot.val();
+  const reservation = reservationSnapshot.val();
   const acl = aclSnapshot.exists ? aclSnapshot.data() : null;
+  const accessCreationId = readOptionalCreationId(
+    access?.creationId,
+    `${mapping.roomId} roomAccess`,
+  );
+  const reservationCreatedAt = Number(reservation?.createdAt);
   if (
     room?.meta?.ownerUid !== mapping.uid
     || access?.ownerUid !== mapping.uid
+    || access?.state !== 'ready'
+    || access?.members?.[mapping.uid]?.uid !== mapping.uid
     || access?.members?.[mapping.uid]?.role !== 'owner'
     || access?.members?.[mapping.uid]?.status !== 'active'
     || userTripSnapshot.val()?.role !== 'owner'
@@ -1390,8 +1474,13 @@ const verifyEntry = async ({ database, firestore, mapping }) => {
     || acl?.role !== 'owner'
     || acl?.status !== 'active'
     || Number(acl?.aclVersion) !== Number(access?.members?.[mapping.uid]?.aclVersion)
-    || reservationSnapshot.val()?.roomId !== mapping.roomId
-    || reservationSnapshot.val()?.createdByUid !== mapping.uid
+    || reservation?.roomId !== mapping.roomId
+    || reservation?.createdByUid !== mapping.uid
+    || reservation?.migrated !== true
+    || !accessCreationId
+    || reservation?.creationId !== accessCreationId
+    || !Number.isFinite(reservationCreatedAt)
+    || reservationCreatedAt < 1
   ) {
     throw new Error(`${mapping.roomId} 寫入後驗證失敗。`);
   }
@@ -1576,6 +1665,7 @@ const run = async () => {
         access: state.access,
         userTrip: state.userTrip,
         acl: state.acl,
+        reservation: state.reservation,
         now: Date.now(),
       }),
     });
