@@ -42,6 +42,12 @@ export function MobileTripMapView({
   onSelectExploreItem,
   onRouteCalculated,
   onOpenDetails,
+  selectedPlaceId,
+  onSelectedPlaceChange,
+  mapExtraMarkers,
+  exploreDisabled = false,
+  onExploreOpen,
+  hideItinerarySheet = false,
 }) {
   const apiStatus = useApiLoadingStatus();
   const entries = useMemo(
@@ -56,8 +62,9 @@ export function MobileTripMapView({
     [durations, entries],
   );
 
-  const effectiveSelectedEntryId = entries.some((entry) => entry.id === selectedEntryId)
-    ? selectedEntryId
+  const requestedSelectedEntryId = selectedPlaceId ?? selectedEntryId;
+  const effectiveSelectedEntryId = entries.some((entry) => entry.id === requestedSelectedEntryId)
+    ? requestedSelectedEntryId
     : (entries[0]?.id || '');
   const selectedEntry = entries.find((entry) => entry.id === effectiveSelectedEntryId) || null;
   const apiUnavailable = (
@@ -69,7 +76,10 @@ export function MobileTripMapView({
     || apiStatus === APILoadingStatus.LOADING
   );
 
-  const selectEntry = (entry) => setSelectedEntryId(entry.id);
+  const selectEntry = (entry) => {
+    setSelectedEntryId(entry.id);
+    onSelectedPlaceChange?.(entry.id);
+  };
 
   return (
     <div data-testid="mobile-trip-map-view" className="relative h-full min-h-0 w-full overflow-hidden">
@@ -144,6 +154,8 @@ export function MobileTripMapView({
             );
           })}
 
+          {mapExtraMarkers}
+
           {(Array.isArray(exploreResults) ? exploreResults : [])
             .filter((place) => place?.geometry?.location)
             .map((place) => {
@@ -192,7 +204,7 @@ export function MobileTripMapView({
         </div>
       ) : null}
 
-      <div
+      {!exploreDisabled ? <div
         data-testid="map-explore-controls"
         data-expanded={exploreOpen}
         className={`absolute top-3 z-20 ${exploreOpen ? 'inset-x-3' : 'right-3'}`}
@@ -242,13 +254,13 @@ export function MobileTripMapView({
             type="button"
             data-testid="map-explore-trigger"
             aria-label="搜尋周邊景點"
-            onClick={() => setExploreOpen(true)}
+            onClick={() => { onExploreOpen?.(); setExploreOpen(true); }}
             className={`flex h-11 w-11 items-center justify-center rounded-2xl border text-lg shadow-md ${t.headerBg} ${t.cardBorder} ${t.mainText}`}
           >
             🔍
           </button>
         )}
-      </div>
+      </div> : null}
 
       {routeState.message ? (
         <div
@@ -262,7 +274,7 @@ export function MobileTripMapView({
         </div>
       ) : null}
 
-      {active ? (
+      {active && !hideItinerarySheet ? (
         <MapItinerarySheet
           dayId={dayId}
           entries={entries}

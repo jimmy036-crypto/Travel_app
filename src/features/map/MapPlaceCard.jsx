@@ -70,6 +70,14 @@ export function MapPlaceCard({
               無定位
             </span>
           ) : null}
+          {entry.item?.parkingPlan ? (
+            <span
+              data-testid="map-place-saved-parking"
+              className="mt-1 inline-flex max-w-full truncate rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[9px] font-black text-blue-600"
+            >
+              已選停車場 · {entry.item.parkingPlan.name || 'Google Maps'}
+            </span>
+          ) : null}
         </div>
       </button>
     </article>

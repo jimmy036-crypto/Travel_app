@@ -3,6 +3,7 @@ import { getDatabase } from 'firebase-admin/database';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { logger } from 'firebase-functions';
+import { defineSecret } from 'firebase-functions/params';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { onValueWritten } from 'firebase-functions/v2/database';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
@@ -10,6 +11,7 @@ import { onObjectFinalized } from 'firebase-functions/v2/storage';
 
 import { createCollaborationService } from './collaboration.js';
 import { CollaborationError } from './domain.js';
+import { createParkingService } from './parking.js';
 import { createTripDeletionService } from './tripDeletion.js';
 
 initializeApp();
@@ -17,6 +19,8 @@ setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
 
 const database = getDatabase();
 const firestore = getFirestore();
+const tdxClientId = defineSecret('TDX_CLIENT_ID');
+const tdxClientSecret = defineSecret('TDX_CLIENT_SECRET');
 const service = createCollaborationService({
   database,
   firestore,
@@ -25,6 +29,14 @@ const tripDeletionService = createTripDeletionService({
   database,
   firestore,
   bucket: getStorage().bucket(),
+});
+const parkingService = createParkingService({
+  database,
+  logger,
+  getCredentials: () => ({
+    clientId: tdxClientId.value(),
+    clientSecret: tdxClientSecret.value(),
+  }),
 });
 
 const callable = (name, handler, options = null) => {
@@ -55,6 +67,16 @@ export const listTripMembers = callable('listTripMembers', service.listTripMembe
 export const removeTripMember = callable('removeTripMember', service.removeTripMember);
 export const restoreTripMember = callable('restoreTripMember', service.restoreTripMember);
 export const deleteTrip = callable('deleteTrip', tripDeletionService.deleteTrip);
+export const searchParking = callable(
+  'searchParking',
+  parkingService.searchParking,
+  {
+    secrets: [tdxClientId, tdxClientSecret],
+    timeoutSeconds: 20,
+    maxInstances: 2,
+    concurrency: 20,
+  },
+);
 
 export const processTripDeletion = onValueWritten(
   {

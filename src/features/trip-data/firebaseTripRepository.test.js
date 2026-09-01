@@ -126,6 +126,16 @@ describe('firebase trip repository', () => {
     });
   });
 
+  it('preserves an optional parkingPlan through updateItinerary without a top-level branch', async () => {
+    const repository = createFirebaseTripRepository({ db: {}, storage: {}, tripId: 'room-1' });
+    const itinerary = {
+      'Day 1': [{ id: 'place-1', name: '景點', parkingPlan: { schemaVersion: 1, provider: 'tdx', providerFacilityId: 'T1' } }],
+    };
+    await repository.updateItinerary(itinerary);
+    expect(placeServiceMocks.persistItinerary).toHaveBeenCalledWith({ db: {}, roomId: 'room-1', itinerary });
+    expect(databaseMocks.update).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ parkingPlan: expect.anything() }));
+  });
+
   it('does not add undefined attachment fields to plain itinerary places', async () => {
     const repository = createFirebaseTripRepository({
       db: {},
