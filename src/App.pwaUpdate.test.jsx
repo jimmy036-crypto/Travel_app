@@ -12,7 +12,9 @@ import {
 } from './pwaUpdateController.js';
 
 vi.mock('./firebase', () => ({
+  auth: null,
   db: { app: 'mock-db' },
+  functions: null,
   storage: null,
 }));
 

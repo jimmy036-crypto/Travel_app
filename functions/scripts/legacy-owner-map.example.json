@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "owners": [
+    {
+      "roomId": "replace-with-existing-room-id",
+      "uid": "replace-with-google-auth-uid",
+      "displayName": "旅程擁有者",
+      "photoURL": ""
+    }
+  ]
+}

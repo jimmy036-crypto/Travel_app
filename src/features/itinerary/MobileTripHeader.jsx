@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { Icon } from '../../components/ui/Icon.jsx';
 import { getDayDisplay } from '../../helpers.js';
 
 export function MobileTripHeader({
@@ -31,16 +32,16 @@ export function MobileTripHeader({
           data-testid="back-to-lobby"
           onClick={onBack}
           aria-label="返回旅程大廳"
-          className={`flex min-h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border shadow-sm transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
         >
-          ‹
+          <Icon name="arrowLeft" />
         </button>
         {settingsNode}
       </div>
 
       <div
         data-testid="mobile-trip-summary"
-        className={`mt-2 grid min-w-0 gap-2 rounded-2xl border p-3 ${t.cardBg} ${t.cardBorder}`}
+        className={`mt-2 grid min-w-0 gap-3 rounded-3xl border p-3.5 shadow-[var(--travel-shadow-card)] ${t.cardBg} ${t.cardBorder}`}
         style={{
           gridTemplateColumns: 'minmax(0, 1fr) clamp(5.25rem, 27vw, 6.75rem)',
         }}
@@ -49,7 +50,7 @@ export function MobileTripHeader({
           <div className="min-w-0">
             <h1
               data-testid="trip-detail-title"
-              className={`line-clamp-2 min-w-0 text-lg font-black leading-5 [overflow-wrap:anywhere] ${t.mainText}`}
+              className={`line-clamp-2 min-w-0 text-lg font-black leading-6 tracking-tight [overflow-wrap:anywhere] ${t.mainText}`}
             >
               {String(meta?.title || '旅程')}
             </h1>
@@ -60,7 +61,7 @@ export function MobileTripHeader({
           >
             {dateStr ? <span>{dateStr}</span> : null}
             {meta?.destination ? (
-              <span className="[overflow-wrap:anywhere]">📍 {String(meta.destination)}</span>
+              <span className="flex items-start gap-1.5 [overflow-wrap:anywhere]"><Icon name="location" size={15} className="mt-0.5 shrink-0" />{String(meta.destination)}</span>
             ) : null}
           </div>
           {syncStatusNode ? (

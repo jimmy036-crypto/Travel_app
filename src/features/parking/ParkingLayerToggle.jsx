@@ -29,7 +29,7 @@ export function ParkingLayerToggle({ open, radius, onOpen, onClose, onRadiusChan
           <option value={1000}>1km</option>
         </select>
       </label>
-      <button type="button" data-testid="parking-search-button" disabled={searching} onClick={onSearch} className="min-h-11 rounded-xl bg-blue-600 px-3 text-xs font-black text-white disabled:opacity-60">
+      <button type="button" data-testid="parking-search-button" disabled={searching} onClick={onSearch} className="min-h-11 rounded-xl bg-blue-700 px-3 text-xs font-black text-white transition-colors hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
         {searching ? '搜尋中…' : '搜尋／重新搜尋'}
       </button>
       <button type="button" aria-label="關閉附近停車" onClick={onClose} className={`min-h-11 min-w-11 rounded-xl text-lg font-black ${t.mainText}`}>×</button>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +11,7 @@ const firebaseMocks = vi.hoisted(() => ({
   get: vi.fn(),
   set: vi.fn(),
   update: vi.fn(),
+  onValue: vi.fn(),
 }));
 
 const offlineMocks = vi.hoisted(() => ({
@@ -27,13 +28,25 @@ const releaseMocks = vi.hoisted(() => ({
   clearPending: vi.fn(),
 }));
 
-vi.mock('./firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('./firebase.js', () => ({ auth: null, db: {}, functions: null, storage: {} }));
+vi.mock('./features/auth/useAuthSession.js', () => ({
+  useAuthSession: () => ({
+    user: { uid: 'test-user', displayName: '測試使用者', photoURL: '' },
+    loading: false,
+    busy: false,
+    error: '',
+    clearError: vi.fn(),
+    signInWithGoogle: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
 
 vi.mock('firebase/database', () => ({
   ref: firebaseMocks.ref,
   get: firebaseMocks.get,
   set: firebaseMocks.set,
   update: firebaseMocks.update,
+  onValue: firebaseMocks.onValue,
 }));
 
 vi.mock('@vis.gl/react-google-maps', () => ({
@@ -147,6 +160,20 @@ describe('App first-run welcome integration', () => {
     releaseMocks.hasSeen.mockReturnValue(false);
     releaseMocks.hasPending.mockReturnValue(false);
     offlineMocks.list.mockReturnValue([]);
+    firebaseMocks.onValue.mockImplementation((path, callback) => {
+      if (String(path) === 'userTrips/test-user') {
+        callback({ val: () => null });
+      } else if (String(path).startsWith('roomAccess/')) {
+        callback({ val: () => ({ role: 'owner', status: 'active' }) });
+      }
+      return vi.fn();
+    });
+    firebaseMocks.get.mockImplementation(async (path) => ({
+      exists: () => String(path).startsWith('roomAccess/'),
+      val: () => (String(path).startsWith('roomAccess/')
+        ? { role: 'owner', status: 'active' }
+        : null),
+    }));
   });
 
   it('shows Welcome for fresh storage before What’s New or FeatureTour', async () => {
@@ -157,9 +184,9 @@ describe('App first-run welcome integration', () => {
     expect(screen.queryByTestId('mock-feature-tour')).not.toBeInTheDocument();
   });
 
-  it('captures eligibility before App writes the empty trips default', async () => {
+  it('does not recreate the removed global trips cache during first-run eligibility', async () => {
     await renderFreshApp();
-    await waitFor(() => expect(localStorage.getItem('google-travel-my-trips')).toBe('[]'));
+    expect(localStorage.getItem('google-travel-my-trips')).toBeNull();
     expect(screen.getByTestId('first-run-welcome-dialog')).toBeInTheDocument();
   });
 
@@ -229,10 +256,9 @@ describe('App first-run welcome integration', () => {
   });
 
   it.each([
-    ['non-empty trips', () => localStorage.setItem('google-travel-my-trips', JSON.stringify([REAL_TRIP]))],
     ['release history', () => localStorage.setItem('travel-app-seen-release-old', 'true')],
     ['custom appearance', () => localStorage.setItem('google-travel-custom-bg', '#123456')],
-    ['offline cache', () => localStorage.setItem('google-travel-offline-trip-cache-v1', JSON.stringify({
+    ['account-scoped offline cache', () => localStorage.setItem('google-travel-offline-trip-cache-v2:test-user', JSON.stringify({
       room1: {
         version: 1,
         roomId: 'room1',
@@ -249,6 +275,12 @@ describe('App first-run welcome integration', () => {
     expect(screen.queryByTestId('first-run-welcome-dialog')).not.toBeInTheDocument();
   });
 
+  it('ignores the removed global trips cache as an authorization or onboarding signal', async () => {
+    localStorage.setItem('google-travel-my-trips', JSON.stringify([REAL_TRIP]));
+    await renderFreshApp();
+    expect(screen.getByTestId('first-run-welcome-dialog')).toBeInTheDocument();
+  });
+
   it('still shows Welcome when an empty trips key already exists', async () => {
     localStorage.setItem('google-travel-my-trips', '[]');
     await renderFreshApp();
@@ -256,10 +288,32 @@ describe('App first-run welcome integration', () => {
   });
 
   it('defers Welcome and What’s New for a room deep link until returning to Lobby', async () => {
+    let resolveTripIndex;
+    const defaultGet = firebaseMocks.get.getMockImplementation();
+    firebaseMocks.get.mockImplementation((path) => {
+      if (String(path) === 'userTrips/test-user/shared-room') {
+        return new Promise((resolve) => {
+          resolveTripIndex = resolve;
+        });
+      }
+      return defaultGet(path);
+    });
     window.history.pushState({}, '', '/?room=shared-room');
     const user = userEvent.setup();
     render(<App />);
+    expect(screen.getByTestId('trip-access-loading')).toBeInTheDocument();
+    expect(screen.queryByTestId('travel-lobby')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('app-settings-trigger')).not.toBeInTheDocument();
+    await waitFor(() => expect(firebaseMocks.get).toHaveBeenCalledWith(
+      'userTrips/test-user/shared-room',
+    ));
+    await act(async () => {
+      resolveTripIndex({
+        val: () => ({ role: 'owner', status: 'active' }),
+      });
+    });
     await waitFor(() => expect(screen.getByTestId('mock-trip-detail')).toBeInTheDocument());
+    expect(screen.queryByTestId('trip-access-loading')).not.toBeInTheDocument();
     expect(screen.queryByTestId('first-run-welcome-dialog')).not.toBeInTheDocument();
     expect(screen.queryByTestId('mock-whats-new')).not.toBeInTheDocument();
     await user.click(screen.getByTestId('mock-trip-back'));

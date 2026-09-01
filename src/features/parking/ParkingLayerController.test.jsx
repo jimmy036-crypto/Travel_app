@@ -31,6 +31,8 @@ function Harness({ searchParking, onSave = vi.fn(), anchorValue = anchor, isDriv
       key={anchorValue.id}
       mode={mode}
       onModeChange={setMode}
+      roomId="room-1"
+      dayId="Day 1"
       anchor={anchorValue}
       placesLib={{}}
       canEdit
@@ -63,7 +65,13 @@ describe('ParkingLayerController', () => {
     expect(searchParking).not.toHaveBeenCalled();
     await user.click(screen.getByTestId('parking-search-button'));
     await waitFor(() => expect(searchParking).toHaveBeenCalledOnce());
-    expect(searchParking.mock.calls[0][0]).toMatchObject({ anchor: { lat: 25.033, lng: 121.5654 }, radius: 500 });
+    expect(searchParking.mock.calls[0][0]).toMatchObject({
+      roomId: 'room-1',
+      dayId: 'Day 1',
+      placeId: 'place-1',
+      anchor: { lat: 25.033, lng: 121.5654 },
+      radius: 500,
+    });
     expect(await screen.findByText(/TDX 尚未設定/)).toBeInTheDocument();
   });
 

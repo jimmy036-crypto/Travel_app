@@ -46,8 +46,10 @@ const forbiddenPatterns = [
 const highRiskPatterns = [
   /^\.github\/workflows\//,
   /^database\.rules\.json$/,
+  /^firestore\.rules$/,
   /^storage\.rules$/,
   /^firebase\.json$/,
+  /^functions\//,
   /^src\/firebase\.js$/,
   /^package(-lock)?\.json$/,
   /^playwright\.config\.ts$/,

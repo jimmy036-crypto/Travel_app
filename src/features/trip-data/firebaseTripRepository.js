@@ -1,7 +1,7 @@
 import { get, onValue, ref as dbRef, update } from 'firebase/database';
 import {
   deleteObject,
-  getDownloadURL,
+  getBlob,
   ref as storageRef,
   uploadBytesResumable,
 } from 'firebase/storage';
@@ -22,6 +22,7 @@ import {
 } from './tripRepositoryContract.js';
 
 const FORBIDDEN_PATH_CHARACTERS = /[.#$[\]/]/;
+const MAX_ATTACHMENT_DOWNLOAD_BYTES = 15 * 1024 * 1024;
 
 const trimText = (value) => String(value ?? '').trim();
 
@@ -44,6 +45,37 @@ const toProgress = (snapshot) => {
   return Math.round((Number(snapshot?.bytesTransferred) / total) * 100);
 };
 
+const stripProtectedAttachmentUrl = (attachment) => (
+  attachment?.storagePath ? { ...attachment, url: '' } : attachment
+);
+
+const stripProtectedItineraryUrls = (itinerary) => Object.fromEntries(
+  Object.entries(itinerary && typeof itinerary === 'object' ? itinerary : {}).map(
+    ([dayId, items]) => [dayId, Array.isArray(items) ? items.map((item) => {
+      const {
+        placePhoto,
+        resources,
+        ...nextItem
+      } = item || {};
+      if (placePhoto) {
+        nextItem.placePhoto = stripProtectedAttachmentUrl(placePhoto);
+      }
+      if (Array.isArray(resources)) {
+        nextItem.resources = resources.map(stripProtectedAttachmentUrl);
+      }
+      return nextItem;
+    }) : []],
+  ),
+);
+
+const stripProtectedSnapshotUrls = (snapshot) => ({
+  ...snapshot,
+  itinerary: stripProtectedItineraryUrls(snapshot.itinerary),
+  tickets: Array.isArray(snapshot.tickets)
+    ? snapshot.tickets.map(stripProtectedAttachmentUrl)
+    : [],
+});
+
 const uploadFirebaseFile = ({
   storage,
   path,
@@ -56,16 +88,7 @@ const uploadFirebaseFile = ({
     'state_changed',
     (snapshot) => onProgress?.(toProgress(snapshot)),
     reject,
-    async () => {
-      try {
-        resolve({
-          url: await getDownloadURL(uploadTask.snapshot.ref),
-          storagePath: path,
-        });
-      } catch (error) {
-        reject(error);
-      }
-    },
+    () => resolve({ url: '', storagePath: path }),
   );
 });
 
@@ -74,16 +97,20 @@ export function createFirebaseTripRepository(options = {}) {
     db,
     storage,
     tripId: requestedTripId,
-    offline = {
-      buildSnapshot: buildOfflineTripSnapshot,
-      writeSnapshot: writeOfflineTripSnapshot,
-    },
+    cacheOwnerUid = 'local',
+    offline,
   } = options;
   const tripId = assertTripId(requestedTripId);
   if (!db) throw new Error('Firebase Database is required.');
 
   const activeSubscriptions = new Set();
+  const objectUrls = new Map();
+  const attachmentReads = new Map();
   let disposed = false;
+  const offlineAdapter = offline || {
+    buildSnapshot: buildOfflineTripSnapshot,
+    writeSnapshot: (snapshot) => writeOfflineTripSnapshot(snapshot, cacheOwnerUid),
+  };
 
   const assertActive = () => {
     if (disposed) throw new Error('Trip repository has been disposed.');
@@ -101,7 +128,7 @@ export function createFirebaseTripRepository(options = {}) {
         dbRef(db, `rooms/${tripId}`),
         (snapshot) => {
           const value = snapshot.val();
-          onSnapshot?.(value ? normalizeTripSnapshot(value) : null);
+          onSnapshot?.(value ? stripProtectedSnapshotUrls(normalizeTripSnapshot(value)) : null);
         },
         onError,
       );
@@ -115,7 +142,9 @@ export function createFirebaseTripRepository(options = {}) {
     async loadTrip() {
       assertActive();
       const snapshot = await get(dbRef(db, `rooms/${tripId}`));
-      return snapshot.exists() ? normalizeTripSnapshot(snapshot.val()) : null;
+      return snapshot.exists()
+        ? stripProtectedSnapshotUrls(normalizeTripSnapshot(snapshot.val()))
+        : null;
     },
 
     updateMeta(value) {
@@ -124,7 +153,11 @@ export function createFirebaseTripRepository(options = {}) {
 
     updateItinerary(value) {
       assertActive();
-      return persistItinerary({ db, roomId: tripId, itinerary: value });
+      return persistItinerary({
+        db,
+        roomId: tripId,
+        itinerary: stripProtectedItineraryUrls(value),
+      });
     },
 
     updateExpenses(value) {
@@ -136,7 +169,10 @@ export function createFirebaseTripRepository(options = {}) {
     },
 
     updateTickets(value) {
-      return writeBranch('tickets', value);
+      return writeBranch(
+        'tickets',
+        Array.isArray(value) ? value.map(stripProtectedAttachmentUrl) : [],
+      );
     },
 
     async updateChecklist(patch) {
@@ -174,6 +210,7 @@ export function createFirebaseTripRepository(options = {}) {
         onProgress: input.onProgress,
         metadata: {
           contentType,
+          cacheControl: 'private, no-store, max-age=0',
           customMetadata: {
             roomId: tripId,
             itemId: ownerId,
@@ -208,20 +245,40 @@ export function createFirebaseTripRepository(options = {}) {
 
     async readAttachment(input) {
       assertActive();
-      const directUrl = trimText(input?.url);
-      if (directUrl) return directUrl;
       if (!storage) throw new Error('Firebase Storage is required for attachments.');
       const storagePath = trimText(
         typeof input === 'string' ? input : input?.storagePath,
       );
       if (!storagePath) return '';
-      return getDownloadURL(storageRef(storage, storagePath));
+      const cachedUrl = objectUrls.get(storagePath);
+      if (cachedUrl) return cachedUrl;
+      const pendingRead = attachmentReads.get(storagePath);
+      if (pendingRead) return pendingRead;
+
+      const readPromise = (async () => {
+        const blob = await getBlob(
+          storageRef(storage, storagePath),
+          MAX_ATTACHMENT_DOWNLOAD_BYTES,
+        );
+        assertActive();
+        const objectUrl = URL.createObjectURL(blob);
+        objectUrls.set(storagePath, objectUrl);
+        return objectUrl;
+      })();
+      attachmentReads.set(storagePath, readPromise);
+      try {
+        return await readPromise;
+      } finally {
+        if (attachmentReads.get(storagePath) === readPromise) {
+          attachmentReads.delete(storagePath);
+        }
+      }
     },
 
     writeOfflineSnapshot(input) {
       assertActive();
-      const snapshot = offline.buildSnapshot({ ...input, roomId: tripId });
-      return snapshot ? offline.writeSnapshot(snapshot) : null;
+      const snapshot = offlineAdapter.buildSnapshot({ ...input, roomId: tripId });
+      return snapshot ? offlineAdapter.writeSnapshot(snapshot) : null;
     },
 
     dispose() {
@@ -229,6 +286,9 @@ export function createFirebaseTripRepository(options = {}) {
       disposed = true;
       activeSubscriptions.forEach((unsubscribe) => unsubscribe());
       activeSubscriptions.clear();
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      objectUrls.clear();
+      attachmentReads.clear();
     },
 
     getCapabilities() {

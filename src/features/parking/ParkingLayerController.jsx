@@ -14,6 +14,8 @@ export function ParkingLayerController({
   children,
   mode,
   onModeChange,
+  roomId,
+  dayId,
   anchor,
   placesLib,
   canEdit,
@@ -58,6 +60,9 @@ export function ParkingLayerController({
         : null;
       const searchImplementation = typeof e2eProvider === 'function' ? e2eProvider : searchParking;
       const result = await searchImplementation({
+        roomId,
+        dayId,
+        placeId: String(anchor.id || ''),
         anchor: { lat: Number(anchor.lat), lng: Number(anchor.lng) },
         radius,
         placesLib,
@@ -77,6 +82,7 @@ export function ParkingLayerController({
   };
   const sortedFacilities = useMemo(() => sortParkingFacilities(facilities, sort), [facilities, sort]);
   const parkingOpen = mode === 'parking';
+  const errorText = t.isLight === false ? 'text-red-200' : 'text-red-700';
   const markers = parkingOpen ? (
     <ParkingMarkerLayer facilities={sortedFacilities} selectedId={selectedId} onSelect={setSelectedId} />
   ) : null;
@@ -104,9 +110,11 @@ export function ParkingLayerController({
             </div>
           ) : null}
           {parkingOpen && status === 'empty' ? <p className={`mt-2 rounded-xl border p-2 text-xs ${t.headerBg} ${t.cardBorder} ${t.mainText}`}>找不到附近停車場</p> : null}
-          {parkingOpen && status === 'error' ? <p className={`mt-2 rounded-xl border p-2 text-xs text-red-500 ${t.headerBg} ${t.cardBorder}`}>停車 Provider 暫時無法使用；原行程不受影響。</p> : null}
+          {parkingOpen && status === 'error' ? <p role="alert" className={`mt-2 rounded-xl border p-2 text-xs ${errorText} ${t.headerBg} ${t.cardBorder}`}>停車資料暫時無法取得，請稍後重新搜尋；原行程不受影響。</p> : null}
           {parkingOpen && providerStatus.tdx === 'not_configured' ? <p className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.subText}`}>TDX 尚未設定；仍顯示 Google Maps 停車位置。</p> : null}
           {parkingOpen && providerStatus.tdx === 'timeout' ? <p className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.subText}`}>TDX 逾時；已降級顯示 Google Maps。</p> : null}
+          {parkingOpen && providerStatus.tdx === 'rate_limited' ? <p className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.subText}`}>TDX 搜尋次數已達安全上限；仍顯示 Google Maps 停車位置。</p> : null}
+          {parkingOpen && providerStatus.tdx === 'access_denied' ? <p role="alert" className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.mainText}`}>無法確認旅程權限；請重新登入或確認你仍是旅程成員。</p> : null}
         </div>
         {parkingOpen ? (
           <ParkingResultSheet

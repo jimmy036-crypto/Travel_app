@@ -1,7 +1,6 @@
 import { ref as dbRef, update } from 'firebase/database';
 import {
   deleteObject,
-  getDownloadURL,
   ref as storageRef,
   uploadBytesResumable,
 } from 'firebase/storage';
@@ -159,6 +158,7 @@ export async function uploadTicketAttachment({
   const fileRef = storageRef(storage, storagePath);
   const uploadTask = uploadBytesResumable(fileRef, file, {
     contentType: normalizedFile.contentType,
+    cacheControl: 'private, no-store, max-age=0',
     customMetadata: {
       roomId: safeRoomId,
       ticketId: safeTicketId,
@@ -198,20 +198,15 @@ export async function uploadTicketAttachment({
       },
       async () => {
         if (settled) return;
-        try {
-          const url = await getDownloadURL(uploadTask.snapshot.ref);
-          notifyProgress(onProgress, 100);
-          finish(() => resolve({
-            url,
-            storagePath,
-            attachmentKind: normalizedFile.attachmentKind,
-            fileName,
-            contentType: normalizedFile.contentType,
-            size: normalizedFile.size,
-          }));
-        } catch (error) {
-          finish(() => reject(error));
-        }
+        notifyProgress(onProgress, 100);
+        finish(() => resolve({
+          url: '',
+          storagePath,
+          attachmentKind: normalizedFile.attachmentKind,
+          fileName,
+          contentType: normalizedFile.contentType,
+          size: normalizedFile.size,
+        }));
       },
     );
   });

@@ -122,7 +122,7 @@ export function CloneDemoDialog({
         <div className="mt-5 grid gap-2 sm:grid-cols-2">
           {status === 'repair-required' ? (
             <>
-              <button type="button" data-testid="clone-demo-repair" onClick={onRepair} className="min-h-11 rounded-xl bg-amber-600 px-4 font-black text-white">
+              <button type="button" data-testid="clone-demo-repair" onClick={onRepair} className="min-h-11 rounded-xl bg-amber-700 px-4 font-black text-white hover:bg-amber-800">
                 修復 myTrips
               </button>
               <button type="button" data-testid="clone-demo-open-trip" onClick={onOpenTrip} className="min-h-11 rounded-xl border border-slate-300 px-4 font-black dark:border-slate-700">
@@ -131,7 +131,7 @@ export function CloneDemoDialog({
             </>
           ) : null}
           {status === 'success' ? (
-            <button type="button" data-testid="clone-demo-open-trip" onClick={onOpenTrip} className="min-h-11 rounded-xl bg-emerald-600 px-4 font-black text-white sm:col-span-2">
+            <button type="button" data-testid="clone-demo-open-trip" onClick={onOpenTrip} className="min-h-11 rounded-xl bg-emerald-700 px-4 font-black text-white hover:bg-emerald-800 sm:col-span-2">
               開啟旅程
             </button>
           ) : null}
@@ -140,7 +140,7 @@ export function CloneDemoDialog({
               type="button"
               data-testid="clone-demo-confirm"
               onClick={confirm}
-              className="min-h-11 rounded-xl bg-emerald-600 px-4 font-black text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="min-h-11 rounded-xl bg-emerald-700 px-4 font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               確認 Clone
             </button>

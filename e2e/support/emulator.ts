@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 
 type FirebaseRc = {
@@ -24,6 +25,14 @@ type StorageObjectListResponse = {
   prefixes?: string[];
   nextPageToken?: string;
 };
+
+type FirestoreDocument = {
+  fields?: Record<string, unknown>;
+};
+
+export const E2E_AUTH_UID = 'e2e-owner';
+export const E2E_AUTH_DISPLAY_NAME = 'E2E Owner';
+const EMULATOR_ADMIN_AUTH = 'owner';
 
 function parseEnvFile(fileName: string): Record<string, string> {
   const filePath = resolve(process.cwd(), fileName);
@@ -51,9 +60,10 @@ const emulatorLocalEnv = process.env.CI || process.env.TRAVEL_E2E_SKIP_LOCAL_ENV
   : parseEnvFile('.env.emulator.local');
 
 function getEmulatorEnvValue(key: string): string | undefined {
-  const value = process.env.CI
-    ? process.env[key] ?? emulatorLocalEnv[key]
-    : emulatorLocalEnv[key] ?? process.env[key];
+  // playwright.config.ts 會將 E2E demo project 設定注入 process.env。
+  // 明確的 runner 設定必須優先，避免本機 env 檔把 helper
+  // 導向另一個 Firebase project namespace。
+  const value = process.env[key] ?? emulatorLocalEnv[key];
   return value ? String(value) : undefined;
 }
 
@@ -153,14 +163,44 @@ function normalizeDatabasePath(path: string): string {
     .replace(/\/+$/u, '');
 }
 
-function getDatabaseRestUrl(path = ''): string {
+function getDatabaseRestUrl(path = '', disableTriggers = false): string {
   const normalizedPath = normalizeDatabasePath(path);
   const suffix = normalizedPath ? `/${normalizedPath}.json` : '/.json';
 
+  const query = new URLSearchParams({
+    ns: getDatabaseNamespace(),
+  });
+  if (disableTriggers) query.set('disableTriggers', 'true');
+  return `http://127.0.0.1:9000${suffix}?${query.toString()}`;
+}
+
+function getFirestoreDocumentsUrl(path = ''): string {
+  const normalizedPath = normalizeDatabasePath(path);
+  const encodedPath = normalizedPath
+    .split('/')
+    .filter(Boolean)
+    .map(encodeURIComponent)
+    .join('/');
+  const suffix = encodedPath ? `/documents/${encodedPath}` : '/documents';
   return (
-    `http://127.0.0.1:9000${suffix}` +
-    `?ns=${encodeURIComponent(getDatabaseNamespace())}`
+    `http://127.0.0.1:8080/v1/projects/`
+    + `${encodeURIComponent(getFirebaseProjectId())}`
+    + `/databases/(default)${suffix}`
   );
+}
+
+function getFirestoreClearUrl(): string {
+  return (
+    `http://127.0.0.1:8080/emulator/v1/projects/`
+    + `${encodeURIComponent(getFirebaseProjectId())}`
+    + '/databases/(default)/documents'
+  );
+}
+
+function withAdminAuthorization(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers);
+  headers.set('authorization', `Bearer ${EMULATOR_ADMIN_AUTH}`);
+  return { ...init, headers };
 }
 
 async function wait(milliseconds: number): Promise<void> {
@@ -180,7 +220,7 @@ async function requestStorage(
     let response: Response;
 
     try {
-      response = await fetch(url, init);
+      response = await fetch(url, withAdminAuthorization(init));
     } catch (error) {
       lastError = error;
       await wait(200);
@@ -214,15 +254,53 @@ async function requestStorage(
   );
 }
 
-async function requestDatabase(
-  path: string,
+async function requestFirestore(
+  url: string,
   init?: RequestInit,
+  acceptedStatuses: number[] = [],
 ): Promise<Response> {
   let lastError: unknown = null;
 
   for (let attempt = 1; attempt <= 30; attempt += 1) {
     try {
-      const response = await fetch(getDatabaseRestUrl(path), init);
+      const response = await fetch(url, withAdminAuthorization(init));
+      if (response.ok || acceptedStatuses.includes(response.status)) {
+        return response;
+      }
+
+      const responseBody = (await response.text()).trim();
+      const detail = responseBody ? `：${responseBody}` : '';
+      lastError = new Error(
+        `Firestore Emulator 回傳 ${response.status} ${response.statusText}${detail}`,
+      );
+
+      const shouldRetry = response.status === 408
+        || response.status === 429
+        || response.status >= 500;
+      if (!shouldRetry) break;
+    } catch (error) {
+      lastError = error;
+    }
+
+    await wait(200);
+  }
+
+  throw new Error(`無法連線 Firestore Emulator：${String(lastError)}`);
+}
+
+async function requestDatabase(
+  path: string,
+  init?: RequestInit,
+  options: { disableTriggers?: boolean } = {},
+): Promise<Response> {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
+    try {
+      const response = await fetch(
+        getDatabaseRestUrl(path, options.disableTriggers === true),
+        withAdminAuthorization(init),
+      );
 
       if (response.ok) return response;
 
@@ -242,9 +320,38 @@ async function requestDatabase(
 }
 
 export async function clearEmulatorDatabase(): Promise<void> {
-  await requestDatabase('', {
-    method: 'DELETE',
+  // Firebase CLI uses this Emulator-only query flag for imports and resets.
+  // It prevents cleanup from invoking syncTripMemberAccess and recreating
+  // fail-closed tombstones after the next test has already started.
+  await Promise.all([
+    requestDatabase('', { method: 'DELETE' }, { disableTriggers: true }),
+    requestFirestore(getFirestoreClearUrl(), { method: 'DELETE' }),
+  ]);
+}
+
+export async function writeEmulatorFirestoreDocument(
+  path: string,
+  fields: FirestoreDocument['fields'],
+): Promise<void> {
+  await requestFirestore(getFirestoreDocumentsUrl(path), {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
   });
+}
+
+export async function readEmulatorFirestoreDocument(
+  path: string,
+): Promise<FirestoreDocument | null> {
+  const response = await requestFirestore(
+    getFirestoreDocumentsUrl(path),
+    undefined,
+    [404],
+  );
+  if (response.status === 404) return null;
+  return await response.json() as FirestoreDocument;
 }
 
 export async function writeEmulatorData(
@@ -277,9 +384,23 @@ export async function seedTestTrip(
     memberBudgets?: Record<string, number>;
     expenses?: unknown[];
     itinerary?: Record<string, unknown[]>;
+    checklist?: Record<string, unknown>;
+    tickets?: unknown[];
+    settlements?: unknown[];
+    destination?: string;
+    transport?: string;
+    themeColor?: string;
+    ownerUid?: string;
+    ownerDisplayName?: string;
   } = {},
 ): Promise<void> {
   const now = Date.now();
+  const ownerUid = String(options.ownerUid || E2E_AUTH_UID);
+  const ownerDisplayName = String(
+    options.ownerDisplayName || (ownerUid === E2E_AUTH_UID
+      ? E2E_AUTH_DISPLAY_NAME
+      : 'E2E Invite Owner'),
+  );
   const members = Array.isArray(options.members) && options.members.length > 0
     ? [...new Set(options.members.map(String).filter(Boolean))]
     : ['自己'];
@@ -317,25 +438,101 @@ export async function seedTestTrip(
   await writeEmulatorData(`rooms/${roomId}`, {
     meta: {
       title: options.title || 'E2E 景點測試旅程',
-      destination: '台北市',
+      destination: options.destination || '台北市',
       destLat: 25.033,
       destLng: 121.5654,
       startDate: options.startDate || '2026-09-20',
       endDate: options.endDate || '2026-09-22',
       members,
       memberBudgets,
-      transport: '汽車 🚗',
-      themeColor: '#3b82f6',
+      transport: options.transport || '汽車 🚗',
+      themeColor: options.themeColor || '#3b82f6',
       dayThemes: {},
       createdAt: now,
       updatedAt: now,
+      ownerUid,
     },
     itinerary,
     expenses: Array.isArray(options.expenses) ? options.expenses : [],
-    settlements: [],
-    tickets: [],
-    checklist: {},
+    settlements: Array.isArray(options.settlements) ? options.settlements : [],
+    tickets: Array.isArray(options.tickets) ? options.tickets : [],
+    checklist: options.checklist && typeof options.checklist === 'object'
+      ? options.checklist
+      : {},
   });
+
+  // Seed the derived mirrors before the canonical member record. Writing
+  // roomAccess starts syncTripMemberAccess asynchronously; putting it first
+  // races the trigger's Firestore transaction against this direct ACL seed
+  // and can exhaust the Emulator transaction lock during the full suite.
+  await writeEmulatorData(`userTrips/${ownerUid}/${roomId}`, {
+    role: 'owner',
+    status: 'active',
+    aclVersion: 1,
+    updatedAt: now,
+  });
+  await writeEmulatorFirestoreDocument(
+    `tripAccess/${roomId}/members/${ownerUid}`,
+    {
+      uid: { stringValue: ownerUid },
+      role: { stringValue: 'owner' },
+      status: { stringValue: 'active' },
+      aclVersion: { integerValue: '1' },
+      updatedAt: { timestampValue: new Date(now).toISOString() },
+    },
+  );
+  await writeEmulatorData(`roomAccess/${roomId}`, {
+    ownerUid,
+    state: 'ready',
+    createdAt: now,
+    members: {
+      [ownerUid]: {
+        uid: ownerUid,
+        displayName: ownerDisplayName,
+        photoURL: `https://example.test/${encodeURIComponent(ownerUid)}.png`,
+        role: 'owner',
+        status: 'active',
+        aclVersion: 1,
+        joinedAt: now,
+        updatedAt: now,
+      },
+    },
+  });
+}
+
+export async function seedTestTripInvite(
+  roomId: string,
+  options: {
+    token?: string;
+    createdByUid?: string;
+  } = {},
+): Promise<string> {
+  const token = String(options.token || 'e'.repeat(43));
+  if (!/^[A-Za-z0-9_-]{43}$/u.test(token)) {
+    throw new Error('E2E invite token 必須是 43 個 base64url 字元。');
+  }
+  const createdByUid = String(options.createdByUid || 'e2e-invite-owner');
+  const tokenHash = createHash('sha256').update(token, 'utf8').digest('hex');
+  const createdAt = Date.now();
+
+  await writeEmulatorData(`roomAccess/${roomId}/inviteVersion`, 1);
+  await writeEmulatorData(`roomAccess/${roomId}/invite`, {
+    token,
+    tokenHash,
+    active: true,
+    version: 1,
+    createdAt,
+    createdByUid,
+  });
+  await writeEmulatorData(`tripInvites/${tokenHash}`, {
+    roomId,
+    role: 'editor',
+    active: true,
+    version: 1,
+    createdAt,
+    createdByUid,
+  });
+  return token;
 }
 
 export async function uploadEmulatorStorageObject(

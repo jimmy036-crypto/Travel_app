@@ -484,7 +484,7 @@ describe('TicketEditorModal progressive form', () => {
 
 describe('TicketEditorModal attachment safety and accessibility', () => {
   it('EDITOR-36 rejects SVG attachments near the file input', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ applyAccept: false });
     renderEditor();
     const file = new File(['<svg />'], 'ticket.svg', { type: 'image/svg+xml' });
 
@@ -782,6 +782,22 @@ describe('TicketEditorModal async submission contract', () => {
 
     expect(screen.getByRole('progressbar', { name: '附件上傳進度' })).toHaveAttribute('aria-valuemin', '0');
     expect(screen.getByRole('progressbar', { name: '附件上傳進度' })).toHaveAttribute('aria-valuemax', '100');
+  });
+
+  it.each([
+    { isLight: true, warningText: 'text-amber-900', trackBg: 'bg-slate-300' },
+    { isLight: false, warningText: 'text-amber-100', trackBg: 'bg-slate-700' },
+  ])('EDITOR-58A uses the custom $isLight theme for warnings and upload progress', async ({ isLight, warningText, trackBg }) => {
+    const user = userEvent.setup();
+    renderEditor({ t: { isLight }, uploadProgress: 45 });
+    await user.click(screen.getByTestId('ticket-type-external-app'));
+
+    const warning = screen.getByTestId('ticket-external-app-warning');
+    const progress = screen.getByTestId('ticket-upload-progress');
+    expect(warning).toHaveClass(warningText);
+    expect(progress).toHaveClass(trackBg);
+    expect(warning.className).not.toContain('dark:');
+    expect(progress.className).not.toContain('dark:');
   });
 
   it('EDITOR-59 reports progress value and uses it in pending button copy', async () => {

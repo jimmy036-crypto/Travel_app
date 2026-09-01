@@ -22,6 +22,7 @@ import { AppSettingsMenu } from './components/AppSettingsMenu.jsx';
 import { AppearanceDialog } from './components/AppearanceDialog.jsx';
 import { CURRENT_RELEASE_NOTES } from './config/releaseNotes.js';
 import { EmptyState } from './components/ui/EmptyState.jsx';
+import { Icon } from './components/ui/Icon.jsx';
 import { SkeletonButton, SkeletonText } from './components/ui/Skeleton.jsx';
 
 import {
@@ -81,6 +82,7 @@ import { DesktopDayNavigator } from './features/itinerary/DesktopDayNavigator.js
 import { MobileTripHeader } from './features/itinerary/MobileTripHeader.jsx';
 import { MobileMapTopBar } from './features/map/MobileMapTopBar.jsx';
 import { MobileCompactUtilityBar } from './components/MobileCompactUtilityBar.jsx';
+import { TripTabBar } from './features/navigation/TripTabBar.jsx';
 import {
   MobileItineraryTimeline,
   MobileTimelineSkeleton,
@@ -92,9 +94,15 @@ import {
   sanitizeParkingPlan,
   updatePlaceParkingPlan,
 } from './features/parking/parkingPersistencePolicy.js';
+import {
+  computeDrivingRouteOptimization,
+  getRouteLegMinutes,
+  getRouteTotals,
+} from './features/map/googleRoutes.js';
 import { isDndDebugEnabled, traceDnd, traceDndNextFrame } from './features/itinerary/dndDebugTrace.js';
 import { DndDebugPanel } from './features/itinerary/DndDebugPanel.jsx';
 import { buildPrintPreviewToolbar } from './features/export/itineraryPrintPreview.js';
+import { AccountSection } from './features/auth/AccountSection.jsx';
 
 const IS_FIREBASE_EMULATOR =
   import.meta.env.MODE === "emulator"
@@ -122,6 +130,36 @@ const isPdfPlaceResource = (resource) => (
   || String(resource?.fileName || '').toLowerCase().endsWith('.pdf')
   || String(resource?.kind || '') === 'pdf'
 );
+
+const hydrateProtectedPlaceImages = async (itinerary, repository) => {
+  const entries = await Promise.all(Object.entries(itinerary || {}).map(async ([dayId, items]) => {
+    const hydratedItems = await Promise.all((Array.isArray(items) ? items : []).map(async (item) => {
+      const hydrateImage = async (attachment, assumeImage = false) => {
+        if (!attachment?.storagePath || (!assumeImage && !isImagePlaceResource(attachment))) {
+          return attachment;
+        }
+        try {
+          const url = await repository.readAttachment(attachment);
+          return url ? { ...attachment, url } : attachment;
+        } catch (error) {
+          console.warn('Protected place image could not be loaded.', error);
+          return attachment;
+        }
+      };
+      return {
+        ...item,
+        placePhoto: await hydrateImage(item?.placePhoto, true),
+        resources: await Promise.all(
+          (Array.isArray(item?.resources) ? item.resources : []).map(
+            (resource) => hydrateImage(resource),
+          ),
+        ),
+      };
+    }));
+    return [dayId, hydratedItems];
+  }));
+  return Object.fromEntries(entries);
+};
 
 const getPlaceResourceMeta = (resourceOrType) => {
   const resource = typeof resourceOrType === 'object' && resourceOrType !== null
@@ -244,9 +282,9 @@ const PlacePhotoLightbox = ({ photo, onClose }) => {
 };
 
 
-const PlaceResourcesModal = ({ item, mode = 'menu', onClose }) => {
+const PlaceResourcesModal = ({ item, mode = 'menu', onClose, onOpenResource }) => {
   const allResources = Array.isArray(item?.resources)
-    ? item.resources.filter((resource) => resource?.url)
+    ? item.resources.filter((resource) => resource?.url || resource?.storagePath)
     : [];
   const resources = allResources.filter((resource) => (
     mode === 'menu' ? resource.type === 'menu' : resource.type !== 'menu'
@@ -421,7 +459,7 @@ const PlaceResourcesModal = ({ item, mode = 'menu', onClose }) => {
                   <button
                     key={String(resource.id || resource.url)}
                     type="button"
-                    onClick={() => openExternalUrl(resource.url)}
+                    onClick={() => onOpenResource?.(resource)}
                     className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 text-left active:scale-[0.99]"
                   >
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10 text-xl">{meta.icon}</span>
@@ -459,6 +497,7 @@ const PlaceItemDetailModal = ({
   onDelete,
   onViewMenu,
   onViewPhoto,
+  onOpenResource,
   t,
 }) => {
   const [showGoogleSection, setShowGoogleSection] = useState(false);
@@ -485,7 +524,7 @@ const PlaceItemDetailModal = ({
     ? String(item.name)
     : '';
   const allResources = Array.isArray(item.resources)
-    ? item.resources.filter((resource) => resource?.url)
+    ? item.resources.filter((resource) => resource?.url || resource?.storagePath)
     : [];
   const menuResources = allResources.filter((resource) => resource.type === 'menu');
   const nonMenuResources = allResources.filter((resource) => resource.type !== 'menu');
@@ -703,7 +742,7 @@ const PlaceItemDetailModal = ({
                     <button
                       key={String(resource.id || resource.url)}
                       type="button"
-                      onClick={() => openExternalUrl(resource.url)}
+                      onClick={() => onOpenResource?.(resource)}
                       className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border px-4 text-left active:scale-[0.99] ${t.cardBg} ${t.cardBorder}`}
                     >
                       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-xl">{meta.icon}</span>
@@ -745,7 +784,7 @@ const PlaceItemDetailModal = ({
                       <button
                         key={String(resource.id || resource.url)}
                         type="button"
-                        onClick={() => openExternalUrl(resource.url)}
+                        onClick={() => onOpenResource?.(resource)}
                         className={`flex min-h-13 w-full items-center gap-3 rounded-2xl border px-4 text-left active:scale-[0.99] ${t.cardBg} ${t.cardBorder}`}
                       >
                         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-500/10 text-lg">{meta.icon}</span>
@@ -867,14 +906,6 @@ const PlaceItemDetailModal = ({
       </div>
     </div>
   );
-};
-
-const getRouteTotals = (route) => {
-  const legs = Array.isArray(route?.legs) ? route.legs : [];
-  return legs.reduce((totals, leg) => ({
-    minutes: totals.minutes + Math.max(0, Math.round(Number(leg?.duration?.value || 0) / 60)),
-    meters: totals.meters + Math.max(0, Number(leg?.distance?.value || 0)),
-  }), { minutes: 0, meters: 0 });
 };
 
 const formatRouteMinutes = (minutes) => {
@@ -1252,12 +1283,6 @@ const TripDetailSkeleton = ({
   t,
   tripThemeColor,
   onBack,
-  onOpenReleaseNotes,
-  onOpenFeatureIntroduction,
-  onStartFeatureTour,
-  onCheckUpdates,
-  isCheckingUpdates,
-  onOpenAppearance,
 }) => {
   const isMobileViewport = useMobileViewport();
 
@@ -1280,29 +1305,22 @@ const TripDetailSkeleton = ({
                 >
                   ◀ 返回
                 </button>
-                <SkeletonText lines={1} className="w-40 md:w-56" />
+                <SkeletonText lines={1} className="w-40 md:w-56" isLight={t.isLight} />
               </div>
-              <SkeletonText lines={1} className="mt-2 w-56 md:w-72" />
+              <SkeletonText lines={1} className="mt-2 w-56 md:w-72" isLight={t.isLight} />
             </div>
-            <AppSettingsMenu
-              key="trip-skeleton-settings"
-              t={t}
-              version={CURRENT_RELEASE_NOTES.version}
-              onOpenAppearance={onOpenAppearance}
-              onOpenReleaseNotes={onOpenReleaseNotes}
-              onOpenFeatureIntroduction={onOpenFeatureIntroduction}
-              onStartFeatureTour={onStartFeatureTour}
-              onCheckUpdates={onCheckUpdates}
-              isCheckingUpdates={isCheckingUpdates}
+            <SkeletonButton
+              className="h-11 w-11 shrink-0 rounded-2xl"
+              isLight={t.isLight}
             />
           </div>
         </div>
 
         <div className={`md:hidden shrink-0 border-b px-4 py-3 ${t.headerBg} ${t.cardBorder}`}>
           <div className="flex gap-2 overflow-hidden">
-            <SkeletonButton className="h-11 w-20 shrink-0" />
-            <SkeletonButton className="h-11 w-20 shrink-0" />
-            <SkeletonButton className="h-11 w-20 shrink-0" />
+            <SkeletonButton className="h-11 w-20 shrink-0" isLight={t.isLight} />
+            <SkeletonButton className="h-11 w-20 shrink-0" isLight={t.isLight} />
+            <SkeletonButton className="h-11 w-20 shrink-0" isLight={t.isLight} />
           </div>
         </div>
 
@@ -1318,9 +1336,9 @@ const TripDetailSkeleton = ({
               >
                 <div className="mb-4 flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <SkeletonText lines={2} className="w-52" />
+                    <SkeletonText lines={2} className="w-52" isLight={t.isLight} />
                   </div>
-                  <SkeletonButton className="h-8 w-24 shrink-0" />
+                  <SkeletonButton className="h-8 w-24 shrink-0" isLight={t.isLight} />
                 </div>
                 <div className="space-y-3">
                   {Array.from({ length: 3 }).map((_, index) => (
@@ -1330,12 +1348,12 @@ const TripDetailSkeleton = ({
                       className={`rounded-2xl border p-4 shadow-sm ${t.itemBg} ${t.cardBorder}`}
                     >
                       <div className="flex gap-4">
-                        <div className="h-10 w-10 shrink-0 rounded-xl bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                        <div className={`h-10 w-10 shrink-0 rounded-xl motion-safe:animate-pulse ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} />
                         <div className="min-w-0 flex-1">
-                          <SkeletonText lines={2} />
+                          <SkeletonText lines={2} isLight={t.isLight} />
                           <div className="mt-3 flex gap-2">
-                            <div className="h-5 w-16 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
-                            <div className="h-5 w-20 rounded-full bg-slate-300/60 dark:bg-slate-700/60 motion-safe:animate-pulse" />
+                            <div className={`h-5 w-16 rounded-full motion-safe:animate-pulse ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} />
+                            <div className={`h-5 w-20 rounded-full motion-safe:animate-pulse ${t.isLight ? 'bg-slate-300/60' : 'bg-slate-700/60'}`} />
                           </div>
                         </div>
                       </div>
@@ -1367,6 +1385,14 @@ const TripDetail = ({
   isCheckingUpdates,
   onTourAvailabilityChange,
   isOnline = true,
+  tripAccessRole = '',
+  onOpenSharing,
+  accountUser,
+  authLoading = false,
+  authBusy = false,
+  authError = '',
+  onSignIn,
+  onSignOut,
 }) => {
   const roomId = String(tripId || legacyRoomId || '');
   const isExampleTrip = roomId === LOCAL_EXAMPLE_TRIP_ID;
@@ -1410,6 +1436,7 @@ const TripDetail = ({
   const expenseDeleteConfirmRef = useRef(false);
   const ticketMutationRef = useRef(false);
   const ticketLoadedRoomRef = useRef('');
+  const attachmentHydrationVersionRef = useRef(0);
 
   const setMeta = useCallback((updater) => {
     dirtyBranchesRef.current.meta = true;
@@ -1591,6 +1618,7 @@ const TripDetail = ({
     let cancelled = false;
 
     ticketLoadedRoomRef.current = '';
+    attachmentHydrationVersionRef.current += 1;
     dirtyBranchesRef.current = { meta: false, itinerary: false, expenses: false, settlements: false, tickets: false };
     writeVersionRef.current = { meta: 0, itinerary: 0, expenses: 0, settlements: 0, tickets: 0 };
     hasLoadedRoomRef.current = false;
@@ -1650,7 +1678,19 @@ const TripDetail = ({
         ticketLoadedRoomRef.current = roomId;
 
         if (!dirtyBranchesRef.current.meta) setMetaState(loadedMeta);
-        if (!dirtyBranchesRef.current.itinerary) setItineraryState(loadedItinerary);
+        if (!dirtyBranchesRef.current.itinerary) {
+          setItineraryState(loadedItinerary);
+          const hydrationVersion = attachmentHydrationVersionRef.current + 1;
+          attachmentHydrationVersionRef.current = hydrationVersion;
+          void hydrateProtectedPlaceImages(loadedItinerary, repository).then((hydrated) => {
+            if (
+              cancelled
+              || dirtyBranchesRef.current.itinerary
+              || attachmentHydrationVersionRef.current !== hydrationVersion
+            ) return;
+            setItineraryState(hydrated);
+          });
+        }
         if (!dirtyBranchesRef.current.expenses) setExpensesState(loadedExpenses);
         if (!dirtyBranchesRef.current.settlements) setSettlementsState(loadedSettlements);
         if (!dirtyBranchesRef.current.tickets) setTicketsState(loadedTickets);
@@ -2776,28 +2816,82 @@ const TripDetail = ({
     commitChecklistPatch(Object.fromEntries(idsToDelete.map(itemId => [itemId, null])));
   }, [checklistItems, commitChecklistPatch]);
 
-  const handleShareLink = useCallback(async () => {
+  const resolveAttachmentUrl = useCallback(async (attachment) => {
+    if (attachment?.storagePath) {
+      if (!repository) throw new Error('Trip repository is not available.');
+      return repository.readAttachment(attachment);
+    }
+    return String(attachment?.url || '');
+  }, [repository]);
+
+  const openAttachmentDocument = useCallback(async (attachment) => {
+    const pendingWindow = attachment?.storagePath
+      ? window.open('about:blank', '_blank')
+      : null;
+    if (pendingWindow) pendingWindow.opener = null;
+    try {
+      const url = await resolveAttachmentUrl(attachment);
+      if (!url) throw new Error('Attachment URL is unavailable.');
+      if (pendingWindow) {
+        pendingWindow.location.replace(url);
+      } else if (attachment?.storagePath) {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.click();
+      } else {
+        openExternalUrl(url);
+      }
+    } catch (error) {
+      pendingWindow?.close();
+      console.error('Open protected attachment failed:', error);
+      toast.error({
+        title: '無法開啟附件',
+        description: '請確認網路連線與旅程權限後再試。',
+      });
+    }
+  }, [resolveAttachmentUrl, toast]);
+
+  const handleOpenTicketAttachment = useCallback(async (ticket) => {
+    if (ticket?.attachmentKind === 'pdf') {
+      await openAttachmentDocument(ticket);
+      return;
+    }
+    try {
+      const url = await resolveAttachmentUrl(ticket);
+      if (!url) throw new Error('Attachment URL is unavailable.');
+      setFullscreenTicket({ ...ticket, url });
+    } catch (error) {
+      console.error('Open protected ticket failed:', error);
+      toast.error({
+        title: '無法開啟票券',
+        description: '請確認網路連線與旅程權限後再試。',
+      });
+    }
+  }, [openAttachmentDocument, resolveAttachmentUrl, toast]);
+
+  const handleShareLink = useCallback(() => {
     if (!capabilities.sharing) {
       alert(CLOUD_FEATURE_UNAVAILABLE_MESSAGE);
       return;
     }
-
-    const url = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(roomId)}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      alert(`🔗 已複製 ${meta?.title || "旅程"} 的共編連結！`);
-    } catch {
-      window.prompt("請手動複製共編連結：", url);
+    if (tripAccessRole !== 'owner') {
+      alert(tripAccessRole === 'editor'
+        ? '只有旅程擁有者可以邀請或管理成員。'
+        : '正在確認旅程權限，請稍後再試。');
+      return;
     }
-  }, [capabilities.sharing, meta, roomId]);
+    onOpenSharing?.();
+  }, [capabilities.sharing, onOpenSharing, tripAccessRole]);
 
   const tripSettingsActions = useMemo(() => ([
-    {
+    ...(!capabilities.sharing || tripAccessRole === 'owner' ? [{
       id: 'share',
       label: '分享共編',
       icon: '🔗',
       onSelect: handleShareLink,
-    },
+    }] : []),
     {
       id: 'checklist',
       label: '共享清單',
@@ -2810,7 +2904,7 @@ const TripDetail = ({
       icon: '🖨️',
       onSelect: () => setShowExportModal(true),
     },
-  ]), [handleShareLink]);
+  ]), [capabilities.sharing, handleShareLink, tripAccessRole]);
 
   const handleExploreSearch = (customQuery = null, customLocation = null) => {
     const q = typeof customQuery === 'string' ? customQuery : String(exploreQuery);
@@ -2875,52 +2969,25 @@ const TripDetail = ({
       alert(`「${itemName}」之後使用了自訂交通方式。為避免把飛機、鐵路或步行路段打亂，目前智慧排路線只支援整天皆為自動車程的行程。`);
       return;
     }
-    if (!routesLib) {
+    if (!routesLib?.Route) {
       alert("地圖引擎載入中，請稍候...");
       return;
     }
 
     setIsOptimizing(true);
     setOptimizationPreview(null);
-    // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
-    const service = new routesLib.DirectionsService();
-    const origin = { lat: Number(items[0].lat), lng: Number(items[0].lng) };
-    const destination = {
-      lat: Number(items[items.length - 1].lat),
-      lng: Number(items[items.length - 1].lng),
-    };
-    const waypoints = items.slice(1, -1).map((item) => ({
-      location: { lat: Number(item.lat), lng: Number(item.lng) },
-      stopover: true,
-    }));
-
-    const requestBase = {
-      origin,
-      destination,
-      waypoints,
-      travelMode: window.google.maps.TravelMode.DRIVING,
-    };
 
     try {
-      const [currentResponse, optimizedResponse] = await Promise.all([
-        service.route({ ...requestBase, optimizeWaypoints: false }),
-        service.route({ ...requestBase, optimizeWaypoints: true }),
-      ]);
-
-      const currentRoute = currentResponse.routes?.[0];
-      const optimizedRoute = optimizedResponse.routes?.[0];
+      const { currentRoute, optimizedRoute, order } = await computeDrivingRouteOptimization(
+        routesLib.Route,
+        items,
+      );
       if (!currentRoute?.legs?.length || !optimizedRoute?.legs?.length) {
         console.warn("Google Maps did not return a usable route for optimization.");
         alert("找不到可用的路線，請確認所有景點都能以汽車抵達。");
         return;
       }
 
-      const returnedOrder = Array.isArray(optimizedRoute.waypoint_order)
-        ? optimizedRoute.waypoint_order
-        : [];
-      const order = returnedOrder.length === waypoints.length
-        ? returnedOrder
-        : waypoints.map((_, index) => index);
       const originalItems = cloneRouteItems(items);
       const middleItems = order.map((index) => originalItems[index + 1]);
       const optimizedItems = [
@@ -2934,7 +3001,7 @@ const TripDetail = ({
 
       for (let index = 1; index < optimizedItems.length; index += 1) {
         const leg = optimizedRoute.legs[index - 1];
-        const travelTime = Math.max(1, Math.round(Number(leg?.duration?.value || 0) / 60));
+        const travelTime = getRouteLegMinutes(leg);
         currentMinutes += travelTime;
         optimizedItems[index] = {
           ...optimizedItems[index],
@@ -3501,13 +3568,13 @@ const TripDetail = ({
   }
 
   const mobileSyncStatusNode = capabilities.cloudSync ? (
-    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} />
+    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} isLight={t.isLight} />
   ) : null;
 
   // The map top bar is the only mobile header that also carries the day
   // switcher, so the badge goes compact there to stop it squeezing the days.
   const mobileCompactSyncStatusNode = capabilities.cloudSync ? (
-    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} compact />
+    <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} compact isLight={t.isLight} />
   ) : null;
 
   const mobileSettingsMenu = (
@@ -3523,6 +3590,17 @@ const TripDetail = ({
       onStartFeatureTour={onStartFeatureTour}
       onCheckUpdates={onCheckUpdates}
       isCheckingUpdates={isCheckingUpdates}
+      accountNode={(
+        <AccountSection
+          user={accountUser}
+          loading={authLoading}
+          busy={authBusy}
+          error={authError}
+          onSignIn={onSignIn}
+          onSignOut={onSignOut}
+          t={t}
+        />
+      )}
     />
   );
 
@@ -3553,12 +3631,6 @@ const TripDetail = ({
             t={t}
             tripThemeColor={tripThemeColor}
             onBack={onBack}
-            onOpenReleaseNotes={onOpenReleaseNotes}
-            onOpenFeatureIntroduction={onOpenFeatureIntroduction}
-            onStartFeatureTour={onStartFeatureTour}
-            onCheckUpdates={onCheckUpdates}
-            isCheckingUpdates={isCheckingUpdates}
-            onOpenAppearance={openAppearanceDialog}
           />
         ) : (
         <div data-testid="active-trip-view" style={{ backgroundColor: tripThemeColor }} className={`fixed inset-0 flex flex-col font-sans overflow-hidden overscroll-none transition-colors duration-500 w-full max-w-[100vw] ${t.mainText}`}>
@@ -3610,52 +3682,42 @@ const TripDetail = ({
 
             <div className={`flex-col border-r transition-opacity duration-300 backdrop-blur-xl ${t.sidebarBg} ${t.cardBorder} ${activeTab === 'map' ? 'hidden md:flex md:w-2/3 lg:w-1/2' : 'flex w-full md:w-2/3 lg:w-1/2'}`}>
               {!isMobileViewport ? (
-              <div className={`relative z-40 flex p-4 flex-col justify-between items-start gap-3 shadow-md shrink-0 border-b backdrop-blur-2xl md:flex-row md:items-center ${t.headerBg} ${t.cardBorder}`}>
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <button onClick={onBack} data-testid="back-to-lobby" className={`mr-2 font-bold transition-opacity hover:opacity-70 ${t.subText}`}>◀ 返回</button>
-                    <h1 data-testid="trip-detail-title" className="text-xl font-black text-blue-500 truncate max-w-37.5 md:max-w-75 drop-shadow-sm">{String(meta.title)}</h1>
-                    {capabilities.cloudSync ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} /> : null}
+              <div className={`relative z-40 flex shrink-0 flex-col items-start justify-between gap-3 border-b p-4 shadow-sm backdrop-blur-2xl md:flex-row md:items-center ${t.headerBg} ${t.cardBorder}`}>
+                <div className="flex min-w-0 flex-col gap-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <button onClick={onBack} data-testid="back-to-lobby" aria-label="返回旅程大廳" className={`mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.subText}`}><Icon name="arrowLeft" /></button>
+                    <h1 data-testid="trip-detail-title" className={`max-w-48 truncate text-xl font-black tracking-tight md:max-w-75 ${t.mainText}`}>{String(meta.title)}</h1>
+                    {capabilities.cloudSync ? <SyncStatusIndicator status={!isOnline ? 'offline' : syncStatus} isLight={t.isLight} /> : null}
                   </div>
-                  <p className={`text-[10px] font-bold ${t.subText}`}>📍 {String(meta.destination)} | 🚗 {String(meta.transport)}</p>
+                  <p className={`ml-13 flex items-center gap-1.5 text-xs font-semibold ${t.subText}`}><Icon name="location" size={15} /><span className="truncate">{String(meta.destination)} · {String(meta.transport)}</span></p>
                 </div>
                 <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-                  <div className={`hidden md:flex p-1 rounded-lg border shadow-inner ${t.cardBg} ${t.cardBorder}`}>
-                    <button onClick={() => setActiveTab('plan')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${(activeTab === 'plan' || activeTab === 'map') ? 'bg-blue-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>📋 行程</button>
-                    <button
-                      type="button"
-                      data-testid="expense-tab-button"
-                      data-layout="desktop"
-                      onClick={() => setActiveTab('expense')}
-                      className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'expense' ? 'bg-emerald-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}
-                    >
-                      💰 記帳
-                    </button>
-                    <button type="button" data-testid="ticket-tab-button" data-layout="desktop" onClick={() => setActiveTab('ticket')} className={`px-4 py-1.5 text-[11px] font-bold rounded-md transition-all ${activeTab === 'ticket' ? 'bg-amber-600 text-white shadow-sm' : `hover:opacity-70 ${t.subText}`}`}>🎟️ 票券</button>
-                  </div>
+                  <TripTabBar activeTab={activeTab} layout="desktop" onSelect={setActiveTab} t={t} />
                   <button
                     onClick={() => setShowExportModal(true)}
-                    className={`px-3 py-2 rounded-lg text-[10px] font-bold border shadow-sm transition-all active:scale-95 hover:border-purple-500 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                    className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-extrabold shadow-sm transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                     title="匯出完整行程或單日圖片"
                   >
-                    🖨️ <span className="ml-1">匯出</span>
+                    <Icon name="print" size={17} /><span>匯出</span>
                   </button>
                   <button
                     onClick={() => setShowChecklistModal(true)}
-                    className={`relative px-3 py-2 rounded-lg text-[10px] font-bold border shadow-sm transition-all active:scale-95 hover:border-blue-500 whitespace-nowrap ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                    className={`relative flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-extrabold shadow-sm transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                     title={`共享清單：${sharedChecklistStats.completed}/${sharedChecklistStats.total} 已完成`}
                   >
-                    <span>✅</span>
-                    <span className="ml-1">清單</span>
+                    <Icon name="checkCircle" size={17} />
+                    <span>清單</span>
                     {sharedChecklistStats.total > 0 ? (
                       <span className={`ml-1 px-1.5 py-0.5 rounded-md font-mono ${sharedChecklistStats.open === 0 ? 'bg-emerald-500/15 text-emerald-500' : 'bg-blue-500/15 text-blue-500'}`}>
                         {sharedChecklistStats.completed}/{sharedChecklistStats.total}
                       </span>
                     ) : null}
                   </button>
-                  <button onClick={handleShareLink} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-[10px] font-bold transition-transform active:scale-95 shadow-md">
-                    🔗 共編
-                  </button>
+                  {!capabilities.sharing || tripAccessRole === 'owner' ? (
+                    <button onClick={handleShareLink} className="flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white shadow-md shadow-blue-600/20 transition-colors hover:bg-blue-700">
+                      <Icon name="link" size={17} /> 共編
+                    </button>
+                  ) : null}
                   <AppSettingsMenu
                     key={`trip-settings-${roomId}`}
                      t={t}
@@ -3668,6 +3730,17 @@ const TripDetail = ({
                      onStartFeatureTour={onStartFeatureTour}
                     onCheckUpdates={onCheckUpdates}
                     isCheckingUpdates={isCheckingUpdates}
+                    accountNode={(
+                      <AccountSection
+                        user={accountUser}
+                        loading={authLoading}
+                        busy={authBusy}
+                        error={authError}
+                        onSignIn={onSignIn}
+                        onSignOut={onSignOut}
+                        t={t}
+                      />
+                    )}
                   />
                 </div>
               </div>
@@ -3834,7 +3907,7 @@ const TripDetail = ({
                          ) : null}
                          <div className="flex items-center gap-2 mt-0.5">
                           {weatherInfo[dayId] && (
-                            <span className="text-[10px] font-semibold opacity-90 bg-black/5 dark:bg-white/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold opacity-90 ${t.cardMetaBg}`}>
                               🌡️ {weatherInfo[dayId].temp} | 🌧️ {weatherInfo[dayId].rain}%
                             </span>
                           )}
@@ -4114,6 +4187,7 @@ const TripDetail = ({
                 onEditTicket={openTicketEditor}
                 onDeleteTicket={deleteTicket}
                 onOpenImage={setFullscreenTicket}
+                onOpenAttachment={handleOpenTicketAttachment}
                 onCopyOrderNumber={handleCopyTicketOrderNumber}
               />
 
@@ -4125,6 +4199,8 @@ const TripDetail = ({
                 key={`${safeCurrentDay}:${selectedMapPlace?.id || 'none'}`}
                 mode={mapMode}
                 onModeChange={handleMapModeChange}
+                roomId={isExampleTrip ? '' : roomId}
+                dayId={safeCurrentDay}
                 anchor={selectedMapPlace}
                 placesLib={placesLib}
                 canEdit={Boolean(repository)}
@@ -4164,13 +4240,13 @@ const TripDetail = ({
                           <div className="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-125 z-20 flex flex-col gap-2">
                             <div className={`flex items-center gap-2 p-2 rounded-2xl shadow-lg backdrop-blur-xl border ${t.headerBg} ${t.cardBorder}`}>
                               <input value={String(exploreQuery)} onFocus={() => setMapMode('explore')} onChange={e => setExploreQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleExploreSearch(exploreQuery, null); }} placeholder="探索周邊美食地標..." className={`flex-1 bg-transparent px-2 outline-none text-sm font-bold ${t.mainText} placeholder:opacity-50`} />
-                              <button onClick={() => handleExploreSearch(exploreQuery, null)} className="bg-orange-500 hover:bg-orange-400 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 whitespace-nowrap">🍽️ 探索</button>
+                              <button onClick={() => handleExploreSearch(exploreQuery, null)} className="whitespace-nowrap rounded-xl bg-orange-700 px-4 py-2 text-xs font-bold text-white shadow-md transition-all hover:bg-orange-800 active:scale-95">🍽️ 探索</button>
                               {exploreResults.length > 0 ? <button onClick={resetExploreState} className={`px-2 py-2 text-xs font-bold hover:text-red-500 transition-colors ${t.subText}`}>清除</button> : null}
                             </div>
                             <div className="flex gap-2 overflow-x-auto scrollbar-hide px-1">
-                              <button onClick={() => handleExploreSearch("餐廳", null)} className={`px-3 py-1.5 rounded-full text-[10px] font-bold border shadow-sm ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>🍔 餐廳美食</button>
-                              <button onClick={() => handleExploreSearch("咖啡廳", null)} className={`px-3 py-1.5 rounded-full text-[10px] font-bold border shadow-sm ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>☕ 咖啡廳</button>
-                              <button onClick={() => handleExploreSearch("超市", null)} className={`px-3 py-1.5 rounded-full text-[10px] font-bold border shadow-sm ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>🛒 超市</button>
+                              <button onClick={() => handleExploreSearch("餐廳", null)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold shadow-sm transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>🍔 餐廳美食</button>
+                              <button onClick={() => handleExploreSearch("咖啡廳", null)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold shadow-sm transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>☕ 咖啡廳</button>
+                              <button onClick={() => handleExploreSearch("超市", null)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold shadow-sm transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>🛒 超市</button>
                             </div>
                           </div>
                         ) : null}
@@ -4196,20 +4272,7 @@ const TripDetail = ({
             </div>
           </div>
 
-          <div style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0.5rem)' }} className={`grid grid-cols-4 border-t h-20 shrink-0 z-30 shadow-lg md:hidden ${t.headerBg} ${t.cardBorder}`}>
-            <button type="button" data-testid="mobile-nav-plan" aria-current={activeTab === "plan" ? "page" : undefined} onClick={() => setActiveTab("plan")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "plan" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>📋<span className="text-[10px] mt-1 font-bold">行程</span></button>
-            <button type="button" data-testid="mobile-nav-map" aria-current={activeTab === "map" ? "page" : undefined} onClick={() => setActiveTab("map")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "map" ? "text-blue-500 font-bold -translate-y-1" : t.subText}`}>🗺️<span className="text-[10px] mt-1 font-bold">地圖</span></button>
-            <button type="button" data-testid="ticket-tab-button" data-layout="mobile" onClick={() => setActiveTab("ticket")} className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "ticket" ? "text-amber-500 font-bold -translate-y-1" : t.subText}`}>🎟️<span className="text-[10px] mt-1 font-bold">票券</span></button>
-            <button
-              type="button"
-              data-testid="expense-tab-button"
-              data-layout="mobile"
-              onClick={() => setActiveTab("expense")}
-              className={`flex flex-col items-center justify-center pt-2 transition-all ${activeTab === "expense" ? "text-emerald-500 font-bold -translate-y-1" : t.subText}`}
-            >
-              💰<span className="text-[10px] mt-1 font-bold">記帳</span>
-            </button>
-          </div>
+          <TripTabBar activeTab={activeTab} layout="mobile" onSelect={setActiveTab} t={t} />
         </div>
         )}
       </DragDropContext>
@@ -4317,7 +4380,7 @@ const TripDetail = ({
           {exploreOriginItem ? (
             <div className="flex gap-2 mt-2">
               <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'before')} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在前面</button>
-              <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在後面</button>
+              <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 rounded-xl bg-emerald-700 py-2.5 text-[11px] font-bold text-white shadow-md active:scale-95">加在後面</button>
             </div>
           ) : (
             <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'end')} className="w-full mt-2 bg-blue-600 text-white py-2.5 rounded-xl text-xs font-bold shadow-md active:scale-95">加入行程最後</button>
@@ -4328,7 +4391,7 @@ const TripDetail = ({
       {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
 
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
-      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onSaveError={() => {
+      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onOpenAttachment={openAttachmentDocument} onSaveError={() => {
         setSyncStatus('error');
         toast.error({
           title: '無法更新景點',
@@ -4445,6 +4508,7 @@ const TripDetail = ({
           }}
           onViewMenu={(item) => setViewingPlaceResources({ item, mode: 'menu' })}
           onViewPhoto={(photo) => setViewingPlacePhoto(photo)}
+          onOpenResource={openAttachmentDocument}
           t={t}
         />
       ) : null}
@@ -4460,6 +4524,7 @@ const TripDetail = ({
           key={`place-resources-${String(viewingPlaceResources.item?.id || 'item')}-${viewingPlaceResources.mode}`}
           item={viewingPlaceResources.item}
           mode={viewingPlaceResources.mode}
+          onOpenResource={openAttachmentDocument}
           onClose={() => setViewingPlaceResources(null)}
         />
       ) : null}

@@ -16,24 +16,39 @@ async function prepare(page: Page): Promise<void> {
     (window as Window & {
       __TRAVEL_E2E_DESTINATION_PLACES__?: unknown;
     }).__TRAVEL_E2E_DESTINATION_PLACES__ = {
-      AutocompleteService: class {
-        getPlacePredictions(
-          _request: unknown,
-          callback: (results: unknown[], status: string) => void,
-        ) {
-          callback([
-            { place_id: 'tokyo', description: '日本東京都' },
-            { place_id: 'osaka', description: '日本大阪府' },
-          ], 'OK');
-        }
-      },
-      PlacesService: class {
-        getDetails(
-          _request: unknown,
-          callback: (result: unknown, status: string) => void,
-        ) {
-          callbacks.push(callback);
-        }
+      AutocompleteSessionToken: class {},
+      AutocompleteSuggestion: {
+        async fetchAutocompleteSuggestions() {
+          const createSuggestion = (placeId: string, description: string) => ({
+            placePrediction: {
+              placeId,
+              text: { toString: () => description },
+              toPlace() {
+                const place: {
+                  location?: { lat: () => number; lng: () => number };
+                  fetchFields?: () => Promise<void>;
+                } = {};
+                place.fetchFields = () => new Promise<void>((resolve, reject) => {
+                  callbacks.push((_result, status) => {
+                    if (status === 'OK') {
+                      place.location = { lat: () => 35.6762, lng: () => 139.6503 };
+                      resolve();
+                    } else {
+                      reject(new Error(status));
+                    }
+                  });
+                });
+                return place;
+              },
+            },
+          });
+          return {
+            suggestions: [
+              createSuggestion('tokyo', '日本東京都'),
+              createSuggestion('osaka', '日本大阪府'),
+            ],
+          };
+        },
       },
     };
   });
@@ -67,12 +82,16 @@ test.beforeEach(async ({ page }) => {
   await prepare(page);
 });
 
-test('one pointer selection shows loading and applies destination once', async ({ page }) => {
+test('one pointer selection shows loading and applies destination once', async ({ page }, testInfo) => {
   const input = await openDestination(page);
   await input.fill('東京');
   const option = page.getByRole('option', { name: '日本東京都' });
   await expect(option).toBeVisible();
-  await option.click();
+  if (testInfo.project.name === 'Mobile Safari') {
+    await option.tap();
+  } else {
+    await option.click();
+  }
   await expect(page.getByRole('status')).toContainText('正在取得地點資料');
   await completeLatestDetails(page);
   await expect(input).toHaveValue('日本東京都');

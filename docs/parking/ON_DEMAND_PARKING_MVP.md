@@ -2,15 +2,16 @@
 
 ## Baseline and product decisions
 
-- Base: `origin/main` at `36fc5daa6b14ae6f341fa54356a849571891f3fc`.
-- PR #44 final head: `cc5ae5a18e9c180cc8482e3b8a78ae4c38086e26`.
-- PR #44 merge commit: `36fc5daa6b14ae6f341fa54356a849571891f3fc`.
+- Current integration base: `origin/main` at PR #55 merge commit `c070d9e98611798bb9d2dc4d9925b809f654fe76`.
+- PR #44 remains the original UI baseline; this branch is now integrated with the Google Auth, membership, and complete trip-deletion architecture from PR #55.
 - Decision 1A: parking is a manually opened map layer. Driving context may show a dismissible entry hint but never starts a request.
 - Decision 2A: Google Maps supplies global parking positions. TDX augments Taiwan results with official tariff/availability/update data. Missing detailed providers show `費率資料未提供`.
 - Decision 3B: the selected parking facility is an optional `parkingPlan` field on the destination place, never a route stop.
 - Decision 4A: raw official tariff text is always retained. Hourly equivalents, qualified maximums, and estimates appear only when the narrow parser proves they are safe.
 - Decision 5A: the MVP supports cars only.
-- Decision 6A: formal trips persist through the Firebase Trip Repository, Example Trip through the Local Example Repository/IndexedDB, and offline preview remains read-only. Parking modules never import Firebase.
+- Decision 6A: formal trips persist through the Firebase Trip Repository, Example Trip through the Local Example Repository/IndexedDB, and offline preview remains read-only.
+- Decision 7A: Google Places remains a browser-side provider. TDX runs only behind the authenticated `searchParking` Firebase Callable; the former public Vercel API is removed.
+- Decision 8A: the Callable accepts only `roomId`, `dayId`, `placeId`, and an allow-listed radius. It resolves the destination's canonical coordinates from RTDB after checking membership, so it is not an arbitrary-coordinate proxy.
 
 ## Mandatory discovery record
 
@@ -23,7 +24,7 @@
 - Existing two-context collaboration coverage is in `e2e/realtime-sync.spec.ts`; parking stays on the same itinerary listener/last-write behavior and creates no top-level branch.
 - Existing place navigation helpers in `TripDetail.jsx` create Google Maps HTTPS search/direction URLs. Parking navigation permits only Google Maps HTTPS URLs (and the TDX HTTPS source URL).
 - Actual transport values are `meta.transport` strings such as `汽車 🚗`, and `nextLeg.mode` values `AUTO`, `FLIGHT`, `TRAIN`, `TRANSIT`, and `WALK`. `isDrivingContext` is the only parking helper that interprets them.
-- This Vite project has no prior server functions. Vercel supports file-based Node functions under `/api`; `api/parking/search.js` is isolated from `src/**` and uses native `fetch`.
+- Firebase Functions already owns the trusted Google Auth and room-membership boundary. `searchParking` reuses that boundary, validates canonical `roomAccess`, applies a per-UID quota, and reads TDX credentials from Secret Manager.
 
 ## Provider endpoints and policies
 
@@ -43,9 +44,9 @@ TDX:
 - Static: `GET https://tdx.transportdata.tw/api/basic/v1/Parking/OffStreet/CarPark/City/{City}`.
 - Tariff: `GET https://tdx.transportdata.tw/api/basic/v1/Parking/OffStreet/ParkingRate/City/{City}`.
 - Availability: `GET https://tdx.transportdata.tw/api/basic/v1/Parking/OffStreet/ParkingAvailability/City/{City}`.
-- Auth: `POST https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token` with server-only `TDX_CLIENT_ID` and `TDX_CLIENT_SECRET`.
+- Auth: `POST https://tdx.transportdata.tw/auth/realms/TDXConnect/protocol/openid-connect/token` with server-only Secret Manager values `TDX_CLIENT_ID` and `TDX_CLIENT_SECRET`.
 - Official references: [TDX parking Swagger](https://tdx.transportdata.tw/api-service/swagger/basic/945f57da-f29d-4dfd-94ec-c35d9f62be7d) and [TDX platform/data licensing overview](https://tdx.transportdata.tw/about/tdx).
-- Storage conclusion: TDX states its standardized platform data is supplied under Taiwan's Government Data Open License 1.0 for value-added use. Official snapshots are retained with source/update timestamps. Static response cache is capped at six hours; availability at three minutes.
+- Storage conclusion: TDX states its standardized platform data is supplied under Taiwan's Government Data Open License 1.0 for value-added use. Official snapshots are retained with source/update timestamps. Static response cache is capped at six hours; availability at three minutes. All server and browser caches have fixed entry limits.
 
 ## Tariff parser scope
 
@@ -57,16 +58,34 @@ It deliberately refuses a single hourly equivalent or estimate for first-hour/pr
 
 - Initial map load, selected-place changes, map drag/zoom, date changes, and the driving hint issue zero parking requests.
 - A request occurs only after `附近停車` opens the layer and the user then presses `搜尋／重新搜尋`. Changing radius does not request until that button is pressed again.
-- Google Nearby Search is a billable request on each uncached explicit search. TDX is called by the same explicit action but can independently degrade. The same anchor/radius is cached for two minutes in the browser session.
+- Google Nearby Search is a billable request on each uncached explicit search. TDX is called through Firebase Callable by the same explicit action but can independently degrade. The room/day/place/radius result is cached for two minutes in the browser session.
+- The TDX Callable requires a Google-authenticated active owner/editor, a `ready` room, and a canonical itinerary destination. It enforces per-UID minute and hourly limits before contacting TDX.
+- Example Trip never invokes the Callable and uses Google Maps positions only. A missing TDX secret, quota limit, timeout, or provider outage does not block the itinerary or Google parking results.
 - Switching day/place remounts the controller, aborts pending work, clears results, and closes Parking. Opening Explore closes Parking; opening Parking clears Explore.
 - Formal and Example Trip saves both call the injected Trip Repository. Offline Preview has no repository and all save/remove buttons remain disabled.
 
-## Bundle baseline
+## Bundle record
 
-Before the parking change, `npm run build` produced:
+After integrating the latest `main` but before the authenticated Callable hardening, `npm run build` produced:
 
-- `TripDetail-Dx8_v3Hh.js`: 559.08 kB (156.02 kB gzip)
-- `index-BmxFVx7N.js`: 738.17 kB (223.87 kB gzip)
-- CSS: 96.40 kB (15.07 kB gzip)
+- TripDetail: 589.34 kB (165.89 kB gzip)
+- Main index: 793.53 kB (240.92 kB gzip)
 
-Parking remains inside the already lazy TripDetail chunk and does not increase the home entry chunk through a new top-level import.
+The final protected-provider build produces:
+
+- TripDetail: 591.04 kB (166.46 kB gzip)
+- Main index: 793.54 kB (240.93 kB gzip)
+- CSS: 120.24 kB (18.22 kB gzip)
+
+The Firebase Callable client stays inside the already lazy TripDetail chunk. The authenticated boundary adds about 0.56 kB gzip to TripDetail and 0.01 kB gzip to the home entry relative to the post-merge pre-hardening build.
+
+## Deployment configuration
+
+The TDX credentials are Firebase Function secrets, not Vercel environment variables and never `VITE_*` values:
+
+```bash
+npx -y firebase-tools@latest functions:secrets:set TDX_CLIENT_ID --project travel-app-923ef
+npx -y firebase-tools@latest functions:secrets:set TDX_CLIENT_SECRET --project travel-app-923ef
+```
+
+After the updated Function and frontend are deployed and verified, remove the obsolete `TDX_CLIENT_ID` and `TDX_CLIENT_SECRET` values from Vercel. Do not enable `enforceAppCheck` until Firebase App Check has a separate tested rollout; Google identity, canonical room access, canonical coordinates, and quota enforcement are the current release boundary.

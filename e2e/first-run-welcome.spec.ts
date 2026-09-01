@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import {
   clearEmulatorDatabase,
+  E2E_AUTH_UID,
   readEmulatorData,
   seedTestTrip,
 } from './support/emulator';
@@ -25,9 +26,10 @@ async function advanceToFinalStep(page: Page): Promise<void> {
 
 async function expectEmptyFirebaseAndTrips(page: Page): Promise<void> {
   expect(await readEmulatorData('rooms')).toBeNull();
-  await expect.poll(() => page.evaluate(() => (
+  expect(await readEmulatorData(`userTrips/${E2E_AUTH_UID}`)).toBeNull();
+  expect(await page.evaluate(() => (
     window.localStorage.getItem('google-travel-my-trips')
-  ))).toBe('[]');
+  ))).toBeNull();
 }
 
 test.beforeEach(async () => {
@@ -137,9 +139,6 @@ test('create action opens only the existing blank trip Modal', async ({ page }) 
 });
 
 test('empty trips remains first-run and Escape skips without showing release notes this session', async ({ page }) => {
-  await page.addInitScript(() => {
-    localStorage.setItem('google-travel-my-trips', '[]');
-  });
   await page.goto('/');
 
   const welcome = page.getByTestId('first-run-welcome-dialog');
@@ -159,16 +158,14 @@ test('empty trips remains first-run and Escape skips without showing release not
 });
 
 test('non-empty trips and release history are treated as returning use', async ({ page }) => {
+  await seedTestTrip('returning-room', {
+    title: 'Returning trip',
+    startDate: '2026-10-01',
+    endDate: '2026-10-02',
+    members: ['Me'],
+  });
   await page.addInitScript(() => {
-    localStorage.setItem('google-travel-my-trips', JSON.stringify([{
-      roomId: 'returning-room',
-      title: 'Returning trip',
-      destination: 'Taipei',
-      startDate: '2026-10-01',
-      endDate: '2026-10-02',
-      members: ['Me'],
-      themeColor: '#3b82f6',
-    }]));
+    localStorage.setItem('travel-app-seen-release-previous', 'true');
   });
   await page.goto('/');
   await expect(page.getByTestId('first-run-welcome-dialog')).toHaveCount(0);

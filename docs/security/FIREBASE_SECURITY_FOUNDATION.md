@@ -1,14 +1,22 @@
 # Firebase Security Foundation
 
-## 1. Current State
+> 本文件記錄 Auth foundation 建立前的安全盤點，部分「Current State」內容已被
+> Google Auth + Cloud Functions 實作取代。正式上線與 legacy room 遷移請以
+> `docs/development/GOOGLE_AUTH_ROLLOUT.md` 為準。
+
+## 1. Historical Baseline
+
+The inventory below describes the insecure baseline that existed before the Google Auth
+and collaboration implementation. It is retained to explain the migration boundary; it
+does not describe the current branch behavior.
 
 - Firebase products currently used:
   - Realtime Database: confirmed by `firebase/database` imports in `src/App.jsx`, `src/TripDetail.jsx`, `src/services/placesService.js`, and expense/place action modules.
   - Cloud Storage: confirmed by `firebase/storage` imports in `src/TripDetail.jsx`, `src/components/UIComponents.jsx`, and `src/features/places/usePlaceActions.js`.
-  - Authentication: foundation is introduced in this phase through `src/firebase.js`, but no sign-in flow is implemented yet.
-- Current authentication state: the app does not create or observe Firebase Auth users. There is no anonymous login, Google login, account page, or auth state listener.
-- Current Database rules state: temporary time-limited public read/write rules.
-- Current Storage rules state: temporary time-limited public read/write rules.
+- Authentication: the baseline had only a Firebase Auth instance and no sign-in flow. The current implementation requires a Google account and observes the authenticated session.
+- Baseline authentication state: the app did not create or observe Firebase Auth users.
+- Baseline Database rules state: temporary time-limited public read/write rules. The current rules require a Google-authenticated active room member.
+- Baseline Storage rules state: temporary time-limited public read/write rules. The current rules require the server-managed Firestore ACL mirror and validate object scope, type, size, and metadata.
 - Temporary rule expiry date: 2026-09-01, based on `database.rules.json` timestamp and `storage.rules` `timestamp.date(2026, 9, 1)`.
 - Current user identity model: there is no server-trusted user identity in product data. Client-side member names are trip participants, not authenticated principals.
 - Current room sharing mechanism: a room is reachable by `roomId` or a URL containing `?room=...`; possession of a room ID currently enables access while temporary rules allow it.
@@ -54,7 +62,7 @@ Untrusted `roomId` inputs:
 
 Storage data model notes:
 
-- Product records store both `url` from `getDownloadURL` and `storagePath` for uploaded files.
+- Legacy product records may contain both a long-lived `getDownloadURL()` value and `storagePath`. New uploads persist only `storagePath`; protected reads use the authenticated SDK and short-lived local object URLs.
 - External URL resources may have a `url` with no `storagePath`; these cannot be cleaned up through Storage and should not be treated as Storage objects.
 - Offline cache canonicalization strips `imageUrl`, `attachment`, and `storagePath`.
 - Cleanup failures are generally logged and do not always block record updates; future rules must not rely on cleanup succeeding.

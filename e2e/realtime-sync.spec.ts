@@ -545,7 +545,7 @@ async function waitForStoredTicketAttachment(): Promise<TicketItem> {
     .toEqual({
       type: 'image',
       memo: STORAGE_SYNC_TICKET_MEMO,
-      hasDownloadUrl: true,
+      hasDownloadUrl: false,
       correctPrefix: true,
       correctFileName: true,
     });

@@ -14,7 +14,7 @@ const firebaseMocks = vi.hoisted(() => ({
   update: vi.fn(),
 }));
 
-vi.mock('./firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('./firebase.js', () => ({ auth: null, db: {}, functions: null, storage: {} }));
 vi.mock('firebase/database', () => ({
   ref: firebaseMocks.ref,
   get: firebaseMocks.get,
@@ -148,15 +148,16 @@ describe('editable local example App integration', () => {
 
   it('opens the lobby appearance dialog and restores focus after Escape', async () => {
     const user = await renderLobby([REAL_TRIP]);
-    const trigger = screen.getByTestId('lobby-appearance-button');
+    const trigger = screen.getByTestId('app-settings-trigger');
 
     await user.click(trigger);
+    await user.click(screen.getByTestId('app-settings-appearance'));
     expect(screen.getByRole('dialog', { name: '自訂外觀' })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('appearance-color-input')).toHaveFocus());
 
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '自訂外觀' })).not.toBeInTheDocument());
-    expect(trigger).toHaveFocus();
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it('saves structured edits without Firebase or myTrips writes', async () => {
@@ -212,7 +213,8 @@ describe('editable local example App integration', () => {
     const user = await renderLobby([REAL_TRIP]);
     expect(screen.queryByTestId('demo-trip-entry-card')).not.toBeInTheDocument();
 
-    await user.click(screen.getByTestId('feature-introduction-button'));
+    await user.click(screen.getByTestId('app-settings-trigger'));
+    await user.click(screen.getByTestId('app-settings-feature-introduction'));
     for (let index = 1; index < 5; index += 1) {
       await user.click(screen.getByTestId('feature-introduction-next'));
     }

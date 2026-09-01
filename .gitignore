@@ -35,6 +35,7 @@ build/
 .env
 .env.local
 .DS_Store
+/data
 
 # Playwright
 /test-results/
@@ -45,6 +46,7 @@ build/
 
 .env.local
 .env.*.local
+/legacy-ticket-path-repair*.local.json
 
 .firebase/
 *-debug.log

@@ -169,7 +169,7 @@ test('圖片票券會上傳、持久化並從 Database 與 Storage 一併刪除'
       type: 'image',
       memo: TICKET_MEMO,
       owner: '所有人',
-      hasDownloadUrl: true,
+      hasDownloadUrl: false,
       correctPrefix: true,
       correctFileName: true,
     });
@@ -241,7 +241,7 @@ test('PDF 票券會上傳、持久化並從 Database 與 Storage 一併刪除', 
   const pdfCard = ticketCard(page, PDF_TICKET_TITLE);
   await expect(pdfCard).toBeVisible();
   await expect(
-    pdfCard.getByRole('link', { name: /開啟 PDF 票券/ }),
+    pdfCard.getByRole('button', { name: /開啟 PDF 票券/ }),
   ).toBeVisible();
 
   let savedTicket: TicketItem | undefined;
@@ -277,7 +277,7 @@ test('PDF 票券會上傳、持久化並從 Database 與 Storage 一併刪除', 
       type: 'pdf',
       memo: PDF_TICKET_MEMO,
       owner: '所有人',
-      hasDownloadUrl: true,
+      hasDownloadUrl: false,
       correctPrefix: true,
       correctFileName: true,
     });
@@ -301,7 +301,7 @@ test('PDF 票券會上傳、持久化並從 Database 與 Storage 一併刪除', 
   const reloadedPdfCard = ticketCard(page, PDF_TICKET_TITLE);
   await expect(reloadedPdfCard).toBeVisible();
   await expect(
-    reloadedPdfCard.getByRole('link', { name: /開啟 PDF 票券/ }),
+    reloadedPdfCard.getByRole('button', { name: /開啟 PDF 票券/ }),
   ).toBeVisible();
 
   await reloadedPdfCard.getByTestId('ticket-delete-button').click();

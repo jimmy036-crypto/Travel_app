@@ -8,39 +8,6 @@ import { markCurrentReleaseSeen } from './support/releaseNotes';
 
 const SHELL_ROOM_ID = 'e2eappshelluxroom0001';
 
-type LobbyTrip = {
-  roomId: string;
-  title: string;
-  destination: string;
-  startDate: string;
-  endDate: string;
-  members: string[];
-  transport: string;
-  themeColor: string;
-};
-
-function createLobbyTrip(): LobbyTrip {
-  return {
-    roomId: SHELL_ROOM_ID,
-    title: 'E2E app shell trip',
-    destination: 'E2E Shell destination',
-    startDate: '2026-09-20',
-    endDate: '2026-09-26',
-    members: ['E2E Alice'],
-    transport: 'E2E Transport',
-    themeColor: '#3b82f6',
-  };
-}
-
-async function seedLobbyTrips(page: Page, trips: LobbyTrip[]): Promise<void> {
-  await page.addInitScript((nextTrips) => {
-    window.localStorage.setItem(
-      'google-travel-my-trips',
-      JSON.stringify(nextTrips),
-    );
-  }, trips);
-}
-
 async function seedShellTrip(): Promise<void> {
   await clearEmulatorDatabase();
   await seedTestTrip(SHELL_ROOM_ID, {
@@ -96,30 +63,38 @@ test('mobile lobby actions use a consistent responsive layout', async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await markCurrentReleaseSeen(page);
-  await seedLobbyTrips(page, [createLobbyTrip()]);
+  await seedShellTrip();
 
   await page.goto('/');
 
   const createButton = page.getByTestId('create-trip-button');
   const importButton = page.getByTestId('import-trip-button');
-  const appearanceButton = page.getByTestId('lobby-appearance-button');
 
   await expect(page.getByTestId('travel-lobby')).toBeVisible();
   await expect(page.getByTestId('app-settings-trigger')).toBeVisible();
   await expect(createButton).toBeVisible();
   await expect(importButton).toBeVisible();
-  await expect(appearanceButton).toBeVisible();
+  await expect(page.getByTestId('lobby-appearance-button')).toHaveCount(0);
   await expect(page.getByTestId('release-notes-trigger')).toHaveCount(0);
 
   const createBox = await createButton.boundingBox();
   const importBox = await importButton.boundingBox();
-  const appearanceBox = await appearanceButton.boundingBox();
+  const summaryBox = await page.getByTestId('lobby-next-trip-summary').boundingBox();
+  const infoBox = await page.getByTestId('lobby-next-trip-summary-info').boundingBox();
+  const visualBox = await page.getByTestId('lobby-next-trip-summary-visual-region').boundingBox();
+  const headerBox = await page.locator('header').first().boundingBox();
 
-  expect(createBox?.height).toBeGreaterThanOrEqual(48);
+  expect(createBox?.height).toBeGreaterThanOrEqual(44);
   expect(importBox?.height).toBeGreaterThanOrEqual(44);
-  expect(appearanceBox?.height).toBeGreaterThanOrEqual(44);
-  expect(Math.abs((importBox?.width || 0) - (appearanceBox?.width || 0))).toBeLessThanOrEqual(4);
-  expect(createBox?.width || 0).toBeGreaterThan(importBox?.width || 0);
+  expect(Math.abs((createBox?.width || 0) - (importBox?.width || 0))).toBeLessThanOrEqual(4);
+  expect(summaryBox?.height).toBeGreaterThanOrEqual(168);
+  expect(visualBox?.height).toBeGreaterThanOrEqual(84);
+  expect((infoBox?.y || 0) + (infoBox?.height || 0)).toBeLessThanOrEqual((visualBox?.y || 0) + 1);
+  expect(headerBox?.height || Number.POSITIVE_INFINITY).toBeLessThan(430);
+
+  await page.getByTestId('app-settings-trigger').click();
+  await expect(page.getByTestId('app-settings-feature-introduction')).toBeVisible();
+  await expect(page.getByTestId('app-settings-appearance')).toBeVisible();
 });
 
 test('opens release notes and feature tour from the settings menu', async ({
@@ -127,7 +102,6 @@ test('opens release notes and feature tour from the settings menu', async ({
 }) => {
   await markCurrentReleaseSeen(page);
   await seedShellTrip();
-  await seedLobbyTrips(page, [createLobbyTrip()]);
 
   await page.goto('/');
 

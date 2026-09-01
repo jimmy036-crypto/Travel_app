@@ -2,8 +2,94 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    function isValidPathSegment(value, maxLength) {
+      return value.size() > 0 && value.size() <= maxLength;
+    }
+
+    function hasActiveTripAccess(roomId) {
+      let memberPath = /databases/(default)/documents/tripAccess/$(roomId)/members/$(request.auth.uid);
+      let deletionGuardPath = /databases/(default)/documents/tripAccess/$(roomId);
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && !firestore.exists(deletionGuardPath)
+        && firestore.exists(memberPath)
+        && firestore.get(memberPath).data.uid == request.auth.uid
+        && firestore.get(memberPath).data.status == 'active'
+        && firestore.get(memberPath).data.role in ['owner', 'editor']
+        && firestore.get(memberPath).data.aclVersion is int
+        && firestore.get(memberPath).data.aclVersion > 0;
+    }
+
+    function hasAllowedContentType() {
+      return request.resource.contentType in [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'image/gif',
+        'application/pdf'
+      ];
+    }
+
+    function hasRequiredRoomMetadata(roomId) {
+      return request.resource.metadata.roomId is string
+        && request.resource.metadata.roomId == roomId;
+    }
+
+    function isValidTicketUpload(roomId, ticketId, fileName) {
+      return request.resource != null
+        && resource == null
+        && isValidPathSegment(roomId, 128)
+        && isValidPathSegment(ticketId, 128)
+        && isValidPathSegment(fileName, 240)
+        && request.resource.size >= 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && hasAllowedContentType()
+        && hasRequiredRoomMetadata(roomId)
+        && request.resource.metadata.ticketId is string
+        && request.resource.metadata.ticketId == ticketId;
+    }
+
+    function isValidPlaceUpload(roomId, itemId, fileName) {
+      return request.resource != null
+        && resource == null
+        && isValidPathSegment(roomId, 128)
+        && isValidPathSegment(itemId, 128)
+        && isValidPathSegment(fileName, 300)
+        && request.resource.size >= 0
+        && (
+          (request.resource.contentType == 'application/pdf'
+            && request.resource.size <= 15 * 1024 * 1024)
+          || (request.resource.contentType in [
+              'image/jpeg',
+              'image/png',
+              'image/webp',
+              'image/gif'
+            ]
+            && request.resource.size <= 5 * 1024 * 1024)
+        )
+        && hasRequiredRoomMetadata(roomId)
+        && request.resource.metadata.itemId is string
+        && request.resource.metadata.itemId == itemId;
+    }
+
+    match /rooms/{roomId}/tickets/{ticketId}/{fileName} {
+      allow read: if hasActiveTripAccess(roomId);
+      allow create: if hasActiveTripAccess(roomId)
+        && isValidTicketUpload(roomId, ticketId, fileName);
+      allow delete: if hasActiveTripAccess(roomId);
+      allow update: if false;
+    }
+
+    match /rooms/{roomId}/places/{itemId}/{fileName} {
+      allow read: if hasActiveTripAccess(roomId);
+      allow create: if hasActiveTripAccess(roomId)
+        && isValidPlaceUpload(roomId, itemId, fileName);
+      allow delete: if hasActiveTripAccess(roomId);
+      allow update: if false;
+    }
+
     match /{allPaths=**} {
-      allow read, write: if request.time < timestamp.date(2026, 9, 1);
+      allow read, write: if false;
     }
   }
 }

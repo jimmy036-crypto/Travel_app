@@ -8,23 +8,37 @@ import App from './App.jsx';
 const firebaseMocks = vi.hoisted(() => ({
   ref: vi.fn((_db, path) => path),
   get: vi.fn(),
+  onValue: vi.fn(),
   set: vi.fn(),
   update: vi.fn(),
 }));
 
 const offlineMocks = vi.hoisted(() => ({
+  build: vi.fn(),
   list: vi.fn(() => []),
   read: vi.fn(),
   remove: vi.fn(),
+  write: vi.fn(),
 }));
 
-vi.mock('./firebase.js', () => ({ db: {}, storage: {} }));
+vi.mock('./firebase.js', () => ({ auth: null, db: {}, functions: null, storage: {} }));
+vi.mock('./features/auth/useAuthSession.js', () => ({
+  useAuthSession: () => ({
+    user: { uid: 'test-user', displayName: '測試使用者', photoURL: '' },
+    loading: false,
+    busy: false,
+    error: '',
+    clearError: vi.fn(),
+    signInWithGoogle: vi.fn(),
+    signOut: vi.fn(),
+  }),
+}));
 vi.mock('firebase/database', () => ({
   ref: firebaseMocks.ref,
   get: firebaseMocks.get,
   set: firebaseMocks.set,
   update: firebaseMocks.update,
-  onValue: vi.fn(),
+  onValue: firebaseMocks.onValue,
 }));
 vi.mock('@vis.gl/react-google-maps', () => ({
   APIProvider: ({ children }) => <div>{children}</div>,
@@ -59,9 +73,11 @@ vi.mock('./features/offline/OfflineTripPreview.jsx', () => ({
   OfflineTripPreview: () => <div data-testid="mock-offline-trip-preview" />,
 }));
 vi.mock('./features/offline/offlineTripCache.js', () => ({
+  buildOfflineTripSnapshot: offlineMocks.build,
   listOfflineTripSummaries: offlineMocks.list,
   readOfflineTripSnapshot: offlineMocks.read,
   removeOfflineTripSnapshot: offlineMocks.remove,
+  writeOfflineTripSnapshot: offlineMocks.write,
 }));
 vi.mock('./components/UIComponents.jsx', () => ({
   DestinationSearch: ({ value }) => <input value={value} readOnly />,
@@ -110,6 +126,15 @@ const REAL_TRIP = {
   themeColor: '#3b82f6',
 };
 
+const NEXT_TRIP = {
+  ...REAL_TRIP,
+  roomId: 'next-real-trip',
+  title: '北海道雪季旅行',
+  destination: '日本北海道',
+  startDate: '2099-10-01',
+  endDate: '2099-10-06',
+};
+
 const seedTrips = (trips) => {
   localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
   localStorage.setItem('google-travel-my-trips', JSON.stringify(trips));
@@ -117,6 +142,27 @@ const seedTrips = (trips) => {
 
 const renderLobby = async (trips = []) => {
   seedTrips(trips);
+  firebaseMocks.get.mockImplementation(async (path) => {
+    const match = String(path).match(/^rooms\/([^/]+)\/meta$/u);
+    const trip = match ? trips.find((candidate) => candidate.roomId === match[1]) : null;
+    return {
+      exists: () => Boolean(trip),
+      val: () => trip || null,
+    };
+  });
+  firebaseMocks.onValue.mockImplementation((path, callback) => {
+    if (path === 'userTrips/test-user') {
+      callback({
+        val: () => Object.fromEntries(trips.map((trip) => [
+          trip.roomId,
+          { role: 'owner', status: 'active', aclVersion: 1, updatedAt: 1 },
+        ])),
+      });
+    } else if (String(path).startsWith('roomAccess/')) {
+      callback({ val: () => ({ role: 'owner', status: 'active' }) });
+    }
+    return vi.fn();
+  });
   const user = userEvent.setup();
   render(<App />);
   await waitFor(() => expect(screen.getByTestId('travel-lobby')).toBeInTheDocument());
@@ -140,12 +186,34 @@ describe('App unified example trip integration', () => {
   it('shows the example with the shared TripCard in an empty lobby', async () => {
     await renderLobby();
     expect(within(screen.getByTestId('demo-trip-entry-card')).getByTestId('trip-card')).toBeVisible();
+    expect(await screen.findByTestId('lobby-next-trip-summary')).toHaveAttribute('data-state', 'empty');
+    expect(screen.queryByRole('button', { name: /開啟下一趟旅程/ })).not.toBeInTheDocument();
   });
 
   it('keeps the example card beside regular trip cards', async () => {
     await renderLobby([REAL_TRIP]);
     expect(screen.getAllByTestId('trip-card')).toHaveLength(2);
     expect(screen.getByTestId('demo-trip-entry-card')).toBeInTheDocument();
+  });
+
+  it('opens the earliest real upcoming trip from the Lobby summary', async () => {
+    const user = await renderLobby([
+      { ...NEXT_TRIP, roomId: 'later-real-trip', startDate: '2099-11-01', endDate: '2099-11-03' },
+      NEXT_TRIP,
+    ]);
+    const summary = await screen.findByRole('button', {
+      name: '開啟下一趟旅程：北海道雪季旅行',
+    });
+
+    expect(summary).toHaveAttribute('data-room-id', 'next-real-trip');
+    await user.click(summary);
+
+    await waitFor(() => expect(screen.getByTestId('mock-trip-detail')).toHaveAttribute(
+      'data-trip-id',
+      'next-real-trip',
+    ));
+    expect(window.location.search).toBe('?room=next-real-trip');
+    expect(screen.queryByTestId('lobby-next-trip-summary')).not.toBeInTheDocument();
   });
 
   it('opens the example through the shared TripDetail route', async () => {
@@ -209,7 +277,8 @@ describe('App unified example trip integration', () => {
     const user = await renderLobby([REAL_TRIP]);
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
 
-    await user.click(screen.getByTestId('feature-introduction-button'));
+    await user.click(screen.getByTestId('app-settings-trigger'));
+    await user.click(screen.getByTestId('app-settings-feature-introduction'));
 
     const dialog = await screen.findByTestId('feature-introduction-dialog');
     expect(dialog).toHaveAttribute('data-mode', 'replay');

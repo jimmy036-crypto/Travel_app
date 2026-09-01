@@ -184,6 +184,14 @@ export function TicketEditorModal({
     subText: t?.subText || 'text-slate-600 dark:text-slate-300',
     inputBg: t?.inputBg || 'bg-white dark:bg-slate-900',
   };
+  const editorWarningTone = typeof t?.isLight === 'boolean'
+    ? t.isLight
+      ? 'border-amber-500/40 bg-amber-100/80 text-amber-900'
+      : 'border-amber-200/30 bg-amber-950/70 text-amber-100'
+    : 'border-amber-400/40 bg-amber-500/10 text-amber-800 dark:text-amber-200';
+  const uploadTrackTone = typeof t?.isLight === 'boolean'
+    ? t.isLight ? 'bg-slate-300' : 'bg-slate-700'
+    : 'bg-slate-200 dark:bg-white/10';
 
   useEffect(() => {
     const previouslyFocused = document.activeElement;
@@ -564,7 +572,7 @@ export function TicketEditorModal({
                   id="ticket-editor-file"
                   data-testid="ticket-file-input"
                   type="file"
-                  accept="image/*,application/pdf"
+                  accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
                   onChange={handleFileChange}
                   aria-describedby={errors.file ? 'ticket-file-error' : undefined}
                   aria-invalid={Boolean(errors.file)}
@@ -644,7 +652,7 @@ export function TicketEditorModal({
                     {trimText(form.appUrl) ? '使用 App Link 開啟' : '手動開啟 App'}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 p-3 text-xs font-semibold leading-5 text-amber-800 dark:text-amber-200">
+                <div data-testid="ticket-external-app-warning" className={`rounded-2xl border p-3 text-xs font-semibold leading-5 ${editorWarningTone}`}>
                   <p>請優先使用該 App 的「分享票券」或「複製連結」功能。</p>
                   <p>不要輸入帳號密碼、驗證碼、登入 Cookie 或付款資訊。</p>
                 </div>
@@ -799,7 +807,7 @@ export function TicketEditorModal({
                   aria-valuemin="0"
                   aria-valuemax="100"
                   aria-valuenow={normalizedUploadProgress}
-                  className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10"
+                  className={`h-2 overflow-hidden rounded-full ${uploadTrackTone}`}
                 >
                   <div
                     className="h-full rounded-full bg-blue-600 transition-[width]"

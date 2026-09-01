@@ -15,6 +15,7 @@ import {
 } from './support/emulator';
 
 const ROOM_ID = 'e2eparkingsyncroom0001';
+const OUTSIDER_ROOM_ID = 'e2eparkingoutsider0001';
 
 function contextOptions(projectName: string): BrowserContextOptions {
   return {
@@ -26,15 +27,10 @@ function contextOptions(projectName: string): BrowserContextOptions {
 
 async function openRoom(browser: Browser, projectName: string) {
   const context = await browser.newContext(contextOptions(projectName));
-  let providerHttpRequests = 0;
-  await context.route('**/api/parking/**', async (route) => {
-    providerHttpRequests += 1;
-    await route.abort();
-  });
   const page = await context.newPage();
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
-  return { context, page, providerHttpRequests: () => providerHttpRequests };
+  return { context, page };
 }
 
 async function openMap(page: Page, projectName: string) {
@@ -90,6 +86,33 @@ async function providerCallCount(page: Page): Promise<number> {
   return await page.evaluate(() => Number((window as typeof window & { __TRAVEL_E2E__?: { parkingSearchCalls?: number } }).__TRAVEL_E2E__?.parkingSearchCalls || 0));
 }
 
+async function callProtectedParkingProvider(
+  page: Page,
+  payload: Record<string, unknown>,
+) {
+  return await page.evaluate(async (requestData) => {
+    const firebaseModulePath = '/src/firebase.js';
+    const { auth } = await import(/* @vite-ignore */ firebaseModulePath);
+    const token = await auth?.currentUser?.getIdToken();
+    if (!token) throw new Error('E2E Google auth token is unavailable.');
+    const response = await fetch(
+      'http://127.0.0.1:5001/demo-travel-e2e/us-central1/searchParking',
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ data: requestData }),
+      },
+    );
+    return {
+      status: response.status,
+      body: await response.json(),
+    };
+  }, payload);
+}
+
 test.beforeEach(async () => {
   await clearEmulatorDatabase();
   await seedTestTrip(ROOM_ID, {
@@ -108,7 +131,24 @@ test.beforeEach(async () => {
         tags: [],
         nextLeg: { mode: 'AUTO', mins: 30 },
       }],
+      'Day 2': [{
+        id: 'parking-outside-coverage',
+        name: '東京站',
+        place_id: 'e2e-tokyo-anchor',
+        lat: 35.6812,
+        lng: 139.7671,
+        address: '東京都千代田區丸之內一丁目',
+        time: '09:00',
+        stayTime: '120',
+        memo: '',
+        tags: [],
+        nextLeg: { mode: 'AUTO', mins: 30 },
+      }],
     },
+  });
+  await seedTestTrip(OUTSIDER_ROOM_ID, {
+    title: 'E2E parking outsider trip',
+    ownerUid: 'e2e-parking-other-owner',
   });
 });
 
@@ -122,17 +162,14 @@ test('manually searches then syncs save replace and remove through the realtime 
 
     await expect(a.page.getByTestId('parking-driving-hint')).toBeVisible();
     expect(await providerCallCount(a.page)).toBe(0);
-    expect(a.providerHttpRequests()).toBe(0);
 
     await a.page.getByTestId('parking-layer-trigger').click();
     await a.page.getByLabel('停車搜尋半徑').selectOption('1000');
     expect(await providerCallCount(a.page)).toBe(0);
-    expect(a.providerHttpRequests()).toBe(0);
 
     await a.page.getByTestId('parking-search-button').click();
     await expect(a.page.getByText('E2E 官方停車場 A').first()).toBeVisible();
     expect(await providerCallCount(a.page)).toBe(1);
-    expect(a.providerHttpRequests()).toBe(0);
 
     const resultA = a.page.getByTestId('parking-result').filter({ hasText: 'E2E 官方停車場 A' });
     await resultA.getByRole('button', { name: '設為此景點停車場' }).click();
@@ -151,5 +188,46 @@ test('manually searches then syncs save replace and remove through the realtime 
   } finally {
     await a.context.close();
     await b.context.close();
+  }
+});
+
+test('protected TDX callable accepts only an authenticated canonical trip selector', async ({ browser }, testInfo) => {
+  const view = await openRoom(browser, testInfo.project.name);
+  try {
+    const allowed = await callProtectedParkingProvider(view.page, {
+      roomId: ROOM_ID,
+      dayId: 'Day 2',
+      placeId: 'parking-outside-coverage',
+      radius: 500,
+      lat: 25.033,
+      lng: 121.5654,
+    });
+    expect(allowed.status).toBe(200);
+    expect(allowed.body).toEqual({
+      result: {
+        providerStatus: 'outside_coverage',
+        facilities: [],
+      },
+    });
+
+    const outsider = await callProtectedParkingProvider(view.page, {
+      roomId: OUTSIDER_ROOM_ID,
+      dayId: 'Day 1',
+      placeId: 'parking-anchor-place',
+      radius: 500,
+    });
+    expect(outsider.status).toBe(403);
+    expect(outsider.body.error.status).toBe('PERMISSION_DENIED');
+
+    const missingPlace = await callProtectedParkingProvider(view.page, {
+      roomId: ROOM_ID,
+      dayId: 'Day 1',
+      placeId: 'missing-place',
+      radius: 500,
+    });
+    expect(missingPlace.status).toBe(404);
+    expect(missingPlace.body.error.status).toBe('NOT_FOUND');
+  } finally {
+    await view.context.close();
   }
 });

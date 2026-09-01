@@ -6,7 +6,7 @@ import { ResponsiveBottomSheet } from './ResponsiveBottomSheet';
 import { APP_VERSION, CATEGORIES, TAG_OPTIONS } from "../constants";
 import { safeUrlFormatter, getDayDisplay, generateId, formatStayTime, parseDateOnlyLocal, extractRoomId, isValidCoordinates, openExternalUrl } from "../helpers";
 import { storage } from "../firebase";
-import { ref as sRef, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref as sRef, uploadBytesResumable, deleteObject } from "firebase/storage";
 import {
   buildEqualSplit,
   calculateCustomTotal,
@@ -15,6 +15,10 @@ import {
   rebalanceCustomAmounts,
   validateCustomSplit,
 } from "../features/expenses/expenseCalculations";
+import {
+  buildDrivingRouteRequest,
+  getRouteLegMinutes,
+} from '../features/map/googleRoutes.js';
 
 const AUTOCOMPLETE_DELAY_MS = 300;
 const REGION_AUTOCOMPLETE_TYPES = Object.freeze(['(regions)']);
@@ -113,23 +117,103 @@ const usePlacePredictions = ({ input, placesLibrary, types = undefined }) => {
   return [visiblePredictions, clearPredictions];
 };
 
+const useDestinationPredictions = ({ input, placesLibrary }) => {
+  const [resultState, setResultState] = useState({ query: '', items: [], status: 'idle' });
+  const requestIdRef = useRef(0);
+  const sessionTokenRef = useRef(null);
+  const query = String(input || '').trim();
+  const autocompleteApi = placesLibrary?.AutocompleteSuggestion;
+  const SessionToken = placesLibrary?.AutocompleteSessionToken;
+  const canSearch = Boolean(
+    autocompleteApi?.fetchAutocompleteSuggestions
+    && SessionToken
+    && query.length >= 2
+  );
+
+  const clearPredictions = useCallback(() => {
+    requestIdRef.current += 1;
+    setResultState({ query: '', items: [], status: 'idle' });
+  }, []);
+
+  const finishSession = useCallback(() => {
+    sessionTokenRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    requestIdRef.current += 1;
+    const requestId = requestIdRef.current;
+    if (!canSearch) return undefined;
+
+    const timer = window.setTimeout(() => {
+      if (!sessionTokenRef.current) {
+        sessionTokenRef.current = new SessionToken();
+      }
+
+      void autocompleteApi.fetchAutocompleteSuggestions({
+        input: query,
+        includedPrimaryTypes: REGION_AUTOCOMPLETE_TYPES,
+        language: 'zh-TW',
+        sessionToken: sessionTokenRef.current,
+      }).then(({ suggestions }) => {
+        if (requestId !== requestIdRef.current) return;
+        const predictions = Array.isArray(suggestions)
+          ? suggestions
+            .map((suggestion) => suggestion?.placePrediction)
+            .filter((prediction) => prediction?.placeId && prediction?.text)
+          : [];
+        setResultState({
+          query,
+          items: predictions,
+          status: predictions.length > 0 ? 'ready' : 'empty',
+        });
+      }).catch(() => {
+        if (requestId !== requestIdRef.current) return;
+        setResultState({ query, items: [], status: 'error' });
+      });
+    }, AUTOCOMPLETE_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [autocompleteApi, canSearch, query, SessionToken]);
+
+  const status = !canSearch
+    ? 'idle'
+    : (resultState.query === query ? resultState.status : 'loading');
+  const visiblePredictions = status === 'ready' ? resultState.items : [];
+
+  return {
+    clearPredictions,
+    finishSession,
+    status,
+    suggestions: visiblePredictions,
+  };
+};
+
 const sanitizeFileName = (name) => String(name || 'ticket')
   .normalize('NFKC')
   .replace(/[^a-zA-Z0-9._-]+/g, '_')
   .replace(/^_+|_+$/g, '')
   .slice(0, 120) || 'ticket';
 
+const ALLOWED_ATTACHMENT_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
+
 const isAllowedTicketFile = (file) => {
   if (!file) return false;
   const type = String(file.type || '').toLowerCase();
   const name = String(file.name || '').toLowerCase();
-  return type.startsWith('image/') || type === 'application/pdf' || name.endsWith('.pdf');
+  return ALLOWED_ATTACHMENT_IMAGE_TYPES.has(type)
+    || type === 'application/pdf'
+    || (!type && name.endsWith('.pdf'));
 };
 
 
 const isAllowedPlacePhoto = (file) => {
   if (!file) return false;
-  return String(file.type || '').toLowerCase().startsWith('image/');
+  return ALLOWED_ATTACHMENT_IMAGE_TYPES.has(String(file.type || '').toLowerCase());
 };
 
 const isAllowedPlacePdf = (file) => {
@@ -189,9 +273,10 @@ const normalizePlaceResources = (resources) => (
       const pendingFile = resource?.pendingFile || null;
       const fileResource = isFileResource(resource);
       const url = normalizeHttpUrl(resource?.url);
+      const storagePath = String(resource?.storagePath || '');
 
       if (fileResource) {
-        if (!url && !pendingFile) return null;
+        if (!url && !storagePath && !pendingFile) return null;
         const contentType = String(
           resource?.contentType
           || pendingFile?.type
@@ -205,7 +290,7 @@ const normalizePlaceResources = (resources) => (
           type,
           title: String(resource?.title || fallbackLabel).trim().slice(0, 60) || fallbackLabel,
           url,
-          storagePath: String(resource?.storagePath || ''),
+          storagePath,
           fileName: String(resource?.fileName || pendingFile?.name || ''),
           contentType,
           size: Number(resource?.size || pendingFile?.size || 0),
@@ -390,6 +475,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
   const rootRef = useRef(null);
   const inputRef = useRef(null);
   const selectionRequestRef = useRef(0);
+  const selectionPendingRef = useRef(false);
   const listboxId = React.useId();
   if (inputState.externalValue !== val) {
     const isCommittedSelection = inputState.committedValue === val;
@@ -400,10 +486,14 @@ export const DestinationSearch = ({ value, onChange, t }) => {
       committedValue: '',
     });
   }
-  const [sug, clearSug] = usePlacePredictions({
+  const {
+    clearPredictions: clearSug,
+    finishSession,
+    status: predictionStatus,
+    suggestions: sug,
+  } = useDestinationPredictions({
     input: inputState.query,
     placesLibrary,
-    types: REGION_AUTOCOMPLETE_TYPES,
   });
   const safeActiveIndex = sug.length === 0
     ? -1
@@ -412,6 +502,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
   const handleSearch = (event) => {
     const nextValue = String(event.target.value);
     selectionRequestRef.current += 1;
+    selectionPendingRef.current = false;
     setInputState({
       externalValue: val,
       displayValue: nextValue,
@@ -425,9 +516,10 @@ export const DestinationSearch = ({ value, onChange, t }) => {
     onChange(nextValue, null);
   };
 
-  const select = (prediction) => {
-    if (!placesLibrary || !prediction?.place_id || isPending) return;
-    const selectedText = String(prediction.description || '');
+  const select = async (prediction) => {
+    if (!prediction?.placeId || !prediction?.toPlace || selectionPendingRef.current) return;
+    selectionPendingRef.current = true;
+    const selectedText = String(prediction.text || '');
     const requestId = selectionRequestRef.current + 1;
     selectionRequestRef.current = requestId;
     setInputState({
@@ -441,26 +533,40 @@ export const DestinationSearch = ({ value, onChange, t }) => {
     setIsPending(true);
     setErrorMessage('');
     clearSug();
+    finishSession();
 
-    // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
-    const service = new placesLibrary.PlacesService(document.createElement('div'));
-    service.getDetails({ placeId: prediction.place_id, fields: ['geometry'] }, (result, status) => {
+    try {
+      const place = prediction.toPlace();
+      await place.fetchFields({ fields: ['location'] });
       if (requestId !== selectionRequestRef.current) return;
-      const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK;
-      const location = result?.geometry?.location;
+      selectionPendingRef.current = false;
+      const location = place.location;
       setIsPending(false);
       setInputState((previous) => ({
         ...previous,
         committedValue: selectedText,
       }));
-      if (ok && location) {
+      if (location) {
         onChange(selectedText, { lat: location.lat(), lng: location.lng() });
       } else {
         onChange(selectedText, null);
         setErrorMessage('無法取得此目的地的座標，請重新搜尋並選擇。');
       }
-      window.requestAnimationFrame(() => inputRef.current?.focus?.());
-    });
+    } catch {
+      if (requestId !== selectionRequestRef.current) return;
+      selectionPendingRef.current = false;
+      setIsPending(false);
+      setInputState((previous) => ({
+        ...previous,
+        committedValue: selectedText,
+      }));
+      onChange(selectedText, null);
+      setErrorMessage('無法取得此目的地的座標，請重新搜尋並選擇。');
+    } finally {
+      if (requestId === selectionRequestRef.current) {
+        window.requestAnimationFrame(() => inputRef.current?.focus?.());
+      }
+    }
   };
 
   const handleKeyDown = (event) => {
@@ -479,14 +585,20 @@ export const DestinationSearch = ({ value, onChange, t }) => {
       setActiveIndex((index) => (index <= 0 ? sug.length - 1 : index - 1));
     } else if (event.key === 'Enter' && safeActiveIndex >= 0) {
       event.preventDefault();
-      select(sug[safeActiveIndex]);
+      void select(sug[safeActiveIndex]);
     }
   };
 
   const handleBlur = (event) => {
     if (rootRef.current?.contains(event.relatedTarget)) return;
     setIsOpen(false);
+    setActiveIndex(-1);
   };
+
+  useEffect(() => () => {
+    selectionRequestRef.current += 1;
+    selectionPendingRef.current = false;
+  }, []);
 
   return (
     <div ref={rootRef} className="relative">
@@ -497,7 +609,7 @@ export const DestinationSearch = ({ value, onChange, t }) => {
          aria-expanded={isOpen && sug.length > 0}
          aria-controls={listboxId}
          aria-activedescendant={safeActiveIndex >= 0 ? `${listboxId}-option-${safeActiveIndex}` : undefined}
-         aria-describedby={errorMessage ? `${listboxId}-error` : undefined}
+         aria-describedby={errorMessage || predictionStatus === 'error' ? `${listboxId}-error` : undefined}
          className={`w-full p-3.5 rounded-xl border outline-none focus:ring-2 focus:ring-blue-500 transition-colors text-base md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
          placeholder="請搜尋並選擇城市 (例如：日本大阪)"
          value={inputState.displayValue}
@@ -507,14 +619,19 @@ export const DestinationSearch = ({ value, onChange, t }) => {
          onBlur={handleBlur}
          autoComplete="off"
       />
-      {isPending ? (
+      {isPending || predictionStatus === 'loading' ? (
         <p role="status" className={`mt-2 text-xs font-bold ${t.subText}`}>
-          正在取得地點資料…
+          {isPending ? '正在取得地點資料…' : '正在搜尋地點…'}
         </p>
       ) : null}
-      {errorMessage ? (
+      {predictionStatus === 'empty' ? (
+        <p role="status" className={`mt-2 text-xs font-bold ${t.subText}`}>
+          找不到符合的地點，請嘗試其他關鍵字。
+        </p>
+      ) : null}
+      {errorMessage || predictionStatus === 'error' ? (
         <p id={`${listboxId}-error`} role="alert" className="mt-2 text-xs font-bold text-red-500">
-          {errorMessage}
+          {errorMessage || '無法載入地點建議，請稍後再試。'}
         </p>
       ) : null}
       {isOpen && sug.length > 0 ? (
@@ -527,15 +644,19 @@ export const DestinationSearch = ({ value, onChange, t }) => {
           {sug.map((suggestion, index) => (
             <button
               id={`${listboxId}-option-${index}`}
-              key={String(suggestion.place_id)}
+              key={String(suggestion.placeId)}
               type="button"
               role="option"
               aria-selected={index === safeActiveIndex}
               disabled={isPending}
-              onClick={() => select(suggestion)}
-              className={`block min-h-11 w-full cursor-pointer border-b p-3 text-left transition-colors hover:bg-blue-500 hover:text-white disabled:cursor-wait disabled:opacity-60 ${index === safeActiveIndex ? 'bg-blue-500 text-white' : t.mainText} ${t.cardBorder}`}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                void select(suggestion);
+              }}
+              onClick={() => void select(suggestion)}
+              className={`block min-h-11 w-full cursor-pointer border-b p-3 text-left transition-colors hover:bg-blue-600 hover:text-white disabled:cursor-wait disabled:opacity-60 ${index === safeActiveIndex ? 'bg-blue-600 text-white' : t.mainText} ${t.cardBorder}`}
             >
-              {String(suggestion.description)}
+              {String(suggestion.text)}
             </button>
           ))}
         </div>
@@ -1175,7 +1296,7 @@ export const ExpenseModal = ({
             data-testid="expense-save-button"
             onClick={() => void handleSave()}
             disabled={saving}
-            className="min-h-12 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-6 rounded-xl text-sm font-bold shadow-lg shadow-emerald-500/30 active:scale-95 transition-all flex-[1.4]"
+            className="min-h-12 flex-[1.4] rounded-xl bg-emerald-700 px-6 text-sm font-bold text-white shadow-lg shadow-emerald-700/25 transition-all hover:bg-emerald-800 active:scale-95 disabled:opacity-50"
           >
             {saving ? "儲存中…" : (isEditing ? "儲存變更" : "確認新增")}
           </button>
@@ -1239,10 +1360,11 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
         const fileRef = sRef(storage, storagePath);
         const uploadTask = uploadBytesResumable(fileRef, file, {
           contentType: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+          cacheControl: 'private, no-store, max-age=0',
           customMetadata: { roomId: safeRoomId, ticketId },
         });
 
-        const snapshot = await new Promise((resolve, reject) => {
+        await new Promise((resolve, reject) => {
           let timedOut = false;
           const timer = window.setTimeout(() => {
             timedOut = true;
@@ -1264,7 +1386,6 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
           );
         });
 
-        finalUrl = await getDownloadURL(snapshot.ref);
         if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) finalType = "pdf";
       } catch (error) {
         console.error('Ticket upload failed:', error);
@@ -1311,7 +1432,7 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
           </div>
           {type === 'image' ? (
              <div className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 border-dashed ${t.cardBg} ${t.cardBorder}`}>
-                <input data-testid="ticket-file-input" type="file" accept="image/*,application/pdf" onChange={handleFileChange} className={`text-xs ${t.mainText} w-full`} />
+                <input data-testid="ticket-file-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" onChange={handleFileChange} className={`text-xs ${t.mainText} w-full`} />
                 <p className={`text-[10px] ${t.subText}`}>僅限圖片或 PDF，單檔上限 10 MB</p>
                 {file ? <p className="text-[10px] text-emerald-500 font-bold">已選擇：{String(file.name)}（{(file.size / 1024 / 1024).toFixed(2)} MB）</p> : null}
              </div>
@@ -1385,7 +1506,7 @@ export const CopyItemModal = ({ item, existingDays, onClose, onCopy, t }) => {
   );
 };
 
-export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t }) => {
+export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachment, onClose, t }) => {
   useBodyScrollLock();
   const safeRoomId = extractRoomId(roomId);
   const [customName, setCustomName] = useState(item.customName || "");
@@ -1400,7 +1521,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
   const [navigationUrl, setNavigationUrl] = useState(item.navigationUrl || '');
 
   const [showResources, setShowResources] = useState(
-    Boolean(item.placePhoto?.url || (Array.isArray(item.resources) && item.resources.length > 0))
+    Boolean(item.placePhoto?.url || item.placePhoto?.storagePath || (Array.isArray(item.resources) && item.resources.length > 0))
   );
   const [resources, setResources] = useState(() => normalizePlaceResources(item.resources));
   const [resourceAddMode, setResourceAddMode] = useState('image');
@@ -1694,13 +1815,14 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
     const photoRef = sRef(storage, storagePath);
     const uploadTask = uploadBytesResumable(photoRef, photoFile, {
       contentType: photoFile.type || 'image/jpeg',
+      cacheControl: 'private, no-store, max-age=0',
       customMetadata: {
         roomId: safeRoomId,
         itemId: String(item.id),
       },
     });
 
-    const snapshot = await new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => {
         uploadTask.cancel();
         reject(new Error('照片上傳逾時，請檢查網路後重試。'));
@@ -1724,7 +1846,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
     });
 
     return {
-      url: await getDownloadURL(snapshot.ref),
+      url: '',
       storagePath,
       fileName: String(photoFile.name || 'place-photo'),
       contentType: String(photoFile.type || 'image/jpeg'),
@@ -1750,6 +1872,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
     const fileRef = sRef(storage, storagePath);
     const uploadTask = uploadBytesResumable(fileRef, file, {
       contentType,
+      cacheControl: 'private, no-store, max-age=0',
       customMetadata: {
         roomId: safeRoomId,
         itemId: String(item.id),
@@ -1758,7 +1881,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
       },
     });
 
-    const snapshot = await new Promise((resolve, reject) => {
+    await new Promise((resolve, reject) => {
       const timer = window.setTimeout(() => {
         uploadTask.cancel();
         reject(new Error('附件上傳逾時，請檢查網路後重試。'));
@@ -1788,7 +1911,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
     return {
       ...resourceWithoutPending,
       kind: 'file',
-      url: await getDownloadURL(snapshot.ref),
+      url: '',
       storagePath,
       fileName: String(file.name || fallbackName),
       contentType,
@@ -2025,13 +2148,13 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                     <label className={`min-h-24 rounded-xl border border-dashed flex flex-col items-center justify-center cursor-pointer ${t.cardBorder} ${t.inputBg}`}>
                       <span className="text-2xl">📷</span>
                       <span className={`text-xs font-bold mt-1 ${t.mainText}`}>上傳店面、餐點或集合地點照片</span>
-                      <input data-testid="place-photo-input" type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      <input data-testid="place-photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handlePhotoChange} className="hidden" />
                     </label>
                   )}
                   {visiblePhotoUrl ? (
                     <label className={`mt-2 min-h-11 px-3 rounded-xl border flex items-center justify-center cursor-pointer text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                       更換照片
-                      <input data-testid="place-photo-input" type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+                      <input data-testid="place-photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handlePhotoChange} className="hidden" />
                     </label>
                   ) : null}
                 </div>
@@ -2057,7 +2180,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                       className={`h-11 flex-1 min-w-0 px-3 rounded-xl border text-sm ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                     />
                     {normalizeHttpUrl(navigationUrl) ? (
-                      <button type="button" onClick={() => openExternalUrl(normalizeHttpUrl(navigationUrl))} className="min-h-11 px-3 rounded-xl bg-emerald-600 text-white text-xs font-bold shrink-0">
+                      <button type="button" onClick={() => openExternalUrl(normalizeHttpUrl(navigationUrl))} className="min-h-11 shrink-0 rounded-xl bg-emerald-700 px-3 text-xs font-bold text-white hover:bg-emerald-800">
                         預覽
                       </button>
                     ) : null}
@@ -2099,16 +2222,25 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                           <div data-testid="place-resource-row" key={resource.id} className={`flex min-w-0 items-center gap-2 rounded-xl border p-3 sm:gap-3 ${t.itemBg} ${t.cardBorder}`}>
                             <button
                               type="button"
-                              onClick={() => { if (resource.url) openExternalUrl(resource.url); }}
-                              disabled={!resource.url}
+                              onClick={() => {
+                                if (pendingUpload) return;
+                                if (typeof onOpenAttachment === 'function') onOpenAttachment(resource);
+                                else if (resource.url) openExternalUrl(resource.url);
+                              }}
+                              disabled={pendingUpload || (!resource.url && !resource.storagePath)}
                               className={`w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center text-lg shrink-0 ${imageResource ? 'bg-slate-500/10' : pdfResource ? 'bg-red-500/10' : 'bg-blue-500/10'} disabled:opacity-60`}
-                              title={resource.url ? '開啟資料' : '儲存後即可開啟'}
+                              title={resource.url || resource.storagePath ? '開啟資料' : '儲存後即可開啟'}
                             >
                               {imageResource && resource.url ? <img src={resource.url} alt="" className="w-full h-full object-cover" /> : imageResource ? '🖼️' : pdfResource ? '📄' : typeMeta.icon}
                             </button>
                             <button
                               type="button"
-                              onClick={() => { if (resource.url) openExternalUrl(resource.url); else handleEditResource(resource); }}
+                              onClick={() => {
+                                if (pendingUpload) handleEditResource(resource);
+                                else if (typeof onOpenAttachment === 'function') onOpenAttachment(resource);
+                                else if (resource.url) openExternalUrl(resource.url);
+                                else handleEditResource(resource);
+                              }}
                               className="flex-1 min-w-0 text-left"
                             >
                               <p className={`text-xs font-bold truncate ${t.mainText}`}>{resource.title}</p>
@@ -2137,7 +2269,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                       type="button"
                       data-testid="place-resource-mode-pdf-button"
                       onClick={() => { resetResourceDrafts(); setResourceAddMode('pdf'); }}
-                      className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'pdf' ? 'bg-red-500 text-white shadow-sm' : t.subText}`}
+                      className={`min-h-10 rounded-lg text-xs font-bold ${resourceAddMode === 'pdf' ? 'bg-red-600 text-white shadow-sm' : t.subText}`}
                     >
                       📄 PDF
                     </button>
@@ -2169,7 +2301,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
                             {imageDraft.file ? `${formatFileSize(imageDraft.file.size)}・儲存景點時上傳` : 'JPG／PNG／WebP，最多 5 MB'}
                           </span>
                         </span>
-                        <input data-testid="place-resource-image-input" type="file" accept="image/*" onChange={handleImageResourceChange} className="hidden" />
+                        <input data-testid="place-resource-image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageResourceChange} className="hidden" />
                       </label>
 
                       <p className={`text-[10px] leading-relaxed ${t.subText}`}>菜單照片會合併成 App 內相簿，可左右滑動，不會當成景點封面。</p>
@@ -2223,7 +2355,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
 
                       <div className="flex gap-2">
                         {editingResourceId && editingResourceKind === 'file' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
-                        <button type="button" data-testid="place-resource-pdf-add-button" onClick={handleSavePdfResource} className="flex-1 min-h-11 rounded-xl bg-red-500 text-white text-xs font-bold">
+                        <button type="button" data-testid="place-resource-pdf-add-button" onClick={handleSavePdfResource} className="min-h-11 flex-1 rounded-xl bg-red-600 text-xs font-bold text-white hover:bg-red-700">
                           {editingResourceId && editingResourceKind === 'file' ? '更新 PDF 資料' : '＋ 加入 PDF'}
                         </button>
                       </div>
@@ -2265,7 +2397,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onClose, t })
 export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
   const map = useMap('main-map');
   const routesLib = useMapsLibrary('routes');
-  const renderersRef = useRef([]);
+  const polylinesRef = useRef([]);
 
   const routeKey = useMemo(() => {
     const items = Array.isArray(itinerary?.[dayId]) ? itinerary[dayId] : [];
@@ -2279,23 +2411,23 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
 
   useEffect(() => {
     const routeInputs = JSON.parse(routeKey);
-    renderersRef.current.forEach((renderer) => renderer.setMap(null));
-    renderersRef.current = [];
+    polylinesRef.current.forEach((polyline) => polyline.setMap(null));
+    polylinesRef.current = [];
 
-    if (!routesLib || !map || !dayId) return undefined;
+    if (!routesLib?.Route || !map || !dayId) return undefined;
     let isCancelled = false;
-    const activeRenderers = [];
+    const activePolylines = [];
 
-    const createRenderer = (result) => {
-      // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
-      const renderer = new routesLib.DirectionsRenderer({
-        map,
-        suppressMarkers: true,
-        preserveViewport: true,
-        polylineOptions: { strokeColor: '#3b82f6', strokeWeight: 5, strokeOpacity: 0.8 },
+    const renderRoute = (route) => {
+      const polylines = route.createPolylines({
+        polylineOptions: {
+          strokeColor: '#3b82f6',
+          strokeWeight: 5,
+          strokeOpacity: 0.8,
+        },
       });
-      renderer.setDirections(result);
-      activeRenderers.push(renderer);
+      polylines.forEach((polyline) => polyline.setMap(map));
+      activePolylines.push(...polylines);
     };
 
     const fetchRoute = async () => {
@@ -2304,38 +2436,26 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
         return;
       }
 
-      // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
-      const service = new routesLib.DirectionsService();
       const allCoordinatesValid = routeInputs.every((item) => isValidCoordinates(item.lat, item.lng));
       const allAutomaticDriving = routeInputs.slice(0, -1).every((item) => item.mode === 'AUTO');
       const canUseSingleRequest = allCoordinatesValid && allAutomaticDriving && routeInputs.length <= 25;
 
       if (canUseSingleRequest) {
         try {
-          const result = await service.route({
-            origin: { lat: routeInputs[0].lat, lng: routeInputs[0].lng },
-            destination: {
-              lat: routeInputs[routeInputs.length - 1].lat,
-              lng: routeInputs[routeInputs.length - 1].lng,
-            },
-            waypoints: routeInputs.slice(1, -1).map((item) => ({
-              location: { lat: item.lat, lng: item.lng },
-              stopover: true,
-            })),
-            optimizeWaypoints: false,
-            travelMode: window.google.maps.TravelMode.DRIVING,
-          });
+          const result = await routesLib.Route.computeRoutes(
+            buildDrivingRouteRequest(routeInputs, { includePath: true }),
+          );
           if (isCancelled) return;
 
           const route = result.routes?.[0];
           if (route?.legs?.length) {
-            createRenderer(result);
+            renderRoute(route);
             const durations = route.legs.map((leg) => ({
-              text: String(leg?.duration?.text || ''),
-              value: Math.max(1, Math.round(Number(leg?.duration?.value || 0) / 60)),
+              text: formatStayTime(getRouteLegMinutes(leg)),
+              value: getRouteLegMinutes(leg),
               mode: 'AUTO',
             }));
-            renderersRef.current = activeRenderers;
+            polylinesRef.current = activePolylines;
             onRouteCalculated?.(dayId, durations);
             return;
           }
@@ -2364,24 +2484,23 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
         }
 
         try {
-          const result = await service.route({
-            origin: { lat: origin.lat, lng: origin.lng },
-            destination: { lat: destination.lat, lng: destination.lng },
-            travelMode: window.google.maps.TravelMode.DRIVING,
-          });
+          const result = await routesLib.Route.computeRoutes(
+            buildDrivingRouteRequest([origin, destination], { includePath: true }),
+          );
           if (isCancelled) return;
 
           const leg = result.routes?.[0]?.legs?.[0];
-          if (!leg?.duration) {
+          if (!leg?.durationMillis) {
             console.warn('Route response did not contain a duration.');
             durations.push({ text: '無法計算', value: 30, mode: 'ERROR' });
             continue;
           }
 
-          createRenderer(result);
+          renderRoute(result.routes[0]);
+          const minutes = getRouteLegMinutes(leg);
           durations.push({
-            text: String(leg.duration.text || ''),
-            value: Math.max(1, Math.round(Number(leg.duration.value) / 60)),
+            text: formatStayTime(minutes),
+            value: minutes,
             mode: 'AUTO',
           });
         } catch (error) {
@@ -2392,7 +2511,7 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
       }
 
       if (!isCancelled) {
-        renderersRef.current = activeRenderers;
+        polylinesRef.current = activePolylines;
         onRouteCalculated?.(dayId, durations);
       }
     };
@@ -2400,8 +2519,8 @@ export const Directions = ({ itinerary, dayId, onRouteCalculated }) => {
     void fetchRoute();
     return () => {
       isCancelled = true;
-      activeRenderers.forEach((renderer) => renderer.setMap(null));
-      renderersRef.current = [];
+      activePolylines.forEach((polyline) => polyline.setMap(null));
+      polylinesRef.current = [];
     };
   }, [dayId, map, onRouteCalculated, routeKey, routesLib]);
 
@@ -2505,7 +2624,7 @@ export const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, da
                   <button onClick={() => onAdd(place, 'before')} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm md:text-[11px] font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
                     加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」前
                   </button>
-                  <button onClick={() => onAdd(place, 'after')} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl text-sm md:text-[11px] font-bold shadow-lg shadow-emerald-500/30 transition-all active:scale-95">
+                  <button onClick={() => onAdd(place, 'after')} className="flex-1 rounded-xl bg-emerald-700 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-700/25 transition-all hover:bg-emerald-800 active:scale-95 md:text-[11px]">
                     加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」後
                   </button>
                 </div>
@@ -3065,7 +3184,7 @@ export const ChecklistModal = ({
                         aria-label={item.completed ? '標記為未完成' : '標記為已完成'}
                         className="min-w-11 min-h-11 shrink-0 flex items-center justify-center"
                       >
-                        <span className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-sm font-black transition-all ${item.completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-400/60 hover:border-emerald-500'}`}>
+                        <span className={`flex h-7 w-7 items-center justify-center rounded-full border-2 text-sm font-black transition-all ${item.completed ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-400/60 hover:border-emerald-500'}`}>
                           {item.completed ? '✓' : ''}
                         </span>
                       </button>
