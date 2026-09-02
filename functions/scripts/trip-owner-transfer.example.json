@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "transfers": [
+    {
+      "roomId": "replace-with-room-id",
+      "expectedTitle": "Replace with the exact current trip title",
+      "fromUid": "replace-with-current-owner-uid",
+      "toUid": "replace-with-active-editor-uid"
+    }
+  ]
+}

@@ -48,6 +48,7 @@ build/
 .env.*.local
 /legacy-ticket-path-repair*.local.json
 legacy-creation-id-repair*.local.json
+trip-owner-transfer*.local.json
 
 .firebase/
 *-debug.log

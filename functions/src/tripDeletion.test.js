@@ -418,6 +418,42 @@ const runWorkerToCompletion = async (service, roomId = 'room-1') => {
   assert.fail('worker did not converge within 20 bounded attempts');
 };
 
+const transferFixtureOwnership = (database, firestore) => {
+  database.setValue('rooms/room-1/meta/ownerUid', editorAuth.uid);
+  database.setValue('roomAccess/room-1/ownerUid', editorAuth.uid);
+  database.setValue(`roomAccess/room-1/members/${ownerAuth.uid}/role`, 'editor');
+  database.setValue(`roomAccess/room-1/members/${ownerAuth.uid}/aclVersion`, 5);
+  database.setValue(`roomAccess/room-1/members/${editorAuth.uid}/role`, 'owner');
+  database.setValue(`roomAccess/room-1/members/${editorAuth.uid}/aclVersion`, 3);
+  database.setValue(`userTrips/${ownerAuth.uid}/room-1`, {
+    role: 'editor',
+    status: 'active',
+    aclVersion: 5,
+  });
+  database.setValue(`userTrips/${editorAuth.uid}/room-1`, {
+    role: 'owner',
+    status: 'active',
+    aclVersion: 3,
+  });
+  database.setValue(`userQuotas/${editorAuth.uid}/createTrip`, {
+    totalCount: 7,
+    windowCount: 1,
+    windowStartedAt: 1,
+  });
+  firestore.documents.set(`tripAccess/room-1/members/${ownerAuth.uid}`, {
+    uid: ownerAuth.uid,
+    role: 'editor',
+    status: 'active',
+    aclVersion: 5,
+  });
+  firestore.documents.set(`tripAccess/room-1/members/${editorAuth.uid}`, {
+    uid: editorAuth.uid,
+    role: 'owner',
+    status: 'active',
+    aclVersion: 3,
+  });
+};
+
 test('owner deletion removes every room namespace while retaining permanent tombstones', async () => {
   const { database, firestore, bucket, service } = createFixture();
 
@@ -550,6 +586,113 @@ test('editor and non-Google identities cannot start or resume owner deletion', a
   assert.deepEqual(database.state, beforeDatabase);
   assert.deepEqual([...firestore.documents.entries()], beforeFirestore);
   assert.deepEqual([...bucket.objects.entries()], beforeStorage);
+});
+
+test('transferred owner can delete while the former owner is denied', async () => {
+  const { database, firestore, bucket, service } = createFixture();
+  transferFixtureOwnership(database, firestore);
+  const beforeDatabase = clone(database.state);
+  const beforeFirestore = clone([...firestore.documents.entries()]);
+  const beforeStorage = clone([...bucket.objects.entries()]);
+
+  await assert.rejects(
+    () => service.deleteTrip({ roomId: 'room-1' }, ownerAuth),
+    collaborationError('permission-denied'),
+  );
+  assert.deepEqual(database.state, beforeDatabase);
+  assert.deepEqual([...firestore.documents.entries()], beforeFirestore);
+  assert.deepEqual([...bucket.objects.entries()], beforeStorage);
+
+  const accepted = await service.deleteTrip({ roomId: 'room-1' }, editorAuth);
+  assert.equal(accepted.accepted, true);
+  assert.equal(database.value('tripDeletions/room-1/ownerUid'), editorAuth.uid);
+  assert.equal(
+    database.value('tripDeletions/room-1/reservationCreatedByUid'),
+    ownerAuth.uid,
+  );
+});
+
+test('transferred owner deletion releases creator quota exactly once', async () => {
+  const { database, firestore, service } = createFixture();
+  transferFixtureOwnership(database, firestore);
+  database.finalUpdateFailures = 1;
+
+  const accepted = await service.deleteTrip({ roomId: 'room-1' }, editorAuth);
+
+  await assert.rejects(
+    () => service.processTripDeletion('room-1'),
+    /injected final RTDB failure/u,
+  );
+  assert.equal(database.value(`userQuotas/${ownerAuth.uid}/createTrip/totalCount`), 1);
+  assert.equal(database.value(`userQuotas/${editorAuth.uid}/createTrip/totalCount`), 7);
+  assert.equal(
+    database.value(`userQuotas/${ownerAuth.uid}/createTrip/pendingReleases/${accepted.deletionId}/roomId`),
+    'room-1',
+  );
+  assert.equal(
+    database.value(`userQuotas/${editorAuth.uid}/createTrip/pendingReleases/${accepted.deletionId}`),
+    undefined,
+  );
+
+  await runWorkerToCompletion(service);
+
+  assert.equal(database.value(`userQuotas/${ownerAuth.uid}/createTrip/totalCount`), 1);
+  assert.deepEqual(database.value(`userQuotas/${ownerAuth.uid}/createTrip/pendingReleases`), {});
+  assert.equal(database.value(`userQuotas/${editorAuth.uid}/createTrip/totalCount`), 7);
+  assert.equal(database.value('roomReservations/room-1/createdByUid'), ownerAuth.uid);
+});
+
+test('a malformed journal creator stops the worker before any mutation', async (t) => {
+  for (const [label, value] of [['missing', null], ['invalid', 'invalid/uid']]) {
+    await t.test(label, async () => {
+      const { database, firestore, bucket, service } = createFixture();
+      await service.deleteTrip({ roomId: 'room-1' }, ownerAuth);
+      database.setValue('tripDeletions/room-1/reservationCreatedByUid', value);
+      const beforeDatabase = clone(database.state);
+      const beforeFirestore = clone([...firestore.documents.entries()]);
+      const beforeStorage = clone([...bucket.objects.entries()]);
+
+      await assert.rejects(
+        () => service.processTripDeletion('room-1'),
+        collaborationError('failed-precondition'),
+      );
+
+      assert.deepEqual(database.state, beforeDatabase);
+      assert.deepEqual([...firestore.documents.entries()], beforeFirestore);
+      assert.deepEqual([...bucket.objects.entries()], beforeStorage);
+      assert.equal(bucket.deleteCalls.length, 0);
+    });
+  }
+});
+
+test('reservation drift stops an existing deletion journal before any mutation', async (t) => {
+  const cases = [
+    ['roomId', 'another-room'],
+    ['creationId', 'another-creation'],
+    ['createdByUid', editorAuth.uid],
+    ['createdAt', 2],
+  ];
+
+  for (const [field, value] of cases) {
+    await t.test(field, async () => {
+      const { database, firestore, bucket, service } = createFixture();
+      await service.deleteTrip({ roomId: 'room-1' }, ownerAuth);
+      database.setValue(`roomReservations/room-1/${field}`, value);
+      const beforeDatabase = clone(database.state);
+      const beforeFirestore = clone([...firestore.documents.entries()]);
+      const beforeStorage = clone([...bucket.objects.entries()]);
+
+      await assert.rejects(
+        () => service.processTripDeletion('room-1'),
+        collaborationError('failed-precondition'),
+      );
+
+      assert.deepEqual(database.state, beforeDatabase);
+      assert.deepEqual([...firestore.documents.entries()], beforeFirestore);
+      assert.deepEqual([...bucket.objects.entries()], beforeStorage);
+      assert.equal(bucket.deleteCalls.length, 0);
+    });
+  }
 });
 
 test('Storage failure keeps the trip fail-closed and exposes an owner retry index', async () => {

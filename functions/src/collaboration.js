@@ -195,6 +195,10 @@ export function createCollaborationService({ database, firestore, clock = Date.n
         transaction.delete(targetRef);
         return 'blocked';
       }
+      // Any other parent guard is an exclusive maintenance boundary. In
+      // particular, an ownership transfer must not let an in-flight member
+      // mutation write a stale Storage ACL before its RTDB transaction fails.
+      if (guard) return 'blocked';
       const snapshot = await transaction.get(targetRef);
       const current = snapshot.exists ? snapshot.data() : null;
       const currentVersion = Number(current?.aclVersion) || 0;
@@ -390,6 +394,38 @@ export function createCollaborationService({ database, firestore, clock = Date.n
     });
   };
 
+  const removeInviteLookupIfOwned = async (roomId, invite) => {
+    const tokenHash = String(invite?.tokenHash || '');
+    const version = Number(invite?.version);
+    if (!tokenHash || !Number.isSafeInteger(version) || version < 1) return;
+    await inviteLookupRef(tokenHash).transaction(
+      (current) => {
+        if (current === null) return current;
+        if (current?.roomId === roomId && Number(current?.version) === version) return null;
+        return undefined;
+      },
+      undefined,
+      false,
+    );
+  };
+
+  const verifyInviteLookupRepair = async (roomId, profile, invite) => {
+    const latestAccess = await getAccess(roomId);
+    const latestOwner = latestAccess?.members?.[profile.uid];
+    if (
+      latestAccess?.state !== 'ready'
+      || !isOwnerMember(latestOwner, latestAccess?.ownerUid, profile.uid)
+      || latestAccess?.invite?.active !== true
+      || latestAccess.invite.tokenHash !== invite?.tokenHash
+      || latestAccess.invite.token !== invite?.token
+      || Number(latestAccess.invite.version) !== Number(invite?.version)
+    ) {
+      await removeInviteLookupIfOwned(roomId, invite);
+      fail('aborted', '邀請修復遇到旅程維護或狀態漂移，請重新開啟分享設定。');
+    }
+    return latestAccess.invite;
+  };
+
   const createInvite = async (roomId, profile) => {
     const createdAt = nowValue(clock);
     const token = generateInviteToken();
@@ -465,11 +501,14 @@ export function createCollaborationService({ database, firestore, clock = Date.n
     }
 
     const latestAccess = await getAccess(roomId);
+    const latestOwner = latestAccess?.members?.[profile.uid];
     if (
-      latestAccess?.invite?.tokenHash !== tokenHash
+      latestAccess?.state !== 'ready'
+      || !isOwnerMember(latestOwner, latestAccess?.ownerUid, profile.uid)
+      || latestAccess?.invite?.tokenHash !== tokenHash
       || latestAccess?.invite?.version !== canonicalInvite?.version
     ) {
-      await inviteLookupRef(tokenHash).remove();
+      await removeInviteLookupIfOwned(roomId, canonicalInvite);
       fail('aborted', '邀請已被另一個操作換發，請重新開啟分享設定。');
     }
     return inviteResponse(canonicalInvite);
@@ -615,7 +654,8 @@ export function createCollaborationService({ database, firestore, clock = Date.n
         && state?.tokenHash
       ) {
         await activateInviteLookup(roomId, state);
-        return inviteResponse(state);
+        const canonicalInvite = await verifyInviteLookupRepair(roomId, profile, state);
+        return inviteResponse(canonicalInvite);
       }
       return createInvite(roomId, profile);
     },
