@@ -431,6 +431,141 @@ lease，應維持 production 暫停並先人工查明。
 只有 finalize 成功，且 owner/outsider smoke test 都符合預期後，才解除 production
 維護封鎖。
 
+### 11.2 修復 legacy room 缺少的 deletion identity
+
+早期版本的 owner migration 只寫入
+`roomReservations/{roomId}/creationId`，卻漏掉刪除流程所需的
+`roomAccess/{roomId}/creationId`。症狀是 owner 能正常開啟旅程，但永久刪除回傳
+「只有旅程擁有者可以永久刪除此旅程」。不要放寬 `deleteTrip` 的 owner 驗證，也不要
+重跑完整 migration；完整 migration 會重新觸碰 ACL、quota 與已完成的 Storage 安全
+清理，範圍過大。
+
+合併含 `repair:legacy-creation-id` 的 PR 後，在 Cloud Shell 從最新 `main` 執行。下列
+命令以已確認的 35 個 legacy rooms 為例；mapping 使用第 5 節同一份未提交檔案：
+
+```bash
+cd ~/Travel_app
+git switch main
+git pull --ff-only origin main
+npm --prefix functions ci --ignore-scripts
+
+project_id='travel-app-923ef'
+database_url='https://travel-app-923ef-default-rtdb.firebaseio.com'
+repair_count='35'
+mapping_path='scripts/legacy-owner-map.production.local.json'
+manifest_path="${HOME}/legacy-creation-id-repair-20260901.local.json"
+umask 077
+
+npm --prefix functions run repair:legacy-creation-id -- \
+  --mapping "$mapping_path" \
+  --manifest "$manifest_path" \
+  --project "$project_id" \
+  --database-url "$database_url" \
+  --expected-count "$repair_count"
+```
+
+PLAN 不寫 Firebase，只會以 exclusive create 建立權限 0600 的本機 manifest。它會要求
+mapping 與 production 所有 `migrated: true` reservations 完全相等，並逐 room 驗證：
+
+- `rooms.meta.ownerUid`、`roomAccess` active owner、`userTrips` 與 Firestore ACL 的 owner
+  和 `aclVersion` 一致；
+- reservation 的 room、owner、timestamp 與 deterministic
+  `legacy-migration-{roomId}` creation ID 完整；
+- 沒有 deletion journal、worker、Firestore deletion guard 或既有 ticket repair lease；
+- access creation ID 只能是缺少，或已經與 reservation 完全相同；任何其他值都會
+  fail closed。
+
+本次已知缺陷的預期輸出是：
+
+```text
+PLAN total=35 candidates=35 correct=0
+No Firebase data was changed.
+```
+
+若 count 不同，不可自行改 confirmation 繞過；先保持 production 不刪除旅程並查明差異。
+保存輸出的 manifest SHA，另備份 repair 前的 access subtree 與 manifest：
+
+```bash
+manifest_sha='PASTE_THE_64_CHARACTER_SHA256_FROM_PLAN_OUTPUT'
+access_backup="${HOME}/roomAccess-before-creation-id-repair-20260901.local.json"
+manifest_backup="${HOME}/legacy-creation-id-repair-20260901.backup.local.json"
+
+npx -y firebase-tools@latest database:get /roomAccess \
+  --project "$project_id" \
+  --instance travel-app-923ef-default-rtdb \
+  --output "$access_backup"
+cp --preserve=mode,timestamps "$manifest_path" "$manifest_backup"
+chmod 600 "$access_backup" "$manifest_backup"
+test -s "$access_backup" && test -s "$manifest_backup" && echo 'Repair backups: OK'
+jq -e 'type == "object"' "$access_backup" >/dev/null
+sha256sum "$manifest_path" "$manifest_backup" "$access_backup"
+```
+
+`access_backup` 只供事故比對，不能用整棵 `/roomAccess` restore 覆蓋 repair 後或其他使用者
+產生的新資料。
+
+Apply 前暫停 Vercel Production，並確認所有已知使用者已關閉既有 PWA／分頁。Vercel
+Pause 不會撤銷已登入使用者直接呼叫 Firebase Functions 的能力，所以兩個條件都必須
+成立；至少等待 60 秒讓已送出的 `deleteTrip` callable 結束，再使用 PLAN 顯示的
+candidate count 與 SHA 執行：
+
+```bash
+candidate_count='35'
+
+npm --prefix functions run repair:legacy-creation-id -- \
+  --manifest "$manifest_path" \
+  --project "$project_id" \
+  --database-url "$database_url" \
+  --expected-count "$repair_count" \
+  --apply \
+  --confirm-project "$project_id" \
+  --confirm-database-host 'travel-app-923ef-default-rtdb.firebaseio.com' \
+  --confirm-count "$repair_count" \
+  --confirm-candidate-count "$candidate_count" \
+  --confirm-manifest-sha256 "$manifest_sha" \
+  --confirm-maintenance-window production-paused-users-inactive
+```
+
+工具會先完成 35/35 preflight，接著在現有
+`maintenanceRepairs/legacyTicketPath/{roomId}` 取得每個 room 的 maintenance lease；現行
+Rules 與 `deleteTrip` 都認得這個 gate，因此 repair 期間 client write 與新刪除要求會被
+拒絕。每筆只以 transaction 將「缺少」補成 manifest 指定值，不覆寫 reservation、room、
+member、ACL、quota 或其他 access 欄位。已完成的筆數可安全重跑；若程序中斷並留下本次
+manifest 的 lease，新的 apply invocation 會 fail closed，不會自動接管。命令開始時會
+輸出本次唯一 `Apply invocation ID`；保持 production 暫停，先用 `ps` 確認舊 Node 程序
+已完全停止，再逐筆核對 lease 的 operation、manifest `runId`、SHA、roomId 與
+invocation ID。只有全部與中斷程序完全相符時，才能用受審核的 Admin 操作精確清除該
+批 leaf，再以同一 manifest 與 SHA 向前續跑。不可刪除整個
+`maintenanceRepairs` 或 `legacyTicketPath` namespace，也不可接管 foreign lease。
+
+Apply 必須顯示 `APPLY verified=35`。接著執行獨立 read-only verify：
+
+```bash
+npm --prefix functions run repair:legacy-creation-id -- \
+  --manifest "$manifest_path" \
+  --project "$project_id" \
+  --database-url "$database_url" \
+  --expected-count "$repair_count" \
+  --verify \
+  --confirm-manifest-sha256 "$manifest_sha"
+```
+
+確認 `VERIFY verified=35` 後才解除 Vercel 維護封鎖，先以 owner 登入並永久刪除一趟
+確定不再需要的 legacy 旅程。若沒有 owner-only edge allowlist，解除 Pause 就會形成短暫
+公開窗口，因此其他已知使用者仍須保持離線；若 smoke 失敗立刻重新 Pause。確認卡片
+消失、RTDB/Firestore/Storage cleanup 完成後，才通知其他使用者恢復操作。
+
+Repair 對跨 namespace 的安全保證是 maintenance lease、全批 preflight、逐 room
+`roomAccess` transaction 與全批 post-verify；它不宣稱 RTDB、Firestore 與 Auth 之間是
+單一原子 transaction。只有維護窗口與 lease 都成立時才能 apply。
+
+這項 repair 刻意不提供 live rollback。補回 creation ID 是 deterministic、單調且
+idempotent 的 canonical invariant；刪回欄位會重新製造缺陷，且可能與已通過 owner
+驗證、尚未建立 journal 的 in-flight delete 發生競態，使 deletion worker 永久卡住。
+若 apply 中斷，安全恢復方式是保留 manifest 與 lease、用同一 SHA 向前續跑並完成
+verify；若留下 lease，必須先依上段完成 ownership 核對與精確清理，而不是還原整個
+access snapshot。
+
 ## 12. 人工：確認 download-token gate 並設定 Storage CORS
 
 ### 確認自動 download-token gate

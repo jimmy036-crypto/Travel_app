@@ -23,6 +23,7 @@ import {
   switchLegacyStoragePathTransitions,
   validateDatabaseTargetUrl,
   validateStorageBucket,
+  verifyEntry,
 } from './migrate-legacy-trip-access.js';
 
 const PROJECT_ID = 'travel-app-923ef';
@@ -68,6 +69,10 @@ test('buildMigrationUpdates preserves timestamps and never lowers the ACL versio
 
   assert.equal(updates['rooms/legacy-room/meta/securityMigratedAt'], 10);
   assert.equal(updates['roomAccess/legacy-room/createdAt'], 20);
+  assert.equal(
+    updates['roomAccess/legacy-room/creationId'],
+    'legacy-migration-legacy-room',
+  );
   assert.equal(updates['roomAccess/legacy-room/members/owner-uid/joinedAt'], 30);
   assert.equal(updates['roomAccess/legacy-room/members/owner-uid/status'], 'active');
   assert.equal(updates['roomAccess/legacy-room/members/owner-uid/aclVersion'], 7);
@@ -78,6 +83,10 @@ test('buildMigrationUpdates preserves timestamps and never lowers the ACL versio
     updatedAt: 40,
   });
   assert.equal(updates['roomReservations/legacy-room'].createdByUid, 'owner-uid');
+  assert.equal(
+    updates['roomReservations/legacy-room'].creationId,
+    updates['roomAccess/legacy-room/creationId'],
+  );
 
   const retryAfterRollback = buildMigrationUpdates({
     mapping,
@@ -92,6 +101,119 @@ test('buildMigrationUpdates preserves timestamps and never lowers the ACL versio
   assert.equal(
     retryAfterRollback['roomAccess/legacy-room/members/owner-uid/aclVersion'],
     9,
+  );
+});
+
+test('migration repairs the missing access creationId without replacing reservation identity', () => {
+  const mapping = {
+    roomId: 'legacy-room',
+    uid: 'owner-uid',
+    displayName: 'Owner',
+    photoURL: '',
+  };
+  const access = {
+    ownerUid: 'owner-uid',
+    state: 'ready',
+    createdAt: 20,
+    members: {
+      'owner-uid': {
+        uid: 'owner-uid', role: 'owner', status: 'active', aclVersion: 1,
+      },
+    },
+  };
+  const reservation = {
+    roomId: 'legacy-room',
+    creationId: 'legacy-migration-legacy-room',
+    createdByUid: 'owner-uid',
+    createdAt: 20,
+    migrated: true,
+  };
+  const state = {
+    mapping,
+    room: { meta: { ownerUid: 'owner-uid' } },
+    access,
+    userTrip: { role: 'owner', status: 'active', aclVersion: 1 },
+    acl: {
+      uid: 'owner-uid', role: 'owner', status: 'active', aclVersion: 1,
+    },
+    reservation,
+  };
+
+  assert.doesNotThrow(() => assertCompatibleState(state));
+  const updates = buildMigrationUpdates({ ...state, now: 99 });
+  assert.equal(
+    updates['roomAccess/legacy-room/creationId'],
+    reservation.creationId,
+  );
+  assert.equal(updates['roomReservations/legacy-room'].createdAt, 20);
+
+  assert.throws(() => assertCompatibleState({
+    ...state,
+    access: { ...access, creationId: 'different-creation-id' },
+  }), /creationId 鏡像不一致/);
+  assert.throws(() => assertCompatibleState({
+    ...state,
+    reservation: { ...reservation, createdAt: 0 },
+  }), /roomReservations/);
+  assert.throws(() => assertCompatibleState({
+    ...state,
+    reservation: { ...reservation, roomId: 'another-room' },
+  }), /roomReservations/);
+});
+
+test('post-migration verification rejects missing or mismatched creationId mirrors', async () => {
+  const mapping = { roomId: 'legacy-room', uid: 'owner-uid' };
+  const values = {
+    'rooms/legacy-room': { meta: { ownerUid: 'owner-uid' } },
+    'roomAccess/legacy-room': {
+      ownerUid: 'owner-uid',
+      state: 'ready',
+      creationId: 'legacy-migration-legacy-room',
+      members: {
+        'owner-uid': {
+          uid: 'owner-uid', role: 'owner', status: 'active', aclVersion: 1,
+        },
+      },
+    },
+    'userTrips/owner-uid/legacy-room': {
+      role: 'owner', status: 'active', aclVersion: 1,
+    },
+    'roomReservations/legacy-room': {
+      roomId: 'legacy-room',
+      creationId: 'legacy-migration-legacy-room',
+      createdByUid: 'owner-uid',
+      createdAt: 20,
+      migrated: true,
+    },
+  };
+  const database = {
+    ref(path) {
+      return { get: async () => ({ val: () => values[path] ?? null }) };
+    },
+  };
+  const firestore = {
+    doc() {
+      return {
+        get: async () => ({
+          exists: true,
+          data: () => ({
+            uid: 'owner-uid', role: 'owner', status: 'active', aclVersion: 1,
+          }),
+        }),
+      };
+    },
+  };
+
+  await assert.doesNotReject(() => verifyEntry({ database, firestore, mapping }));
+  delete values['roomAccess/legacy-room'].creationId;
+  await assert.rejects(
+    () => verifyEntry({ database, firestore, mapping }),
+    /寫入後驗證失敗/,
+  );
+  values['roomAccess/legacy-room'].creationId = 'different-creation-id';
+  await assert.rejects(
+    () => verifyEntry({ database, firestore, mapping }),
+    /寫入後驗證失敗/,
   );
 });
 
