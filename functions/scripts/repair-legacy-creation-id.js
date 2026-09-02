@@ -7,7 +7,7 @@ import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { applicationDefault, initializeApp } from 'firebase-admin/app';
+import { applicationDefault, deleteApp, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getDatabase } from 'firebase-admin/database';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -999,6 +999,45 @@ export const executeCreationIdRepair = async ({
   };
 };
 
+const errorMessage = (error) => error instanceof Error ? error.message : String(error);
+
+export const withFirebaseAdminAppCleanup = async ({
+  app,
+  operation,
+  cleanup = deleteApp,
+}) => {
+  let result;
+  let operationFailed = false;
+  let operationError = null;
+  try {
+    result = await operation();
+  } catch (error) {
+    operationFailed = true;
+    operationError = error;
+  }
+
+  let cleanupFailed = false;
+  let cleanupError = null;
+  try {
+    await cleanup(app);
+  } catch (error) {
+    cleanupFailed = true;
+    cleanupError = error;
+  }
+
+  if (operationFailed && cleanupFailed) {
+    const combinedError = new Error(
+      `${errorMessage(operationError)}；Firebase Admin cleanup 也失敗：${errorMessage(cleanupError)}`,
+      { cause: operationError },
+    );
+    combinedError.errors = [operationError, cleanupError];
+    throw combinedError;
+  }
+  if (operationFailed) throw operationError;
+  if (cleanupFailed) throw cleanupError;
+  return result;
+};
+
 const run = async () => {
   const options = parseCreationIdRepairCli();
   const invocationId = options.phase === 'apply' ? randomUUID() : '';
@@ -1007,26 +1046,31 @@ const run = async () => {
     projectId: options.projectId,
     databaseURL: options.databaseURL,
   }, `legacy-creation-id-repair-${Date.now()}`);
-  if (invocationId) console.log(`Apply invocation ID: ${invocationId}`);
-  const result = await executeCreationIdRepair({
-    options,
-    database: getDatabase(app),
-    firestore: getFirestore(app),
-    auth: getAuth(app),
-    invocationId,
+  await withFirebaseAdminAppCleanup({
+    app,
+    operation: async () => {
+      if (invocationId) console.log(`Apply invocation ID: ${invocationId}`);
+      const result = await executeCreationIdRepair({
+        options,
+        database: getDatabase(app),
+        firestore: getFirestore(app),
+        auth: getAuth(app),
+        invocationId,
+      });
+      console.log(`Target project: ${options.projectId}`);
+      console.log(`Target database host: ${new URL(options.databaseURL).hostname}`);
+      if (result.phase === 'plan') {
+        console.log(
+          `PLAN total=${result.totalCount} candidates=${result.candidateCount} correct=${result.correctCount}`,
+        );
+        console.log(`Manifest: ${result.path}`);
+        console.log(`Manifest SHA256: ${result.sha256}`);
+        console.log('No Firebase data was changed.');
+        return;
+      }
+      console.log(`${result.phase.toUpperCase()} verified=${result.verifiedCount}`);
+    },
   });
-  console.log(`Target project: ${options.projectId}`);
-  console.log(`Target database host: ${new URL(options.databaseURL).hostname}`);
-  if (result.phase === 'plan') {
-    console.log(
-      `PLAN total=${result.totalCount} candidates=${result.candidateCount} correct=${result.correctCount}`,
-    );
-    console.log(`Manifest: ${result.path}`);
-    console.log(`Manifest SHA256: ${result.sha256}`);
-    console.log('No Firebase data was changed.');
-    return;
-  }
-  console.log(`${result.phase.toUpperCase()} verified=${result.verifiedCount}`);
 };
 
 const isMain = process.argv[1]
@@ -1034,7 +1078,7 @@ const isMain = process.argv[1]
 
 if (isMain) {
   run().catch((error) => {
-    console.error(`Legacy creationId repair failed: ${error.message}`);
+    console.error(`Legacy creationId repair failed: ${errorMessage(error)}`);
     process.exitCode = 1;
   });
 }

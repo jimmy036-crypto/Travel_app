@@ -13,6 +13,7 @@ import {
   readCreationIdRepairManifest,
   validateCreationIdRepairState,
   verifyCreationIdRepairManifest,
+  withFirebaseAdminAppCleanup,
   writeCreationIdRepairManifest,
 } from './repair-legacy-creation-id.js';
 
@@ -477,4 +478,85 @@ test('CLI defaults to plan and requires typed apply confirmations', () => {
     '--confirm-manifest-sha256', 'a'.repeat(64),
   ]);
   assert.equal(verify.phase, 'verify');
+});
+
+test('Firebase Admin app cleanup runs after a successful CLI operation', async () => {
+  const app = { name: 'repair-app' };
+  const calls = [];
+  const result = await withFirebaseAdminAppCleanup({
+    app,
+    operation: async () => {
+      calls.push('operation');
+      return 'complete';
+    },
+    cleanup: async (receivedApp) => {
+      assert.equal(receivedApp, app);
+      calls.push('cleanup');
+    },
+  });
+
+  assert.equal(result, 'complete');
+  assert.deepEqual(calls, ['operation', 'cleanup']);
+});
+
+test('Firebase Admin app cleanup preserves a CLI operation failure', async () => {
+  const operationError = new Error('operation failed');
+  let cleanupCalled = false;
+  await assert.rejects(
+    () => withFirebaseAdminAppCleanup({
+      app: {},
+      operation: async () => { throw operationError; },
+      cleanup: async () => { cleanupCalled = true; },
+    }),
+    (error) => error === operationError,
+  );
+  assert.equal(cleanupCalled, true);
+});
+
+test('Firebase Admin app cleanup preserves a falsy CLI rejection', async () => {
+  let caught = Symbol('not-caught');
+  let cleanupCalled = false;
+  try {
+    await withFirebaseAdminAppCleanup({
+      app: {},
+      operation: async () => { throw null; },
+      cleanup: async () => { cleanupCalled = true; },
+    });
+  } catch (error) {
+    caught = error;
+  }
+  assert.equal(caught, null);
+  assert.equal(cleanupCalled, true);
+});
+
+test('Firebase Admin app cleanup reports both operation and cleanup failures', async () => {
+  const operationError = new Error('operation failed');
+  const cleanupError = new Error('cleanup failed');
+  await assert.rejects(
+    () => withFirebaseAdminAppCleanup({
+      app: {},
+      operation: async () => { throw operationError; },
+      cleanup: async () => { throw cleanupError; },
+    }),
+    (error) => {
+      assert.equal(error instanceof Error, true);
+      assert.equal(error.cause, operationError);
+      assert.deepEqual(error.errors, [operationError, cleanupError]);
+      assert.match(error.message, /operation failed/);
+      assert.match(error.message, /cleanup failed/);
+      return true;
+    },
+  );
+});
+
+test('Firebase Admin app cleanup failure fails an otherwise successful operation', async () => {
+  const cleanupError = new Error('cleanup failed');
+  await assert.rejects(
+    () => withFirebaseAdminAppCleanup({
+      app: {},
+      operation: async () => 'complete',
+      cleanup: async () => { throw cleanupError; },
+    }),
+    (error) => error === cleanupError,
+  );
 });
