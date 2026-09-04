@@ -108,6 +108,13 @@ export function createTripDeletionService({
 
   const validateCanonicalOwner = ({ roomId, profile, room, access, reservation }) => {
     const owner = access?.members?.[profile.uid];
+    let reservationCreatedByUid = '';
+    try {
+      reservationCreatedByUid = validateMemberUid(reservation?.createdByUid);
+    } catch {
+      // Treat malformed server-managed reservation identity as a closed
+      // authorization boundary instead of deriving a quota path from it.
+    }
     if (
       access?.state !== 'ready'
       || !isOwnerMember(owner, access?.ownerUid, profile.uid)
@@ -115,9 +122,44 @@ export function createTripDeletionService({
       || reservation?.roomId !== roomId
       || !access?.creationId
       || reservation?.creationId !== access.creationId
-      || reservation?.createdByUid !== profile.uid
+      || !reservationCreatedByUid
+      || reservation?.createdByUid !== reservationCreatedByUid
       || !Number.isFinite(Number(reservation?.createdAt))
     ) fail('permission-denied', '只有旅程擁有者可以永久刪除此旅程。');
+    return reservationCreatedByUid;
+  };
+
+  const validateJournalReservation = async ({ roomId, journal }) => {
+    let reservationCreatedByUid = '';
+    try {
+      reservationCreatedByUid = validateMemberUid(journal?.reservationCreatedByUid);
+    } catch {
+      // A deletion worker must never derive a quota path from malformed durable state.
+    }
+    if (
+      !reservationCreatedByUid
+      || journal?.reservationCreatedByUid !== reservationCreatedByUid
+    ) {
+      fail('failed-precondition', '刪除紀錄的旅程建立者資料不完整，操作已停止。');
+    }
+    if (journal.phase === PHASE_NAMESPACE_CLOSED) return reservationCreatedByUid;
+
+    const reservation = snapshotValue(
+      await database.ref(`roomReservations/${roomId}`).get(),
+    );
+    const reservationCreatedAt = Number(reservation?.createdAt);
+    const journalCreatedAt = Number(journal?.reservationCreatedAt);
+    if (
+      reservation?.roomId !== roomId
+      || reservation?.creationId !== journal?.creationId
+      || reservation?.createdByUid !== reservationCreatedByUid
+      || !Number.isFinite(reservationCreatedAt)
+      || !Number.isFinite(journalCreatedAt)
+      || reservationCreatedAt !== journalCreatedAt
+    ) {
+      fail('failed-precondition', '刪除紀錄與旅程保留資料不一致，操作已停止。');
+    }
+    return reservationCreatedByUid;
   };
 
   const retryIndex = (journal, updatedAt) => {
@@ -358,7 +400,7 @@ export function createTripDeletionService({
   };
 
   const claimQuotaRelease = async ({ roomId, journal, claimedAt }) => {
-    const quotaRef = database.ref(`userQuotas/${journal.ownerUid}/createTrip`);
+    const quotaRef = database.ref(`userQuotas/${journal.reservationCreatedByUid}/createTrip`);
     const result = await quotaRef.transaction(
       (current) => {
         const value = isRecord(current) ? current : {};
@@ -415,7 +457,7 @@ export function createTripDeletionService({
         deletedAt: closedAt,
         state: STATES.DELETED,
       },
-      [`userQuotas/${journal.ownerUid}/createTrip/pendingReleases/${journal.deletionId}`]: null,
+      [`userQuotas/${journal.reservationCreatedByUid}/createTrip/pendingReleases/${journal.deletionId}`]: null,
     };
     mapKeys(journal.members).forEach((uid) => {
       if (uid !== journal.ownerUid) updates[`userTrips/${uid}/${roomId}`] = null;
@@ -516,11 +558,17 @@ export function createTripDeletionService({
     const room = snapshotValue(roomSnapshot);
     const access = snapshotValue(accessSnapshot);
     const reservation = snapshotValue(reservationSnapshot);
-    validateCanonicalOwner({ roomId, profile, room, access, reservation });
+    const reservationCreatedByUid = validateCanonicalOwner({
+      roomId,
+      profile,
+      room,
+      access,
+      reservation,
+    });
     const journal = {
       roomId,
       creationId: access.creationId,
-      reservationCreatedByUid: reservation.createdByUid,
+      reservationCreatedByUid,
       reservationCreatedAt: Number(reservation.createdAt),
       deletionId: String(operationIdFactory()),
       ownerUid: profile.uid,
@@ -588,6 +636,7 @@ export function createTripDeletionService({
       await convergeDeleted(roomId, journal);
       return { roomId, completed: true };
     }
+    await validateJournalReservation({ roomId, journal });
     const workerId = String(operationIdFactory());
     const lease = await acquireLease(roomId, workerId);
     if (!lease.acquired) return { roomId, busy: true, retryRequired: true };
@@ -602,6 +651,7 @@ export function createTripDeletionService({
         leaseReleased = true;
         return { roomId, completed: true };
       }
+      await validateJournalReservation({ roomId, journal });
       await writeOwnerRetryIndex(roomId, journal, nowValue(clock));
       if (journal.phase !== PHASE_NAMESPACE_CLOSED) {
         await assertNoRepairLease(roomId);

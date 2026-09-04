@@ -80,6 +80,7 @@ class MemorySnapshot {
 class MemoryRealtimeDatabase {
   constructor(initial = {}) {
     this.state = clone(initial);
+    this.beforeSet = null;
   }
 
   value(path) {
@@ -100,6 +101,7 @@ class MemoryRealtimeDatabase {
     return {
       get: async () => new MemorySnapshot(this.value(basePath)),
       set: async (value) => {
+        if (this.beforeSet) await this.beforeSet({ path: basePath, value: clone(value) });
         this.setValue(basePath, value);
       },
       remove: async () => {
@@ -501,6 +503,43 @@ test('owner invite creation retries after the Admin SDK initial null transaction
   assert.equal(inviteWrites.length, 2);
   assert.equal(inviteWrites.at(-1).value.active, true);
   assert.equal(inviteWrites.at(-1).value.version, 1);
+});
+
+test('active invite lookup repair removes its write when ownership maintenance wins the race', async () => {
+  const token = 'm'.repeat(43);
+  const tokenHash = hashInviteToken(token);
+  const invite = {
+    token,
+    tokenHash,
+    active: true,
+    version: 4,
+    createdAt: 1_000,
+    createdByUid: googleAuth.uid,
+  };
+  const { database, service } = createFixture({
+    databaseState: {
+      roomAccess: { 'room-1': activeOwnerAccess({ inviteVersion: 4, invite }) },
+    },
+  });
+  let raced = false;
+  database.beforeSet = async ({ path }) => {
+    if (!raced && path === `tripInvites/${tokenHash}`) {
+      raced = true;
+      database.setValue('roomAccess/room-1/state', 'maintenance');
+      database.setValue('roomAccess/room-1/maintenanceLock', {
+        state: 'maintenance', operation: 'trip-owner-transfer', invocationId: 'race',
+      });
+    }
+  };
+
+  await assert.rejects(
+    () => service.getOrCreateTripInvite({ roomId: 'room-1' }, googleAuth),
+    expectCollaborationError('aborted'),
+  );
+  assert.equal(raced, true);
+  assert.equal(database.value(`tripInvites/${tokenHash}`), undefined);
+  assert.equal(database.value('roomAccess/room-1/invite/tokenHash'), tokenHash);
+  assert.equal(database.value('roomAccess/room-1/state'), 'maintenance');
 });
 
 test('rotating and revoking an invite invalidates every superseded lookup', async () => {
@@ -1064,6 +1103,66 @@ test('collaboration operations reject a room once owner deletion has locked it',
     expectCollaborationError('permission-denied'),
   );
   assert.deepEqual(database.value('roomAccess/room-1'), lockedAccess);
+  assert.equal(database.value(`tripInvites/${tokenHash}/active`), true);
+});
+
+test('ownership maintenance blocks callables and an in-flight removal before stale ACL writes', async () => {
+  const token = 'f'.repeat(43);
+  const tokenHash = hashInviteToken(token);
+  const readyAccess = activeOwnerAccess({
+    members: {
+      [googleAuth.uid]: ownerMember({ aclVersion: 4 }),
+      [editorAuth.uid]: editorMember({ aclVersion: 2 }),
+    },
+    inviteVersion: 1,
+    invite: {
+      token, tokenHash, active: true, version: 1,
+      createdAt: 1_000, createdByUid: googleAuth.uid,
+    },
+  });
+  const editorAcl = {
+    uid: editorAuth.uid, role: 'editor', status: 'active', aclVersion: 2,
+    updatedAt: new Date(1_000),
+  };
+  const maintenanceGuard = {
+    state: 'maintenance', operation: 'trip-owner-transfer', invocationId: 'race',
+  };
+  const { database, firestore, service } = createFixture({
+    databaseState: {
+      roomAccess: { 'room-1': readyAccess },
+      tripInvites: { [tokenHash]: { roomId: 'room-1', active: true, version: 1 } },
+    },
+    firestoreState: {
+      'tripAccess/room-1': maintenanceGuard,
+      [`tripAccess/room-1/members/${editorAuth.uid}`]: editorAcl,
+    },
+  });
+
+  // This models removeTripMember passing its initial ready-state read just
+  // before the transfer installs the Firestore guard.
+  await assert.rejects(
+    () => service.removeTripMember({ roomId: 'room-1', uid: editorAuth.uid }, googleAuth),
+    expectCollaborationError('aborted'),
+  );
+  assert.deepEqual(firestore.value(`tripAccess/room-1/members/${editorAuth.uid}`), editorAcl);
+  assert.equal(database.value('roomAccess/room-1/members/editor-uid/status'), 'active');
+
+  database.setValue('roomAccess/room-1/state', 'maintenance');
+  database.setValue('roomAccess/room-1/maintenanceLock', maintenanceGuard);
+  for (const operation of [
+    () => service.getOrCreateTripInvite({ roomId: 'room-1' }, googleAuth),
+    () => service.rotateTripInvite({ roomId: 'room-1' }, googleAuth),
+    () => service.revokeTripInvite({ roomId: 'room-1' }, googleAuth),
+    () => service.removeTripMember({ roomId: 'room-1', uid: editorAuth.uid }, googleAuth),
+    () => service.restoreTripMember({ roomId: 'room-1', uid: editorAuth.uid }, googleAuth),
+  ]) {
+    await assert.rejects(operation, expectCollaborationError('permission-denied'));
+  }
+  await assert.rejects(
+    () => service.redeemTripInvite({ token }, secondEditorAuth),
+    expectCollaborationError('not-found'),
+  );
+  assert.equal(database.value('roomAccess/room-1/state'), 'maintenance');
   assert.equal(database.value(`tripInvites/${tokenHash}/active`), true);
 });
 
