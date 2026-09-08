@@ -106,11 +106,15 @@ const snapshot = {
         id: 'place-1',
         name: '沖繩美麗海水族館 海洋博公園 熱帶夢幻中心紀念品商店',
         time: '10:00',
+        lat: 26.6943,
+        lng: 127.8779,
       },
       {
         id: 'place-2',
         name: 'OkinawaChuraumiAquariumOceanExpoParkSouvenirShop',
         time: '11:00',
+        lat: 26.6938,
+        lng: 127.8781,
       },
     ],
   },
@@ -266,10 +270,26 @@ describe('TripDetail repository injection', () => {
     expect(screen.getByTestId('place-action-menu')).toBeInTheDocument();
     expect(screen.getByTestId('place-action-edit')).toBeInTheDocument();
     expect(screen.getByTestId('place-action-nearby')).toBeInTheDocument();
+    expect(screen.getByTestId('place-action-nearby')).toHaveTextContent('找這站附近');
     expect(screen.getByTestId('place-action-copy')).toBeInTheDocument();
     expect(screen.getByTestId('place-action-delete')).toBeInTheDocument();
     expect(screen.queryByTestId('place-detail-sheet')).not.toBeInTheDocument();
     expect(repository.updateItinerary).not.toHaveBeenCalled();
+  });
+
+  it('opens the unified nearby surface from a place and keeps parking explicitly anchored', async () => {
+    const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
+    await renderWithRepository(repository, 'firebase-trip');
+
+    const firstCard = screen.getAllByTestId('place-card')[0];
+    fireEvent.click(within(firstCard).getByTestId('place-action-menu-trigger'));
+    fireEvent.click(screen.getByTestId('place-action-nearby'));
+
+    const controls = await screen.findByTestId('map-explore-controls');
+    expect(within(controls).getByRole('button', { name: '這站附近' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(controls).getByTestId('parking-layer-trigger')).toBeEnabled();
+    expect(within(controls).getByText('沖繩美麗海水族館 海洋博公園 熱帶夢幻中心紀念品商店')).toBeInTheDocument();
+    expect(screen.getByTestId('map-panel')).toHaveClass('flex');
   });
 
   it('opens Place Details from the desktop card and exposes navigate/nearby/copy/delete there', async () => {
@@ -285,5 +305,27 @@ describe('TripDetail repository injection', () => {
     expect(within(sheet).getByTestId('place-detail-copy-button')).toBeInTheDocument();
     expect(within(sheet).getByTestId('place-detail-delete-button')).toBeInTheDocument();
     expect(within(sheet).getByTestId('place-detail-edit-button')).toBeInTheDocument();
+  });
+
+  it('opens nearby search on the detail target day even after the visible day changes', async () => {
+    const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
+    await renderWithRepository(repository, 'firebase-trip');
+
+    fireEvent.click(screen.getAllByTestId('place-card')[0]);
+    const sheet = await screen.findByTestId('place-detail-sheet');
+
+    const getDayButton = (dayId) => screen
+      .getAllByTestId('desktop-day-button')
+      .find((button) => button.dataset.dayId === dayId);
+
+    fireEvent.click(getDayButton('Day 2'));
+    await waitFor(() => expect(getDayButton('Day 2')).toHaveAttribute('aria-current', 'date'));
+
+    fireEvent.click(within(sheet).getByTestId('place-detail-nearby-button'));
+
+    const controls = await screen.findByTestId('map-explore-controls');
+    expect(within(controls).getByRole('button', { name: '這站附近' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(controls).getByText('沖繩美麗海水族館 海洋博公園 熱帶夢幻中心紀念品商店')).toBeInTheDocument();
+    await waitFor(() => expect(getDayButton('Day 1')).toHaveAttribute('aria-current', 'date'));
   });
 });

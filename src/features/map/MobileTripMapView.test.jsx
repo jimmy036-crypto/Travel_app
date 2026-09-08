@@ -7,7 +7,12 @@ import { MobileTripMapView } from './MobileTripMapView.jsx';
 const { apiStatus, mapMock } = vi.hoisted(() => ({
   apiStatus: { value: 'LOADED' },
   mapMock: {
+    fitBounds: vi.fn(),
+    getZoom: vi.fn(() => 13),
+    moveCamera: vi.fn(),
+    panBy: vi.fn(),
     panTo: vi.fn(),
+    setZoom: vi.fn(),
   },
 }));
 
@@ -85,9 +90,6 @@ function renderMap(overrides = {}) {
     t,
     exploreQuery: '',
     exploreResults: [],
-    onExploreQueryChange: vi.fn(),
-    onExploreSearch: vi.fn(),
-    onClearExplore: vi.fn(),
     onSelectExploreItem: vi.fn(),
     onRouteCalculated: vi.fn(),
     onOpenDetails: vi.fn(),
@@ -100,7 +102,31 @@ function renderMap(overrides = {}) {
 describe('MobileTripMapView', () => {
   beforeEach(() => {
     apiStatus.value = 'LOADED';
-    mapMock.panTo.mockClear();
+    Object.values(mapMock).forEach((mock) => mock.mockClear());
+    mapMock.getZoom.mockReturnValue(13);
+    window.matchMedia.mockImplementation((query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    window.google = {
+      maps: {
+        LatLngBounds: class LatLngBoundsMock {
+          constructor() {
+            this.points = [];
+          }
+
+          extend(point) {
+            this.points.push(point);
+          }
+        },
+      },
+    };
   });
 
   it('uses one map, ordered valid markers, and keeps invalid places in the sheet', () => {
@@ -118,6 +144,7 @@ describe('MobileTripMapView', () => {
 
   it('synchronizes marker and card selection and updates after a day switch', () => {
     const { rerender, props } = renderMap();
+    expect(mapMock.panTo).not.toHaveBeenCalled();
     const thirdMarker = screen.getAllByTestId('map-itinerary-marker')
       .find((marker) => marker.getAttribute('data-place-id') === 'c');
     expect(thirdMarker).toBeDefined();
@@ -125,12 +152,125 @@ describe('MobileTripMapView', () => {
 
     expect(screen.getAllByTestId('map-place-card')[2]).toHaveAttribute('aria-selected', 'true');
     expect(mapMock.panTo).toHaveBeenCalledWith({ lat: 25.04, lng: 121.57 });
+    expect(mapMock.setZoom).toHaveBeenCalledWith(16);
+    expect(mapMock.panBy).toHaveBeenCalledWith(0, 72);
+    expect(screen.getByRole('button', { name: '顯示全日' })).toHaveClass('min-h-11');
 
-    rerender(<MobileTripMapView {...props} dayId="Day 2" />);
+    rerender(<MobileTripMapView {...props} dayId="Day 2" focusResetRequest={1} />);
     expect(screen.getAllByTestId('map-itinerary-marker')).toHaveLength(1);
     expect(screen.getByTestId('map-itinerary-marker')).toHaveAttribute('data-order', '1');
     expect(screen.getAllByTestId('map-place-card')).toHaveLength(1);
     expect(screen.getByText('第二天唯一景點')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '顯示全日' })).not.toBeInTheDocument();
+
+    Object.values(mapMock).forEach((mock) => mock.mockClear());
+    rerender(<MobileTripMapView {...props} dayId="Day 1" focusResetRequest={2} />);
+    expect(screen.queryByRole('button', { name: '顯示全日' })).not.toBeInTheDocument();
+    expect(mapMock.panTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps a closer zoom and restores the full-day bounds on request', () => {
+    mapMock.getZoom.mockReturnValue(18);
+    renderMap();
+    const thirdMarker = screen.getAllByTestId('map-itinerary-marker')
+      .find((marker) => marker.getAttribute('data-place-id') === 'c');
+
+    fireEvent.click(thirdMarker);
+    expect(mapMock.setZoom).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '顯示全日' }));
+    expect(mapMock.fitBounds).toHaveBeenCalledTimes(1);
+    expect(mapMock.fitBounds.mock.calls[0][0].points).toEqual([
+      { lat: 25.03, lng: 121.56 },
+      { lat: 25.04, lng: 121.57 },
+    ]);
+    expect(mapMock.fitBounds.mock.calls[0][1]).toEqual({
+      top: 88,
+      bottom: 240,
+      left: 36,
+      right: 36,
+    });
+    expect(screen.queryByRole('button', { name: '顯示全日' })).not.toBeInTheDocument();
+  });
+
+  it('does not move the camera when a place has no coordinates', () => {
+    renderMap();
+    const invalidCard = screen.getAllByTestId('map-place-card')[1];
+
+    fireEvent.click(within(invalidCard).getByTestId('map-place-card-select'));
+
+    expect(invalidCard).toHaveAttribute('aria-selected', 'true');
+    expect(mapMock.panTo).not.toHaveBeenCalled();
+    expect(mapMock.setZoom).not.toHaveBeenCalled();
+    expect(mapMock.panBy).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '顯示全日' })).not.toBeInTheDocument();
+  });
+
+  it('does not focus a controlled selection until the user interacts with it', () => {
+    renderMap({ selectedPlaceId: 'c' });
+
+    expect(screen.getAllByTestId('map-place-card')[2]).toHaveAttribute('aria-selected', 'true');
+    expect(mapMock.panTo).not.toHaveBeenCalled();
+    expect(mapMock.setZoom).not.toHaveBeenCalled();
+  });
+
+  it('restores a one-place day at zoom 15', () => {
+    renderMap({ dayId: 'Day 2' });
+    fireEvent.click(screen.getByTestId('map-itinerary-marker'));
+    Object.values(mapMock).forEach((mock) => mock.mockClear());
+    mapMock.getZoom.mockReturnValue(16);
+
+    fireEvent.click(screen.getByRole('button', { name: '顯示全日' }));
+
+    expect(mapMock.panTo).toHaveBeenCalledWith({ lat: 24.99, lng: 121.5 });
+    expect(mapMock.setZoom).toHaveBeenCalledWith(15);
+    expect(mapMock.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it('clears its focus control when the parent restores the full-day view', () => {
+    const { rerender, props } = renderMap();
+    fireEvent.click(screen.getAllByTestId('map-itinerary-marker')[1]);
+    Object.values(mapMock).forEach((mock) => mock.mockClear());
+
+    rerender(<MobileTripMapView {...props} focusResetRequest={1} />);
+
+    expect(mapMock.fitBounds).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '顯示全日' })).not.toBeInTheDocument();
+  });
+
+  it('does not resurrect an old focus after leaving and returning to the map tab', () => {
+    const { rerender, props } = renderMap();
+    fireEvent.click(screen.getAllByTestId('map-itinerary-marker')[1]);
+    expect(screen.getByRole('button', { name: '顯示全日' })).toBeInTheDocument();
+
+    rerender(<MobileTripMapView {...props} active={false} />);
+    Object.values(mapMock).forEach((mock) => mock.mockClear());
+    rerender(<MobileTripMapView {...props} active focusResetRequest={1} />);
+
+    expect(screen.queryByRole('button', { name: '顯示全日' })).not.toBeInTheDocument();
+    expect(mapMock.panTo).not.toHaveBeenCalled();
+    expect(mapMock.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it('uses an immediate camera update when reduced motion is requested', () => {
+    window.matchMedia.mockImplementation((query) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    renderMap();
+    const thirdMarker = screen.getAllByTestId('map-itinerary-marker')
+      .find((marker) => marker.getAttribute('data-place-id') === 'c');
+
+    fireEvent.click(thirdMarker);
+
+    expect(mapMock.moveCamera).toHaveBeenCalledWith({
+      center: { lat: 25.04, lng: 121.57 },
+      zoom: 16,
+    });
+    expect(mapMock.panTo).not.toHaveBeenCalled();
+    expect(mapMock.panBy).not.toHaveBeenCalled();
   });
 
   it('draws order markers as inverted teardrops inside a full touch target', () => {
@@ -153,6 +293,24 @@ describe('MobileTripMapView', () => {
     // The order counter is counter-rotated so it stays upright and legible.
     const label = within(marker).getByText('1');
     expect(label).toHaveClass('-rotate-45');
+  });
+
+  it('keeps nearby result markers inside a 44px accessible touch target', () => {
+    const onSelectExploreItem = vi.fn();
+    const place = {
+      place_id: 'cafe-1',
+      name: '海景咖啡',
+      geometry: {
+        location: { lat: () => 25.05, lng: () => 121.58 },
+      },
+    };
+    renderMap({ exploreQuery: '咖啡廳', exploreResults: [place], onSelectExploreItem });
+
+    const marker = screen.getByRole('button', { name: '海景咖啡' });
+    expect(marker).toHaveClass('h-11', 'w-11');
+    fireEvent.click(marker);
+    expect(onSelectExploreItem).toHaveBeenCalledOnce();
+    expect(onSelectExploreItem).toHaveBeenCalledWith(place);
   });
 
   it('keeps marker selection state on the pin, not the touch target', () => {
@@ -209,24 +367,6 @@ describe('MobileTripMapView', () => {
     expect(screen.getAllByTestId('map-place-card')).toHaveLength(3);
   });
 
-  it('keeps the full explore search collapsed until the 44px entry is opened', () => {
-    const { props } = renderMap({ exploreQuery: '餐廳' });
-    expect(screen.getByTestId('map-explore-controls')).toHaveAttribute('data-expanded', 'false');
-    expect(screen.queryByRole('textbox', { name: '探索周邊' })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId('map-explore-trigger'));
-    expect(screen.getByTestId('map-explore-controls')).toHaveAttribute('data-expanded', 'true');
-    fireEvent.change(screen.getByRole('textbox', { name: '探索周邊' }), {
-      target: { value: '咖啡廳' },
-    });
-    expect(props.onExploreQueryChange).toHaveBeenCalledWith('咖啡廳');
-    fireEvent.click(screen.getByRole('button', { name: '搜尋' }));
-    expect(props.onExploreSearch).toHaveBeenCalledWith('餐廳', null);
-
-    fireEvent.click(screen.getByRole('button', { name: '關閉周邊搜尋' }));
-    expect(screen.getByTestId('map-explore-trigger')).toBeInTheDocument();
-  });
-
   it('uses a bounded cards height and collapses to a compact peek', () => {
     renderMap();
     const sheet = screen.getByTestId('map-itinerary-sheet');
@@ -237,6 +377,30 @@ describe('MobileTripMapView', () => {
     expect(sheet).toHaveClass('h-[calc(4.5rem+env(safe-area-inset-bottom))]');
     expect(sheet).toHaveAttribute('data-state', 'peek');
     expect(screen.queryByTestId('map-itinerary-card-scroller')).not.toBeInTheDocument();
+  });
+
+  it('opens saved parking management inside the itinerary sheet without stacking an overlay', () => {
+    renderMap({
+      savedParkingKey: 'saved-1',
+      savedParkingPanel: (
+        <aside data-testid="saved-parking-card">
+          <button type="button">移除</button>
+        </aside>
+      ),
+    });
+
+    expect(screen.queryByTestId('saved-parking-card')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('map-saved-parking-manage'));
+
+    const sheet = screen.getByTestId('map-itinerary-sheet');
+    expect(sheet).toHaveAttribute('data-state', 'saved-parking');
+    expect(sheet).toHaveClass('h-[clamp(13rem,38%,16rem)]');
+    expect(screen.getByTestId('saved-parking-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-itinerary-card-scroller')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('map-saved-parking-back'));
+    expect(sheet).toHaveAttribute('data-state', 'cards');
+    expect(screen.getByTestId('map-itinerary-card-scroller')).toBeInTheDocument();
   });
 
   it('peek shows the selected place name/time, falls back to a day count, and re-expands on tap', () => {

@@ -9,6 +9,7 @@ export function MapPlaceCard({
 }) {
   const [failedPhotoUrl, setFailedPhotoUrl] = useState('');
   const showPhoto = Boolean(entry.photoUrl) && failedPhotoUrl !== entry.photoUrl;
+  const savedParkingText = t.isLight === false ? 'text-blue-200' : 'text-blue-700';
 
   return (
     <article
@@ -73,7 +74,7 @@ export function MapPlaceCard({
           {entry.item?.parkingPlan ? (
             <span
               data-testid="map-place-saved-parking"
-              className="mt-1 inline-flex max-w-full truncate rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[9px] font-black text-blue-600"
+              className={`mt-1 inline-flex max-w-full truncate rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[9px] font-black ${savedParkingText}`}
             >
               已選停車場 · {entry.item.parkingPlan.name || 'Google Maps'}
             </span>

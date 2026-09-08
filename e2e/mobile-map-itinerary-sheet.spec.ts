@@ -113,7 +113,7 @@ for (const viewport of [
     await expect(page.getByTestId('map-place-card')).toHaveCount(3);
     await expect(mapCard(page, 'map-b').getByTestId('map-place-no-location')).toBeVisible();
     await expect(page.getByTestId('map-explore-trigger')).toBeVisible();
-    await expect(page.getByRole('textbox', { name: '探索周邊' })).toHaveCount(0);
+    await expect(page.getByRole('search')).toHaveCount(0);
 
     const mapCards = page.getByTestId('map-place-card');
     const firstCardBox = await mapCards.first().boundingBox();
