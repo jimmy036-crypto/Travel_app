@@ -93,11 +93,17 @@ test('a cancelled drag clears drag state without reordering', async ({ page }) =
   await page.mouse.up();
 
   await expect(page.getByTestId('itinerary-drag-clone')).toHaveCount(0);
+  await expect(page.getByTestId('place-detail-sheet')).toHaveCount(0);
   await expect.poll(() => visibleOrder(page)).toEqual(initialOrder);
 });
 
 test('a normal tap without dragging still opens place details', async ({ page }) => {
   const firstCard = page.getByTestId('place-card').first();
-  await firstCard.getByTestId('timeline-place-card-surface').click();
+  const initialOrder = await visibleOrder(page);
+  await firstCard.getByTestId('place-drag-handle').click();
+  await expect(page.getByTestId('place-detail-sheet')).toHaveCount(0);
+  await expect.poll(() => visibleOrder(page)).toEqual(initialOrder);
+
+  await firstCard.getByTestId('place-details-trigger').click();
   await expect(page.getByTestId('place-detail-sheet')).toBeVisible();
 });

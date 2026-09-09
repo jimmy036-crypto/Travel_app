@@ -68,9 +68,9 @@ export function TransitTimelineRow({ item, duration, index, t, onEdit }) {
       data-testid="transit-timeline-row"
       data-index={String(index)}
       data-state={presentation.state}
-      className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-2"
+      className="grid grid-cols-[44px_minmax(0,1fr)] gap-[8px]"
     >
-      <div className="relative flex min-h-10 justify-center" aria-hidden="true">
+      <div className="relative flex min-h-[44px] justify-center" aria-hidden="true">
         <span className="absolute inset-y-0 w-px border-l border-dashed border-slate-400/60" />
       </div>
       {onEdit ? (
@@ -80,13 +80,13 @@ export function TransitTimelineRow({ item, duration, index, t, onEdit }) {
             event.stopPropagation();
             onEdit();
           }}
-          className={`flex min-h-10 min-w-0 items-center gap-1 self-center rounded-xl px-2 text-left text-[11px] font-bold ${t.subText}`}
+          className={`flex min-h-[44px] min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 self-center rounded-xl px-2 text-left text-sm font-bold leading-5 ${t.subText}`}
           aria-label={`編輯交通方式：${presentation.label}，${presentation.detail}`}
         >
           {content}
         </button>
       ) : (
-        <div className={`flex min-h-10 min-w-0 items-center gap-1 px-2 text-[11px] font-bold ${t.subText}`}>
+        <div className={`flex min-h-[44px] min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 px-2 text-sm font-bold leading-5 ${t.subText}`}>
           {content}
         </div>
       )}

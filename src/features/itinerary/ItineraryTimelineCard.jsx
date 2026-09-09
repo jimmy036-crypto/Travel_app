@@ -27,15 +27,12 @@ export function ItineraryTimelineCard({
       data-place-id={String(item?.id || '')}
       data-mobile-layout="timeline"
       data-component="timeline-place-item"
-      onClick={() => {
-        if (!isDragging) onOpenDetails?.(item);
-      }}
-      className="grid grid-cols-[2.75rem_minmax(0,1fr)] gap-2"
+      className="grid grid-cols-[44px_minmax(0,1fr)] gap-[8px]"
     >
       <div className="relative flex justify-center">
         {!isLast ? (
           <span
-            className="pointer-events-none absolute top-10 -bottom-3 w-px bg-slate-400/55"
+            className="pointer-events-none absolute top-[40px] -bottom-[12px] w-px bg-slate-400/55"
             aria-hidden="true"
           />
         ) : null}
@@ -45,11 +42,11 @@ export function ItineraryTimelineCard({
           data-place-id={String(item?.id || '')}
           aria-label={`拖曳排序 ${displayName}`}
           onClick={(event) => event.stopPropagation()}
-          className={`relative z-1 flex h-11 w-11 touch-none select-none items-center justify-center rounded-full [-webkit-touch-callout:none] active:cursor-grabbing ${
+          className={`relative z-1 flex h-[44px] w-[44px] touch-none select-none items-center justify-center rounded-full [-webkit-touch-callout:none] active:cursor-grabbing ${
             isDragging ? 'cursor-grabbing' : 'cursor-grab'
           }`}
         >
-          <span className={`flex h-7 w-7 items-center justify-center rounded-full border-2 text-[10px] font-black ${
+          <span className={`flex h-[28px] w-[28px] items-center justify-center rounded-full border-2 text-[10px] font-black ${
             isDragging
               ? 'border-white bg-blue-600 text-white'
               : `border-blue-500 bg-blue-600 text-white ring-4 ${t.isLight ? 'ring-white/70' : 'ring-slate-950/55'}`
@@ -61,12 +58,23 @@ export function ItineraryTimelineCard({
 
       <article
         data-testid="timeline-place-card-surface"
-        className={`min-w-0 touch-pan-y rounded-2xl border p-3 transition-[border-color,background-color,transform] ${
+        className={`relative min-w-0 touch-pan-y rounded-2xl border p-3 transition-[border-color,background-color,transform] ${
           isDragging
             ? 'border-blue-400 bg-blue-600 text-white'
             : `${t.itemBg} ${t.cardBorder}`
         }`}
       >
+        <button
+          type="button"
+          data-testid="place-details-trigger"
+          aria-label={`查看 ${displayName} 詳細資訊`}
+          aria-haspopup="dialog"
+          title="查看景點詳細資訊"
+          onClick={() => {
+            if (!isDragging) onOpenDetails?.(item);
+          }}
+          className="absolute inset-0 z-10 rounded-2xl bg-transparent"
+        />
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
           <div className="min-w-0">
             <div className="flex min-w-0 items-baseline gap-2">
@@ -91,7 +99,10 @@ export function ItineraryTimelineCard({
               </h3>
             </div>
             {stayLabel ? (
-              <p className={`mt-1 text-[10px] font-bold ${isDragging ? 'text-white/80' : t.subText}`}>
+              <p
+                data-testid="place-card-stay"
+                className={`mt-1 text-sm font-bold leading-5 ${isDragging ? 'text-white/80' : t.subText}`}
+              >
                 {stayLabel}
               </p>
             ) : null}
@@ -100,7 +111,7 @@ export function ItineraryTimelineCard({
           <div
             data-testid="place-card-actions"
             data-layout="mobile-timeline"
-            className="export-hide flex shrink-0 items-center gap-1"
+            className="export-hide relative z-20 flex shrink-0 items-center gap-[8px]"
           >
             <button
               type="button"
@@ -108,7 +119,7 @@ export function ItineraryTimelineCard({
                 event.stopPropagation();
                 onNavigate?.(item);
               }}
-              className={`flex min-h-11 w-11 items-center justify-center rounded-xl border text-base active:scale-95 ${
+              className={`flex h-[44px] w-[44px] items-center justify-center rounded-xl border text-base active:scale-95 ${
                 isDragging
                   ? 'border-white/30 bg-white/15 text-white'
                   : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
@@ -132,7 +143,7 @@ export function ItineraryTimelineCard({
                 event.stopPropagation();
                 onOpenActionMenu?.(event, item);
               }}
-              className={`flex min-h-11 w-11 items-center justify-center rounded-xl border text-lg font-black active:scale-95 ${
+              className={`flex h-[44px] w-[44px] items-center justify-center rounded-xl border text-lg font-black active:scale-95 ${
                 isDragging
                   ? 'border-white/30 bg-white/10 text-white'
                   : `${t.cardBg} ${t.cardBorder} ${t.mainText}`

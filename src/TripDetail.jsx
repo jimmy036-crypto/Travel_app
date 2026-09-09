@@ -3969,7 +3969,7 @@ const TripDetail = ({
                         <div className="min-w-0 flex-1">
                           <p
                             data-testid="mobile-day-theme-label"
-                            className={`text-[10px] font-bold uppercase tracking-wide ${t.subText}`}
+                            className={`text-xs font-bold uppercase tracking-wide ${t.subText}`}
                           >
                             本日主題
                           </p>
@@ -3980,7 +3980,7 @@ const TripDetail = ({
                             {String(meta.dayThemes?.[safeCurrentDay] || getDayDisplay(safeCurrentDay, meta.startDate).title)}
                           </p>
                           {recalculationState[safeCurrentDay]?.status === 'pending' ? (
-                            <p className="mt-1 text-[9px] font-bold text-blue-500">正在依新順序精算時間</p>
+                            <p className="mt-1 text-sm font-bold leading-5 text-blue-500">正在依新順序精算時間</p>
                           ) : null}
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
@@ -4001,7 +4001,7 @@ const TripDetail = ({
                             disabled={isOptimizing}
                             aria-label={isOptimizing ? '正在分析智慧排路線' : '智慧排路線'}
                             title="智慧排路線"
-                            className={`flex min-h-11 items-center justify-center gap-1 rounded-xl border px-2.5 text-[10px] font-black disabled:opacity-50 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+                            className={`flex min-h-11 items-center justify-center gap-1 rounded-xl border px-2.5 text-xs font-black disabled:opacity-50 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
                           >
                             <span aria-hidden="true">🧭</span>
                             <span className="hidden min-[390px]:inline">
@@ -4011,7 +4011,7 @@ const TripDetail = ({
                         </div>
                       </div>
                       {isExampleTrip ? (
-                        <p className={`mb-3 rounded-xl border px-3 py-2 text-[10px] font-bold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
+                        <p className={`mb-3 rounded-xl border px-3 py-2 text-sm font-bold leading-5 ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
                           試試「智慧排路線」，比較調整前後的順序
                         </p>
                       ) : null}

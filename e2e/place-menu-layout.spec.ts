@@ -46,7 +46,7 @@ test.beforeEach(async () => {
   });
 });
 
-for (const width of [320, 390]) {
+for (const width of [320, 375, 390]) {
   test(`${width}px long place titles reserve space for the menu trigger`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await page.goto(`/?room=${ROOM_ID}`);
@@ -57,6 +57,8 @@ for (const width of [320, 390]) {
       const title = card.getByTestId('place-card-title');
       const menu = card.getByTestId('place-action-menu-trigger');
       const mobileActions = card.getByTestId('place-card-actions');
+      const details = card.getByTestId('place-details-trigger');
+      const navigation = card.getByRole('button', { name: /導航到/ });
       const surface = card.getByTestId('timeline-place-card-surface');
       const dragHandle = card.getByTestId('place-drag-handle');
       await expect(title).toBeVisible();
@@ -65,23 +67,44 @@ for (const width of [320, 390]) {
       await expect(mobileActions).toHaveAttribute('data-layout', 'mobile-timeline');
       await expect(card.getByTestId('place-info-trigger')).toBeHidden();
       await expect(card.getByTestId('desktop-place-actions')).toBeHidden();
-      await expect(card.locator('button:visible')).toHaveCount(2);
+      await expect(mobileActions.locator(':scope > button')).toHaveCount(2);
+      await expect(navigation).toHaveCount(1);
+      await expect(menu).toHaveCount(1);
+      await expect(details).toHaveCount(1);
+      expect(await details.evaluate((element) => element.tagName)).toBe('BUTTON');
+      await expect(details.locator('button, a[href], [role="button"]')).toHaveCount(0);
       await expect(dragHandle).toBeVisible();
-      await expect(card.getByRole('button', { name: /導航到/ })).toBeVisible();
+      await expect(navigation).toBeVisible();
       await expect(surface).toHaveCSS('padding-top', '12px');
 
-      const [cardBox, titleBox, menuBox] = await Promise.all([
+      const [cardBox, titleBox, actionsBox, navigationBox, menuBox, detailsBox, dragHandleBox] = await Promise.all([
         card.boundingBox(),
         title.boundingBox(),
+        mobileActions.boundingBox(),
+        navigation.boundingBox(),
         menu.boundingBox(),
+        details.boundingBox(),
+        dragHandle.boundingBox(),
       ]);
       expect(cardBox).not.toBeNull();
       expect(titleBox).not.toBeNull();
+      expect(actionsBox).not.toBeNull();
+      expect(navigationBox).not.toBeNull();
       expect(menuBox).not.toBeNull();
+      expect(detailsBox).not.toBeNull();
+      expect(dragHandleBox).not.toBeNull();
       expect(cardBox?.height || 0).toBeLessThanOrEqual(120);
-      expect(boxesOverlap(titleBox!, menuBox!)).toBe(false);
+      expect(boxesOverlap(titleBox!, actionsBox!)).toBe(false);
+      expect(navigationBox?.width || 0).toBeGreaterThanOrEqual(44);
+      expect(navigationBox?.height || 0).toBeGreaterThanOrEqual(44);
       expect(menuBox?.width || 0).toBeGreaterThanOrEqual(44);
       expect(menuBox?.height || 0).toBeGreaterThanOrEqual(44);
+      expect(detailsBox?.width || 0).toBeGreaterThanOrEqual(44);
+      expect(detailsBox?.height || 0).toBeGreaterThanOrEqual(44);
+      expect(dragHandleBox?.width || 0).toBeGreaterThanOrEqual(44);
+      expect(dragHandleBox?.height || 0).toBeGreaterThanOrEqual(44);
+      expect((menuBox?.x || 0) - ((navigationBox?.x || 0) + (navigationBox?.width || 0)))
+        .toBeGreaterThanOrEqual(7.5);
       await expect(title).toHaveCSS('-webkit-line-clamp', '2');
     }
 
