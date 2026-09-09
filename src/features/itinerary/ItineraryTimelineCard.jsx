@@ -67,6 +67,7 @@ export function ItineraryTimelineCard({
         <button
           type="button"
           data-testid="place-details-trigger"
+          data-place-id={String(item?.id || '')}
           aria-label={`查看 ${displayName} 詳細資訊`}
           aria-haspopup="dialog"
           title="查看景點詳細資訊"

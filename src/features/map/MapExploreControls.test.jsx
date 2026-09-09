@@ -58,7 +58,7 @@ describe('MapExploreControls', () => {
 
     expect(screen.getByText('台北車站')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '這站附近' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('textbox', { name: '搜尋台北車站附近' })).toBeInTheDocument();
+    expect(screen.getByRole('searchbox', { name: '搜尋台北車站附近' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '目前區域' }));
     expect(onScopeChange).toHaveBeenCalledWith('map');
@@ -122,17 +122,25 @@ describe('MapExploreControls', () => {
     expect(screen.getByRole('status')).toHaveTextContent('改用其他關鍵字');
   });
 
-  it('uses readable semantic tones in dark appearance', () => {
+  it('uses readable semantic tones and exposes an explicit retry after an error', () => {
+    const onSearch = vi.fn();
     render(
       <MapExploreControls
         {...baseProps}
         scope="place"
         searchStatus="error"
+        onSearch={onSearch}
         t={{ ...t, isLight: false }}
       />,
     );
 
     expect(screen.getByTestId('parking-layer-trigger')).toHaveClass('text-blue-200');
-    expect(screen.getByRole('alert')).toHaveClass('text-red-200');
+    expect(screen.getByRole('alert')).toHaveClass('text-red-200', 'text-sm');
+    expect(screen.getByRole('alert')).toHaveTextContent('附近搜尋暫時失敗，請重試。');
+
+    const retry = screen.getByRole('button', { name: '重試' });
+    expect(retry).toBeEnabled();
+    fireEvent.click(retry);
+    expect(onSearch).toHaveBeenCalledTimes(1);
   });
 });

@@ -19,6 +19,7 @@ export const ResponsiveBottomSheet = ({
   testId,
   dataMode,
   initialFocusSelector,
+  returnFocusTarget,
   panelClassName = '',
 }) => {
   const dialogRef = useRef(null);
@@ -34,9 +35,12 @@ export const ResponsiveBottomSheet = ({
     (initialFocusElement || dialog?.querySelector(FOCUSABLE_SELECTOR))?.focus();
 
     return () => {
-      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
+      const target = returnFocusTarget instanceof HTMLElement && returnFocusTarget.isConnected
+        ? returnFocusTarget
+        : previouslyFocused;
+      if (target instanceof HTMLElement && target.isConnected) target.focus();
     };
-  }, [initialFocusSelector]);
+  }, [initialFocusSelector, returnFocusTarget]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -61,10 +65,17 @@ export const ResponsiveBottomSheet = ({
         return;
       }
 
-      if (event.shiftKey && document.activeElement === firstElement) {
+      const activeElement = document.activeElement;
+      if (!dialog?.contains(activeElement) || !focusableElements.includes(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? lastElement : firstElement)?.focus();
+        return;
+      }
+
+      if (event.shiftKey && activeElement === firstElement) {
         event.preventDefault();
         lastElement?.focus();
-      } else if (!event.shiftKey && document.activeElement === lastElement) {
+      } else if (!event.shiftKey && activeElement === lastElement) {
         event.preventDefault();
         firstElement?.focus();
       }

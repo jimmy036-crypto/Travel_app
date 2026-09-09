@@ -95,6 +95,7 @@ export function MobileTripMapView({
   t,
   exploreQuery,
   exploreResults,
+  selectedExplorePlaceId = '',
   onSelectExploreItem,
   onRouteCalculated,
   onOpenDetails,
@@ -251,6 +252,7 @@ export function MobileTripMapView({
             .filter((place) => place?.geometry?.location)
             .map((place) => {
               const icon = getExploreIcon(exploreQuery);
+              const selected = String(place.place_id || '') === String(selectedExplorePlaceId || '');
               return (
                 <AdvancedMarker
                   key={String(place.place_id)}
@@ -259,10 +261,14 @@ export function MobileTripMapView({
                     lng: Number(place.geometry.location.lng()),
                   }}
                   onClick={() => onSelectExploreItem?.(place)}
+                  zIndex={selected ? 50 : undefined}
                 >
                   <button
                     type="button"
+                    data-testid="map-explore-marker"
+                    data-place-id={String(place.place_id || '')}
                     aria-label={String(place.name || '探索結果')}
+                    aria-pressed={selected}
                     onClick={(event) => {
                       event.stopPropagation();
                       onSelectExploreItem?.(place);
@@ -271,7 +277,7 @@ export function MobileTripMapView({
                   >
                     <span
                       aria-hidden="true"
-                      className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white text-sm shadow-md"
+                      className={`flex h-9 w-9 items-center justify-center rounded-full border-2 border-white text-sm shadow-md transition-transform ${selected ? 'scale-110 ring-2 ring-orange-500/60' : ''}`}
                       style={{ backgroundColor: icon.bg }}
                     >
                       {icon.text}

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import {
   generateId,
@@ -16,6 +16,8 @@ export function usePlaceActions({
   feedback,
   callbacks,
 }) {
+  const addPendingRef = useRef(false);
+  const [isAddingPlace, setIsAddingPlace] = useState(false);
   const { repository } = room;
   const {
     itinerary,
@@ -68,36 +70,40 @@ export function usePlaceActions({
 
   const addPlaceFromSearch = useCallback(async (dayId, result, placeId) => {
     if (!result?.geometry?.location) return false;
+    if (addPendingRef.current) return false;
 
-    const targetDayId = String(dayId);
-    const dayItems = [...(Array.isArray(itinerary[targetDayId]) ? itinerary[targetDayId] : [])];
-    dayItems.push({
-      id: generateId(),
-      name: String(result.name || '未命名地點'),
-      place_id: String(placeId || ''),
-      customName: '',
-      lat: Number(result.geometry.location.lat()),
-      lng: Number(result.geometry.location.lng()),
-      address: String(result.formatted_address || ''),
-      time: getNextDefaultTimeFromList(dayItems),
-      stayTime: '0',
-      memo: '',
-      tags: [],
-      nextLeg: { mode: 'AUTO', mins: 30 },
-    });
-
-    const nextItinerary = {
-      ...itinerary,
-      [targetDayId]: dayItems,
-    };
+    addPendingRef.current = true;
+    setIsAddingPlace(true);
 
     try {
+      const targetDayId = String(dayId);
+      const dayItems = [...(Array.isArray(itinerary[targetDayId]) ? itinerary[targetDayId] : [])];
+      dayItems.push({
+        id: generateId(),
+        name: String(result.name || '未命名地點'),
+        place_id: String(placeId || ''),
+        customName: '',
+        lat: Number(result.geometry.location.lat()),
+        lng: Number(result.geometry.location.lng()),
+        address: String(result.formatted_address || ''),
+        time: getNextDefaultTimeFromList(dayItems),
+        stayTime: '0',
+        memo: '',
+        tags: [],
+        nextLeg: { mode: 'AUTO', mins: 30 },
+      });
+
+      const nextItinerary = {
+        ...itinerary,
+        [targetDayId]: dayItems,
+      };
+
       await persistPlaceItinerary(nextItinerary);
       setBackupItin(null);
       clearOptimizationSummary(targetDayId);
       toast.success({
         title: '景點已加入行程',
-        description: '行程與協作者畫面已更新。',
+        description: `景點已加入 ${targetDayId}，行程與協作者畫面已更新。`,
       });
       return true;
     } catch (error) {
@@ -108,6 +114,9 @@ export function usePlaceActions({
         description: '請檢查網路連線後再試一次。',
       });
       return false;
+    } finally {
+      addPendingRef.current = false;
+      setIsAddingPlace(false);
     }
   }, [
     clearOptimizationSummary,
@@ -119,53 +128,64 @@ export function usePlaceActions({
   ]);
 
   const addExplorePlace = useCallback(async (place, position = 'end') => {
-    const safeCurrentDay = String(currentDay || 'Day 1');
-    const dayList = [...(Array.isArray(itinerary[safeCurrentDay]) ? itinerary[safeCurrentDay] : [])];
-    const newItem = {
-      id: generateId(),
-      name: String(place.name || '未命名地點'),
-      place_id: String(place.place_id || ''),
-      customName: '',
-      lat: Number(place.geometry.location.lat()),
-      lng: Number(place.geometry.location.lng()),
-      address: String(place.formatted_address || place.vicinity || ''),
-      time: getNextDefaultTimeFromList(dayList),
-      stayTime: '0',
-      memo: `⭐ Google 評價: ${place.rating || '無'}`,
-      tags: ['地圖探索'],
-      nextLeg: { mode: 'AUTO', mins: 30 },
-    };
+    if (addPendingRef.current) return false;
+    if (!place?.geometry?.location) {
+      toast.error({
+        title: '無法新增景點',
+        description: '地點缺少可用的位置資訊，請返回搜尋後重試。',
+      });
+      return false;
+    }
 
-    if (exploreOriginItem && position !== 'end') {
-      const idx = dayList.findIndex((item) => item.id === exploreOriginItem.id);
-      if (idx !== -1) {
-        if (position === 'before') {
-          newItem.time = dayList[idx].time;
-          dayList.splice(idx, 0, newItem);
-        } else if (position === 'after') {
-          if (dayList[idx].time) {
-            let travelTime = 15;
-            if (dayList[idx].nextLeg && dayList[idx].nextLeg.mode !== 'AUTO') {
-              travelTime = Number(dayList[idx].nextLeg.mins);
+    addPendingRef.current = true;
+    setIsAddingPlace(true);
+    try {
+      const safeCurrentDay = String(currentDay || 'Day 1');
+      const dayList = [...(Array.isArray(itinerary[safeCurrentDay]) ? itinerary[safeCurrentDay] : [])];
+      const newItem = {
+        id: generateId(),
+        name: String(place.name || '未命名地點'),
+        place_id: String(place.place_id || ''),
+        customName: '',
+        lat: Number(place.geometry.location.lat()),
+        lng: Number(place.geometry.location.lng()),
+        address: String(place.formatted_address || place.vicinity || ''),
+        time: getNextDefaultTimeFromList(dayList),
+        stayTime: '0',
+        memo: `⭐ Google 評價: ${place.rating || '無'}`,
+        tags: ['地圖探索'],
+        nextLeg: { mode: 'AUTO', mins: 30 },
+      };
+
+      if (exploreOriginItem && position !== 'end') {
+        const idx = dayList.findIndex((item) => item.id === exploreOriginItem.id);
+        if (idx !== -1) {
+          if (position === 'before') {
+            newItem.time = dayList[idx].time;
+            dayList.splice(idx, 0, newItem);
+          } else if (position === 'after') {
+            if (dayList[idx].time) {
+              let travelTime = 15;
+              if (dayList[idx].nextLeg && dayList[idx].nextLeg.mode !== 'AUTO') {
+                travelTime = Number(dayList[idx].nextLeg.mins);
+              }
+              newItem.time = minsToTime(
+                timeToMins(String(dayList[idx].time))
+                  + Number(dayList[idx].stayTime || 0)
+                  + travelTime,
+              );
             }
-            newItem.time = minsToTime(
-              timeToMins(String(dayList[idx].time))
-                + Number(dayList[idx].stayTime || 0)
-                + travelTime,
-            );
+            dayList.splice(idx + 1, 0, newItem);
           }
-          dayList.splice(idx + 1, 0, newItem);
+        } else {
+          dayList.push(newItem);
         }
       } else {
         dayList.push(newItem);
       }
-    } else {
-      dayList.push(newItem);
-    }
 
-    const nextItinerary = { ...itinerary, [safeCurrentDay]: dayList };
+      const nextItinerary = { ...itinerary, [safeCurrentDay]: dayList };
 
-    try {
       await persistPlaceItinerary(nextItinerary);
       setBackupItin(null);
       clearOptimizationSummary(safeCurrentDay);
@@ -173,8 +193,9 @@ export function usePlaceActions({
       setActiveTab('plan');
       toast.success({
         title: '景點已加入行程',
-        description: '行程與協作者畫面已更新。',
+        description: `景點已加入 ${safeCurrentDay}，行程與協作者畫面已更新。`,
       });
+      return true;
     } catch (error) {
       console.error('Create explored place failed:', error);
       setSyncStatus('error');
@@ -182,6 +203,10 @@ export function usePlaceActions({
         title: '無法新增景點',
         description: '請檢查網路連線後再試一次。',
       });
+      return false;
+    } finally {
+      addPendingRef.current = false;
+      setIsAddingPlace(false);
     }
   }, [
     clearOptimizationSummary,
@@ -339,12 +364,14 @@ export function usePlaceActions({
   return useMemo(() => ({
     addPlaceFromSearch,
     addExplorePlace,
+    isAddingPlace,
     saveEditedItem,
     deleteItineraryItem,
   }), [
     addExplorePlace,
     addPlaceFromSearch,
     deleteItineraryItem,
+    isAddingPlace,
     saveEditedItem,
   ]);
 }

@@ -1609,6 +1609,7 @@ const TripDetail = ({
   const detailsRequestIdRef = useRef(0);
 
   const [isFetchingDetails, setIsFetchingDetails] = useState(false);
+  const [exploreDetailsError, setExploreDetailsError] = useState('');
   const [isSavedItemModal, setIsSavedItemModal] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizationPreview, setOptimizationPreview] = useState(null);
@@ -1630,6 +1631,7 @@ const TripDetail = ({
     setExploreResults([]);
     setExploreSearchStatus('idle');
     setIsFetchingDetails(false);
+    setExploreDetailsError('');
     if (clearQuery) setExploreQuery("");
   }, []);
 
@@ -2659,6 +2661,7 @@ const TripDetail = ({
   const {
     addPlaceFromSearch: handleAddPlaceFromSearch,
     addExplorePlace: handleAddExploreToItinerary,
+    isAddingPlace,
     saveEditedItem,
     deleteItineraryItem: handleDeleteItineraryItem,
   } = usePlaceActions({
@@ -3076,23 +3079,38 @@ const TripDetail = ({
     setExploreSearchStatus('searching');
     setMapMode('explore');
 
-    // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
-    const service = new placesLib.PlacesService(map);
-
     if (typeof customQuery === 'string') setExploreQuery(customQuery);
 
-    service.textSearch(request, (results, status) => {
+    const finishExploreSearch = (results, status) => {
       if (requestId !== exploreRequestIdRef.current) return;
-      if (status === window.google.maps.places.PlacesServiceStatus.OK && Array.isArray(results) && results.length > 0) {
-        setExploreResults(results); setSelectedExploreItem(null);
+      const usableResults = Array.isArray(results)
+        ? results.filter((result) => result?.geometry?.location)
+        : [];
+      if (status === window.google.maps.places.PlacesServiceStatus.OK && usableResults.length > 0) {
+        setExploreResults(usableResults); setSelectedExploreItem(null);
         setExploreSearchStatus('ready');
-        const firstLocation = results.find((result) => result?.geometry?.location)?.geometry?.location;
+        const firstLocation = usableResults[0].geometry.location;
         if (!origin && firstLocation) { map.panTo(firstLocation); map.setZoom(15); }
       } else {
         setExploreResults([]);
-        setExploreSearchStatus(status === window.google.maps.places.PlacesServiceStatus.ZERO_RESULTS ? 'empty' : 'error');
+        setExploreSearchStatus(
+          status === window.google.maps.places.PlacesServiceStatus.ZERO_RESULTS
+          || (status === window.google.maps.places.PlacesServiceStatus.OK && usableResults.length === 0)
+            ? 'empty'
+            : 'error',
+        );
       }
-    });
+    };
+
+    try {
+      // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
+      const service = new placesLib.PlacesService(map);
+      service.textSearch(request, finishExploreSearch);
+    } catch {
+      if (requestId !== exploreRequestIdRef.current) return;
+      setExploreResults([]);
+      setExploreSearchStatus('error');
+    }
   };
 
   const handleSearchNearby = (item, dayId = safeCurrentDay) => {
@@ -3102,6 +3120,7 @@ const TripDetail = ({
   const cancelExploreDetails = () => {
     detailsRequestIdRef.current += 1;
     setIsFetchingDetails(false);
+    setExploreDetailsError('');
     setDetailedPlace(null);
   };
 
@@ -3112,6 +3131,17 @@ const TripDetail = ({
     map.panTo(place.geometry.location);
     const currentZoom = Number(map.getZoom?.());
     if (!Number.isFinite(currentZoom) || currentZoom < 16) map.setZoom(16);
+  };
+
+  const returnToExploreResults = () => {
+    const selectedPlaceId = String(selectedExploreItem?.place_id || '');
+    cancelExploreDetails();
+    setSelectedExploreItem(null);
+    window.requestAnimationFrame(() => {
+      const result = [...document.querySelectorAll('[data-testid="map-explore-result"]')]
+        .find((element) => String(element.dataset.placeId || '') === selectedPlaceId);
+      result?.focus?.();
+    });
   };
 
   const handleOptimizeRoute = async (dayId) => {
@@ -3518,27 +3548,52 @@ const TripDetail = ({
   };
 
   const handleShowDetails = (placeId) => {
-    if (!placesLib || !map) return;
+    if (!placesLib || !map) {
+      setExploreDetailsError('地圖服務尚未就緒，請稍後重試。');
+      return;
+    }
     const requestId = detailsRequestIdRef.current + 1;
     detailsRequestIdRef.current = requestId;
     setIsFetchingDetails(true);
+    setExploreDetailsError('');
     setIsSavedItemModal(false);
-    // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
-    const service = new placesLib.PlacesService(map);
-    service.getDetails({
-      placeId: String(placeId),
-      fields: ['name', 'rating', 'user_ratings_total', 'formatted_address', 'geometry', 'photos', 'reviews', 'opening_hours', 'website', 'formatted_phone_number', 'url', 'place_id']
-    }, (place, status) => {
+    try {
+      // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
+      const service = new placesLib.PlacesService(map);
+      service.getDetails({
+        placeId: String(placeId),
+        fields: ['name', 'rating', 'user_ratings_total', 'formatted_address', 'geometry', 'photos', 'reviews', 'opening_hours', 'website', 'formatted_phone_number', 'url', 'place_id']
+      }, (place, status) => {
+        if (requestId !== detailsRequestIdRef.current) return;
+        setIsFetchingDetails(false);
+        if (status === window.google.maps.places.PlacesServiceStatus.OK && place) {
+          setDetailedPlace(place);
+        } else {
+          setExploreDetailsError('無法取得詳細資訊，請重試。');
+        }
+      });
+    } catch {
       if (requestId !== detailsRequestIdRef.current) return;
       setIsFetchingDetails(false);
-      if (status === window.google.maps.places.PlacesServiceStatus.OK && place) { setDetailedPlace(place); }
-      else { alert("無法取得詳細資訊！"); }
-    });
+      setExploreDetailsError('無法取得詳細資訊，請重試。');
+    }
   };
 
   const handleSavedItemDetails = (item, dayId = safeCurrentDay) => {
     if (isDragReleaseClick()) return;
-    setViewingPlaceDetail({ dayId: String(dayId || safeCurrentDay || ''), item });
+    const matchingDetailsTrigger = [...document.querySelectorAll('[data-testid="place-details-trigger"]')]
+      .find((element) => String(element.dataset.placeId || '') === String(item?.id || ''));
+    const returnFocusTarget = matchingDetailsTrigger instanceof HTMLElement
+      ? matchingDetailsTrigger
+      : document.activeElement instanceof HTMLElement
+      && document.activeElement !== document.body
+        ? document.activeElement
+        : null;
+    setViewingPlaceDetail({
+      dayId: String(dayId || safeCurrentDay || ''),
+      item,
+      returnFocusTarget,
+    });
     setSavedPlaceGoogleDetails(null);
     setSavedPlaceGoogleError('');
     setIsFetchingSavedPlaceGoogle(false);
@@ -3687,12 +3742,14 @@ const TripDetail = ({
     e2eWindow.__TRAVEL_E2E__ = {
       ...(e2eWindow.__TRAVEL_E2E__ || {}),
       addTestPlace,
+      addTestPlaceDayId: safeCurrentDay || "Day 1",
       moveTestItineraryItem,
     };
 
     return () => {
       if (e2eWindow.__TRAVEL_E2E__?.addTestPlace === addTestPlace) {
         delete e2eWindow.__TRAVEL_E2E__.addTestPlace;
+        delete e2eWindow.__TRAVEL_E2E__.addTestPlaceDayId;
       }
 
       if (
@@ -4456,6 +4513,7 @@ const TripDetail = ({
                         t={t}
                         exploreQuery={exploreQuery}
                         exploreResults={mapMode === 'explore' ? exploreResults : []}
+                        selectedExplorePlaceId={selectedExploreItem?.place_id || ''}
                         onSelectExploreItem={selectExploreResult}
                         onRouteCalculated={handleRouteCalculated}
                         onOpenDetails={handleSavedItemDetails}
@@ -4492,7 +4550,8 @@ const TripDetail = ({
                           {markers}
                           {mapMode === 'explore' ? (Array.isArray(exploreResults) ? exploreResults : []).filter((place) => place?.geometry?.location).map((place) => {
                             const expStyle = getExploreIcon(exploreQuery);
-                            return <AdvancedMarker key={String(place.place_id)} position={{lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng())}} onClick={() => selectExploreResult(place)}><Pin background={expStyle.bg} borderColor={expStyle.border} glyphColor={'#fff'} glyphText={expStyle.text} /></AdvancedMarker>;
+                            const selected = String(place.place_id || '') === String(selectedExploreItem?.place_id || '');
+                            return <AdvancedMarker key={String(place.place_id)} position={{lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng())}} zIndex={selected ? 50 : undefined} onClick={() => selectExploreResult(place)}><Pin background={expStyle.bg} borderColor={expStyle.border} glyphColor={'#fff'} glyphText={expStyle.text} scale={selected ? 1.15 : 1} /></AdvancedMarker>;
                           }) : null}
                         </Map>
                       </>
@@ -4511,10 +4570,11 @@ const TripDetail = ({
                       <MapExploreSelectionSheet
                         place={selectedExploreItem}
                         originItem={exploreOriginItem}
-                        onBack={() => {
-                          cancelExploreDetails();
-                          setSelectedExploreItem(null);
-                        }}
+                        dayLabel={safeCurrentDay}
+                        isAdding={isAddingPlace}
+                        isFetchingDetails={isFetchingDetails}
+                        detailsError={exploreDetailsError}
+                        onBack={returnToExploreResults}
                         onShowDetails={() => handleShowDetails(selectedExploreItem.place_id)}
                         onAdd={(position) => {
                           void handleAddExploreToItinerary(selectedExploreItem, position);
@@ -4558,8 +4618,9 @@ const TripDetail = ({
             onClick={(event) => {
               event.stopPropagation();
               const { dayId, item } = activePlaceActionMenu;
+              const returnFocusTarget = placeActionTriggerRefs.current[activePlaceActionMenu.id] || null;
               closePlaceActionMenu();
-              setEditingItemData({ dayId, item });
+              setEditingItemData({ dayId, item, returnFocusTarget });
             }}
             className={`min-h-11 rounded-xl px-3 text-left text-xs font-black transition-colors active:scale-95 ${t.mainText} hover:bg-blue-500/10`}
           >
@@ -4622,10 +4683,10 @@ const TripDetail = ({
         />
       ) : null}
 
-      {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
+      {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={`${safeCurrentDay}（${getDayDisplay(safeCurrentDay, meta.startDate).title}）`} t={t} isFetching={isFetchingDetails} isAdding={isAddingPlace} /> : null}
 
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
-      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onOpenAttachment={openAttachmentDocument} onSaveError={() => {
+      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onOpenAttachment={openAttachmentDocument} returnFocusTarget={editingItemData.returnFocusTarget || null} onSaveError={() => {
         setSyncStatus('error');
         toast.error({
           title: '無法更新景點',
@@ -4713,7 +4774,11 @@ const TripDetail = ({
             setIsFetchingSavedPlaceGoogle(false);
           }}
           onEdit={() => {
-            setEditingItemData({ dayId: viewingPlaceDetail.dayId, item: viewingPlaceDetail.item });
+            setEditingItemData({
+              dayId: viewingPlaceDetail.dayId,
+              item: viewingPlaceDetail.item,
+              returnFocusTarget: viewingPlaceDetail.returnFocusTarget || null,
+            });
             setViewingPlaceDetail(null);
             setSavedPlaceGoogleDetails(null);
             setSavedPlaceGoogleError('');

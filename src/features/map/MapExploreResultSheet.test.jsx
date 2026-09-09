@@ -36,7 +36,13 @@ describe('MapExploreResultSheet', () => {
     expect(screen.getByText('咖啡廳・「台北車站」附近')).toBeInTheDocument();
     expect(screen.getByTestId('map-explore-result-sheet')).toHaveClass('bottom-2', 'lg:w-96');
     expect(screen.getByTestId('map-explore-result-sheet')).not.toHaveClass('md:w-96');
-    fireEvent.click(screen.getByRole('button', { name: '查看車站咖啡' }));
+    const resultButton = screen.getByRole('button', { name: '查看車站咖啡' });
+    expect(resultButton).toHaveAttribute('data-place-id', 'result-1');
+    expect(screen.getByText('車站咖啡')).toHaveClass('break-words', 'text-sm', 'leading-snug');
+    expect(screen.getByText('台北市中正區')).toHaveClass('text-sm', 'leading-relaxed');
+    expect(screen.getByText('★ 4.5')).toHaveClass('text-sm');
+
+    fireEvent.click(resultButton);
     expect(onSelect).toHaveBeenCalledWith(result);
   });
 
