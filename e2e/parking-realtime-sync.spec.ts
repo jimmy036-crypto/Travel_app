@@ -86,6 +86,19 @@ async function providerCallCount(page: Page): Promise<number> {
   return await page.evaluate(() => Number((window as typeof window & { __TRAVEL_E2E__?: { parkingSearchCalls?: number } }).__TRAVEL_E2E__?.parkingSearchCalls || 0));
 }
 
+function savedParkingIndicator(page: Page, projectName: string) {
+  return projectName === 'Mobile Safari'
+    ? page.getByTestId('map-place-saved-parking')
+    : page.getByTestId('saved-parking-card');
+}
+
+async function openSavedParkingActions(page: Page, projectName: string) {
+  if (projectName === 'Mobile Safari') {
+    await page.getByTestId('map-saved-parking-manage').click();
+  }
+  await expect(page.getByTestId('saved-parking-card')).toBeVisible();
+}
+
 async function callProtectedParkingProvider(
   page: Page,
   payload: Record<string, unknown>,
@@ -160,11 +173,13 @@ test('manually searches then syncs save replace and remove through the realtime 
     await openMap(b.page, testInfo.project.name);
     await installDeterministicProvider(a.page);
 
-    await expect(a.page.getByTestId('parking-driving-hint')).toBeVisible();
     expect(await providerCallCount(a.page)).toBe(0);
 
+    await a.page.getByTestId('map-explore-trigger').click();
+    await a.page.getByRole('button', { name: '這站附近', exact: true }).click();
+    await expect(a.page.getByTestId('parking-driving-hint')).toBeVisible();
     await a.page.getByTestId('parking-layer-trigger').click();
-    await a.page.getByLabel('停車搜尋半徑').selectOption('1000');
+    await a.page.getByLabel('為 台北 101 找停車的搜尋半徑').selectOption('1000');
     expect(await providerCallCount(a.page)).toBe(0);
 
     await a.page.getByTestId('parking-search-button').click();
@@ -173,15 +188,19 @@ test('manually searches then syncs save replace and remove through the realtime 
 
     const resultA = a.page.getByTestId('parking-result').filter({ hasText: 'E2E 官方停車場 A' });
     await resultA.getByRole('button', { name: '設為此景點停車場' }).click();
-    await expect(b.page.getByTestId('saved-parking-card')).toContainText('E2E 官方停車場 A', { timeout: 20_000 });
+    await expect(savedParkingIndicator(b.page, testInfo.project.name)).toContainText('E2E 官方停車場 A', { timeout: 20_000 });
 
-    await a.page.getByRole('button', { name: '更換' }).click();
+    await openSavedParkingActions(a.page, testInfo.project.name);
+    await a.page.getByRole('button', { name: '更新或更換' }).click();
+    await a.page.getByTestId('parking-search-button').click();
+    await expect.poll(() => providerCallCount(a.page)).toBe(2);
     const resultB = a.page.getByTestId('parking-result').filter({ hasText: 'E2E 官方停車場 B' });
     await resultB.getByRole('button', { name: '設為此景點停車場' }).click();
-    await expect(b.page.getByTestId('saved-parking-card')).toContainText('E2E 官方停車場 B', { timeout: 20_000 });
+    await expect(savedParkingIndicator(b.page, testInfo.project.name)).toContainText('E2E 官方停車場 B', { timeout: 20_000 });
 
+    await openSavedParkingActions(a.page, testInfo.project.name);
     await a.page.getByRole('button', { name: '移除' }).click();
-    await expect(b.page.getByTestId('saved-parking-card')).toHaveCount(0, { timeout: 20_000 });
+    await expect(savedParkingIndicator(b.page, testInfo.project.name)).toHaveCount(0, { timeout: 20_000 });
     const itinerary = await readEmulatorData<Record<string, Array<Record<string, unknown>>>>(`rooms/${ROOM_ID}/itinerary`);
     expect(itinerary?.['Day 1']?.[0]).toMatchObject({ id: 'parking-anchor-place', name: '台北 101' });
     expect(itinerary?.['Day 1']?.[0]).not.toHaveProperty('parkingPlan');

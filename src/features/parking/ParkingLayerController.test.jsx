@@ -24,36 +24,111 @@ const facilities = Array.from({ length: 5 }, (_, index) => createParkingFacility
   source: { label: index === 0 ? 'TDX' : 'Google Maps', fetchedAt: '2026-08-05T00:00:00Z' },
 }));
 
-function Harness({ searchParking, onSave = vi.fn(), anchorValue = anchor, isDriving = false }) {
+function Harness({
+  searchParking,
+  onSave = vi.fn(),
+  onRemove = vi.fn(),
+  anchorValue = anchor,
+  dayIdValue = 'Day 1',
+  showSavedParkingCard = true,
+}) {
   const [mode, setMode] = useState('none');
   return (
     <ParkingLayerController
-      key={anchorValue.id}
       mode={mode}
       onModeChange={setMode}
       roomId="room-1"
-      dayId="Day 1"
+      dayId={dayIdValue}
       anchor={anchorValue}
       placesLib={{}}
       canEdit
-      isDriving={isDriving}
       onSavePlan={onSave}
-      onRemovePlan={vi.fn()}
+      onRemovePlan={onRemove}
       t={theme}
       searchParking={searchParking}
+      showSavedParkingCard={showSavedParkingCard}
     >
-      {({ markers, overlays }) => <div>{markers}{overlays}</div>}
+      {({ markers, overlays, openParking, parkingOpen, parkingAvailable, savedParkingPanel }) => (
+        <div data-testid="map-child-sentinel">
+          <button
+            type="button"
+            data-testid="unified-parking-entry"
+            disabled={!parkingAvailable}
+            aria-pressed={parkingOpen}
+            onClick={openParking}
+          >
+            停車
+          </button>
+          <button type="button" data-testid="unified-explore-entry" onClick={() => setMode('explore')}>探索</button>
+          {markers}
+          {overlays}
+          {savedParkingPanel}
+        </div>
+      )}
     </ParkingLayerController>
   );
 }
 
 describe('ParkingLayerController', () => {
-  it('makes zero requests on load, anchor selection, and the driving hint', async () => {
+  it('keeps the map child mounted while mode and anchor context change', async () => {
+    const user = userEvent.setup();
     const searchParking = vi.fn();
-    const view = render(<Harness searchParking={searchParking} isDriving />);
+    const view = render(<Harness searchParking={searchParking} />);
+    const mapChild = screen.getByTestId('map-child-sentinel');
+
+    await user.click(screen.getByTestId('unified-parking-entry'));
+    expect(screen.getByTestId('map-child-sentinel')).toBe(mapChild);
+
+    await user.click(screen.getByTestId('unified-explore-entry'));
+    expect(screen.getByTestId('map-child-sentinel')).toBe(mapChild);
+
+    view.rerender(
+      <Harness
+        searchParking={searchParking}
+        dayIdValue="Day 2"
+        anchorValue={{ ...anchor, id: 'place-2', lat: 25.04, lng: 121.57 }}
+      />,
+    );
+    expect(screen.getByTestId('map-child-sentinel')).toBe(mapChild);
+  });
+
+  it('aborts and clears the parking session when its anchor changes', async () => {
+    const user = userEvent.setup();
+    let requestSignal;
+    const searchParking = vi.fn(({ signal }) => {
+      requestSignal = signal;
+      return new Promise(() => {});
+    });
+    const view = render(<Harness searchParking={searchParking} />);
+
+    await user.click(screen.getByTestId('unified-parking-entry'));
+    await user.click(screen.getByTestId('parking-search-button'));
+    await waitFor(() => expect(searchParking).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <Harness
+        searchParking={searchParking}
+        anchorValue={{ ...anchor, id: 'place-2', lat: 25.04, lng: 121.57 }}
+      />,
+    );
+
+    expect(requestSignal.aborted).toBe(true);
+    expect(screen.getByText('為 台北 101 找停車')).toBeInTheDocument();
+    expect(screen.getByTestId('parking-search-button')).toHaveTextContent('搜尋／重新搜尋');
+    expect(searchParking).toHaveBeenCalledOnce();
+  });
+
+  it('exposes a unified entry and makes zero requests on load, anchor selection, or open', async () => {
+    const user = userEvent.setup();
+    const searchParking = vi.fn();
+    const view = render(<Harness searchParking={searchParking} />);
     expect(searchParking).not.toHaveBeenCalled();
-    expect(screen.getByTestId('parking-driving-hint')).toBeInTheDocument();
-    view.rerender(<Harness searchParking={searchParking} anchorValue={{ ...anchor, id: 'place-2' }} isDriving />);
+    expect(screen.queryByTestId('parking-layer-trigger')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('unified-parking-entry'));
+    expect(searchParking).not.toHaveBeenCalled();
+    expect(screen.getByTestId('parking-layer-controls')).toBeInTheDocument();
+    expect(screen.getByText('為 台北 101 找停車')).toBeInTheDocument();
+    view.rerender(<Harness searchParking={searchParking} anchorValue={{ ...anchor, id: 'place-2' }} />);
     expect(searchParking).not.toHaveBeenCalled();
   });
 
@@ -61,7 +136,7 @@ describe('ParkingLayerController', () => {
     const user = userEvent.setup();
     const searchParking = vi.fn().mockResolvedValue({ facilities, googleStatus: 'ok', tdxStatus: 'not_configured' });
     render(<Harness searchParking={searchParking} />);
-    await user.click(screen.getByTestId('parking-layer-trigger'));
+    await user.click(screen.getByTestId('unified-parking-entry'));
     expect(searchParking).not.toHaveBeenCalled();
     await user.click(screen.getByTestId('parking-search-button'));
     await waitFor(() => expect(searchParking).toHaveBeenCalledOnce());
@@ -73,29 +148,128 @@ describe('ParkingLayerController', () => {
       radius: 500,
     });
     expect(await screen.findByText(/TDX 尚未設定/)).toBeInTheDocument();
+    expect(screen.getByTestId('parking-result-sheet')).toHaveTextContent('為 台北 101 找停車');
+    expect(screen.getByTestId('parking-result-sheet')).toHaveClass('bottom-2', 'lg:w-96');
+    expect(screen.getAllByRole('button', { name: /停車場 1/ })[0]).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('requires explicit refresh after radius changes', async () => {
+  it('reports that parking is unavailable when the selected destination has no coordinates', () => {
+    render(<Harness searchParking={vi.fn()} anchorValue={{ ...anchor, lat: null, lng: null }} />);
+    expect(screen.getByTestId('unified-parking-entry')).toBeDisabled();
+    expect(screen.queryByTestId('parking-layer-controls')).not.toBeInTheDocument();
+  });
+
+  it('exposes saved parking management as in-sheet content on mobile layouts', async () => {
     const user = userEvent.setup();
-    const searchParking = vi.fn().mockResolvedValue({ facilities: [], googleStatus: 'ok', tdxStatus: 'ok' });
-    render(<Harness searchParking={searchParking} />);
-    await user.click(screen.getByTestId('parking-layer-trigger'));
-    await user.selectOptions(screen.getByLabelText('停車搜尋半徑'), '1000');
-    expect(searchParking).not.toHaveBeenCalled();
-    await user.click(screen.getByTestId('parking-search-button'));
-    await waitFor(() => expect(searchParking).toHaveBeenCalledWith(expect.objectContaining({ radius: 1000 })));
+    const onRemove = vi.fn();
+    render(
+      <Harness
+        searchParking={vi.fn()}
+        onRemove={onRemove}
+        showSavedParkingCard={false}
+        anchorValue={{
+          ...anchor,
+          parkingPlan: {
+            provider: 'tdx',
+            providerFacilityId: 'T1',
+            name: '市府轉運站停車場',
+            selectedAt: '2026-09-09T00:00:00Z',
+          },
+        }}
+      />,
+    );
+
+    const card = screen.getByTestId('saved-parking-card');
+    expect(card).toHaveClass('relative');
+    expect(card).not.toHaveClass('absolute');
+    await user.click(screen.getByRole('button', { name: '移除' }));
+    expect(onRemove).toHaveBeenCalledOnce();
   });
 
-  it('shows price labels only on the first three 44px markers and saves through its callback', async () => {
+  it('invalidates resolved results and requires an explicit refresh after radius changes', async () => {
+    const user = userEvent.setup();
+    const searchParking = vi.fn().mockResolvedValue({ facilities, googleStatus: 'ok', tdxStatus: 'not_configured' });
+    render(<Harness searchParking={searchParking} />);
+    await user.click(screen.getByTestId('unified-parking-entry'));
+    await user.click(screen.getByTestId('parking-search-button'));
+    expect(await screen.findByTestId('parking-result-sheet')).toBeInTheDocument();
+    expect(await screen.findByText(/TDX 尚未設定/)).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText('為 台北 101 找停車的搜尋半徑'), '1000');
+    expect(screen.queryByTestId('parking-result-sheet')).not.toBeInTheDocument();
+    expect(screen.queryByText(/TDX 尚未設定/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('parking-search-button')).toHaveTextContent('搜尋／重新搜尋');
+    expect(searchParking).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByTestId('parking-search-button'));
+    await waitFor(() => expect(searchParking).toHaveBeenCalledTimes(2));
+    expect(searchParking.mock.calls[1][0]).toEqual(expect.objectContaining({ radius: 1000 }));
+  });
+
+  it('aborts an in-flight request when the parking radius changes', async () => {
+    const user = userEvent.setup();
+    let requestSignal;
+    const searchParking = vi.fn(({ signal }) => {
+      requestSignal = signal;
+      return new Promise(() => {});
+    });
+    render(<Harness searchParking={searchParking} />);
+    await user.click(screen.getByTestId('unified-parking-entry'));
+    await user.click(screen.getByTestId('parking-search-button'));
+    await waitFor(() => expect(searchParking).toHaveBeenCalledOnce());
+
+    await user.selectOptions(screen.getByLabelText('為 台北 101 找停車的搜尋半徑'), '1000');
+
+    expect(requestSignal.aborted).toBe(true);
+    expect(screen.getByTestId('parking-search-button')).toHaveTextContent('搜尋／重新搜尋');
+  });
+
+  it('aborts an in-flight request when the unified search changes mode', async () => {
+    const user = userEvent.setup();
+    let requestSignal;
+    const searchParking = vi.fn(({ signal }) => {
+      requestSignal = signal;
+      return new Promise(() => {});
+    });
+    render(<Harness searchParking={searchParking} />);
+    await user.click(screen.getByTestId('unified-parking-entry'));
+    await user.click(screen.getByTestId('parking-search-button'));
+    await waitFor(() => expect(searchParking).toHaveBeenCalledOnce());
+    expect(requestSignal.aborted).toBe(false);
+
+    await user.click(screen.getByTestId('unified-explore-entry'));
+
+    expect(requestSignal.aborted).toBe(true);
+    expect(screen.queryByTestId('parking-layer-controls')).not.toBeInTheDocument();
+  });
+
+  it('clears resolved parking results when leaving and reopening the parking mode', async () => {
+    const user = userEvent.setup();
+    const searchParking = vi.fn().mockResolvedValue({ facilities, googleStatus: 'ok', tdxStatus: 'ok' });
+    render(<Harness searchParking={searchParking} />);
+    await user.click(screen.getByTestId('unified-parking-entry'));
+    await user.click(screen.getByTestId('parking-search-button'));
+    expect(await screen.findByTestId('parking-result-sheet')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('unified-explore-entry'));
+    await user.click(screen.getByTestId('unified-parking-entry'));
+
+    expect(screen.queryByTestId('parking-result-sheet')).not.toBeInTheDocument();
+    expect(searchParking).toHaveBeenCalledOnce();
+  });
+
+  it('shows price labels on the first three 44px markers and keeps navigation primary while saving through its callback', async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     const searchParking = vi.fn().mockResolvedValue({ facilities, googleStatus: 'ok', tdxStatus: 'ok' });
     render(<Harness searchParking={searchParking} onSave={onSave} />);
-    await user.click(screen.getByTestId('parking-layer-trigger'));
+    await user.click(screen.getByTestId('unified-parking-entry'));
     await user.click(screen.getByTestId('parking-search-button'));
     const markers = await screen.findAllByTestId('parking-marker');
     expect(markers.filter((marker) => marker.dataset.priceVisible === 'true')).toHaveLength(3);
     markers.forEach((marker) => expect(marker.className).toContain('min-h-11'));
+    const navigationButtons = await screen.findAllByRole('button', { name: '導航到停車場' });
+    expect(navigationButtons[0].className).toContain('bg-blue-700');
     await user.click((await screen.findAllByText('設為此景點停車場'))[0]);
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: 'parking-0' }));
   });
@@ -105,7 +279,7 @@ describe('ParkingLayerController', () => {
     const noTariff = [createParkingFacility({ id: 'jp', provider: 'google', googlePlaceId: 'jp', name: '東京停車場', location: { lat: 35.6, lng: 139.7 } })];
     const searchParking = vi.fn().mockResolvedValue({ facilities: noTariff, googleStatus: 'ok', tdxStatus: 'outside_coverage' });
     render(<Harness searchParking={searchParking} anchorValue={{ ...anchor, lat: 35.6, lng: 139.7 }} />);
-    await user.click(screen.getByTestId('parking-layer-trigger'));
+    await user.click(screen.getByTestId('unified-parking-entry'));
     await user.click(screen.getByTestId('parking-search-button'));
     expect((await screen.findAllByText(/費率資料未提供/)).length).toBeGreaterThan(0);
   });

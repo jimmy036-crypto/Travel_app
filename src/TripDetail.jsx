@@ -88,6 +88,10 @@ import {
   MobileTimelineSkeleton,
 } from './features/itinerary/MobileItineraryTimeline.jsx';
 import { MobileTripMapView } from './features/map/MobileTripMapView.jsx';
+import { MapExploreControls } from './features/map/MapExploreControls.jsx';
+import { MapExploreResultSheet } from './features/map/MapExploreResultSheet.jsx';
+import { MapExploreSelectionSheet } from './features/map/MapExploreSelectionSheet.jsx';
+import { createExploreSearchRequest, resolveExploreOrigin } from './features/map/mapExploreModel.js';
 import { ParkingLayerController } from './features/parking/ParkingLayerController.jsx';
 import { isDrivingContext } from './features/parking/parkingDrivingContext.js';
 import {
@@ -1456,7 +1460,12 @@ const TripDetail = ({
   const [currentDay, setCurrentDay] = useState("Day 1");
   const [activeTab, setActiveTab] = useState("plan");
   const [mapMode, setMapMode] = useState('none');
+  const mapModeRef = useRef(mapMode);
   const [selectedMapPlaceId, setSelectedMapPlaceId] = useState('');
+  const [mapOverviewRequest, setMapOverviewRequest] = useState(0);
+  const [desktopMapFocused, setDesktopMapFocused] = useState(false);
+  const mapCameraInteractionRef = useRef(0);
+  const pendingMapFocusRef = useRef(null);
 
   const [editingItemData, setEditingItemData] = useState(/** @type {any} */ (null));
   const [viewingMemoItem, setViewingMemoItem] = useState(/** @type {any} */ (null));
@@ -1592,9 +1601,12 @@ const TripDetail = ({
   const [exploreQuery, setExploreQuery] = useState("");
 
   const [exploreResults, setExploreResults] = useState(/** @type {any[]} */ ([]));
+  const [exploreSearchStatus, setExploreSearchStatus] = useState('idle');
   const [selectedExploreItem, setSelectedExploreItem] = useState(/** @type {any} */ (null));
-  const [exploreOriginItem, setExploreOriginItem] = useState(/** @type {any} */ (null));
+  const [exploreContext, setExploreContext] = useState({ scope: 'map' });
   const [detailedPlace, setDetailedPlace] = useState(/** @type {any} */ (null));
+  const exploreRequestIdRef = useRef(0);
+  const detailsRequestIdRef = useRef(0);
 
   const [isFetchingDetails, setIsFetchingDetails] = useState(false);
   const [isSavedItemModal, setIsSavedItemModal] = useState(false);
@@ -1609,6 +1621,25 @@ const TripDetail = ({
   const [weatherInfo, setWeatherInfo] = useState(
     /** @type {Record<string, {temp: string, rain: number}>} */ ({})
   );
+
+  const clearExploreResults = useCallback(({ clearQuery = false } = {}) => {
+    exploreRequestIdRef.current += 1;
+    detailsRequestIdRef.current += 1;
+    setSelectedExploreItem(null);
+    setDetailedPlace(null);
+    setExploreResults([]);
+    setExploreSearchStatus('idle');
+    setIsFetchingDetails(false);
+    if (clearQuery) setExploreQuery("");
+  }, []);
+
+  const resetExploreState = useCallback(() => {
+    pendingMapFocusRef.current = null;
+    setDesktopMapFocused(false);
+    clearExploreResults({ clearQuery: true });
+    setExploreContext({ scope: 'map' });
+    setMapMode('none');
+  }, [clearExploreResults]);
 
 
   const routesLib = useMapsLibrary('routes');
@@ -1978,6 +2009,15 @@ const TripDetail = ({
   const selectedMapPlace = currentMapPlaces.find((item) => String(item?.id) === String(selectedMapPlaceId))
     || currentMapPlaces[0]
     || null;
+  const exploreOriginItem = resolveExploreOrigin({
+    context: exploreContext,
+    dayId: safeCurrentDay,
+    places: currentMapPlaces,
+  });
+  const exploreOriginAvailable = Boolean(
+    exploreOriginItem && isValidCoordinates(exploreOriginItem.lat, exploreOriginItem.lng),
+  );
+  const exploreScope = exploreOriginAvailable ? 'place' : 'map';
   const selectedMapPlaceIndex = selectedMapPlace
     ? currentMapPlaces.findIndex((item) => String(item?.id) === String(selectedMapPlace.id))
     : -1;
@@ -1988,8 +2028,19 @@ const TripDetail = ({
   });
   useEffect(() => {
     if (!selectedMapPlaceId || currentMapPlaces.some((item) => String(item?.id) === String(selectedMapPlaceId))) return;
+    resetExploreState();
+    setMapOverviewRequest((request) => request + 1);
     setSelectedMapPlaceId(String(currentMapPlaces[0]?.id || ''));
-  }, [currentMapPlaces, selectedMapPlaceId]);
+  }, [currentMapPlaces, resetExploreState, selectedMapPlaceId]);
+  useEffect(() => {
+    if (exploreContext.scope !== 'place' || exploreOriginAvailable) return;
+    resetExploreState();
+  }, [exploreContext.scope, exploreOriginAvailable, resetExploreState]);
+  useEffect(() => {
+    if (mapMode !== 'parking' || isValidCoordinates(selectedMapPlace?.lat, selectedMapPlace?.lng)) return;
+    resetExploreState();
+    setMapOverviewRequest((request) => request + 1);
+  }, [mapMode, resetExploreState, selectedMapPlace?.lat, selectedMapPlace?.lng]);
   const mapDayCoordinateKey = useMemo(() => JSON.stringify(
     (Array.isArray(itinerary[safeCurrentDay]) ? itinerary[safeCurrentDay] : [])
       .filter((item) => isValidCoordinates(item?.lat, item?.lng))
@@ -1998,13 +2049,23 @@ const TripDetail = ({
         lng: Number(item.lng),
       })),
   ), [itinerary, safeCurrentDay]);
+  const mapDayHasCoordinates = mapDayCoordinateKey !== '[]';
+  const mapDayCoordinatesRef = useRef([]);
+  useEffect(() => {
+    mapDayCoordinatesRef.current = JSON.parse(mapDayCoordinateKey);
+  }, [mapDayCoordinateKey]);
+  useEffect(() => {
+    mapModeRef.current = mapMode;
+  }, [mapMode]);
   const handleDaySwitch = useCallback((dayId, event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
     const nextDayId = String(dayId);
 
     closePlaceActionMenu();
+    resetExploreState();
     setMapMode('none');
+    setMapOverviewRequest((request) => request + 1);
     setSelectedMapPlaceId(String((Array.isArray(itinerary[nextDayId]) ? itinerary[nextDayId][0]?.id : '') || ''));
     setCurrentDay(nextDayId);
     window.requestAnimationFrame(() => {
@@ -2012,32 +2073,42 @@ const TripDetail = ({
         .getElementById(`day-card-${nextDayId}`)
         ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
     });
-  }, [closePlaceActionMenu, itinerary]);
+  }, [closePlaceActionMenu, itinerary, resetExploreState]);
 
+  const mapIsVisible = !isMobileViewport || activeTab === 'map';
   useEffect(() => {
-    const mapIsVisible = !isMobileViewport || activeTab === 'map';
     if (!map || !mapIsVisible) return undefined;
-    const coordinateInputs = JSON.parse(mapDayCoordinateKey);
+    const coordinateInputs = mapDayCoordinatesRef.current;
     if (coordinateInputs.length === 0) return undefined;
+    const cameraInteractionRevision = mapCameraInteractionRef.current;
+    let idleListener = null;
 
     const timer = window.setTimeout(() => {
+      if (mapModeRef.current !== 'none' || cameraInteractionRevision !== mapCameraInteractionRef.current) return;
       if (coordinateInputs.length === 1) {
         map.panTo(coordinateInputs[0]);
         map.setZoom(15);
       } else {
-        const bounds = new window.google.maps.LatLngBounds();
+        const Bounds = window.google?.maps?.LatLngBounds;
+        if (!Bounds) return;
+        const bounds = new Bounds();
         coordinateInputs.forEach((position) => bounds.extend(position));
         map.fitBounds(bounds, isMobileViewport
           ? { top: 100, bottom: 220, left: 36, right: 36 }
           : { top: 60, bottom: 60, left: 40, right: 40 });
-        window.google.maps.event.addListenerOnce(map, "idle", () => {
-          if (map.getZoom() > 16) map.setZoom(16);
+        idleListener = window.google?.maps?.event?.addListenerOnce?.(map, "idle", () => {
+          if (mapModeRef.current === 'none'
+            && cameraInteractionRevision === mapCameraInteractionRef.current
+            && map.getZoom() > 16) map.setZoom(16);
         });
       }
     }, 150);
 
-    return () => window.clearTimeout(timer);
-  }, [activeTab, isMobileViewport, map, mapDayCoordinateKey]);
+    return () => {
+      window.clearTimeout(timer);
+      idleListener?.remove?.();
+    };
+  }, [isMobileViewport, map, mapDayHasCoordinates, mapIsVisible, mapOverviewRequest, safeCurrentDay]);
 
   useEffect(() => {
     if (!meta?.destination || !meta?.startDate || existingDays.length === 0) return undefined;
@@ -2576,16 +2647,12 @@ const TripDetail = ({
     }
   }, [setItinerary, settleRecalculation]);
 
-  const resetExploreState = useCallback(() => {
-    setSelectedExploreItem(null);
-    setDetailedPlace(null);
-    setExploreResults([]);
-    setExploreQuery("");
-    setExploreOriginItem(null);
-  }, []);
-
   const handleMapModeChange = useCallback((nextMode) => {
     if (nextMode === 'parking') resetExploreState();
+    if (nextMode === 'none') {
+      setDesktopMapFocused(false);
+      setMapOverviewRequest((request) => request + 1);
+    }
     setMapMode(nextMode);
   }, [resetExploreState]);
 
@@ -2643,7 +2710,7 @@ const TripDetail = ({
       lastLocalWriteAtRef.current = Date.now();
       setItineraryState(nextItinerary);
       setSyncStatus('saved');
-      setMapMode('none');
+      handleMapModeChange('none');
       toast.success({ title: '已共享停車場', description: '所有共編者會透過旅程同步收到此選擇。' });
       return true;
     } catch (error) {
@@ -2652,7 +2719,7 @@ const TripDetail = ({
       toast.error({ title: '無法儲存停車場', description: '原行程未受影響，請稍後再試。' });
       return false;
     }
-  }, [itinerary, repository, safeCurrentDay, selectedMapPlace, toast]);
+  }, [handleMapModeChange, itinerary, repository, safeCurrentDay, selectedMapPlace, toast]);
 
   const removeSelectedParkingPlan = useCallback(async () => {
     if (!repository || !selectedMapPlace?.parkingPlan) return false;
@@ -2906,39 +2973,145 @@ const TripDetail = ({
     },
   ]), [capabilities.sharing, handleShareLink, tripAccessRole]);
 
-  const handleExploreSearch = (customQuery = null, customLocation = null) => {
+  const focusMapOnPlace = useCallback((item) => {
+    if (!map || !isValidCoordinates(item?.lat, item?.lng)) return;
+    mapCameraInteractionRef.current += 1;
+    const position = { lat: Number(item.lat), lng: Number(item.lng) };
+    setDesktopMapFocused(true);
+    const currentZoom = Number(map.getZoom?.());
+    const zoom = Number.isFinite(currentZoom) ? Math.max(16, currentZoom) : 16;
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion && map.moveCamera) {
+      map.moveCamera({ center: position, zoom });
+      return;
+    }
+    map.panTo(position);
+    if (!Number.isFinite(currentZoom) || currentZoom < 16) map.setZoom(16);
+  }, [map]);
+
+  useEffect(() => {
+    if (activeTab !== 'map' || !map || !pendingMapFocusRef.current) return;
+    const request = pendingMapFocusRef.current;
+    if (String(request.dayId) !== String(safeCurrentDay)) return;
+    pendingMapFocusRef.current = null;
+    focusMapOnPlace(request.item);
+  }, [activeTab, focusMapOnPlace, map, safeCurrentDay]);
+
+  const openGlobalExplore = () => {
+    resetExploreState();
+    setMapMode('explore');
+  };
+
+  const openPlaceExplore = (item = selectedMapPlace, dayId = safeCurrentDay) => {
+    if (!item || !isValidCoordinates(item?.lat, item?.lng)) return;
+    const nextDayId = String(dayId || safeCurrentDay);
+    clearExploreResults({ clearQuery: true });
+    setExploreContext({ scope: 'place', dayId: nextDayId, placeId: String(item.id || '') });
+    setSelectedMapPlaceId(String(item.id || ''));
+    setMapMode('explore');
+    if (nextDayId !== String(safeCurrentDay)) setCurrentDay(nextDayId);
+    if (activeTab === 'map' && nextDayId === String(safeCurrentDay)) focusMapOnPlace(item);
+    else {
+      pendingMapFocusRef.current = { item, dayId: nextDayId };
+      mapCameraInteractionRef.current += 1;
+      setActiveTab('map');
+    }
+  };
+
+  const handleExploreScopeChange = (nextScope) => {
+    if (nextScope === 'place') {
+      openPlaceExplore(selectedMapPlace);
+      return;
+    }
+    clearExploreResults({ clearQuery: true });
+    setExploreContext({ scope: 'map' });
+    setMapMode('explore');
+  };
+
+  const closeExplore = () => {
+    resetExploreState();
+    setMapMode('none');
+    setMapOverviewRequest((request) => request + 1);
+  };
+
+  const handleTabSelect = (nextTab) => {
+    if (nextTab === activeTab) return;
+    if (nextTab === 'map') {
+      resetExploreState();
+      setMapOverviewRequest((request) => request + 1);
+    } else if (activeTab === 'map') resetExploreState();
+    setActiveTab(nextTab);
+  };
+
+  const handleExploreQueryChange = (value) => {
+    if (exploreSearchStatus !== 'idle' || exploreResults.length > 0 || selectedExploreItem) {
+      clearExploreResults();
+    }
+    setExploreQuery(value);
+  };
+
+  const handleExploreSearch = (customQuery = null) => {
     const q = typeof customQuery === 'string' ? customQuery : String(exploreQuery);
     if (!q.trim() || !placesLib || !map) return;
+    const origin = exploreScope === 'place' && isValidCoordinates(exploreOriginItem?.lat, exploreOriginItem?.lng)
+      ? exploreOriginItem
+      : null;
+    if (exploreScope === 'place' && !origin) return;
+    const request = createExploreSearchRequest({
+      query: q,
+      scope: exploreScope,
+      origin,
+      bounds: map.getBounds?.(),
+      center: map.getCenter?.(),
+    });
+    if (!request) {
+      setExploreSearchStatus('error');
+      return;
+    }
+    const requestId = exploreRequestIdRef.current + 1;
+    exploreRequestIdRef.current = requestId;
+    setSelectedExploreItem(null);
+    setDetailedPlace(null);
+    setExploreResults([]);
+    setExploreSearchStatus('searching');
     setMapMode('explore');
 
     // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
     const service = new placesLib.PlacesService(map);
-    const request = { query: q };
-    if (customLocation) { request.location = customLocation; request.radius = 1500; }
-    else {
-      const bounds = map.getBounds();
-      if (bounds) { request.bounds = bounds; }
-      else { request.location = map.getCenter(); request.radius = 2000; }
-    }
 
     if (typeof customQuery === 'string') setExploreQuery(customQuery);
 
     service.textSearch(request, (results, status) => {
+      if (requestId !== exploreRequestIdRef.current) return;
       if (status === window.google.maps.places.PlacesServiceStatus.OK && Array.isArray(results) && results.length > 0) {
         setExploreResults(results); setSelectedExploreItem(null);
-        if (!customLocation) { map.panTo(results[0].geometry.location); map.setZoom(15); }
-      } else { setExploreResults([]); alert("找不到結果，試試調整地圖範圍或關鍵字！"); }
+        setExploreSearchStatus('ready');
+        const firstLocation = results.find((result) => result?.geometry?.location)?.geometry?.location;
+        if (!origin && firstLocation) { map.panTo(firstLocation); map.setZoom(15); }
+      } else {
+        setExploreResults([]);
+        setExploreSearchStatus(status === window.google.maps.places.PlacesServiceStatus.ZERO_RESULTS ? 'empty' : 'error');
+      }
     });
   };
 
-  const handleSearchNearby = (item) => {
-    setExploreOriginItem(item); setActiveTab("map");
-    setTimeout(() => {
-      if (map) {
-        const loc = new window.google.maps.LatLng(Number(item.lat), Number(item.lng));
-        map.panTo(loc); map.setZoom(16); handleExploreSearch("餐廳", loc);
-      }
-    }, 400);
+  const handleSearchNearby = (item, dayId = safeCurrentDay) => {
+    openPlaceExplore(item, dayId);
+  };
+
+  const cancelExploreDetails = () => {
+    detailsRequestIdRef.current += 1;
+    setIsFetchingDetails(false);
+    setDetailedPlace(null);
+  };
+
+  const selectExploreResult = (place) => {
+    cancelExploreDetails();
+    setSelectedExploreItem(place);
+    if (!map || !place?.geometry?.location) return;
+    map.panTo(place.geometry.location);
+    const currentZoom = Number(map.getZoom?.());
+    if (!Number.isFinite(currentZoom) || currentZoom < 16) map.setZoom(16);
   };
 
   const handleOptimizeRoute = async (dayId) => {
@@ -3346,6 +3519,8 @@ const TripDetail = ({
 
   const handleShowDetails = (placeId) => {
     if (!placesLib || !map) return;
+    const requestId = detailsRequestIdRef.current + 1;
+    detailsRequestIdRef.current = requestId;
     setIsFetchingDetails(true);
     setIsSavedItemModal(false);
     // noinspection JSDeprecatedSymbols -- 相容目前已啟用的 Google Maps API；新版 Places 遷移需另行驗證金鑰。
@@ -3354,6 +3529,7 @@ const TripDetail = ({
       placeId: String(placeId),
       fields: ['name', 'rating', 'user_ratings_total', 'formatted_address', 'geometry', 'photos', 'reviews', 'opening_hours', 'website', 'formatted_phone_number', 'url', 'place_id']
     }, (place, status) => {
+      if (requestId !== detailsRequestIdRef.current) return;
       setIsFetchingDetails(false);
       if (status === window.google.maps.places.PlacesServiceStatus.OK && place) { setDetailedPlace(place); }
       else { alert("無法取得詳細資訊！"); }
@@ -3366,6 +3542,22 @@ const TripDetail = ({
     setSavedPlaceGoogleDetails(null);
     setSavedPlaceGoogleError('');
     setIsFetchingSavedPlaceGoogle(false);
+  };
+
+  const handleMapAwareSavedItemDetails = (item, dayId = safeCurrentDay) => {
+    if (isDragReleaseClick()) return;
+    if (!isMobileViewport && activeTab === 'map' && isValidCoordinates(item?.lat, item?.lng)) {
+      const nextDayId = String(dayId || safeCurrentDay);
+      resetExploreState();
+      setSelectedMapPlaceId(String(item.id || ''));
+      if (nextDayId === String(safeCurrentDay)) focusMapOnPlace(item);
+      else {
+        pendingMapFocusRef.current = { item, dayId: nextDayId };
+        mapCameraInteractionRef.current += 1;
+        setCurrentDay(nextDayId);
+      }
+    }
+    handleSavedItemDetails(item, dayId);
   };
 
   const handleLoadSavedPlaceGoogleDetails = (item) => {
@@ -3692,7 +3884,7 @@ const TripDetail = ({
                   <p className={`ml-13 flex items-center gap-1.5 text-xs font-semibold ${t.subText}`}><Icon name="location" size={15} /><span className="truncate">{String(meta.destination)} · {String(meta.transport)}</span></p>
                 </div>
                 <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
-                  <TripTabBar activeTab={activeTab} layout="desktop" onSelect={setActiveTab} t={t} />
+                  <TripTabBar activeTab={activeTab} layout="desktop" onSelect={handleTabSelect} t={t} />
                   <button
                     onClick={() => setShowExportModal(true)}
                     className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-extrabold shadow-sm transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
@@ -4011,8 +4203,11 @@ const TripDetail = ({
                                       data-place-id={String(item.id)}
                                       data-mobile-layout="compact"
                                       className={`relative flex touch-pan-y flex-col overflow-hidden rounded-xl border p-2.5 transition-[box-shadow,border-color,transform] md:rounded-2xl md:p-3 md:backdrop-blur-md ${snap.isDragging ? 'bg-blue-600 border-white shadow-2xl text-white' : `${t.itemBg} ${t.cardBorder} shadow-sm ${t.itemHover} cursor-pointer`}`}
-                                      onClick={() => {
-                                        if (!snap.isDragging) handleSavedItemDetails(item, dayId);
+                                      onClick={(event) => {
+                                        if (!snap.isDragging) {
+                                          if (!isMobileViewport && activeTab === 'map') event.stopPropagation();
+                                          handleMapAwareSavedItemDetails(item, dayId);
+                                        }
                                       }}
                                     >
                                       <div className="flex items-start gap-2 md:grid md:grid-cols-[3.75rem_minmax(0,1fr)_auto] md:items-center md:gap-3">
@@ -4050,7 +4245,7 @@ const TripDetail = ({
                                                 if (event.key === 'Enter' || event.key === ' ') {
                                                   event.preventDefault();
                                                   event.stopPropagation();
-                                                  handleSavedItemDetails(item, dayId);
+                                                  handleMapAwareSavedItemDetails(item, dayId);
                                                 }
                                               }}
                                             >
@@ -4117,7 +4312,7 @@ const TripDetail = ({
                                           data-testid="place-info-trigger"
                                           onClick={(event) => {
                                             event.stopPropagation();
-                                            if (!snap.isDragging) handleSavedItemDetails(item, dayId);
+                                            if (!snap.isDragging) handleMapAwareSavedItemDetails(item, dayId);
                                           }}
                                           className={`export-hide hidden min-h-11 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-[10px] font-black md:flex ${snap.isDragging ? 'border-white/20 bg-white/10 text-white' : `${t.cardBg} ${t.cardBorder} ${t.mainText}`}`}
                                         >
@@ -4196,7 +4391,6 @@ const TripDetail = ({
             {/* 地圖區塊 */}
             <div data-testid="map-panel" className={`relative flex-1 transition-opacity duration-300 ease-in-out ${activeTab === 'map' ? 'flex' : 'hidden md:flex'}`}>
               <ParkingLayerController
-                key={`${safeCurrentDay}:${selectedMapPlace?.id || 'none'}`}
                 mode={mapMode}
                 onModeChange={handleMapModeChange}
                 roomId={isExampleTrip ? '' : roomId}
@@ -4204,14 +4398,55 @@ const TripDetail = ({
                 anchor={selectedMapPlace}
                 placesLib={placesLib}
                 canEdit={Boolean(repository)}
-                isDriving={selectedMapPlaceIsDriving}
                 onSavePlan={persistSelectedParkingPlan}
                 onRemovePlan={removeSelectedParkingPlan}
                 t={t}
                 enableE2EProvider={IS_FIREBASE_EMULATOR}
+                showSavedParkingCard={!isMobileViewport}
               >
-                {({ markers, overlays }) => (
+                {({ markers, overlays, openParking, parkingAvailable, savedParkingKey, savedParkingPanel }) => (
                   <>
+                    {!isMobileViewport && mapMode === 'none' && desktopMapFocused ? (
+                      <button
+                        type="button"
+                        data-testid="desktop-map-show-full-day"
+                        onClick={() => {
+                          setDesktopMapFocused(false);
+                          setMapOverviewRequest((request) => request + 1);
+                        }}
+                        className={`absolute left-3 top-3 z-40 flex min-h-11 items-center rounded-2xl border px-4 text-xs font-black shadow-md ${t.headerBg} ${t.cardBorder} ${t.mainText}`}
+                      >
+                        顯示全日
+                      </button>
+                    ) : null}
+                    {mapMode !== 'parking' ? (
+                      <div className={`absolute top-3 z-40 ${mapMode === 'explore'
+                        ? 'inset-x-3 lg:left-1/2 lg:right-auto lg:w-[calc(100%_-_1.5rem)] lg:max-w-125 lg:-translate-x-1/2'
+                        : 'right-3 lg:left-1/2 lg:right-auto lg:-translate-x-1/2'}`}>
+                        <MapExploreControls
+                          open={mapMode === 'explore'}
+                          query={exploreQuery}
+                          scope={exploreScope}
+                          anchorName={selectedMapPlace?.customName || selectedMapPlace?.name}
+                          anchorAvailable={parkingAvailable}
+                          resultCount={exploreResults.length}
+                          searchStatus={exploreSearchStatus}
+                          showDrivingParkingHint={selectedMapPlaceIsDriving}
+                          onOpen={openGlobalExplore}
+                          onClose={closeExplore}
+                          onScopeChange={handleExploreScopeChange}
+                          onQueryChange={handleExploreQueryChange}
+                          onSearch={() => handleExploreSearch()}
+                          onClear={() => clearExploreResults({ clearQuery: true })}
+                          onSelectCategory={handleExploreSearch}
+                          onOpenParking={() => {
+                            focusMapOnPlace(selectedMapPlace);
+                            openParking();
+                          }}
+                          t={t}
+                        />
+                      </div>
+                    ) : null}
                     {isMobileViewport ? (
                       <MobileTripMapView
                         active={activeTab === 'map'}
@@ -4220,51 +4455,73 @@ const TripDetail = ({
                         durations={routeDurations[safeCurrentDay]}
                         t={t}
                         exploreQuery={exploreQuery}
-                        exploreResults={exploreResults}
-                        onExploreQueryChange={setExploreQuery}
-                        onExploreOpen={() => setMapMode('explore')}
-                        exploreDisabled={mapMode === 'parking'}
-                        onExploreSearch={handleExploreSearch}
-                        onClearExplore={resetExploreState}
-                        onSelectExploreItem={setSelectedExploreItem}
+                        exploreResults={mapMode === 'explore' ? exploreResults : []}
+                        onSelectExploreItem={selectExploreResult}
                         onRouteCalculated={handleRouteCalculated}
                         onOpenDetails={handleSavedItemDetails}
                         selectedPlaceId={selectedMapPlace?.id || ''}
-                        onSelectedPlaceChange={(placeId) => { setMapMode('none'); setSelectedMapPlaceId(placeId); }}
+                        onSelectedPlaceChange={(placeId) => {
+                          mapCameraInteractionRef.current += 1;
+                          resetExploreState();
+                          setMapMode('none');
+                          setSelectedMapPlaceId(placeId);
+                        }}
                         mapExtraMarkers={markers}
-                        hideItinerarySheet={mapMode === 'parking'}
+                        savedParkingKey={savedParkingKey}
+                        savedParkingPanel={savedParkingPanel}
+                        hideItinerarySheet={mapMode !== 'none'}
+                        focusResetRequest={mapOverviewRequest}
+                        dimItinerary={mapMode !== 'none'}
                       />
                     ) : (
                       <>
-                        {mapMode !== 'parking' ? (
-                          <div className="absolute top-4 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-125 z-20 flex flex-col gap-2">
-                            <div className={`flex items-center gap-2 p-2 rounded-2xl shadow-lg backdrop-blur-xl border ${t.headerBg} ${t.cardBorder}`}>
-                              <input value={String(exploreQuery)} onFocus={() => setMapMode('explore')} onChange={e => setExploreQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleExploreSearch(exploreQuery, null); }} placeholder="探索周邊美食地標..." className={`flex-1 bg-transparent px-2 outline-none text-sm font-bold ${t.mainText} placeholder:opacity-50`} />
-                              <button onClick={() => handleExploreSearch(exploreQuery, null)} className="whitespace-nowrap rounded-xl bg-orange-700 px-4 py-2 text-xs font-bold text-white shadow-md transition-all hover:bg-orange-800 active:scale-95">🍽️ 探索</button>
-                              {exploreResults.length > 0 ? <button onClick={resetExploreState} className={`px-2 py-2 text-xs font-bold hover:text-red-500 transition-colors ${t.subText}`}>清除</button> : null}
-                            </div>
-                            <div className="flex gap-2 overflow-x-auto scrollbar-hide px-1">
-                              <button onClick={() => handleExploreSearch("餐廳", null)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold shadow-sm transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>🍔 餐廳美食</button>
-                              <button onClick={() => handleExploreSearch("咖啡廳", null)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold shadow-sm transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>☕ 咖啡廳</button>
-                              <button onClick={() => handleExploreSearch("超市", null)} className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-[10px] font-bold shadow-sm transition-transform active:scale-95 ${t.cardBg} ${t.cardBorder} ${t.mainText} hover:border-orange-400`}>🛒 超市</button>
-                            </div>
-                          </div>
-                        ) : null}
                         <Map id="main-map" style={{ width: '100%', height: '100%' }} defaultCenter={{lat: 22.99, lng: 120.20}} defaultZoom={13} mapId={MAP_ID}>
                           <Directions itinerary={itinerary} dayId={safeCurrentDay} onRouteCalculated={handleRouteCalculated} />
-                          {currentMapPlaces.filter((item) => isValidCoordinates(item?.lat, item?.lng)).map((item, idx) => (
-                            <AdvancedMarker key={String(item.id)} position={{lat: Number(item.lat), lng: Number(item.lng)}} zIndex={20 + idx} onClick={() => { setMapMode('none'); setSelectedMapPlaceId(String(item.id)); handleSavedItemDetails(item, safeCurrentDay); }}>
-                              <Pin background={'#3b82f6'} glyphText={String(idx + 1)} />
-                            </AdvancedMarker>
-                          ))}
+                          {currentMapPlaces.filter((item) => isValidCoordinates(item?.lat, item?.lng)).map((item, idx) => {
+                            const selected = String(item.id) === String(selectedMapPlace?.id);
+                            return (
+                              <AdvancedMarker key={String(item.id)} position={{lat: Number(item.lat), lng: Number(item.lng)}} zIndex={selected ? 40 : 20 + idx} onClick={() => { resetExploreState(); setMapMode('none'); setSelectedMapPlaceId(String(item.id)); focusMapOnPlace(item); handleSavedItemDetails(item, safeCurrentDay); }}>
+                                <Pin
+                                  background={mapMode !== 'none' && !selected ? '#94a3b8' : '#3b82f6'}
+                                  glyphText={String(idx + 1)}
+                                  scale={selected ? 1.15 : (mapMode !== 'none' ? 0.85 : 1)}
+                                />
+                              </AdvancedMarker>
+                            );
+                          })}
                           {markers}
                           {mapMode === 'explore' ? (Array.isArray(exploreResults) ? exploreResults : []).filter((place) => place?.geometry?.location).map((place) => {
                             const expStyle = getExploreIcon(exploreQuery);
-                            return <AdvancedMarker key={String(place.place_id)} position={{lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng())}} onClick={() => setSelectedExploreItem(place)}><Pin background={expStyle.bg} borderColor={expStyle.border} glyphColor={'#fff'} glyphText={expStyle.text} /></AdvancedMarker>;
+                            return <AdvancedMarker key={String(place.place_id)} position={{lat: Number(place.geometry.location.lat()), lng: Number(place.geometry.location.lng())}} onClick={() => selectExploreResult(place)}><Pin background={expStyle.bg} borderColor={expStyle.border} glyphColor={'#fff'} glyphText={expStyle.text} /></AdvancedMarker>;
                           }) : null}
                         </Map>
                       </>
                     )}
+                    {mapMode === 'explore' && !selectedExploreItem ? (
+                      <MapExploreResultSheet
+                        results={exploreResults}
+                        query={exploreQuery}
+                        originItem={exploreOriginItem}
+                        selectedPlaceId=""
+                        onSelect={selectExploreResult}
+                        t={t}
+                      />
+                    ) : null}
+                    {mapMode === 'explore' && selectedExploreItem && !detailedPlace ? (
+                      <MapExploreSelectionSheet
+                        place={selectedExploreItem}
+                        originItem={exploreOriginItem}
+                        onBack={() => {
+                          cancelExploreDetails();
+                          setSelectedExploreItem(null);
+                        }}
+                        onShowDetails={() => handleShowDetails(selectedExploreItem.place_id)}
+                        onAdd={(position) => {
+                          void handleAddExploreToItinerary(selectedExploreItem, position);
+                        }}
+                        t={t}
+                      />
+                    ) : null}
                     {overlays}
                   </>
                 )}
@@ -4272,7 +4529,7 @@ const TripDetail = ({
             </div>
           </div>
 
-          <TripTabBar activeTab={activeTab} layout="mobile" onSelect={setActiveTab} t={t} />
+          <TripTabBar activeTab={activeTab} layout="mobile" onSelect={handleTabSelect} t={t} />
         </div>
         )}
       </DragDropContext>
@@ -4314,13 +4571,13 @@ const TripDetail = ({
             data-testid="place-action-nearby"
             onClick={(event) => {
               event.stopPropagation();
-              const { item } = activePlaceActionMenu;
+              const { dayId, item } = activePlaceActionMenu;
               closePlaceActionMenu();
-              handleSearchNearby(item);
+              handleSearchNearby(item, dayId);
             }}
             className={`min-h-11 rounded-xl px-3 text-left text-xs font-black transition-colors active:scale-95 ${t.mainText} hover:bg-orange-500/10`}
           >
-            🔍 查看周邊
+            找這站附近
           </button>
           <button
             type="button"
@@ -4363,29 +4620,6 @@ const TripDetail = ({
           onApply={applyOptimizationPreview}
           t={t}
         />
-      ) : null}
-
-      {selectedExploreItem && !detailedPlace ? (
-        <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed bottom-8 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-100 p-5 rounded-3xl shadow-2xl border backdrop-blur-2xl bg-white/95 animate-in slide-in-from-bottom-10" onClick={e => e.stopPropagation()}>
-          <div className="flex justify-between items-start mb-2">
-            <h3 className="text-base font-black text-slate-900 leading-tight pr-4">{String(selectedExploreItem.name)}</h3>
-            <button onClick={() => setSelectedExploreItem(null)} className="text-xl text-slate-400 hover:text-red-500 font-bold -mt-1 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100">✕</button>
-          </div>
-          <p className="text-[11px] mb-3 truncate text-slate-600">{String(selectedExploreItem.formatted_address || selectedExploreItem.vicinity)}</p>
-          <div className="flex items-center gap-3 mb-4">
-            {selectedExploreItem.rating ? <span className="bg-orange-500/10 text-orange-600 px-2 py-0.5 rounded-md text-[11px] font-bold border border-orange-500/20">⭐ {String(selectedExploreItem.rating)}</span> : null}
-            {selectedExploreItem.user_ratings_total ? <span className="text-[10px] font-bold text-slate-500">({String(selectedExploreItem.user_ratings_total)} 則評論)</span> : null}
-          </div>
-          <button onClick={() => handleShowDetails(selectedExploreItem.place_id)} className="w-full py-2.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200 shadow-sm transition-colors">📖 查看詳情與實景照</button>
-          {exploreOriginItem ? (
-            <div className="flex gap-2 mt-2">
-              <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'before')} className="flex-1 bg-blue-600 text-white py-2.5 rounded-xl text-[11px] font-bold shadow-md active:scale-95">加在前面</button>
-              <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'after')} className="flex-1 rounded-xl bg-emerald-700 py-2.5 text-[11px] font-bold text-white shadow-md active:scale-95">加在後面</button>
-            </div>
-          ) : (
-            <button onClick={() => void handleAddExploreToItinerary(selectedExploreItem, 'end')} className="w-full mt-2 bg-blue-600 text-white py-2.5 rounded-xl text-xs font-bold shadow-md active:scale-95">加入行程最後</button>
-          )}
-        </div>
       ) : null}
 
       {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { setDetailedPlace(null); void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={getDayDisplay(safeCurrentDay, meta.startDate).title} t={t} isFetching={isFetchingDetails} /> : null}
@@ -4490,7 +4724,7 @@ const TripDetail = ({
             setViewingPlaceDetail(null);
             setSavedPlaceGoogleDetails(null);
             setSavedPlaceGoogleError('');
-            if (target) handleSearchNearby(target.item);
+            if (target) handleSearchNearby(target.item, target.dayId);
           }}
           onCopy={() => {
             const target = viewingPlaceDetail;

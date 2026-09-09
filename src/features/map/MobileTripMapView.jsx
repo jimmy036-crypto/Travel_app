@@ -17,13 +17,72 @@ import {
 } from './mapItineraryModel.js';
 import { MapItinerarySheet } from './MapItinerarySheet.jsx';
 
-function MapSelectionController({ entry, active }) {
+const prefersReducedMotion = () => (
+  typeof window !== 'undefined'
+  && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+);
+
+const getCurrentZoom = (map) => {
+  const zoom = Number(map?.getZoom?.());
+  return Number.isFinite(zoom) ? zoom : null;
+};
+
+function MapCameraController({
+  request,
+  active,
+}) {
   const map = useMap('main-map');
 
   useEffect(() => {
-    if (!active || !map || !entry?.position) return;
-    map.panTo(entry.position);
-  }, [active, entry, map]);
+    if (!active || !map || request.type === 'idle') return;
+
+    const reducedMotion = prefersReducedMotion();
+
+    if (request.type === 'focus') {
+      if (!request.position) return;
+
+      const currentZoom = getCurrentZoom(map);
+      const focusZoom = currentZoom === null ? 16 : Math.max(16, currentZoom);
+
+      if (reducedMotion && map.moveCamera) {
+        map.moveCamera({ center: request.position, zoom: focusZoom });
+        return;
+      }
+
+      map.panTo?.(request.position);
+      if (currentZoom === null || currentZoom < 16) map.setZoom?.(16);
+      if (request.offsetForSheet && map.panBy) {
+        const idleListener = window.google?.maps?.event?.addListenerOnce?.(
+          map,
+          'idle',
+          () => map.panBy(0, 72),
+        );
+        if (!idleListener) map.panBy(0, 72);
+        return () => idleListener?.remove?.();
+      }
+      return;
+    }
+
+    const positions = Array.isArray(request.positions) ? request.positions : [];
+    if (positions.length === 0) return;
+
+    if (positions.length === 1) {
+      if (reducedMotion && map.moveCamera) {
+        map.moveCamera({ center: positions[0], zoom: 15 });
+      } else {
+        map.panTo?.(positions[0]);
+        map.setZoom?.(15);
+      }
+      return;
+    }
+
+    const Bounds = window.google?.maps?.LatLngBounds;
+    if (!Bounds || !map.fitBounds) return;
+
+    const bounds = new Bounds();
+    positions.forEach((position) => bounds.extend(position));
+    map.fitBounds(bounds, { top: 88, bottom: 240, left: 36, right: 36 });
+  }, [active, map, request]);
 
   return null;
 }
@@ -36,18 +95,17 @@ export function MobileTripMapView({
   t,
   exploreQuery,
   exploreResults,
-  onExploreQueryChange,
-  onExploreSearch,
-  onClearExplore,
   onSelectExploreItem,
   onRouteCalculated,
   onOpenDetails,
   selectedPlaceId,
   onSelectedPlaceChange,
   mapExtraMarkers,
-  exploreDisabled = false,
-  onExploreOpen,
+  savedParkingKey = '',
+  savedParkingPanel = null,
   hideItinerarySheet = false,
+  focusResetRequest = 0,
+  dimItinerary = false,
 }) {
   const apiStatus = useApiLoadingStatus();
   const entries = useMemo(
@@ -56,7 +114,16 @@ export function MobileTripMapView({
   );
   const validEntries = useMemo(() => getValidMapEntries(entries), [entries]);
   const [selectedEntryId, setSelectedEntryId] = useState(entries[0]?.id || '');
-  const [exploreOpen, setExploreOpen] = useState(false);
+  const [cameraRequest, setCameraRequest] = useState({
+    type: 'idle',
+    key: 0,
+    dayId,
+    focusResetRequest,
+  });
+  const effectiveCameraRequest = cameraRequest.dayId === dayId
+    && cameraRequest.focusResetRequest === focusResetRequest
+    ? cameraRequest
+    : { type: 'idle', key: cameraRequest.key, dayId, focusResetRequest };
   const routeState = useMemo(
     () => getRouteDisplayState(entries.map((entry) => entry.item), durations),
     [durations, entries],
@@ -66,7 +133,6 @@ export function MobileTripMapView({
   const effectiveSelectedEntryId = entries.some((entry) => entry.id === requestedSelectedEntryId)
     ? requestedSelectedEntryId
     : (entries[0]?.id || '');
-  const selectedEntry = entries.find((entry) => entry.id === effectiveSelectedEntryId) || null;
   const apiUnavailable = (
     apiStatus === APILoadingStatus.FAILED
     || apiStatus === APILoadingStatus.AUTH_FAILURE
@@ -76,9 +142,31 @@ export function MobileTripMapView({
     || apiStatus === APILoadingStatus.LOADING
   );
 
+  const requestEntryFocus = (entry) => {
+    setCameraRequest((request) => ({
+      type: entry?.position ? 'focus' : 'idle',
+      position: entry?.position,
+      offsetForSheet: !hideItinerarySheet,
+      key: request.key + 1,
+      dayId,
+      focusResetRequest,
+    }));
+  };
+
   const selectEntry = (entry) => {
     setSelectedEntryId(entry.id);
     onSelectedPlaceChange?.(entry.id);
+    requestEntryFocus(entry);
+  };
+
+  const showFullDay = () => {
+    setCameraRequest((request) => ({
+      type: 'overview',
+      positions: validEntries.map((entry) => entry.position),
+      key: request.key + 1,
+      dayId,
+      focusResetRequest,
+    }));
   };
 
   return (
@@ -109,7 +197,10 @@ export function MobileTripMapView({
             dayId={dayId}
             onRouteCalculated={onRouteCalculated}
           />
-          <MapSelectionController entry={selectedEntry} active={active} />
+          <MapCameraController
+            request={effectiveCameraRequest}
+            active={active}
+          />
 
           {validEntries.map((entry) => {
             const selected = entry.id === effectiveSelectedEntryId;
@@ -139,10 +230,10 @@ export function MobileTripMapView({
                       inverted teardrop with the point at the bottom. */}
                   <span
                     data-testid="map-itinerary-marker-pin"
-                    className={`flex h-7 w-7 rotate-45 items-center justify-center rounded-full rounded-br-none border-2 shadow-md transition-transform ${
+                    className={`flex h-7 w-7 rotate-45 items-center justify-center rounded-full rounded-br-none border-2 shadow-md transition-[transform,opacity] ${
                       selected
                         ? 'scale-110 border-white bg-blue-700 ring-2 ring-blue-500/50'
-                        : 'border-white bg-blue-600'
+                        : `border-white bg-blue-600 ${dimItinerary ? 'scale-90 opacity-45' : ''}`
                     }`}
                   >
                     <span className="-rotate-45 text-[11px] font-black leading-none text-white">
@@ -169,13 +260,23 @@ export function MobileTripMapView({
                   }}
                   onClick={() => onSelectExploreItem?.(place)}
                 >
-                  <span
-                    className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white text-sm shadow-md"
-                    style={{ backgroundColor: icon.bg }}
+                  <button
+                    type="button"
                     aria-label={String(place.name || '探索結果')}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectExploreItem?.(place);
+                    }}
+                    className="flex h-11 w-11 items-center justify-center bg-transparent"
                   >
-                    {icon.text}
-                  </span>
+                    <span
+                      aria-hidden="true"
+                      className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white text-sm shadow-md"
+                      style={{ backgroundColor: icon.bg }}
+                    >
+                      {icon.text}
+                    </span>
+                  </button>
                 </AdvancedMarker>
               );
             })}
@@ -204,63 +305,16 @@ export function MobileTripMapView({
         </div>
       ) : null}
 
-      {!exploreDisabled ? <div
-        data-testid="map-explore-controls"
-        data-expanded={exploreOpen}
-        className={`absolute top-3 z-20 ${exploreOpen ? 'inset-x-3' : 'right-3'}`}
-      >
-        {exploreOpen ? (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              onExploreSearch?.(exploreQuery, null);
-            }}
-            className={`flex items-center gap-1 rounded-2xl border p-1.5 shadow-md ${t.headerBg} ${t.cardBorder}`}
-          >
-            <input
-              autoFocus
-              value={String(exploreQuery || '')}
-              onChange={(event) => onExploreQueryChange?.(event.target.value)}
-              placeholder="探索周邊"
-              aria-label="探索周邊"
-              className={`min-h-10 min-w-0 flex-1 bg-transparent px-2 text-xs font-bold outline-none ${t.mainText}`}
-            />
-            <button
-              type="submit"
-              className="min-h-10 rounded-xl bg-orange-700 px-3 text-[10px] font-black text-white hover:bg-orange-800"
-            >
-              搜尋
-            </button>
-            {exploreResults.length > 0 ? (
-              <button
-                type="button"
-                onClick={onClearExplore}
-                className={`min-h-10 rounded-xl px-2 text-[10px] font-black ${t.mainText}`}
-              >
-                清除
-              </button>
-            ) : null}
-            <button
-              type="button"
-              aria-label="關閉周邊搜尋"
-              onClick={() => setExploreOpen(false)}
-              className={`flex min-h-10 min-w-10 items-center justify-center rounded-xl text-lg font-black ${t.mainText}`}
-            >
-              ×
-            </button>
-          </form>
-        ) : (
-          <button
-            type="button"
-            data-testid="map-explore-trigger"
-            aria-label="搜尋周邊景點"
-            onClick={() => { onExploreOpen?.(); setExploreOpen(true); }}
-            className={`flex h-11 w-11 items-center justify-center rounded-2xl border text-lg shadow-md ${t.headerBg} ${t.cardBorder} ${t.mainText}`}
-          >
-            🔍
-          </button>
-        )}
-      </div> : null}
+      {!apiUnavailable && effectiveCameraRequest.type === 'focus' && !hideItinerarySheet ? (
+        <button
+          type="button"
+          data-testid="map-show-full-day"
+          onClick={showFullDay}
+          className={`absolute left-3 top-3 z-20 flex min-h-11 items-center justify-center rounded-2xl border px-4 text-xs font-black shadow-md ${t.headerBg} ${t.cardBorder} ${t.mainText}`}
+        >
+          顯示全日
+        </button>
+      ) : null}
 
       {routeState.message ? (
         <div
@@ -281,7 +335,13 @@ export function MobileTripMapView({
           selectedEntryId={effectiveSelectedEntryId}
           t={t}
           onSelect={selectEntry}
-          onOpenDetails={(item) => onOpenDetails?.(item, dayId)}
+          onOpenDetails={(item) => {
+            const entry = entries.find((candidate) => candidate.item === item);
+            requestEntryFocus(entry);
+            onOpenDetails?.(item, dayId);
+          }}
+          savedParkingKey={savedParkingKey}
+          savedParkingPanel={savedParkingPanel}
         />
       ) : null}
     </div>
