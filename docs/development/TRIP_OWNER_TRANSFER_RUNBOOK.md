@@ -71,6 +71,11 @@ npx -y firebase-tools@latest functions:list --project travel-app-923ef
 版本、trigger 或 region 不符，或清單缺少任一 Function 時停止；不要改成整包 Functions
 deploy，也不要開始 production 資料轉移。
 
+`searchParking` 不在上述部署清單中，其選用的 TDX Secret 也不得成為這九個 Functions 的
+部署前置條件。限定部署若仍要求建立或讀取 `TDX_CLIENT_ID`／`TDX_CLIENT_SECRET`，表示
+Cloud Shell 尚未同步包含 Secret deployment boundary 修正的最新 `main`；停止部署並重新
+確認 commit，不要建立空白、測試或占位 Secret 來繞過檢查。
+
 ## 1. 前置確認
 
 每筆轉移都必須先確認：

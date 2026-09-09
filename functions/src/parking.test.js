@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import process from 'node:process';
 import test from 'node:test';
 
 import { CollaborationError } from './domain.js';
@@ -404,6 +405,35 @@ test('parking provider and credential failures degrade without breaking the call
     providerStatus: 'timeout',
     facilities: [],
   });
+});
+
+test('optional TDX runtime secrets degrade without contacting the provider when absent', async () => {
+  const previousClientId = process.env.TDX_CLIENT_ID;
+  const previousClientSecret = process.env.TDX_CLIENT_SECRET;
+  delete process.env.TDX_CLIENT_ID;
+  delete process.env.TDX_CLIENT_SECRET;
+
+  let providerContacted = false;
+  try {
+    const service = createParkingService({
+      database: new MemoryRealtimeDatabase(activeDatabaseState()),
+      fetchImpl: async () => {
+        providerContacted = true;
+        throw new Error('TDX must not be contacted without credentials.');
+      },
+    });
+
+    assert.deepEqual(await service.searchParking(request, googleOwnerAuth), {
+      providerStatus: 'not_configured',
+      facilities: [],
+    });
+    assert.equal(providerContacted, false);
+  } finally {
+    if (previousClientId === undefined) delete process.env.TDX_CLIENT_ID;
+    else process.env.TDX_CLIENT_ID = previousClientId;
+    if (previousClientSecret === undefined) delete process.env.TDX_CLIENT_SECRET;
+    else process.env.TDX_CLIENT_SECRET = previousClientSecret;
+  }
 });
 
 const okJson = (payload) => ({

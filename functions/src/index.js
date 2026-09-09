@@ -3,7 +3,6 @@ import { getDatabase } from 'firebase-admin/database';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { logger } from 'firebase-functions';
-import { defineSecret } from 'firebase-functions/params';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { onValueWritten } from 'firebase-functions/v2/database';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
@@ -19,8 +18,6 @@ setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
 
 const database = getDatabase();
 const firestore = getFirestore();
-const tdxClientId = defineSecret('TDX_CLIENT_ID');
-const tdxClientSecret = defineSecret('TDX_CLIENT_SECRET');
 const service = createCollaborationService({
   database,
   firestore,
@@ -33,10 +30,6 @@ const tripDeletionService = createTripDeletionService({
 const parkingService = createParkingService({
   database,
   logger,
-  getCredentials: () => ({
-    clientId: tdxClientId.value(),
-    clientSecret: tdxClientSecret.value(),
-  }),
 });
 
 const callable = (name, handler, options = null) => {
@@ -71,7 +64,7 @@ export const searchParking = callable(
   'searchParking',
   parkingService.searchParking,
   {
-    secrets: [tdxClientId, tdxClientSecret],
+    secrets: ['TDX_CLIENT_ID', 'TDX_CLIENT_SECRET'],
     timeoutSeconds: 20,
     maxInstances: 2,
     concurrency: 20,
