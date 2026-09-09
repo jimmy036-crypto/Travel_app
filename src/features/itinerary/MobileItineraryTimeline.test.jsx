@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -74,11 +75,13 @@ describe('MobileItineraryTimeline', () => {
     expect(screen.getByTestId('itinerary-day-card')).toHaveAttribute('data-day-id', 'Day 2');
     expect(screen.getAllByTestId('place-card')).toHaveLength(2);
     expect(screen.getByText('09:45')).toBeInTheDocument();
-    expect(screen.getByText('預計停留 1 小時 30 分鐘')).toBeInTheDocument();
+    expect(screen.getByText('預計停留 1 小時 30 分鐘')).toHaveClass('text-sm', 'leading-5');
     expect(screen.getByText(items[0].name)).toHaveClass('line-clamp-2', '[overflow-wrap:anywhere]');
     expect(screen.getByText(items[1].name)).toHaveClass('[overflow-wrap:anywhere]');
-    expect(screen.getByTestId('transit-timeline-row')).toHaveTextContent('大眾運輸・約 25 分鐘');
-    expect(screen.getByTestId('transit-timeline-row')).toHaveAttribute('data-state', 'ready');
+    const transitRow = screen.getByTestId('transit-timeline-row');
+    expect(transitRow).toHaveTextContent('大眾運輸・約 25 分鐘');
+    expect(transitRow).toHaveAttribute('data-state', 'ready');
+    expect(within(transitRow).getByRole('button')).toHaveClass('min-h-[44px]', 'text-sm', 'leading-5');
   });
 
   it('shows missing transit data without inventing a duration', () => {
@@ -88,24 +91,57 @@ describe('MobileItineraryTimeline', () => {
     expect(screen.getByTestId('transit-timeline-row')).not.toHaveTextContent('約 25 分鐘');
   });
 
-  it('isolates navigation and menu actions from opening place details or dragging', () => {
+  it('opens place details from a focusable native button with Enter and Space', async () => {
+    const user = userEvent.setup();
+    const props = renderTimeline();
+    const firstCard = screen.getAllByTestId('place-card')[0];
+    const details = within(firstCard).getByRole('button', {
+      name: `查看 ${items[0].name} 詳細資訊`,
+    });
+
+    expect(details.tagName).toBe('BUTTON');
+    expect(details).toHaveAttribute('type', 'button');
+    expect(details).toHaveAttribute('aria-haspopup', 'dialog');
+
+    details.focus();
+    expect(details).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(props.onOpenDetails).toHaveBeenCalledTimes(1);
+    expect(props.onOpenDetails).toHaveBeenLastCalledWith(items[0], 'Day 2');
+
+    details.focus();
+    await user.keyboard(' ');
+    expect(props.onOpenDetails).toHaveBeenCalledTimes(2);
+    expect(props.onOpenDetails).toHaveBeenLastCalledWith(items[0], 'Day 2');
+  });
+
+  it('keeps navigation, menu, and drag handling outside the details action', () => {
     const props = renderTimeline();
     const firstCard = screen.getAllByTestId('place-card')[0];
     const handle = within(firstCard).getByTestId('place-drag-handle');
+    const details = within(firstCard).getByTestId('place-details-trigger');
     const navigation = within(firstCard).getByRole('button', { name: /導航到/ });
     const menu = within(firstCard).getByTestId('place-action-menu-trigger');
+    const actions = within(firstCard).getByTestId('place-card-actions');
 
     expect(handle).toHaveAttribute('data-rfd-drag-handle-draggable-id', 'test-drag');
     expect(menu).not.toHaveAttribute('data-rfd-drag-handle-draggable-id');
+    expect(within(actions).getAllByRole('button')).toHaveLength(2);
+    expect(details.contains(navigation)).toBe(false);
+    expect(details.contains(menu)).toBe(false);
+    expect(details.contains(handle)).toBe(false);
+    expect(firstCard.querySelector('button button, button a, button [role="button"]')).toBeNull();
 
     fireEvent.click(navigation);
     fireEvent.click(menu);
+    fireEvent.click(handle);
+    fireEvent.click(firstCard);
 
     expect(props.onNavigate).toHaveBeenCalledWith(items[0]);
     expect(props.onOpenActionMenu).toHaveBeenCalledTimes(1);
     expect(props.onOpenDetails).not.toHaveBeenCalled();
 
-    fireEvent.click(firstCard);
+    fireEvent.click(details);
     expect(props.onOpenDetails).toHaveBeenCalledWith(items[0], 'Day 2');
   });
 

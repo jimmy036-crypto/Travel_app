@@ -21,27 +21,29 @@ export function MobileTripHeader({
   return (
     <header
       data-testid="mobile-trip-header"
-      className={`relative z-50 shrink-0 border-b px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] ${t.headerBg} ${t.cardBorder}`}
+      className={`relative z-50 shrink-0 border-b px-[12px] pb-[2px] pt-[max(8px,env(safe-area-inset-top))] ${t.headerBg} ${t.cardBorder}`}
     >
       <div
         data-testid="mobile-trip-utility-row"
-        className="flex min-w-0 items-center justify-between gap-3"
+        className="flex min-w-0 items-center justify-between gap-[12px]"
       >
         <button
           type="button"
           data-testid="back-to-lobby"
           onClick={onBack}
           aria-label="返回旅程大廳"
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border shadow-sm transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+          className={`flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-xl border shadow-sm transition-colors hover:border-blue-400 hover:text-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
         >
           <Icon name="arrowLeft" />
         </button>
-        {settingsNode}
+        <div className="shrink-0 [&>button]:h-[44px]! [&>button]:min-h-[44px]! [&>button]:w-[44px]! [&>button>svg]:h-[20px]! [&>button>svg]:w-[20px]!">
+          {settingsNode}
+        </div>
       </div>
 
       <div
         data-testid="mobile-trip-summary"
-        className={`mt-2 grid min-w-0 gap-3 rounded-3xl border p-3.5 shadow-[var(--travel-shadow-card)] ${t.cardBg} ${t.cardBorder}`}
+        className={`mt-[4px] grid min-w-0 gap-[12px] rounded-3xl border p-[8px] shadow-[var(--travel-shadow-card)] ${t.cardBg} ${t.cardBorder}`}
         style={{
           gridTemplateColumns: 'minmax(0, 1fr) clamp(5.25rem, 27vw, 6.75rem)',
         }}
@@ -57,7 +59,7 @@ export function MobileTripHeader({
           </div>
           <div
             data-testid="mobile-trip-metadata"
-            className={`mt-1 grid min-w-0 gap-0.5 text-xs font-bold leading-4 ${t.subText}`}
+            className={`mt-[4px] flex min-w-0 flex-wrap items-start gap-x-[8px] gap-y-[2px] text-xs font-bold leading-4 ${t.subText}`}
           >
             {dateStr ? <span>{dateStr}</span> : null}
             {meta?.destination ? (
@@ -65,7 +67,7 @@ export function MobileTripHeader({
             ) : null}
           </div>
           {syncStatusNode ? (
-            <div data-testid="mobile-trip-sync-status" className="mt-1 min-w-0">
+            <div data-testid="mobile-trip-sync-status" className="min-w-0">
               {syncStatusNode}
             </div>
           ) : null}
@@ -73,7 +75,7 @@ export function MobileTripHeader({
 
         <div
           data-testid="mobile-trip-weather"
-          className={`min-w-0 border-l pl-2 text-right ${t.cardBorder}`}
+          className={`min-w-0 border-l pl-[8px] text-right ${t.cardBorder}`}
         >
           {weather ? (
             <>
@@ -82,7 +84,7 @@ export function MobileTripHeader({
               </span>
               <strong
                 data-testid="mobile-trip-weather-temperature"
-                className={`mt-1 block text-xl font-black leading-6 tabular-nums [overflow-wrap:anywhere] ${t.mainText}`}
+                className={`mt-[4px] block text-xl font-black leading-6 tabular-nums [overflow-wrap:anywhere] ${t.mainText}`}
               >
                 {weatherTemperature}
               </strong>
