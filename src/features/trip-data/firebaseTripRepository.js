@@ -2,6 +2,7 @@ import { get, onValue, ref as dbRef, update } from 'firebase/database';
 import {
   deleteObject,
   getBlob,
+  getMetadata,
   ref as storageRef,
   uploadBytesResumable,
 } from 'firebase/storage';
@@ -23,6 +24,9 @@ import {
 
 const FORBIDDEN_PATH_CHARACTERS = /[.#$[\]/]/;
 const MAX_ATTACHMENT_DOWNLOAD_BYTES = 15 * 1024 * 1024;
+const PREVIEW_CONTENT_TYPES = new Set([
+  'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+]);
 
 const trimText = (value) => String(value ?? '').trim();
 
@@ -256,12 +260,22 @@ export function createFirebaseTripRepository(options = {}) {
       if (pendingRead) return pendingRead;
 
       const readPromise = (async () => {
-        const blob = await getBlob(
-          storageRef(storage, storagePath),
-          MAX_ATTACHMENT_DOWNLOAD_BYTES,
-        );
+        const attachmentRef = storageRef(storage, storagePath);
+        // Place attachment records already carry MIME. Normalized tickets and
+        // path-only callers need authenticated Storage metadata instead.
+        const metadataRead = PREVIEW_CONTENT_TYPES.has(input?.contentType)
+          ? Promise.resolve({ contentType: input.contentType })
+          : getMetadata(attachmentRef);
+        const [blob, metadata] = await Promise.all([
+          getBlob(attachmentRef, MAX_ATTACHMENT_DOWNLOAD_BYTES),
+          metadataRead,
+        ]);
         assertActive();
-        const objectUrl = URL.createObjectURL(blob);
+        // Size-capped getBlob clears Blob.type. Restore only supported preview
+        // types, never active HTML/SVG or a type guessed from the filename.
+        const contentType = PREVIEW_CONTENT_TYPES.has(metadata.contentType)
+          ? metadata.contentType : 'application/octet-stream';
+        const objectUrl = URL.createObjectURL(blob.slice(0, blob.size, contentType));
         objectUrls.set(storagePath, objectUrl);
         return objectUrl;
       })();
