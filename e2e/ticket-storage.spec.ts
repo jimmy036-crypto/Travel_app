@@ -304,6 +304,31 @@ test('PDF 票券會上傳、持久化並從 Database 與 Storage 一併刪除', 
     reloadedPdfCard.getByRole('button', { name: /開啟 PDF 票券/ }),
   ).toBeVisible();
 
+  // Observe the real object URL without replacing the browser's open behavior.
+  await page.evaluate(() => {
+    const create = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (object) => {
+      const url = create(object);
+      document.documentElement.dataset.openedAttachmentUrl = url;
+      return url;
+    };
+  });
+  const popupPromise = page.waitForEvent('popup');
+  await reloadedPdfCard.getByRole('button', { name: /開啟 PDF 票券/ }).click();
+  const popup = await popupPromise;
+  await expect(page.locator('html')).toHaveAttribute('data-opened-attachment-url', /^blob:/);
+  const opened = await page.evaluate(async () => {
+    const url = document.documentElement.dataset.openedAttachmentUrl!;
+    const response = await fetch(url);
+    return {
+      contentType: response.headers.get('content-type'),
+      bytes: Array.from(new Uint8Array(await response.arrayBuffer())),
+    };
+  });
+  expect(opened.contentType).toBe('application/pdf');
+  expect(opened.bytes).toEqual(Array.from(PDF_TICKET_BYTES));
+  await popup.close();
+
   await reloadedPdfCard.getByTestId('ticket-delete-button').click();
   await expect(page.getByTestId('confirm-dialog')).toContainText('刪除這張票券？');
   await page.getByTestId('confirm-accept').click();

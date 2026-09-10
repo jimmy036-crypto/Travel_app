@@ -10,6 +10,7 @@ const databaseMocks = vi.hoisted(() => ({
 const storageMocks = vi.hoisted(() => ({
   deleteObject: vi.fn(),
   getBlob: vi.fn(),
+  getMetadata: vi.fn(),
   ref: vi.fn((_storage, path) => ({ path })),
   uploadBytesResumable: vi.fn(),
 }));
@@ -34,6 +35,7 @@ describe('firebase trip repository', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     storageMocks.getBlob.mockResolvedValue(new Blob(['attachment']));
+    storageMocks.getMetadata.mockResolvedValue({ contentType: 'application/pdf' });
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       value: vi.fn(() => 'blob:trip-attachment'),
@@ -240,6 +242,7 @@ describe('firebase trip repository', () => {
       .resolves.toBe('blob:trip-attachment');
 
     expect(storageMocks.getBlob).toHaveBeenCalledOnce();
+    expect(storageMocks.getMetadata).toHaveBeenCalledOnce();
     expect(storageMocks.getBlob).toHaveBeenCalledWith(
       { path: 'rooms/room-1/file.pdf' },
       15 * 1024 * 1024,
@@ -248,6 +251,53 @@ describe('firebase trip repository', () => {
 
     repository.dispose();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:trip-attachment');
+  });
+
+  it.each(['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif'])(
+    'restores %s from Storage metadata without changing bytes', async (contentType) => {
+      const source = new Blob(['%PDF-1.4\n', new Uint8Array([0, 128, 255])], { type: contentType });
+      // Firebase getBlob(ref, maxBytes) slices without a contentType argument.
+      storageMocks.getBlob.mockResolvedValue(source.slice(0, 15 * 1024 * 1024));
+      storageMocks.getMetadata.mockResolvedValue({ contentType });
+      const repository = createFirebaseTripRepository({ db: {}, storage: {}, tripId: 'room-1' });
+      await repository.readAttachment({ storagePath: 'rooms/room-1/attachment' });
+      const [result] = URL.createObjectURL.mock.calls[0];
+      expect(result.type).toBe(contentType);
+      const bytes = (blob) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(new Uint8Array(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsArrayBuffer(blob);
+      });
+      expect(await bytes(result)).toEqual(await bytes(source));
+      repository.dispose();
+    },
+  );
+
+  it.each(['text/html', 'image/svg+xml', undefined])('does not publish active or missing MIME %s', async (contentType) => {
+    storageMocks.getMetadata.mockResolvedValue({ contentType });
+    const repository = createFirebaseTripRepository({ db: {}, storage: {}, tripId: 'room-1' });
+    await repository.readAttachment({ storagePath: 'rooms/room-1/file.pdf', contentType: 'text/html' });
+    expect(URL.createObjectURL.mock.calls[0][0].type).toBe('application/octet-stream');
+    repository.dispose();
+  });
+
+  it('uses supported record MIME without adding a metadata request to image hydration', async () => {
+    const repository = createFirebaseTripRepository({ db: {}, storage: {}, tripId: 'room-1' });
+    await repository.readAttachment({ storagePath: 'rooms/room-1/photo.png', contentType: 'image/png' });
+    expect(storageMocks.getMetadata).not.toHaveBeenCalled();
+    expect(URL.createObjectURL.mock.calls[0][0].type).toBe('image/png');
+    repository.dispose();
+  });
+
+  it.each(['getBlob', 'getMetadata'])('does not cache failed %s reads and permits retry', async (method) => {
+    storageMocks[method].mockRejectedValueOnce(new Error('storage/unauthorized'));
+    const repository = createFirebaseTripRepository({ db: {}, storage: {}, tripId: 'room-1' });
+    await expect(repository.readAttachment('rooms/room-1/file.pdf')).rejects.toThrow('unauthorized');
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    await expect(repository.readAttachment('rooms/room-1/file.pdf')).resolves.toBe('blob:trip-attachment');
+    expect(storageMocks[method]).toHaveBeenCalledTimes(2);
+    repository.dispose();
   });
 
   it('deduplicates concurrent reads and refuses to publish an object URL after dispose', async () => {
