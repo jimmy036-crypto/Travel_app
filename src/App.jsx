@@ -220,10 +220,12 @@ export default function TravelApp() {
   // userTrips index have both resolved. Otherwise a returning cloud user can
   // briefly be treated as a first-time user before the listener attaches.
   const [tripsLoading, setTripsLoading] = useState(true);
+  const [tripListError, setTripListError] = useState('');
   const [tripListRefreshVersion, setTripListRefreshVersion] = useState(0);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [signInReason, setSignInReason] = useState('cloud');
   const [showSharingDialog, setShowSharingDialog] = useState(false);
+  const sharingReturnFocusRef = useRef(null);
   const [activeTripRole, setActiveTripRole] = useState('');
   const [tripPendingDeletion, setTripPendingDeletion] = useState(null);
   const [tripPendingDeletionAccountUid, setTripPendingDeletionAccountUid] = useState('');
@@ -406,6 +408,7 @@ export default function TravelApp() {
 
   useEffect(() => {
     if (authSession.loading) return undefined;
+    setTripListError('');
     if (!accountUid || !db) {
       setMyTrips([]);
       setTripsLoading(false);
@@ -494,6 +497,7 @@ export default function TravelApp() {
             })
             .filter(Boolean));
           setTripsLoading(false);
+          setTripListError('');
           if (failedRoomIds.length > 0) {
             console.error('Load some account trips failed:', failedRoomIds);
             toastRef.current.error({
@@ -506,6 +510,7 @@ export default function TravelApp() {
           console.error('Load account trips failed:', error);
           setMyTrips([]);
           setTripsLoading(false);
+          setTripListError('無法載入帳號旅程，請確認網路連線後重新載入。');
           toastRef.current.error({
             title: '無法載入帳號旅程',
             description: '請確認網路連線後再試。',
@@ -514,9 +519,11 @@ export default function TravelApp() {
       },
       (error) => {
         if (!active) return;
+        refreshId += 1;
         console.error('Listen account trips failed:', error);
         setMyTrips([]);
         setTripsLoading(false);
+        setTripListError('無法載入帳號旅程，請確認網路連線後重新載入。');
       },
     );
 
@@ -952,6 +959,7 @@ export default function TravelApp() {
       || firstRunResolved
       || authSession.loading
       || tripsLoading
+      || tripListError
     ) return;
     // A cloud index entry normally proves returning use. An initial room deep
     // link is the exception: secure seeding/indexing makes that room appear in
@@ -993,6 +1001,7 @@ export default function TravelApp() {
     showTripTourSelection,
     suppressReleasePromptForFirstRunSession,
     tripsLoading,
+    tripListError,
     visibleTripModalMode,
   ]);
 
@@ -1536,6 +1545,18 @@ export default function TravelApp() {
     && typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('uxFoundation') === 'demo';
   const hasTrips = visibleTrips.length > 0;
+  const lobbyLoading = authSession.loading || tripsLoading || Boolean(accountUid && tripsOwnerUid !== accountUid);
+  const visibleTripListError = accountUid && tripsOwnerUid === accountUid ? tripListError : '';
+  const accountTripContext = lobbyLoading
+    ? '正在載入旅程'
+    : visibleTripListError ? '旅程清單載入失敗' : `${accountTrips.length} 趟雲端旅程`;
+  const summaryLoadingPlaceholder = (
+    <div
+      data-testid="lobby-next-trip-summary-loading"
+      aria-hidden="true"
+      className={`pointer-events-none min-h-[168px] w-full rounded-2xl border md:min-h-[144px] ${t.isLight ? 'border-blue-200/70 bg-blue-50/60' : 'border-blue-300/20 bg-slate-950/55'}`}
+    />
+  );
   const hasOpenableTrips = activeVisibleTrips.length > 0;
   const lobbyTodayKey = useLobbyTodayKey(!activeRoomId && !visibleOfflinePreviewData);
   const lobbyTripSummary = useMemo(
@@ -1641,7 +1662,7 @@ export default function TravelApp() {
           </p>
         </div>
       </main>
-      <OfflineBanner isOnline={isOnline} />
+      <OfflineBanner isOnline={isOnline} mode="lobby" />
       <SignInDialog
         open={showSignInDialog}
         reason={signInReason}
@@ -1694,7 +1715,7 @@ export default function TravelApp() {
           openTripRoom(id);
         }}
       />
-      <OfflineBanner isOnline={isOnline} />
+      <OfflineBanner isOnline={isOnline} mode="offline-preview" />
       {releaseExperience}
     </>
   );
@@ -1726,7 +1747,10 @@ export default function TravelApp() {
           onTourAvailabilityChange={setTripTourAvailability}
           isOnline={isOnline}
           tripAccessRole={activeTripRole}
-          onOpenSharing={() => setShowSharingDialog(true)}
+          onOpenSharing={(trigger) => {
+            sharingReturnFocusRef.current = trigger;
+            setShowSharingDialog(true);
+          }}
           accountUser={authSession.user}
           authLoading={authSession.loading}
           authBusy={authSession.busy}
@@ -1737,13 +1761,15 @@ export default function TravelApp() {
       </Suspense>
     </APIProvider>
     <TripSharingDialog
+      key={`${accountUid}:${activeRoomId}:${activeTripRole}`}
       open={showSharingDialog}
+      returnFocusTarget={sharingReturnFocusRef.current}
       roomId={activeRoomId}
       role={activeTripRole}
       onClose={() => setShowSharingDialog(false)}
       t={t}
     />
-    <OfflineBanner isOnline={isOnline} />
+    <OfflineBanner isOnline={isOnline} mode={activeTripSource === 'example' ? 'local-example' : 'cloud'} aboveNavigation />
     {releaseExperience}
     </>
   );
@@ -1763,13 +1789,13 @@ export default function TravelApp() {
                   <h1 className={`min-w-0 text-3xl font-black leading-tight tracking-tight md:text-4xl ${t.mainText}`}>智の旅行</h1>
                 </div>
                 <p className={`text-sm font-semibold leading-6 md:text-base ${t.subText}`}>集中規劃行程、地圖、票券與旅費</p>
-                <p data-testid="lobby-account-status" className={`mt-2 inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-bold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
+                <p data-testid="lobby-account-status" className={`mt-2 inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-bold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
                   <span aria-hidden="true" className={`h-2 w-2 rounded-full ${authSession.user ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                   <span className="truncate">
                     {authSession.loading
                       ? '正在確認 Google 帳號…'
                       : authSession.user
-                        ? `${authSession.user.displayName || 'Google 使用者'} · ${tripsLoading ? '同步旅程中' : `${accountTrips.length} 趟雲端旅程`}`
+                        ? `${authSession.user.displayName || 'Google 使用者'} · ${accountTripContext}`
                         : 'Google 未登入 · 示範模式'}
                   </span>
                 </p>
@@ -1797,7 +1823,7 @@ export default function TravelApp() {
                       onSignIn={authSession.signInWithGoogle}
                       onSwitchAccount={authSession.signInWithGoogle}
                       onSignOut={authSession.signOut}
-                      contextLabel={tripsLoading ? '正在同步旅程' : `${accountTrips.length} 趟雲端旅程`}
+                      contextLabel={accountTripContext}
                       t={t}
                     />
                   )}
@@ -1805,15 +1831,9 @@ export default function TravelApp() {
               </div>
             </div>
             <div className="min-w-0 md:col-start-2 md:row-start-1">
-              <Suspense
-                fallback={(
-                  <div
-                    data-testid="lobby-next-trip-summary-loading"
-                    aria-hidden="true"
-                    className={`pointer-events-none min-h-[168px] w-full rounded-2xl border md:min-h-[144px] ${t.isLight ? 'border-blue-200/70 bg-blue-50/60' : 'border-blue-300/20 bg-slate-950/55'}`}
-                  />
-                )}
-              >
+              {lobbyLoading ? summaryLoadingPlaceholder : visibleTripListError ? (
+                <p className={`text-sm font-semibold leading-6 ${t.subText}`}>旅程清單尚未載入，請重新載入後查看旅程摘要。</p>
+              ) : <Suspense fallback={summaryLoadingPlaceholder}>
                 <LobbyNextTripSummary
                   mode={t.isLight ? 'light' : 'dark'}
                   summary={lobbyTripSummary}
@@ -1822,7 +1842,7 @@ export default function TravelApp() {
                     ? () => openTripRoom(lobbyTripSummary.roomId)
                     : undefined}
                 />
-              </Suspense>
+              </Suspense>}
             </div>
           </div>
 
@@ -1897,7 +1917,7 @@ export default function TravelApp() {
           </p>
         ) : null}
 
-        {tripsLoading ? (
+        {lobbyLoading ? (
           <section
             data-testid="lobby-skeleton"
             role="status"
@@ -1908,10 +1928,17 @@ export default function TravelApp() {
               <div
                 key={`lobby-skeleton-${index}`}
                 aria-hidden="true"
-                className={`h-56 animate-pulse rounded-3xl border ${t.cardBg} ${t.cardBorder}`}
+                className={`h-56 motion-safe:animate-pulse rounded-3xl border ${t.cardBg} ${t.cardBorder}`}
               />
             ))}
             <span className="sr-only">正在同步你的 Google 帳號旅程…</span>
+          </section>
+        ) : visibleTripListError ? (
+          <section data-testid="lobby-trip-list-error" className={`rounded-3xl border p-5 ${t.cardBg} ${t.cardBorder}`}>
+            <p role="alert" className={`text-sm font-semibold leading-6 ${t.isLight ? 'text-red-800' : 'text-red-200'}`}>{visibleTripListError}</p>
+            <Button variant="primary" className="mt-3" onClick={() => setTripListRefreshVersion((version) => version + 1)}>
+              重新載入旅程清單
+            </Button>
           </section>
         ) : !hasTrips ? (
           <div className="mt-16 space-y-6 md:mt-24">
@@ -2150,7 +2177,7 @@ export default function TravelApp() {
         />
       )}
     </div>
-    <OfflineBanner isOnline={isOnline} />
+    <OfflineBanner isOnline={isOnline} mode="lobby" />
     {showAppearanceDialog ? (
       <AppearanceDialog
         color={customBgColor}

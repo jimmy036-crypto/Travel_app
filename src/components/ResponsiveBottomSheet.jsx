@@ -44,7 +44,12 @@ export const ResponsiveBottomSheet = ({
 
   useEffect(() => {
     const handleKeyDown = (event) => {
+      if (event.defaultPrevented) return;
+      // Global confirmations are mounted after the sheet. Keep this existing
+      // trap on the foreground modal rather than pulling focus underneath it.
+      const dialog = [...document.querySelectorAll('[role="dialog"][aria-modal="true"]')].at(-1) || dialogRef.current;
       if (event.key === 'Escape') {
+        if (dialog !== dialogRef.current) return;
         event.preventDefault();
         onClose();
         return;
@@ -52,7 +57,6 @@ export const ResponsiveBottomSheet = ({
 
       if (event.key !== 'Tab') return;
 
-      const dialog = dialogRef.current;
       const focusableElements = dialog
         ? [...dialog.querySelectorAll(FOCUSABLE_SELECTOR)]
         : [];

@@ -3,18 +3,19 @@ const STATUS_CONFIG = {
     label: '正在連線...',
     lightClass: 'border-slate-300 bg-slate-100/95 text-slate-700',
     darkClass: 'border-slate-600 bg-slate-800/95 text-slate-100',
-    lightDotClass: 'bg-slate-500 animate-pulse',
-    darkDotClass: 'bg-slate-300 animate-pulse',
+    lightDotClass: 'bg-slate-500 motion-safe:animate-pulse',
+    darkDotClass: 'bg-slate-300 motion-safe:animate-pulse',
   },
   saving: {
     label: '正在同步...',
     lightClass: 'border-amber-300 bg-amber-50/95 text-amber-900',
     darkClass: 'border-amber-700 bg-amber-950/95 text-amber-200',
-    lightDotClass: 'bg-amber-600 animate-pulse',
-    darkDotClass: 'bg-amber-300 animate-pulse',
+    lightDotClass: 'bg-amber-600 motion-safe:animate-pulse',
+    darkDotClass: 'bg-amber-300 motion-safe:animate-pulse',
   },
   saved: {
-    label: '已同步',
+    label: '上次已同步',
+    description: '上次同步已完成；不代表所有協作者已查看。',
     lightClass: 'border-emerald-300 bg-emerald-50/95 text-emerald-800',
     darkClass: 'border-emerald-700 bg-emerald-950/95 text-emerald-200',
     lightDotClass: 'bg-emerald-600',
@@ -29,6 +30,7 @@ const STATUS_CONFIG = {
   },
   error: {
     label: '同步失敗',
+    description: '同步失敗，請先確認連線與旅程內容；尚未確認的操作請勿重複送出。',
     lightClass: 'border-red-300 bg-red-50/95 text-red-800',
     darkClass: 'border-red-700 bg-red-950/95 text-red-200',
     lightDotClass: 'bg-red-600',
@@ -49,18 +51,21 @@ export const SyncStatusIndicator = ({ status = 'idle', compact = false, isLight 
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.idle;
   const themeClass = isLight ? config.lightClass : config.darkClass;
   const dotClass = isLight ? config.lightDotClass : config.darkDotClass;
+  const showCompactLabel = compact && (status === 'error' || status === 'offline');
 
   return (
     <span
       data-testid="sync-status-indicator"
       data-compact={compact ? 'true' : undefined}
       data-theme={isLight ? 'light' : 'dark'}
-      title={config.label}
+      title={config.description || config.label}
       role="status"
       aria-live="polite"
       className={`inline-flex min-h-8 shrink-0 items-center justify-center rounded-full border shadow-sm backdrop-blur-md ${themeClass} ${
         compact
-          ? 'h-8 w-8'
+          ? showCompactLabel
+            ? 'h-8 gap-1.5 px-2.5 text-xs font-bold'
+            : 'h-8 w-8'
           : 'min-w-24 gap-2 px-3 text-xs font-bold'
       }`}
     >
@@ -68,7 +73,7 @@ export const SyncStatusIndicator = ({ status = 'idle', compact = false, isLight 
         data-testid="sync-status-dot"
         className={`shrink-0 rounded-full ${compact ? 'h-2.5 w-2.5' : 'h-2 w-2'} ${dotClass}`}
       />
-      <span className={compact ? 'sr-only' : 'whitespace-nowrap'}>
+      <span className={compact && !showCompactLabel ? 'sr-only' : 'whitespace-nowrap'}>
         {config.label}
       </span>
     </span>

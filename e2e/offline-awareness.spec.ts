@@ -7,6 +7,47 @@ import {
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
 
+test('T3 offline notices leave all four mobile destinations reachable', async ({ page, context }, testInfo) => {
+  await clearEmulatorDatabase();
+  await seedTestTrip('t3-offline-navigation', { title: '合成離線協作旅程' });
+  await markCurrentReleaseSeen(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/?room=t3-offline-navigation');
+  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await expect(page.getByTestId('sync-status-indicator')).toContainText('上次已同步');
+  await context.setOffline(true);
+  const banner = page.getByTestId('offline-banner');
+  await expect(banner).toContainText('無法確認雲端同步狀態');
+  for (const width of [320, 375, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    const navigation = page.getByTestId('mobile-bottom-navigation');
+    await expect(navigation.getByRole('button')).toHaveText(['行程', '地圖', '票券', '記帳']);
+    const navBox = (await navigation.boundingBox())!;
+    const bannerBox = (await banner.boundingBox())!;
+    expect(bannerBox.y + bannerBox.height).toBeLessThanOrEqual(navBox.y + 1);
+    for (const button of await navigation.getByRole('button').all()) {
+      const box = (await button.boundingBox())!;
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(await button.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+      })).toBe(true);
+      await button.click();
+      await expect(button).toHaveAttribute('aria-current', 'page');
+    }
+    await page.getByTestId('mobile-nav-map').click();
+    await expect(page.getByTestId('sync-status-indicator')).toContainText('離線');
+    expect(await page.getByTestId('sync-status-indicator').getByText('離線').evaluate((element) => getComputedStyle(element).clip)).toBe('auto');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
+    await page.getByTestId('mobile-nav-plan').click();
+    if (width === 320) await testInfo.attach('after-trip-offline-320', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+  }
+  await context.setOffline(false);
+  await expect(banner).toHaveCount(0);
+  await expect(page.getByTestId('toast').filter({ hasText: '已恢復連線' })).toContainText('請稍候確認最新資料已同步');
+});
+
 test.describe('Offline Awareness', () => {
   test.beforeEach(async ({ page }) => {
     await clearEmulatorDatabase();

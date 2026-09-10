@@ -1737,10 +1737,14 @@ const TripDetail = ({
 
           if (isRecentLocalWrite) {
             setSyncStatus((currentStatus) => (
-              currentStatus === "saving" ? currentStatus : "saved"
+              currentStatus === "saving" || currentStatus === "error"
+                ? currentStatus
+                : "saved"
             ));
           } else {
-            setSyncStatus("remote-updated");
+            setSyncStatus((currentStatus) => (
+              currentStatus === "error" || currentStatus === "saving" ? currentStatus : "remote-updated"
+            ));
             if (remoteUpdateTimerRef.current) {
               window.clearTimeout(remoteUpdateTimerRef.current);
             }
@@ -2941,7 +2945,7 @@ const TripDetail = ({
     }
   }, [openAttachmentDocument, resolveAttachmentUrl, toast]);
 
-  const handleShareLink = useCallback(() => {
+  const handleShareLink = useCallback((trigger) => {
     if (!capabilities.sharing) {
       alert(CLOUD_FEATURE_UNAVAILABLE_MESSAGE);
       return;
@@ -2952,7 +2956,7 @@ const TripDetail = ({
         : '正在確認旅程權限，請稍後再試。');
       return;
     }
-    onOpenSharing?.();
+    onOpenSharing?.(trigger instanceof HTMLElement ? trigger : trigger?.currentTarget);
   }, [capabilities.sharing, onOpenSharing, tripAccessRole]);
 
   const tripSettingsActions = useMemo(() => ([
@@ -3847,6 +3851,8 @@ const TripDetail = ({
           error={authError}
           onSignIn={onSignIn}
           onSignOut={onSignOut}
+          roleLabel={capabilities.cloudSync ? (tripAccessRole === 'owner' ? '擁有者' : tripAccessRole === 'editor' ? '共同編輯' : '') : ''}
+          contextLabel={capabilities.cloudSync ? (tripAccessRole === 'editor' ? '只有擁有者可以邀請或管理成員' : '雲端旅程') : '示範旅程 · 不與雲端同步'}
           t={t}
         />
       )}
@@ -3987,6 +3993,8 @@ const TripDetail = ({
                         error={authError}
                         onSignIn={onSignIn}
                         onSignOut={onSignOut}
+                        roleLabel={capabilities.cloudSync ? (tripAccessRole === 'owner' ? '擁有者' : tripAccessRole === 'editor' ? '共同編輯' : '') : ''}
+                        contextLabel={capabilities.cloudSync ? (tripAccessRole === 'editor' ? '只有擁有者可以邀請或管理成員' : '雲端旅程') : '示範旅程 · 不與雲端同步'}
                         t={t}
                       />
                     )}
