@@ -45,25 +45,26 @@ export function MapExploreResultSheet({
               key={id || resultName(place)}
               type="button"
               data-testid="map-explore-result"
+              data-place-id={id}
               aria-pressed={selected}
               aria-label={`查看${resultName(place)}`}
               onClick={() => onSelect?.(place)}
               className={`min-h-11 rounded-2xl border p-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-blue-500 ${selected ? 'border-orange-600 ring-2 ring-orange-500/25' : t.cardBorder} ${t.itemBg}`}
             >
               <div className="flex items-start justify-between gap-3">
-                <strong className={`text-xs ${t.mainText}`}>{resultName(place)}</strong>
+                <strong className={`break-words text-sm leading-snug ${t.mainText}`}>{resultName(place)}</strong>
                 {place?.rating ? (
-                  <span className={`shrink-0 text-[10px] font-black ${ratingText}`}>★ {String(place.rating)}</span>
+                  <span className={`shrink-0 text-sm font-black ${ratingText}`}>★ {String(place.rating)}</span>
                 ) : null}
               </div>
-              <p className={`mt-1 line-clamp-2 text-[10px] ${t.subText}`}>
+              <p className={`mt-1 line-clamp-2 text-sm leading-relaxed ${t.subText}`}>
                 {String(place?.formatted_address || place?.vicinity || '地址未提供')}
               </p>
             </button>
           );
         })}
       </div>
-      <p className={`mt-2 text-[9px] ${t.subText}`} translate="no">Google Maps 搜尋結果；營業資訊請以店家公告為準。</p>
+      <p className={`mt-2 text-xs ${t.subText}`} translate="no">Google Maps 搜尋結果；營業資訊請以店家公告為準。</p>
     </section>
   );
 }

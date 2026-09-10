@@ -13,6 +13,16 @@ function mapCard(page: Page, placeId: string) {
   );
 }
 
+async function expectNoPageOverflow(page: Page) {
+  const overflow = await page.evaluate(() => ({
+    body: document.body.scrollWidth - document.body.clientWidth,
+    document: document.documentElement.scrollWidth
+      - document.documentElement.clientWidth,
+  }));
+  expect(overflow.body).toBeLessThanOrEqual(1);
+  expect(overflow.document).toBeLessThanOrEqual(1);
+}
+
 test.beforeEach(async () => {
   await clearEmulatorDatabase();
   await seedTestTrip(ROOM_ID, {
@@ -70,6 +80,7 @@ test.beforeEach(async () => {
 
 for (const viewport of [
   { width: 320, height: 568 },
+  { width: 375, height: 812 },
   { width: 390, height: 844 },
 ]) {
   test(`${viewport.width}px map keeps the sheet, safe area, and selected day synchronized`, async ({ page }) => {
@@ -114,6 +125,19 @@ for (const viewport of [
     await expect(mapCard(page, 'map-b').getByTestId('map-place-no-location')).toBeVisible();
     await expect(page.getByTestId('map-explore-trigger')).toBeVisible();
     await expect(page.getByRole('search')).toHaveCount(0);
+    await expectNoPageOverflow(page);
+
+    await page.getByTestId('map-explore-trigger').click();
+    const exploreControls = page.getByTestId('map-explore-controls');
+    await expect(exploreControls).toBeVisible();
+    const [searchBox, searchButton] = await Promise.all([
+      exploreControls.getByRole('searchbox').boundingBox(),
+      exploreControls.getByRole('button', { name: '搜尋', exact: true }).boundingBox(),
+    ]);
+    expect(searchBox?.height || 0).toBeGreaterThanOrEqual(44);
+    expect(searchButton?.height || 0).toBeGreaterThanOrEqual(44);
+    await expectNoPageOverflow(page);
+    await exploreControls.getByRole('button', { name: '關閉附近搜尋' }).click();
 
     const mapCards = page.getByTestId('map-place-card');
     const firstCardBox = await mapCards.first().boundingBox();
@@ -175,6 +199,7 @@ for (const viewport of [
     await page.getByTestId('map-sheet-peek').click();
     await expect(page.getByTestId('map-itinerary-sheet')).toHaveAttribute('data-state', 'cards');
     await expect(page.getByTestId('map-place-card')).toHaveCount(1);
+    await expectNoPageOverflow(page);
   });
 }
 
@@ -196,14 +221,17 @@ test('map cards use two-stage details access without timeline-only actions', asy
   await expect(page.getByTestId('place-detail-sheet')).toBeVisible();
 });
 
-test('desktop keeps the existing itinerary and single map composition', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto(`/?room=${ROOM_ID}`);
-  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+for (const width of [768, 1024, 1440]) {
+  test(`${width}px desktop keeps the existing itinerary and single map composition`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(`/?room=${ROOM_ID}`);
+    await expect(page.getByTestId('active-trip-view')).toBeVisible();
 
-  await expect(page.getByTestId('mobile-trip-header')).toHaveCount(0);
-  await expect(page.getByTestId('mobile-trip-map-view')).toHaveCount(0);
-  await expect(page.getByTestId('itinerary-day-card')).toHaveCount(2);
-  await expect(page.getByTestId('map-panel')).toBeVisible();
-  await expect(page.locator('[data-testid="map"]')).toHaveCount(1);
-});
+    await expect(page.getByTestId('mobile-trip-header')).toHaveCount(0);
+    await expect(page.getByTestId('mobile-trip-map-view')).toHaveCount(0);
+    await expect(page.getByTestId('itinerary-day-card')).toHaveCount(2);
+    await expect(page.getByTestId('map-panel')).toBeVisible();
+    await expect(page.locator('[data-testid="map"]')).toHaveCount(1);
+    await expectNoPageOverflow(page);
+  });
+}

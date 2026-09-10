@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import TripDetail from './TripDetail.jsx';
@@ -8,15 +8,19 @@ import {
   LOCAL_EXAMPLE_TRIP_CAPABILITIES,
 } from './features/trip-data/tripCapabilities.js';
 
-const { expenseSectionSpy } = vi.hoisted(() => ({
+const { expenseSectionSpy, mapsState } = vi.hoisted(() => ({
   expenseSectionSpy: vi.fn(),
+  mapsState: {
+    placesLibrary: null,
+    map: null,
+  },
 }));
 
 vi.mock('./firebase.js', () => ({ db: null, storage: null }));
 vi.mock('@vis.gl/react-google-maps', () => ({
-  useMapsLibrary: () => null,
-  useMap: () => null,
-  AdvancedMarker: () => null,
+  useMapsLibrary: (name) => name === 'places' ? mapsState.placesLibrary : null,
+  useMap: () => mapsState.map,
+  AdvancedMarker: ({ children }) => <div>{children}</div>,
   Pin: () => null,
   Map: ({ children }) => <div>{children}</div>,
 }));
@@ -169,6 +173,9 @@ const renderWithRepository = async (repository, tripId) => {
 describe('TripDetail repository injection', () => {
   afterEach(() => {
     expenseSectionSpy.mockClear();
+    mapsState.placesLibrary = null;
+    mapsState.map = null;
+    Reflect.deleteProperty(window, 'google');
     vi.restoreAllMocks();
   });
 
@@ -290,6 +297,94 @@ describe('TripDetail repository injection', () => {
     expect(within(controls).getByTestId('parking-layer-trigger')).toBeEnabled();
     expect(within(controls).getByText('沖繩美麗海水族館 海洋博公園 熱帶夢幻中心紀念品商店')).toBeInTheDocument();
     expect(screen.getByTestId('map-panel')).toHaveClass('flex');
+  });
+
+  it('keeps the latest Explore response selected and focuses the same place on the map', async () => {
+    const pendingSearches = [];
+    const map = {
+      getBounds: vi.fn(() => null),
+      getCenter: vi.fn(() => ({ lat: () => 25.03, lng: () => 121.56 })),
+      getZoom: vi.fn(() => 13),
+      panTo: vi.fn(),
+      setZoom: vi.fn(),
+    };
+    mapsState.map = map;
+    mapsState.placesLibrary = {
+      PlacesService: class PlacesServiceMock {
+        textSearch(request, callback) {
+          pendingSearches.push({ request, callback });
+        }
+      },
+    };
+    window.google = {
+      maps: {
+        places: {
+          PlacesServiceStatus: {
+            OK: 'OK',
+            ZERO_RESULTS: 'ZERO_RESULTS',
+          },
+        },
+      },
+    };
+
+    await renderWithRepository(
+      createRepository(FIREBASE_TRIP_CAPABILITIES),
+      'firebase-trip',
+    );
+    fireEvent.click(screen.getByTestId('map-explore-trigger'));
+    const search = screen.getByRole('searchbox', { name: '搜尋目前地圖區域' });
+
+    fireEvent.change(search, { target: { value: '搜尋 A' } });
+    fireEvent.submit(screen.getByRole('search'));
+    fireEvent.change(search, { target: { value: '搜尋 B' } });
+    fireEvent.submit(screen.getByRole('search'));
+
+    expect(pendingSearches.map(({ request }) => request.query)).toEqual(['搜尋 A', '搜尋 B']);
+    const resultA = {
+      place_id: 'place-a',
+      name: '結果 A',
+      geometry: { location: { lat: () => 25.01, lng: () => 121.51 } },
+    };
+    const resultB = {
+      place_id: 'place-b',
+      name: '結果 B',
+      geometry: { location: { lat: () => 25.02, lng: () => 121.52 } },
+    };
+    const resultWithoutLocation = {
+      place_id: 'place-without-location',
+      name: '無法定位的結果',
+    };
+
+    await act(async () => pendingSearches[1].callback([resultWithoutLocation, resultB], 'OK'));
+    expect(await screen.findByRole('button', { name: '查看結果 B' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '查看無法定位的結果' })).not.toBeInTheDocument();
+    await act(async () => pendingSearches[0].callback([resultA], 'OK'));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: '查看結果 A' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '查看結果 B' })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '查看結果 B' }));
+    const selection = screen.getByTestId('map-explore-selection-sheet');
+    expect(selection).toHaveAttribute('data-place-id', 'place-b');
+    expect(map.panTo).toHaveBeenLastCalledWith(resultB.geometry.location);
+    expect(map.setZoom).toHaveBeenLastCalledWith(16);
+    expect(selection).toHaveFocus();
+
+    fireEvent.keyDown(selection, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '查看結果 B' })).toHaveFocus();
+    });
+
+    mapsState.placesLibrary.PlacesService = class FailingPlacesService {
+      constructor() {
+        throw new Error('places unavailable');
+      }
+    };
+    fireEvent.change(search, { target: { value: '重試搜尋' } });
+    fireEvent.submit(screen.getByRole('search'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('附近搜尋暫時失敗，請重試。');
+    expect(screen.getByRole('button', { name: '重試' })).toBeInTheDocument();
   });
 
   it('opens Place Details from the desktop card and exposes navigate/nearby/copy/delete there', async () => {

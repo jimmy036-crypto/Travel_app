@@ -176,7 +176,7 @@ describe('usePlaceActions', () => {
     expect(view.deps.callbacks.clearOptimizationSummary).toHaveBeenCalledWith('Day 1');
     expect(view.deps.feedback.toast.success).toHaveBeenCalledWith({
       title: '景點已加入行程',
-      description: '行程與協作者畫面已更新。',
+      description: '景點已加入 Day 1，行程與協作者畫面已更新。',
     });
   });
 
@@ -211,7 +211,7 @@ describe('usePlaceActions', () => {
     expect(view.deps.state.setItinerary).toHaveBeenCalledTimes(1);
     expect(view.deps.feedback.toast.success).toHaveBeenCalledWith({
       title: '景點已加入行程',
-      description: '行程與協作者畫面已更新。',
+      description: '景點已加入 Day 1，行程與協作者畫面已更新。',
     });
   });
 
@@ -236,7 +236,106 @@ describe('usePlaceActions', () => {
     expect(view.deps.callbacks.setActiveTab).toHaveBeenCalledWith('plan');
     expect(view.deps.feedback.toast.success).toHaveBeenCalledWith({
       title: '景點已加入行程',
-      description: '行程與協作者畫面已更新。',
+      description: '景點已加入 Day 1，行程與協作者畫面已更新。',
+    });
+  });
+
+  it('adds an explored place only to the selected day and names that day in feedback', async () => {
+    const dayOne = [
+      { id: 'day-1-place', name: '第一天早餐', time: '09:00' },
+    ];
+    const dayTwo = [
+      { id: 'day-2-place', name: '第二天早餐', time: '09:30' },
+    ];
+    const view = renderUsePlaceActions(createDeps({
+      data: {
+        itinerary: {
+          'Day 1': dayOne,
+          'Day 2': dayTwo,
+        },
+        currentDay: 'Day 2',
+      },
+    }));
+
+    let result;
+    await act(async () => {
+      result = await view.result.current.addExplorePlace(
+        createPlaceResult({ name: '第二天咖啡' }),
+        'end',
+      );
+    });
+
+    expect(result).toBe(true);
+    expect(persistItinerary).toHaveBeenCalledTimes(1);
+    const persisted = persistItinerary.mock.calls[0][0].itinerary;
+    expect(persisted['Day 1']).toBe(dayOne);
+    expect(persisted['Day 1']).toEqual([
+      { id: 'day-1-place', name: '第一天早餐', time: '09:00' },
+    ]);
+    expect(persisted['Day 2'].map((item) => item.name)).toEqual([
+      '第二天早餐',
+      '第二天咖啡',
+    ]);
+    expect(view.deps.callbacks.clearOptimizationSummary).toHaveBeenCalledWith('Day 2');
+    expect(view.deps.callbacks.setActiveTab).toHaveBeenCalledWith('plan');
+    expect(view.deps.feedback.toast.success).toHaveBeenCalledWith({
+      title: '景點已加入行程',
+      description: '景點已加入 Day 2，行程與協作者畫面已更新。',
+    });
+  });
+
+  it('allows only one explored-place write while an add is pending', async () => {
+    let resolveWrite;
+    persistItinerary.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveWrite = resolve;
+    }));
+    const view = renderUsePlaceActions();
+
+    let firstAdd;
+    let duplicateAdd;
+    act(() => {
+      firstAdd = view.result.current.addExplorePlace(createPlaceResult(), 'end');
+      duplicateAdd = view.result.current.addExplorePlace(
+        createPlaceResult({ place_id: 'google-place-2', name: '重複點擊景點' }),
+        'end',
+      );
+    });
+
+    expect(view.result.current.isAddingPlace).toBe(true);
+    expect(persistItinerary).toHaveBeenCalledTimes(1);
+    await expect(duplicateAdd).resolves.toBe(false);
+
+    await act(async () => {
+      resolveWrite();
+      await firstAdd;
+    });
+
+    expect(view.result.current.isAddingPlace).toBe(false);
+    expect(persistItinerary).toHaveBeenCalledTimes(1);
+    expect(view.deps.callbacks.resetExploreState).toHaveBeenCalledTimes(1);
+    expect(view.deps.feedback.toast.success).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an explored place without geometry and does not start a write', async () => {
+    const view = renderUsePlaceActions();
+
+    let result;
+    await act(async () => {
+      result = await view.result.current.addExplorePlace(
+        createPlaceResult({ geometry: null }),
+        'end',
+      );
+    });
+
+    expect(result).toBe(false);
+    expect(view.result.current.isAddingPlace).toBe(false);
+    expect(persistItinerary).not.toHaveBeenCalled();
+    expect(view.deps.state.setItineraryState).not.toHaveBeenCalled();
+    expect(view.deps.callbacks.resetExploreState).not.toHaveBeenCalled();
+    expect(view.deps.feedback.toast.error).toHaveBeenCalledTimes(1);
+    expect(view.deps.feedback.toast.error).toHaveBeenCalledWith({
+      title: '無法新增景點',
+      description: '地點缺少可用的位置資訊，請返回搜尋後重試。',
     });
   });
 
@@ -305,6 +404,27 @@ describe('usePlaceActions', () => {
     })).rejects.toThrow('Place to edit was not found.');
 
     expect(persistItinerary).not.toHaveBeenCalled();
+    expect(view.deps.feedback.toast.error).toHaveBeenCalledWith({
+      title: '無法更新景點',
+      description: '請檢查網路連線後再試一次。',
+    });
+  });
+
+  it('keeps the editor open and local itinerary unchanged when edit persistence fails', async () => {
+    persistItinerary.mockRejectedValueOnce(new Error('write failed'));
+    const view = renderUsePlaceActions();
+    const updated = { id: 'place-1', name: '不應套用的新名稱', time: '10:00', stayTime: '45' };
+
+    await expect(act(async () => {
+      await view.result.current.saveEditedItem(updated, false);
+    })).rejects.toThrow('write failed');
+
+    expect(persistItinerary).toHaveBeenCalledTimes(1);
+    expect(view.deps.state.setItineraryState).not.toHaveBeenCalled();
+    expect(view.deps.state.setEditingItemData).not.toHaveBeenCalled();
+    expect(view.deps.state.setBackupItin).not.toHaveBeenCalled();
+    expect(view.deps.state.setSyncStatus).toHaveBeenLastCalledWith('error');
+    expect(view.deps.feedback.toast.success).not.toHaveBeenCalled();
     expect(view.deps.feedback.toast.error).toHaveBeenCalledWith({
       title: '無法更新景點',
       description: '請檢查網路連線後再試一次。',

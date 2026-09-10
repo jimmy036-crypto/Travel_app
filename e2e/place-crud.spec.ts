@@ -120,6 +120,75 @@ test('shows a success toast after creating a place', async ({ page }) => {
   await expect(successToast).toContainText('行程與協作者畫面已更新。');
 });
 
+test('adds once to the selected day when the add action is triggered twice', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E selected day add trip',
+    startDate: '2026-09-20',
+    endDate: '2026-09-21',
+    itinerary: {
+      'Day 1': [{
+        id: 'selected-day-baseline',
+        name: 'Day 1 原有景點',
+        customName: '',
+        lat: 25.0324,
+        lng: 121.5645,
+        time: '09:00',
+        stayTime: '30',
+        tags: [],
+      }],
+      'Day 2': [],
+    },
+  });
+
+  await page.goto(`/?room=${ROOM_ID}`);
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+  await page.locator(
+    '[data-testid="itinerary-day-switch-button"][data-day-id="Day 2"]',
+  ).click();
+
+  await expect
+    .poll(() => page.evaluate(() => {
+      const hook = (window as Window & {
+        __TRAVEL_E2E__?: {
+          addTestPlace?: () => void;
+          addTestPlaceDayId?: string;
+        };
+      }).__TRAVEL_E2E__;
+      return typeof hook?.addTestPlace === 'function'
+        && hook.addTestPlaceDayId === 'Day 2';
+    }))
+    .toBe(true);
+
+  await page.evaluate(() => {
+    const addTestPlace = (window as Window & {
+      __TRAVEL_E2E__?: { addTestPlace?: () => void };
+    }).__TRAVEL_E2E__?.addTestPlace;
+    addTestPlace?.();
+    addTestPlace?.();
+  });
+
+  await expect(placeCardByName(page, 'Day 2', ORIGINAL_NAME)).toBeVisible({ timeout: 15_000 });
+  const successToast = page.getByTestId('toast').filter({ hasText: '景點已加入行程' });
+  await expect(successToast).toHaveCount(1);
+  await expect(successToast).toContainText('景點已加入 Day 2');
+
+  await expect.poll(async () => {
+    const [dayOne, dayTwo] = await Promise.all([
+      readEmulatorData<PlaceItem[]>(`rooms/${ROOM_ID}/itinerary/Day 1`),
+      readEmulatorData<PlaceItem[]>(`rooms/${ROOM_ID}/itinerary/Day 2`),
+    ]);
+    return {
+      dayOneAddedCount: Array.isArray(dayOne)
+        ? dayOne.filter((item) => item.name === ORIGINAL_NAME).length
+        : 0,
+      dayTwoAddedCount: Array.isArray(dayTwo)
+        ? dayTwo.filter((item) => item.name === ORIGINAL_NAME).length
+        : 0,
+    };
+  }).toEqual({ dayOneAddedCount: 0, dayTwoAddedCount: 1 });
+});
+
 test('shows a success toast after editing a place', async ({ page }) => {
   const seededPlaceName = 'E2E Toast Edit Place';
   await seedTestTrip(ROOM_ID, {
@@ -172,6 +241,62 @@ test('shows a success toast after editing a place', async ({ page }) => {
   await expect(successToast).toBeVisible();
   await expect(successToast).toHaveAttribute('data-toast-type', 'success');
   await expect(successToast).toContainText('最新內容已同步給協作者。');
+});
+
+test('cancelling an edit keeps the original place in UI, Database, and reload', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const seededPlaceName = 'E2E Cancel Edit Place';
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E cancel edit trip',
+    itinerary: {
+      'Day 1': [{
+        id: 'cancel-edit-place',
+        name: seededPlaceName,
+        place_id: 'cancel-edit-place-id',
+        customName: '',
+        lat: 25.033,
+        lng: 121.5654,
+        address: 'E2E Cancel Edit address',
+        time: '09:00',
+        stayTime: '60',
+        memo: '原始筆記',
+        tags: [],
+      }],
+    },
+  });
+
+  await page.goto(`/?room=${ROOM_ID}`);
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+  const detailTrigger = placeCardByName(page, 'Day 1', seededPlaceName)
+    .getByTestId('place-details-trigger');
+  await detailTrigger.click();
+  await page.getByTestId('place-detail-edit-button').click();
+
+  const editor = page.getByRole('dialog', { name: '編輯景點' });
+  await expect(editor).toBeVisible();
+  await page.getByTestId('place-name-input').fill('不應儲存的名稱');
+  await page.getByTestId('place-note-input').fill('不應儲存的筆記');
+  await editor.getByRole('button', { name: '取消' }).click();
+
+  await expect(editor).toHaveCount(0);
+  await expect(detailTrigger).toBeFocused();
+  await expect(placeCardByName(page, 'Day 1', seededPlaceName)).toBeVisible();
+  await expect(placeCardByName(page, 'Day 1', '不應儲存的名稱')).toHaveCount(0);
+
+  await expect.poll(async () => {
+    const dayItems = await readEmulatorData<PlaceItem[]>(
+      `rooms/${ROOM_ID}/itinerary/Day 1`,
+    );
+    const item = Array.isArray(dayItems)
+      ? dayItems.find((candidate) => candidate.id === 'cancel-edit-place')
+      : null;
+    return item ? { customName: item.customName, memo: item.memo } : null;
+  }).toEqual({ customName: '', memo: '原始筆記' });
+
+  await page.reload();
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+  await expect(placeCardByName(page, 'Day 1', seededPlaceName)).toBeVisible();
+  await expect(placeCardByName(page, 'Day 1', '不應儲存的名稱')).toHaveCount(0);
 });
 
 test('新增、編輯景點與詳細資訊會保存到 Firebase Emulator', async ({

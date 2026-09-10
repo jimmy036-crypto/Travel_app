@@ -295,22 +295,43 @@ describe('MobileTripMapView', () => {
     expect(label).toHaveClass('-rotate-45');
   });
 
-  it('keeps nearby result markers inside a 44px accessible touch target', () => {
+  it('marks the selected nearby result visually and invokes selection once from its touch target', () => {
     const onSelectExploreItem = vi.fn();
-    const place = {
+    const selectedPlace = {
       place_id: 'cafe-1',
       name: '海景咖啡',
       geometry: {
         location: { lat: () => 25.05, lng: () => 121.58 },
       },
     };
-    renderMap({ exploreQuery: '咖啡廳', exploreResults: [place], onSelectExploreItem });
+    const otherPlace = {
+      place_id: 'cafe-2',
+      name: '山景咖啡',
+      geometry: {
+        location: { lat: () => 25.06, lng: () => 121.59 },
+      },
+    };
+    renderMap({
+      exploreQuery: '咖啡廳',
+      exploreResults: [selectedPlace, otherPlace],
+      selectedExplorePlaceId: selectedPlace.place_id,
+      onSelectExploreItem,
+    });
 
-    const marker = screen.getByRole('button', { name: '海景咖啡' });
+    const markers = screen.getAllByTestId('map-explore-marker');
+    const marker = markers.find((candidate) => candidate.dataset.placeId === 'cafe-1');
+    const otherMarker = markers.find((candidate) => candidate.dataset.placeId === 'cafe-2');
+    expect(marker).toBeDefined();
+    expect(otherMarker).toBeDefined();
     expect(marker).toHaveClass('h-11', 'w-11');
+    expect(marker).toHaveAttribute('aria-pressed', 'true');
+    expect(marker?.querySelector('span')).toHaveClass('scale-110', 'ring-2', 'ring-orange-500/60');
+    expect(otherMarker).toHaveAttribute('aria-pressed', 'false');
+    expect(otherMarker?.querySelector('span')).not.toHaveClass('scale-110', 'ring-2', 'ring-orange-500/60');
+
     fireEvent.click(marker);
     expect(onSelectExploreItem).toHaveBeenCalledOnce();
-    expect(onSelectExploreItem).toHaveBeenCalledWith(place);
+    expect(onSelectExploreItem).toHaveBeenCalledWith(selectedPlace);
   });
 
   it('keeps marker selection state on the pin, not the touch target', () => {

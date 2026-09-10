@@ -73,9 +73,9 @@ const PERSONAL_CHECKLIST_TEMPLATE = Object.freeze([
   { text: '耳機與個人 3C', category: 'electronics', important: false },
 ]);
 
-/** @returns {[any[], () => void]} */
 const usePlacePredictions = ({ input, placesLibrary, types = undefined }) => {
-  const [resultState, setResultState] = useState({ query: '', items: [] });
+  const [resultState, setResultState] = useState({ query: '', items: [], status: 'idle' });
+  const [retryVersion, setRetryVersion] = useState(0);
   const requestIdRef = useRef(0);
   const query = String(input || '').trim();
   const normalizedTypes = useMemo(() => Array.isArray(types) ? types : undefined, [types]);
@@ -83,7 +83,13 @@ const usePlacePredictions = ({ input, placesLibrary, types = undefined }) => {
 
   const clearPredictions = useCallback(() => {
     requestIdRef.current += 1;
-    setResultState({ query: '', items: [] });
+    setResultState({ query: '', items: [], status: 'idle' });
+  }, []);
+
+  const retryPredictions = useCallback(() => {
+    requestIdRef.current += 1;
+    setResultState({ query: '', items: [], status: 'idle' });
+    setRetryVersion((version) => version + 1);
   }, []);
 
   useEffect(() => {
@@ -92,29 +98,45 @@ const usePlacePredictions = ({ input, placesLibrary, types = undefined }) => {
     if (!canSearch) return undefined;
 
     const timer = window.setTimeout(() => {
-      // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
-      const service = new placesLibrary.AutocompleteService();
-      const request = { input: query, language: 'zh-TW' };
-      if (normalizedTypes?.length) request.types = normalizedTypes;
+      try {
+        // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
+        const service = new placesLibrary.AutocompleteService();
+        const request = { input: query, language: 'zh-TW' };
+        if (normalizedTypes?.length) request.types = normalizedTypes;
 
-      void service.getPlacePredictions(request, (results, status) => {
-        if (requestId !== requestIdRef.current) return;
-        const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK;
-        setResultState({
-          query,
-          items: ok && Array.isArray(results) ? results : [],
+        void service.getPlacePredictions(request, (results, status) => {
+          if (requestId !== requestIdRef.current) return;
+          const statusConfig = window.google?.maps?.places?.PlacesServiceStatus;
+          const ok = status === statusConfig?.OK;
+          const items = ok && Array.isArray(results) ? results : [];
+          setResultState({
+            query,
+            items,
+            status: items.length > 0
+              ? 'ready'
+              : status === statusConfig?.ZERO_RESULTS ? 'empty' : 'error',
+          });
         });
-      });
+      } catch {
+        if (requestId !== requestIdRef.current) return;
+        setResultState({ query, items: [], status: 'error' });
+      }
     }, AUTOCOMPLETE_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [canSearch, normalizedTypes, placesLibrary, query]);
+  }, [canSearch, normalizedTypes, placesLibrary, query, retryVersion]);
 
-  const visiblePredictions = canSearch && resultState.query === query
-    ? resultState.items
-    : [];
+  const status = !canSearch
+    ? 'idle'
+    : resultState.query === query ? resultState.status : 'loading';
+  const visiblePredictions = status === 'ready' ? resultState.items : [];
 
-  return [visiblePredictions, clearPredictions];
+  return {
+    clearPredictions,
+    retryPredictions,
+    status,
+    suggestions: visiblePredictions,
+  };
 };
 
 const useDestinationPredictions = ({ input, placesLibrary }) => {
@@ -668,38 +690,76 @@ export const DestinationSearch = ({ value, onChange, t }) => {
 export const SearchBox = ({ dayId, onAddPlace, t }) => {
   const [val, setVal] = useState("");
   const lib = useMapsLibrary('places');
-  const [sug, clearSug] = usePlacePredictions({ input: val, placesLibrary: lib });
+  const {
+    clearPredictions: clearSug,
+    retryPredictions,
+    status: predictionStatus,
+    suggestions: sug,
+  } = usePlacePredictions({ input: val, placesLibrary: lib });
   const [isAdding, setIsAdding] = useState(false);
+  const [isOpen, setIsOpen] = useState(true);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [errorMessage, setErrorMessage] = useState('');
+  const rootRef = useRef(null);
+  const inputRef = useRef(null);
+  const selectionPendingRef = useRef(false);
+  const inputId = React.useId();
+  const listboxId = React.useId();
+  const feedbackId = `${inputId}-feedback`;
+  const errorText = t.isLight === false ? 'text-red-200' : 'text-red-700';
+  const safeActiveIndex = sug.length === 0 || activeIndex < 0
+    ? -1
+    : Math.min(activeIndex, sug.length - 1);
+
+  const finishSelection = () => {
+    selectionPendingRef.current = false;
+    setIsAdding(false);
+    window.requestAnimationFrame(() => inputRef.current?.focus?.());
+  };
 
   const select = (prediction) => {
-    if (!lib || !prediction?.place_id || isAdding) return;
+    if (!lib || !prediction?.place_id || selectionPendingRef.current) return;
+    selectionPendingRef.current = true;
     setIsAdding(true);
-    // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
-    const service = new lib.PlacesService(document.createElement('div'));
-    service.getDetails({
-      placeId: prediction.place_id,
-      fields: ['name', 'geometry', 'formatted_address', 'place_id'],
-    }, async (result, status) => {
-      const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK;
-      if (ok && result?.geometry?.location) {
+    setIsOpen(false);
+    setActiveIndex(-1);
+    setErrorMessage('');
+    try {
+      // noinspection JSDeprecatedSymbols -- 保留現行 Google Maps 相容流程，避免未啟用新版 API 時功能中斷。
+      const service = new lib.PlacesService(document.createElement('div'));
+      service.getDetails({
+        placeId: prediction.place_id,
+        fields: ['name', 'geometry', 'formatted_address', 'place_id'],
+      }, async (result, status) => {
+        const ok = status === window.google?.maps?.places?.PlacesServiceStatus?.OK;
+        if (!ok || !result?.geometry?.location) {
+          setErrorMessage('無法取得此地點資訊，請重新搜尋。');
+          finishSelection();
+          return;
+        }
+
         try {
           const added = await Promise.resolve(onAddPlace(dayId, result, String(prediction.place_id)));
           if (added !== false) {
             setVal("");
             clearSug();
+          } else {
+            setErrorMessage('無法加入這個景點，請再試一次。');
           }
+        } catch {
+          setErrorMessage('無法加入這個景點，請再試一次。');
         } finally {
-          setIsAdding(false);
+          finishSelection();
         }
-      } else {
-        setIsAdding(false);
-        alert('無法取得此地點資訊，請重新搜尋。');
-      }
-    });
+      });
+    } catch {
+      setErrorMessage('無法取得此地點資訊，請重新搜尋。');
+      finishSelection();
+    }
   };
 
   const addEmulatorTestPlace = async () => {
-    if (!IS_FIREBASE_EMULATOR || isAdding) return;
+    if (!IS_FIREBASE_EMULATOR || selectionPendingRef.current) return;
 
     const testPlace = {
       name: 'E2E 測試餐廳',
@@ -713,30 +773,115 @@ export const SearchBox = ({ dayId, onAddPlace, t }) => {
       },
     };
 
+    selectionPendingRef.current = true;
     setIsAdding(true);
+    setErrorMessage('');
     try {
       const added = await Promise.resolve(onAddPlace(dayId, testPlace, testPlace.place_id));
       if (added !== false) {
         setVal("");
         clearSug();
+      } else {
+        setErrorMessage('無法加入這個景點，請再試一次。');
       }
+    } catch {
+      setErrorMessage('無法加入這個景點，請再試一次。');
     } finally {
+      selectionPendingRef.current = false;
       setIsAdding(false);
     }
   };
 
+  const handleInputChange = (event) => {
+    setVal(String(event.target.value));
+    setIsOpen(true);
+    setActiveIndex(-1);
+    setErrorMessage('');
+  };
+
+  const handleKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setIsOpen(false);
+      setActiveIndex(-1);
+      return;
+    }
+    if (!isOpen || sug.length === 0) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((index) => (index + 1) % sug.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((index) => (index <= 0 ? sug.length - 1 : index - 1));
+    } else if (event.key === 'Enter' && safeActiveIndex >= 0) {
+      event.preventDefault();
+      select(sug[safeActiveIndex]);
+    }
+  };
+
+  const handleBlur = (event) => {
+    if (rootRef.current?.contains(event.relatedTarget)) return;
+    setIsOpen(false);
+    setActiveIndex(-1);
+  };
+
   return (
-    <div className="relative mb-4" data-testid="place-search-box" data-day-id={String(dayId)}>
+    <div ref={rootRef} className="relative mb-3" data-testid="place-search-box" data-day-id={String(dayId)}>
+      <label htmlFor={inputId} className="sr-only">搜尋並新增 {String(dayId)} 景點</label>
       <input
+        ref={inputRef}
+        id={inputId}
         data-testid="place-search-input"
         data-day-id={String(dayId)}
-        className={`w-full py-2.5 px-4 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors border ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-        placeholder={isAdding ? '加入中...' : '新增行程地點...'}
+        name="place-search"
+        type="search"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={isOpen && sug.length > 0}
+        aria-controls={listboxId}
+        aria-activedescendant={safeActiveIndex >= 0 ? `${listboxId}-option-${safeActiveIndex}` : undefined}
+        aria-busy={isAdding || predictionStatus === 'loading'}
+        aria-describedby={isAdding || ['loading', 'empty', 'error'].includes(predictionStatus) || errorMessage ? feedbackId : undefined}
+        className={`min-h-11 w-full rounded-xl border px-4 py-2.5 text-base outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 md:text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+        placeholder={isAdding ? '加入中…' : '新增行程地點…'}
         value={String(val)}
-        onChange={(event) => setVal(String(event.target.value))}
+        onChange={handleInputChange}
+        onKeyDown={handleKeyDown}
+        onFocus={() => setIsOpen(true)}
+        onBlur={handleBlur}
         disabled={isAdding}
         autoComplete="off"
       />
+
+      {isAdding || predictionStatus === 'loading' ? (
+        <p id={feedbackId} role="status" className={`mt-2 text-sm font-bold ${t.subText}`}>
+          {isAdding ? `正在加入 ${String(dayId)}…` : '正在搜尋景點…'}
+        </p>
+      ) : null}
+      {predictionStatus === 'empty' ? (
+        <p id={feedbackId} role="status" className={`mt-2 text-sm font-bold ${t.subText}`}>
+          找不到符合的景點，請嘗試其他關鍵字。
+        </p>
+      ) : null}
+      {predictionStatus === 'error' || errorMessage ? (
+        <div id={feedbackId} role="alert" className="mt-2 flex items-center justify-between gap-3">
+          <p className={`text-sm font-bold ${errorText}`}>
+            {errorMessage || '無法載入景點建議，請檢查連線後重試。'}
+          </p>
+          {predictionStatus === 'error' && !errorMessage ? (
+            <button
+              type="button"
+              onClick={() => {
+                retryPredictions();
+                window.requestAnimationFrame(() => inputRef.current?.focus?.());
+              }}
+              className={`min-h-11 shrink-0 rounded-xl border px-3 text-sm font-bold focus-visible:ring-2 focus-visible:ring-blue-500 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+            >
+              重試搜尋
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {IS_FIREBASE_EMULATOR ? (
         <button
@@ -750,10 +895,22 @@ export const SearchBox = ({ dayId, onAddPlace, t }) => {
         </button>
       ) : null}
 
-      {Array.isArray(sug) && sug.length > 0 ? (
-        <div className={`absolute z-50 w-full mt-1 rounded-xl shadow-2xl border overflow-hidden text-xs backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>
-          {sug.map((suggestion) => (
-            <button key={String(suggestion.place_id)} type="button" onClick={() => select(suggestion)} className={`block w-full text-left p-3 cursor-pointer border-b transition-colors hover:opacity-80 ${t.mainText} ${t.cardBorder}`}>
+      {isOpen && Array.isArray(sug) && sug.length > 0 ? (
+        <div id={listboxId} role="listbox" aria-label={`${String(dayId)} 景點搜尋結果`} className={`absolute z-50 mt-1 max-h-60 w-full overflow-y-auto overscroll-contain rounded-xl border text-sm shadow-2xl backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>
+          {sug.map((suggestion, index) => (
+            <button
+              id={`${listboxId}-option-${index}`}
+              key={String(suggestion.place_id)}
+              type="button"
+              role="option"
+              aria-selected={index === safeActiveIndex}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                select(suggestion);
+              }}
+              onClick={() => select(suggestion)}
+              className={`block min-h-11 min-w-0 w-full cursor-pointer break-words border-b p-3 text-left [overflow-wrap:anywhere] transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 ${index === safeActiveIndex ? 'bg-blue-700 text-white' : `${t.mainText} hover:opacity-80`} ${t.cardBorder}`}
+            >
               {String(suggestion.description)}
             </button>
           ))}
@@ -1506,9 +1663,15 @@ export const CopyItemModal = ({ item, existingDays, onClose, onCopy, t }) => {
   );
 };
 
-export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachment, onClose, t }) => {
-  useBodyScrollLock();
+export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachment, onClose, returnFocusTarget, t }) => {
   const safeRoomId = extractRoomId(roomId);
+  const titleId = React.useId();
+  const nameInputId = React.useId();
+  const arrivalInputId = React.useId();
+  const stayInputId = React.useId();
+  const transportLabelId = React.useId();
+  const autoCascadeId = React.useId();
+  const noteInputId = React.useId();
   const [customName, setCustomName] = useState(item.customName || "");
   const [time, setTime] = useState(item.time || "");
   const [stayTime, setStayTime] = useState(item.stayTime !== undefined ? item.stayTime : "0");
@@ -2026,37 +2189,42 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
   };
 
   return (
-    <div
-      data-testid="edit-place-modal"
-      style={{ zIndex: 9999, touchAction: 'none', overscrollBehaviorX: 'none' }}
-      className="fixed inset-0 w-full max-w-[100vw] overflow-hidden bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 transition-opacity"
-      onClick={handleClose}
+    <ResponsiveBottomSheet
+      onClose={handleClose}
+      labelledBy={titleId}
+      testId="edit-place-modal"
+      initialFocusSelector="[data-testid='edit-place-title']"
+      returnFocusTarget={returnFocusTarget}
+      panelClassName={`min-w-0 max-w-lg overflow-hidden p-5 md:p-6 ${t.modalBg} ${t.cardBorder}`}
     >
-      <div
-        style={{ touchAction: 'pan-y', maxHeight: '94dvh', overscrollBehaviorX: 'none' }}
-        className={`min-w-0 w-full max-w-lg overflow-hidden border rounded-t-3xl md:rounded-3xl p-5 md:p-6 shadow-2xl flex flex-col animate-in fade-in slide-in-from-bottom-4 md:zoom-in duration-200 ${t.modalBg} ${t.cardBorder}`}
-        onClick={e => e.stopPropagation()}
-      >
         <div className="mb-5 shrink-0 flex items-start gap-3">
           <div className="flex-1 min-w-0">
-            <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>自訂地標名稱（選填）</label>
+            <h2 id={titleId} data-testid="edit-place-title" tabIndex={-1} className={`mb-3 rounded-sm text-lg font-black outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${t.mainText}`}>
+              編輯景點
+            </h2>
+            <label htmlFor={nameInputId} className={`mb-1.5 block text-sm font-bold ${t.subText}`}>自訂地標名稱（選填）</label>
             <input
+              id={nameInputId}
+              name="place-custom-name"
+              autoComplete="off"
               data-testid="place-name-input"
               value={String(customName)}
               onChange={e => setCustomName(e.target.value)}
               placeholder={String(item.name)}
-              className={`w-full py-2 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-lg font-black ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+              className={`min-h-11 w-full rounded-xl border px-3 py-2 text-lg font-black outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
             />
-            <p className={`text-[10px] truncate mt-2 ${t.subText}`}>🗺️ 原始地標：{String(item.name)}</p>
+            <p className={`mt-2 truncate text-sm ${t.subText}`}>🗺️ 原始地標：{String(item.name)}</p>
           </div>
-          <button type="button" onClick={handleClose} disabled={saving} className={`w-10 h-10 rounded-full bg-slate-500/10 shrink-0 text-lg ${t.subText}`}>✕</button>
+          <button type="button" aria-label="關閉景點編輯視窗" onClick={handleClose} disabled={saving} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-500/10 text-lg disabled:cursor-wait disabled:opacity-50 ${t.subText}`}>✕</button>
         </div>
 
         <div className="min-w-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain pr-1 md:pr-2 scrollbar-hide">
           <div className="grid min-w-0 grid-cols-2 gap-2 items-end">
             <div className="min-w-0">
-              <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>抵達時間</label>
+              <label htmlFor={arrivalInputId} className={`mb-1.5 block text-sm font-bold ${t.subText}`}>抵達時間</label>
               <input
+                id={arrivalInputId}
+                name="place-arrival-time"
                 data-testid="place-arrival-time-input"
                 type="time"
                 value={String(time)}
@@ -2066,11 +2234,13 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
               />
             </div>
             <div className="min-w-0">
-              <label className={`flex justify-between text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>
+              <label htmlFor={stayInputId} className={`mb-1.5 flex justify-between gap-2 text-sm font-bold ${t.subText}`}>
                 <span>停留（分鐘）</span>
                 <span className="text-blue-500 font-black">{formatStayTime(stayTime)}</span>
               </label>
               <input
+                id={stayInputId}
+                name="place-stay-duration"
                 data-testid="place-stay-duration-input"
                 type="number"
                 step="5"
@@ -2084,13 +2254,13 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
           </div>
 
           <div className="flex gap-1.5 -mt-2">
-            {[0, 30, 60].map(mins => <button type="button" key={`qt-${mins}`} onClick={() => {if(mins===0) setStayTime("0"); else handleQuickTime(mins);}} className={`flex-1 min-h-10 text-[10px] py-1.5 rounded-lg font-bold border transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>{mins === 0 ? '僅經過' : mins === 60 ? '+1小時' : `+${mins}分`}</button>)}
+            {[0, 30, 60].map(mins => <button type="button" key={`qt-${mins}`} onClick={() => {if(mins===0) setStayTime("0"); else handleQuickTime(mins);}} className={`min-h-11 flex-1 rounded-lg border py-1.5 text-sm font-bold transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>{mins === 0 ? '僅經過' : mins === 60 ? '+1小時' : `+${mins}分`}</button>)}
           </div>
 
           <div className={`p-4 rounded-xl border flex flex-col gap-3 ${t.cardBg} ${t.cardBorder}`}>
-            <label className={`block text-[10px] font-bold uppercase tracking-wider ${t.subText}`}>前往下一站的交通方式</label>
+            <p id={transportLabelId} className={`text-sm font-bold ${t.subText}`}>前往下一站的交通方式</p>
             <div className="flex min-w-0 gap-3">
-              <select value={String(legMode)} onChange={e => setLegMode(e.target.value)} className={`min-w-0 flex-1 h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm font-bold bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+              <select name="place-next-leg-mode" aria-labelledby={transportLabelId} value={String(legMode)} onChange={e => setLegMode(e.target.value)} className={`min-w-0 flex-1 h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm font-bold bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                 <option value="AUTO">🚗 自動計算車程</option>
                 <option value="FLIGHT">✈️ 搭乘飛機</option>
                 <option value="TRAIN">🚅 火車／高鐵</option>
@@ -2099,20 +2269,20 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
               </select>
               {legMode !== 'AUTO' ? (
                 <div className="w-1/3 relative shrink-0">
-                  <input type="number" min="0" value={String(legMins)} onChange={e => setLegMins(e.target.value)} placeholder="分鐘" className={`w-full h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm text-right pr-6 appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                  <input name="place-next-leg-minutes" aria-label="前往下一站所需分鐘" type="number" min="0" value={String(legMins)} onChange={e => setLegMins(e.target.value)} placeholder="分鐘" className={`w-full h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm text-right pr-6 appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                   <span className={`absolute right-2 top-3.5 text-[10px] ${t.subText}`}>分</span>
                 </div>
               ) : null}
             </div>
           </div>
 
-          <div className={`p-3 rounded-xl border flex items-center justify-between ${t.cardBg} ${t.cardBorder}`}>
+          <label htmlFor={autoCascadeId} className={`flex cursor-pointer items-center justify-between rounded-xl border p-3 ${t.cardBg} ${t.cardBorder}`}>
             <div className="flex flex-col pr-3">
-              <span className={`text-xs font-bold ${t.mainText}`}>🔄 自動順延後續行程</span>
-              <span className={`text-[10px] mt-0.5 ${t.subText}`}>儲存後依車程重新計算後續抵達時間</span>
+              <span className={`text-sm font-bold ${t.mainText}`}>🔄 自動順延後續行程</span>
+              <span className={`mt-0.5 text-sm ${t.subText}`}>儲存後依車程重新計算後續抵達時間</span>
             </div>
-            <input type="checkbox" checked={autoCascade} onChange={e => setAutoCascade(e.target.checked)} className="w-5 h-5 cursor-pointer accent-blue-500 rounded shrink-0" />
-          </div>
+            <input id={autoCascadeId} name="place-auto-cascade" type="checkbox" checked={autoCascade} onChange={e => setAutoCascade(e.target.checked)} className="h-5 w-5 shrink-0 cursor-pointer rounded accent-blue-500" />
+          </label>
 
           <div className={`rounded-2xl border overflow-hidden ${t.cardBg} ${t.cardBorder}`}>
             <button type="button" data-testid="place-resources-toggle" onClick={() => setShowResources((value) => !value)} className="flex min-h-14 w-full min-w-0 items-center justify-between gap-3 p-4 text-left">
@@ -2173,6 +2343,10 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
                   </div>
                   <div className="flex gap-2">
                     <input
+                      aria-label="景點定位網址"
+                      name="place-navigation-url"
+                      type="url"
+                      autoComplete="off"
                       value={String(navigationUrl)}
                       onChange={(event) => setNavigationUrl(event.target.value)}
                       placeholder="選填：https://maps.app.goo.gl/..."
@@ -2285,10 +2459,10 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
                   {resourceAddMode === 'image' ? (
                     <div className={`min-w-0 overflow-hidden rounded-xl border p-3 space-y-3 ${t.inputBg} ${t.cardBorder}`}>
                       <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
-                        <select value={imageDraft.type} onChange={(event) => setImageDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                        <select name="place-image-resource-type" aria-label="圖片資料類型" value={imageDraft.type} onChange={(event) => setImageDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                           {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
                         </select>
-                        <input data-testid="place-resource-image-title-input" value={imageDraft.title} onChange={(event) => setImageDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：菜單第 1 頁）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                        <input name="place-image-resource-title" autoComplete="off" aria-label="圖片資料顯示名稱" data-testid="place-resource-image-title-input" value={imageDraft.title} onChange={(event) => setImageDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：菜單第 1 頁）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                       </div>
 
                       <label className={`min-h-16 min-w-0 px-3 rounded-xl border border-dashed flex items-center gap-3 cursor-pointer overflow-hidden ${t.cardBorder}`}>
@@ -2316,12 +2490,12 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
                   ) : resourceAddMode === 'link' ? (
                     <div className={`min-w-0 overflow-hidden rounded-xl border p-3 space-y-2 ${t.inputBg} ${t.cardBorder}`}>
                       <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
-                        <select value={resourceDraft.type} onChange={(event) => setResourceDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                        <select name="place-link-resource-type" aria-label="連結資料類型" value={resourceDraft.type} onChange={(event) => setResourceDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                           {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
                         </select>
-                        <input value={resourceDraft.title} onChange={(event) => setResourceDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：線上訂位）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                        <input name="place-link-resource-title" autoComplete="off" aria-label="連結資料顯示名稱" value={resourceDraft.title} onChange={(event) => setResourceDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：線上訂位）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                       </div>
-                      <input value={resourceDraft.url} onChange={(event) => setResourceDraft((previous) => ({ ...previous, url: event.target.value }))} placeholder="貼上網址 https://..." inputMode="url" className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                      <input name="place-link-resource-url" type="url" autoComplete="off" aria-label="連結資料網址" value={resourceDraft.url} onChange={(event) => setResourceDraft((previous) => ({ ...previous, url: event.target.value }))} placeholder="貼上完整網址" inputMode="url" className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                       <div className="flex gap-2">
                         {editingResourceId && editingResourceKind === 'link' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
                         <button type="button" onClick={handleSaveResource} className="flex-1 min-h-11 rounded-xl bg-blue-600 text-white text-xs font-bold">
@@ -2332,10 +2506,10 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
                   ) : (
                     <div className={`min-w-0 overflow-hidden rounded-xl border p-3 space-y-3 ${t.inputBg} ${t.cardBorder}`}>
                       <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
-                        <select value={pdfDraft.type} onChange={(event) => setPdfDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+                        <select name="place-pdf-resource-type" aria-label="PDF 資料類型" value={pdfDraft.type} onChange={(event) => setPdfDraft((previous) => ({ ...previous, type: event.target.value }))} className={`h-11 w-full min-w-0 px-2 rounded-lg border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                           {PLACE_RESOURCE_TYPES.map((type) => <option key={type.id} value={type.id}>{type.icon} {type.label}</option>)}
                         </select>
-                        <input data-testid="place-resource-pdf-title-input" value={pdfDraft.title} onChange={(event) => setPdfDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：午餐菜單）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                        <input name="place-pdf-resource-title" autoComplete="off" aria-label="PDF 資料顯示名稱" data-testid="place-resource-pdf-title-input" value={pdfDraft.title} onChange={(event) => setPdfDraft((previous) => ({ ...previous, title: event.target.value }))} placeholder="顯示名稱（例如：午餐菜單）" maxLength={60} className={`h-11 w-full min-w-0 px-3 rounded-lg border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                       </div>
 
                       <label className={`min-h-16 min-w-0 px-3 rounded-xl border border-dashed flex items-center gap-3 cursor-pointer overflow-hidden ${t.cardBorder}`}>
@@ -2376,8 +2550,8 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
             </div>
           </div>
           <div>
-            <label className={`block text-[10px] font-bold mb-1.5 uppercase tracking-wider ${t.subText}`}>筆記／備註</label>
-            <textarea data-testid="place-note-input" value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="輸入推薦餐點、集合方式或其他細節..." className={`w-full p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 min-h-24 resize-none transition-colors border text-sm bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+            <label htmlFor={noteInputId} className={`mb-1.5 block text-sm font-bold ${t.subText}`}>筆記／備註</label>
+            <textarea id={noteInputId} name="place-note" autoComplete="off" data-testid="place-note-input" value={String(memo)} onChange={e => setMemo(e.target.value)} placeholder="輸入推薦餐點、集合方式或其他細節…" className={`w-full p-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 min-h-24 resize-none transition-colors border text-sm bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
           </div>
         </div>
         <div className={`flex justify-end gap-3 mt-4 pt-4 border-t shrink-0 pb-[max(0px,env(safe-area-inset-bottom))] ${t.cardBorder}`}>
@@ -2386,8 +2560,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
             {saving ? (hasPendingUploads ? `上傳中 ${uploadProgress}%` : '儲存中…') : '儲存變更'}
           </button>
         </div>
-      </div>
-    </div>
+    </ResponsiveBottomSheet>
   );
 };
 
@@ -2552,28 +2725,33 @@ export const MemoViewModal = ({ item, onClose, t }) => {
   );
 };
 
-export const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle, t, isFetching }) => {
-  useBodyScrollLock();
+export const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, dayTitle, t, isFetching, isAdding = false }) => {
+  const titleId = React.useId();
   if (!place) return null;
 
   const photos = Array.isArray(place.photos) ? place.photos : [];
   const reviews = Array.isArray(place.reviews) ? place.reviews : [];
 
   return (
-    <div style={{ zIndex: 9999, touchAction: 'none' }} className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 transition-opacity animate-in fade-in overflow-hidden w-full max-w-[100vw]" onClick={onClose}>
-      <div style={{ touchAction: 'auto' }} className={`border rounded-3xl p-0 w-full max-w-lg shadow-2xl flex flex-col overflow-hidden max-h-[90vh] ${t.modalBg} ${t.cardBorder} animate-in zoom-in-95 duration-200`} onClick={e => e.stopPropagation()}>
+    <ResponsiveBottomSheet
+      onClose={onClose}
+      labelledBy={titleId}
+      testId="explore-place-details-modal"
+      initialFocusSelector="[data-testid='explore-place-details-title']"
+      panelClassName={`max-w-lg overflow-hidden p-0 ${t.modalBg} ${t.cardBorder}`}
+    >
         <div className={`p-5 border-b sticky top-0 z-10 backdrop-blur-xl ${t.cardBg} ${t.cardBorder} flex justify-between items-start gap-4 shrink-0`}>
           <div className="flex-1 min-w-0">
-            <h2 className={`text-xl font-black leading-tight mb-1 wrap-break-word ${t.mainText}`}>{String(place.name)}</h2>
-            <p className={`text-[11px] truncate ${t.subText}`}>{String(place.formatted_address || place.vicinity)}</p>
+            <h2 id={titleId} data-testid="explore-place-details-title" tabIndex={-1} className={`mb-1 rounded-sm text-xl font-black leading-tight wrap-break-word outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${t.mainText}`}>{String(place.name)}</h2>
+            <p className={`text-sm leading-relaxed ${t.subText}`}>{String(place.formatted_address || place.vicinity)}</p>
             <div className="flex items-center flex-wrap gap-2 mt-3">
               {place.rating ? <span className="bg-orange-500/10 text-orange-600 px-2 py-0.5 rounded-md text-xs font-bold border border-orange-500/20">⭐ {String(place.rating)}</span> : null}
-              {place.user_ratings_total ? <span className={`text-[11px] font-bold ${t.subText}`}>({String(place.user_ratings_total)} 則評論)</span> : null}
-              {place.website ? <a href={safeUrlFormatter(place.website)} target="_blank" rel="noreferrer" className={`text-[11px] text-blue-500 hover:underline font-bold ml-2`}>🌐 官方網站</a> : null}
+              {place.user_ratings_total ? <span className={`text-sm font-bold ${t.subText}`}>({String(place.user_ratings_total)} 則評論)</span> : null}
+              {place.website ? <a href={safeUrlFormatter(place.website)} target="_blank" rel="noreferrer" className="ml-2 text-sm font-bold text-blue-500 hover:underline">🌐 官方網站</a> : null}
             </div>
-            {isFetching ? <p className="text-xs text-blue-500 mt-2 font-bold animate-pulse">讀取照片與評論中...</p> : null}
+            {isFetching ? <p className="text-xs text-blue-500 mt-2 font-bold animate-pulse">讀取照片與評論中…</p> : null}
           </div>
-          <button onClick={onClose} className={`w-10 h-10 rounded-full bg-slate-500/10 flex items-center justify-center text-xl hover:bg-red-500 hover:text-white transition-colors shrink-0 ${t.subText}`}>✕</button>
+          <button type="button" aria-label="關閉景點詳情" onClick={onClose} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-500/10 text-xl transition-colors hover:bg-red-500 hover:text-white ${t.subText}`}>✕</button>
         </div>
         <div className="overflow-y-auto p-5 space-y-6 scrollbar-hide flex-1">
           {photos.length > 0 ? (
@@ -2595,11 +2773,11 @@ export const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, da
                     <div className="flex items-center gap-3 mb-2">
                       <img src={review.profile_photo_url} alt="avatar" className="w-8 h-8 rounded-full shadow-sm" />
                       <div>
-                        <p className={`text-xs font-bold ${t.mainText}`}>{String(review.author_name)}</p>
+                        <p className={`text-sm font-bold ${t.mainText}`}>{String(review.author_name)}</p>
                         <p className={`text-[10px] ${t.subText}`}>{String(review.relative_time_description)} • ⭐ {String(review.rating)}</p>
                       </div>
                     </div>
-                    <p className={`text-xs leading-relaxed opacity-90 line-clamp-3 wrap-break-word ${t.mainText}`}>{String(review.text)}</p>
+                    <p className={`line-clamp-3 text-sm leading-relaxed opacity-90 wrap-break-word ${t.mainText}`}>{String(review.text)}</p>
                   </div>
                 ))}
               </div>
@@ -2619,24 +2797,25 @@ export const PlaceDetailsModal = ({ place, onClose, onAdd, exploreOriginItem, da
 
         {onAdd ? (
           <div className={`p-5 border-t bg-black/5 backdrop-blur-xl shrink-0 ${t.cardBorder}`}>
+             <p className={`mb-2 text-sm font-bold ${t.subText}`}>將加入 {String(dayTitle)}</p>
              {exploreOriginItem ? (
                 <div className="flex gap-2">
-                  <button onClick={() => onAdd(place, 'before')} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl text-sm md:text-[11px] font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95">
-                    加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」前
+                  <button type="button" disabled={isAdding} aria-busy={isAdding} onClick={() => onAdd(place, 'before')} className="min-h-11 flex-1 rounded-xl bg-blue-600 px-3 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/30 transition-colors hover:bg-blue-500 active:scale-95 disabled:cursor-wait disabled:opacity-60">
+                    {isAdding ? '加入中…' : `加在「${String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}…」前`}
                   </button>
-                  <button onClick={() => onAdd(place, 'after')} className="flex-1 rounded-xl bg-emerald-700 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-700/25 transition-all hover:bg-emerald-800 active:scale-95 md:text-[11px]">
-                    加在「{String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}...」後
+                  <button type="button" disabled={isAdding} aria-busy={isAdding} onClick={() => onAdd(place, 'after')} className="min-h-11 flex-1 rounded-xl bg-emerald-700 px-3 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-700/25 transition-colors hover:bg-emerald-800 active:scale-95 disabled:cursor-wait disabled:opacity-60">
+                    {isAdding ? '加入中…' : `加在「${String(exploreOriginItem.customName || exploreOriginItem.name).substring(0,6)}…」後`}
                   </button>
                 </div>
               ) : (
-                <button onClick={() => onAdd(place, 'end')} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl text-base font-bold shadow-lg shadow-blue-500/30 transition-all active:scale-95 flex items-center justify-center gap-2">
-                  <span>➕</span> 加入 {dayTitle} 行程
+                <button type="button" disabled={isAdding} aria-busy={isAdding} onClick={() => onAdd(place, 'end')} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3.5 text-base font-bold text-white shadow-lg shadow-blue-500/30 transition-colors hover:bg-blue-500 active:scale-95 disabled:cursor-wait disabled:opacity-60">
+                  <span aria-hidden="true">➕</span> {isAdding ? '加入中…' : `加入 ${dayTitle} 行程`}
                 </button>
               )}
+              {isAdding ? <p role="status" className={`mt-2 text-sm font-bold ${t.subText}`}>正在儲存景點，請稍候…</p> : null}
           </div>
         ) : null}
-      </div>
-    </div>
+    </ResponsiveBottomSheet>
   );
 };
 // ============================================================================

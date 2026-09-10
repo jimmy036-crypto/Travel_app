@@ -106,6 +106,9 @@ export function MapExploreControls({
         }}
       >
         <input
+          name="map-explore-search"
+          type="search"
+          autoComplete="off"
           value={String(query || '')}
           onChange={(event) => onQueryChange?.(event.target.value)}
           placeholder={anchored ? `搜尋「${safeAnchorName}」附近` : '搜尋目前地圖區域'}
@@ -117,7 +120,7 @@ export function MapExploreControls({
           disabled={searching}
           className="min-h-11 rounded-xl bg-orange-700 px-3 text-xs font-black text-white transition-colors hover:bg-orange-800 disabled:cursor-wait disabled:opacity-60"
         >
-          {searching ? '搜尋中…' : '搜尋'}
+          {searching ? '搜尋中…' : searchStatus === 'error' ? '重試' : '搜尋'}
         </button>
         {resultCount > 0 || query ? (
           <button
@@ -154,13 +157,13 @@ export function MapExploreControls({
       </div>
 
       {searchStatus === 'empty' ? (
-        <p role="status" className={`mt-1 px-1 text-[10px] font-bold ${t.subText}`}>
+        <p role="status" className={`mt-1 px-1 text-sm font-bold ${t.subText}`}>
           找不到符合結果，請改用其他關鍵字或調整搜尋範圍。
         </p>
       ) : null}
       {searchStatus === 'error' ? (
-        <p role="alert" className={`mt-1 px-1 text-[10px] font-bold ${errorText}`}>
-          附近搜尋暫時失敗，請稍後再試。
+        <p role="alert" className={`mt-1 px-1 text-sm font-bold ${errorText}`}>
+          附近搜尋暫時失敗，請重試。
         </p>
       ) : null}
 
