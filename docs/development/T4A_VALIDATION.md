@@ -126,6 +126,8 @@ Contrast samples used each element's actual computed color plus alpha-composited
 
 ## Inherited limitations / manual QA
 
+CI follow-up (2026-09-12): the original head's PR/push E2E jobs were cancelled at the existing 30-minute limit, not all-pass. Two bounded fixes and their separate red/green runs are documented in [T4A_CI_DIAGNOSTICS](T4A_CI_DIAGNOSTICS.md): suite initialization deleting cache inside a child frame, and tour geometry remaining stale after header reflow. Follow-up verification: 1108 Unit/Integration tests plus fast checks passed; 76 affected E2E passed, with zero retries. Shared dependent-module loading stalls remain unresolved; this does not clear T4A-10's PARTIAL status or replace the original run history.
+
 - Real Google Places search → select → focus → Add remains unverified.
 - Real Google login and deployment smoke evidence remain unverified; deployment status is separate from tests.
 - Physical iPhone Safari/PWA native PDF, soft keyboard, external App/login/ticket presentation, gestures and safe-area require manual testing. MIME/bytes and WebKit emulation do not prove native-reader behavior.

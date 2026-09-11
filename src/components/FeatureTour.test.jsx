@@ -368,6 +368,26 @@ describe('FeatureTour no-target fallbacks', () => {
 });
 
 describe('FeatureTour interaction contract', () => {
+  it('refreshes a shifted target when an ancestor resizes and disconnects on close', async () => {
+    const observers = [];
+    vi.spyOn(globalThis, 'ResizeObserver').mockImplementation(function (callback) {
+      const observer = { callback, observe: vi.fn(), disconnect: vi.fn() };
+      observers.push(observer);
+      return observer;
+    });
+    buildMobileTrip();
+    const { unmount } = await renderTour();
+    const target = screen.getByTestId('sync-status-indicator');
+    const observer = observers.find((entry) => entry.observe.mock.calls.some(([element]) => element === target));
+    expect(observer).toBeDefined();
+    expect(observer.observe).toHaveBeenCalledWith(surface);
+    stubRect(target, { top: 90, left: 12, width: 120, height: 24 });
+    act(() => observer.callback([{ target: surface }]));
+    await waitFor(() => expect(screen.getByTestId('feature-tour-spotlight')).toHaveStyle({ top: '82px' }));
+    unmount();
+    expect(observer.disconnect).toHaveBeenCalledOnce();
+  });
+
   it('never activates a tab or clicks a target while spotlighting', async () => {
     buildMobileTrip();
     const mapTab = document.querySelector('[data-testid="mobile-nav-map"]');
