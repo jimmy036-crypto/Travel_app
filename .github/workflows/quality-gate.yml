@@ -118,7 +118,9 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload Playwright artifacts
-        if: failure()
+        # Keep failed-attempt traces even when retries make the run green.
+        # Cancellation uploads are best effort; live progress remains in job logs.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-${{ github.run_id }}-${{ github.run_attempt }}
