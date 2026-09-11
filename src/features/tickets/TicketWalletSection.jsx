@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 
 import {
   TICKET_AUDIENCE_TYPES,
@@ -80,8 +80,26 @@ function TicketCard({
   onOpenImage,
   onOpenAttachment,
   onCopyOrderNumber,
+  opening,
+  onCancelOpen,
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const detailsId = useId();
+  const [copyState, setCopyState] = useState('idle');
+  const copyPending = useRef(false);
+  const copyOrder = async () => {
+    if (copyPending.current) return;
+    copyPending.current = true;
+    setCopyState('pending');
+    try {
+      const copied = await onCopyOrderNumber(ticket.orderNumber);
+      setCopyState(copied === false ? 'error' : 'idle');
+    } catch {
+      setCopyState('error');
+    } finally {
+      copyPending.current = false;
+    }
+  };
   const action = getTicketLaunchAction(ticket);
   const protectedAttachment = ticket.ticketType === TICKET_TYPES.ATTACHMENT
     && Boolean(ticket.storagePath)
@@ -96,7 +114,10 @@ function TicketCard({
   const reminder = reminderText(ticket.reminderMinutes);
   const manual = action.mode === 'manual';
   const hasInstructions = Boolean(ticket.instructions);
-  const showDetailToggle = manual || hasInstructions;
+  const showFullMembers = ticket.assignedMembers.length > 2;
+  const showDetailToggle = manual || hasInstructions || showFullMembers;
+  const toolTone = t?.isLight ? 'text-blue-700' : 'text-blue-200';
+  const deleteTone = t?.isLight ? 'text-red-700' : 'text-red-200';
   const sourceTone = typeof t?.isLight === 'boolean'
     ? t.isLight
       ? 'bg-amber-100 text-amber-900'
@@ -116,24 +137,24 @@ function TicketCard({
     >
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${sourceTone}`}>
+          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${sourceTone}`}>
             {sourceLabel(ticket)}
           </span>
           <h3 className={`mt-2 break-words text-base font-black ${t?.mainText || 'text-slate-950 dark:text-white'}`}>
             {ticket.title || '未命名票券'}
           </h3>
         </div>
-        <div className="flex shrink-0 gap-1">
-          <button type="button" data-testid="ticket-edit-button" onClick={() => onEdit(ticket)} className="min-h-9 rounded-lg px-2 text-xs font-bold text-blue-600">編輯</button>
-          <button type="button" data-testid="ticket-delete-button" onClick={() => onDelete(ticket.id)} disabled={deleting} className="min-h-9 rounded-lg px-2 text-xs font-bold text-red-600 disabled:opacity-50">
+        <div data-testid="ticket-tools" className="flex shrink-0 gap-2">
+          <button type="button" data-testid="ticket-edit-button" onClick={(event) => { event.currentTarget.focus(); onEdit(ticket); }} className={`min-h-11 min-w-11 rounded-lg px-2 text-xs font-bold ${toolTone}`}>編輯</button>
+          <button type="button" data-testid="ticket-delete-button" onClick={() => onDelete(ticket.id)} disabled={deleting} className={`min-h-11 min-w-11 rounded-lg px-2 text-xs font-bold disabled:opacity-50 ${deleteTone}`}>
             {deleting ? '刪除中…' : '刪除'}
           </button>
         </div>
       </div>
 
-      <dl className={`mt-3 min-w-0 space-y-1.5 text-xs ${t?.subText || 'text-slate-600 dark:text-slate-300'}`}>
+      <dl className={`mt-3 min-w-0 space-y-1.5 break-words text-sm leading-relaxed ${t?.subText || 'text-slate-600 dark:text-slate-300'}`}>
+        <div className={`font-bold ${t?.mainText || ''}`}><dt className="sr-only">使用日期</dt><dd>{usageDate}</dd></div>
         <div><dt className="sr-only">使用成員</dt><dd title={ticket.assignedMembers.join('、')}>{audience}</dd></div>
-        <div><dt className="sr-only">使用日期</dt><dd>{usageDate}</dd></div>
         {ticket.appName ? <div><dt className="sr-only">外部 App</dt><dd>外部 App：{ticket.appName}</dd></div> : null}
         {ticket.presenterMember ? <div><dt className="sr-only">主要出示人</dt><dd>由{ticket.presenterMember}負責出示</dd></div> : null}
         {reminder ? <div><dt className="sr-only">建議提前時間</dt><dd>{reminder}</dd></div> : null}
@@ -141,7 +162,7 @@ function TicketCard({
       </dl>
 
       {ticket.ticketType === TICKET_TYPES.EXTERNAL_APP ? (
-        <div className="mt-3 min-w-0 space-y-2 text-xs">
+        <div className="mt-3 min-w-0 space-y-2 text-sm leading-relaxed">
           {ticket.orderNumber ? <p className="break-all">訂單編號：{ticket.orderNumber}</p> : null}
           {ticket.usageDetails ? <p className="break-words">座位／車次／班次：{ticket.usageDetails}</p> : null}
           {ticket.dynamicCode || ticket.requiresNetwork || ticket.requiresLogin ? (
@@ -156,26 +177,35 @@ function TicketCard({
 
       <div className="mt-4 flex min-w-0 flex-wrap gap-2">
         {protectedAttachment ? (
-          <button type="button" onClick={() => onOpenAttachment(ticket)} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">
-            {ticket.attachmentKind === 'pdf' ? '開啟 PDF 票券' : '全螢幕查看票券'}
+          <button type="button" disabled={opening} aria-busy={opening} onClick={(event) => { event.currentTarget.focus(); onOpenAttachment(ticket); }} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white disabled:opacity-70">
+            {opening ? '正在讀取票券…' : ticket.attachmentKind === 'pdf' ? '開啟 PDF 票券' : '全螢幕查看票券'}
           </button>
         ) : action.mode === 'fullscreen-image' ? (
-          <button type="button" onClick={() => onOpenImage(ticket)} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2 text-xs font-black text-white">全螢幕查看票券</button>
+          <button type="button" onClick={(event) => { event.currentTarget.focus(); onOpenImage(ticket); }} className="min-h-11 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white">全螢幕查看票券</button>
         ) : null}
         {!protectedAttachment && action.mode === 'pdf' ? <ActionAnchor href={action.url} isLight={t?.isLight}>開啟 PDF 票券</ActionAnchor> : null}
         {action.mode === 'web' ? <ActionAnchor href={action.url} isLight={t?.isLight}>開啟票券網站</ActionAnchor> : null}
         {action.mode === 'app-link' ? <ActionAnchor href={action.url} isLight={t?.isLight}>在 App 中開啟票券</ActionAnchor> : null}
         {manual ? (
-          <button type="button" onClick={() => setDetailsOpen((open) => !open)} className="min-h-11 rounded-xl bg-blue-600 px-4 py-2 text-xs font-black text-white">查看開啟方式</button>
+          <button type="button" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen((open) => !open)} className="min-h-11 rounded-xl bg-blue-600 px-4 py-2 text-sm font-black text-white">查看開啟方式</button>
         ) : null}
         {!protectedAttachment && action.mode === 'invalid' ? <button type="button" disabled className="min-h-11 rounded-xl bg-slate-300 px-4 py-2 text-xs font-black text-slate-600">{ticket.ticketType === TICKET_TYPES.ATTACHMENT ? '票券附件無法開啟' : '票券網址無法開啟'}</button> : null}
         {showFallback ? <ActionAnchor href={fallbackUrl} secondary isLight={t?.isLight}>開啟備用網頁</ActionAnchor> : null}
-        {ticket.orderNumber ? <button type="button" onClick={() => onCopyOrderNumber(ticket.orderNumber)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-xs font-black">複製訂單編號</button> : null}
-        {showDetailToggle && !manual ? <button type="button" onClick={() => setDetailsOpen((open) => !open)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-xs font-black">查看使用說明</button> : null}
+        {opening ? <button type="button" onClick={onCancelOpen} className="min-h-11 rounded-xl border px-4 py-2 text-sm font-black">取消開啟</button> : null}
+        {ticket.orderNumber ? <button type="button" disabled={copyState === 'pending'} onClick={copyOrder} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-sm font-black">{copyState === 'pending' ? '複製中…' : '複製訂單編號'}</button> : null}
+        {showDetailToggle && !manual ? <button type="button" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen((open) => !open)} className="min-h-11 rounded-xl border border-slate-300 px-4 py-2 text-sm font-black">{hasInstructions ? '查看使用說明' : '查看完整成員'}</button> : null}
       </div>
 
+      {copyState === 'error' ? (
+        <label className="mt-3 block text-sm">
+          <span role="status">無法自動複製，請選取下方編號手動複製。</span>
+          <input aria-label="手動複製訂單編號" readOnly value={ticket.orderNumber} onFocus={(event) => event.currentTarget.select()} className={`mt-2 min-h-11 w-full min-w-0 rounded-xl border p-2 ${t?.inputBg || ''} ${t?.mainText || ''}`} />
+        </label>
+      ) : null}
+
       {detailsOpen ? (
-        <div className="mt-3 rounded-2xl bg-slate-500/10 p-3 text-sm" aria-live="polite">
+        <div id={detailsId} className="mt-3 break-words rounded-2xl bg-slate-500/10 p-3 text-sm leading-relaxed">
+          {showFullMembers ? <p>使用成員：{ticket.assignedMembers.join('、')}</p> : null}
           {manual ? <p className="font-black">請手動開啟 {ticket.appName || '原 App'}</p> : null}
           {ticket.instructions ? <p className="mt-2 whitespace-pre-wrap break-words">{ticket.instructions}</p> : manual ? (
             <ol className="mt-2 list-decimal space-y-1 pl-5">
@@ -207,6 +237,8 @@ export function TicketWalletSection({
   onOpenImage,
   onOpenAttachment,
   onCopyOrderNumber,
+  openingTicketId = '',
+  onCancelOpen,
 }) {
   const validMembers = useMemo(() => normalizeMembers(members), [members]);
   const normalizedActiveMember = validMembers.includes(trimText(activeMember)) ? trimText(activeMember) : '';
@@ -222,6 +254,7 @@ export function TicketWalletSection({
       ? { type: 'all' }
       : view;
   const filteredTickets = filterTicketsForView(normalizedTickets, effectiveView);
+  const filterClass = 'min-h-11 min-w-11 shrink-0 rounded-full border px-3 py-2 text-xs font-black aria-pressed:bg-blue-600 aria-pressed:border-blue-600 aria-pressed:text-white';
   const pickIdentity = (member) => {
     onSelectActiveMember(member);
     setView({ type: 'member', member });
@@ -239,15 +272,15 @@ export function TicketWalletSection({
     <section
       data-testid="ticket-panel"
       hidden={!isActive}
-      className={`min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-y-contain backdrop-blur-xl ${isActive ? 'flex' : 'hidden'} ${t?.sidebarBg || ''}`}
+      className={`min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-y-contain backdrop-blur-xl [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-offset-2 [&_button:focus-visible]:outline-blue-500 [&_a:focus-visible]:outline-2 [&_a:focus-visible]:outline-offset-2 [&_a:focus-visible]:outline-blue-500 ${isActive ? 'flex' : 'hidden'} ${t?.sidebarBg || ''}`}
     >
-      <header className={`sticky top-0 z-10 shrink-0 border-b p-4 shadow-lg backdrop-blur-2xl sm:p-6 ${t?.headerBg || ''} ${t?.cardBorder || ''}`}>
+      <header className={`shrink-0 border-b p-4 shadow-lg backdrop-blur-2xl sm:p-6 ${t?.headerBg || ''} ${t?.cardBorder || ''}`}>
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="min-w-0">
             <p className={`text-xs font-bold uppercase tracking-widest ${t?.subText || ''}`}>隨身協作大廳</p>
-            <h2 className={`mt-1 truncate text-xl font-black sm:text-2xl ${t?.mainText || ''}`}>共同票券夾 🎟️</h2>
+            <h2 className={`mt-1 break-words text-xl font-black sm:text-2xl ${t?.mainText || ''}`}>共同票券夾 🎟️</h2>
           </div>
-          <button type="button" data-testid="add-ticket-button" onClick={onCreateTicket} disabled={isSavingTicket} className="shrink-0 rounded-2xl bg-amber-700 px-3 py-2.5 text-sm font-bold text-white hover:bg-amber-800 disabled:opacity-50 sm:px-5">新增票券</button>
+          <button type="button" data-testid="add-ticket-button" onClick={(event) => { event.currentTarget.focus(); onCreateTicket(); }} disabled={isSavingTicket} className="min-h-11 shrink-0 rounded-2xl bg-amber-700 px-3 py-2.5 text-sm font-bold text-white hover:bg-amber-800 disabled:opacity-50 sm:px-5">新增票券</button>
         </div>
 
         {!normalizedActiveMember && validMembers.length > 0 ? (
@@ -255,25 +288,25 @@ export function TicketWalletSection({
             <p className={`text-sm font-black ${t?.mainText || ''}`}>你是這趟旅程中的哪一位？</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {validMembers.map((member) => (
-                <button key={member} type="button" data-testid="ticket-active-member-button" data-member={member} onClick={() => pickIdentity(member)} className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white">{member}</button>
+                <button key={member} type="button" data-testid="ticket-active-member-button" data-member={member} onClick={() => pickIdentity(member)} className="min-h-11 min-w-11 max-w-full break-words rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white">{member}</button>
               ))}
             </div>
-            <p className={`mt-2 text-[11px] ${t?.subText || ''}`}>只保存在此裝置，不代表登入或存取權限。</p>
+            <p className={`mt-2 text-sm ${t?.subText || ''}`}>只保存在此裝置，不代表登入或存取權限。</p>
           </div>
         ) : null}
 
         {normalizedActiveMember ? (
-          <div className="mt-3 flex items-center justify-between gap-3 text-xs">
-            <span className={t?.subText || ''}>此裝置身分：{normalizedActiveMember}</span>
-            <button type="button" onClick={() => onSelectActiveMember('')} className="font-black text-blue-600">切換身分</button>
+          <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+            <span className={`min-w-0 break-words ${t?.subText || ''}`}>此裝置身分：{normalizedActiveMember}</span>
+            <button type="button" onClick={() => onSelectActiveMember('')} className={`min-h-11 shrink-0 rounded-lg px-2 font-black ${t?.isLight ? 'text-blue-700' : 'text-blue-200'}`}>切換身分</button>
           </div>
         ) : null}
 
         <div className="scrollbar-hide mt-4 flex max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-1" aria-label="票券篩選">
-          <button type="button" data-testid="ticket-filter-all" aria-pressed={effectiveView.type === 'all'} onClick={() => setView({ type: 'all' })} className="shrink-0 rounded-full border px-3 py-2 text-xs font-black">全部</button>
-          <button type="button" data-testid="ticket-filter-common" aria-pressed={effectiveView.type === 'common'} onClick={() => setView({ type: 'common' })} className="shrink-0 rounded-full border px-3 py-2 text-xs font-black">共同</button>
+          <button type="button" data-testid="ticket-filter-all" aria-pressed={effectiveView.type === 'all'} onClick={() => setView({ type: 'all' })} className={filterClass}>全部</button>
+          <button type="button" data-testid="ticket-filter-common" aria-pressed={effectiveView.type === 'common'} onClick={() => setView({ type: 'common' })} className={filterClass}>共同</button>
           {validMembers.map((member) => (
-            <button key={member} type="button" data-testid="ticket-filter-member" data-member={member} aria-pressed={effectiveView.type === 'member' && effectiveView.member === member} onClick={() => setView({ type: 'member', member })} className="shrink-0 rounded-full border px-3 py-2 text-xs font-black">
+            <button key={member} type="button" data-testid="ticket-filter-member" data-member={member} aria-pressed={effectiveView.type === 'member' && effectiveView.member === member} onClick={() => setView({ type: 'member', member })} className={filterClass}>
               {member === normalizedActiveMember ? `我的・${member}` : member}
             </button>
           ))}
@@ -289,8 +322,8 @@ export function TicketWalletSection({
               {normalizedTickets.length === 0 ? '可加入圖片、PDF、網頁票券，或只保存外部 App 的開啟方式。' : '可以查看全部票券，或新增一張適合這個分類的票券。'}
             </p>
             <div className="mt-4 flex gap-2">
-              {normalizedTickets.length > 0 ? <button type="button" onClick={() => setView({ type: 'all' })} className="rounded-xl border px-3 py-2 text-xs font-black">查看全部票券</button> : null}
-              <button type="button" onClick={onCreateTicket} disabled={isSavingTicket} className="rounded-xl bg-amber-700 px-3 py-2 text-xs font-black text-white hover:bg-amber-800 disabled:opacity-50">新增票券</button>
+              {normalizedTickets.length > 0 ? <button type="button" onClick={() => setView({ type: 'all' })} className="min-h-11 rounded-xl border px-3 py-2 text-sm font-black">查看全部票券</button> : null}
+              <button type="button" onClick={(event) => { event.currentTarget.focus(); onCreateTicket(); }} disabled={isSavingTicket} className="min-h-11 rounded-xl bg-amber-700 px-3 py-2 text-sm font-black text-white hover:bg-amber-800 disabled:opacity-50">新增票券</button>
             </div>
           </div>
         ) : (
@@ -307,6 +340,8 @@ export function TicketWalletSection({
                 onOpenImage={onOpenImage}
                 onOpenAttachment={onOpenAttachment}
                 onCopyOrderNumber={onCopyOrderNumber}
+                opening={Boolean(openingTicketId) && openingTicketId === ticket.id}
+                onCancelOpen={onCancelOpen}
               />
             ))}
           </div>

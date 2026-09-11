@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { createAttachmentTicket } from './support/tickets';
 
 import {
   clearEmulatorDatabase,
@@ -110,6 +111,77 @@ test.beforeEach(async () => {
 
 test.afterEach(async () => {
   await clearEmulatorStorage(STORAGE_PREFIX);
+});
+
+test('protected image reading can fail, cancel a delayed read and reopen after reload', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openTicketPanel(page);
+  const png = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 800;
+    canvas.height = 1000;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, 800, 1000);
+    context.fillStyle = '#0f172a';
+    context.font = 'bold 46px sans-serif';
+    ['SYNTHETIC TICKET', 'NOT VALID FOR TRAVEL', 'Day 1 / 09:15', 'Sample passenger', 'Seat 12A', 'No usable barcode'].forEach((line, index) => context.fillText(line, 40, 100 + index * 120));
+    return canvas.toDataURL('image/png').split(',')[1];
+  });
+  await createAttachmentTicket(page, { title: '合成閱讀票券', name: 'synthetic-reading.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  await page.reload();
+  await openTicketPanel(page);
+  await page.getByTestId('ticket-filter-common').click();
+  const records = await readTickets();
+  const card = ticketCard(page, '合成閱讀票券');
+  const open = card.getByRole('button', { name: '全螢幕查看票券' });
+  let mode = 'error';
+  let releaseRead: (() => void) | undefined;
+  await page.route('http://127.0.0.1:9199/**', async (route) => {
+    if (route.request().method() !== 'GET' || new URL(route.request().url()).searchParams.get('alt') !== 'media') return route.continue();
+    if (mode === 'error') return route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 403, message: 'synthetic denied read' } }) });
+    if (mode === 'pending') await new Promise<void>((resolve) => { releaseRead = resolve; });
+    await route.continue();
+  });
+  await open.click();
+  const error = page.getByTestId('toast').filter({ hasText: '無法開啟票券' });
+  await expect(error).toBeVisible();
+  expect(await readTickets()).toEqual(records);
+  await expect(page.getByTestId('fullscreen-ticket-modal')).toHaveCount(0);
+  await error.getByTestId('toast-dismiss').click();
+
+  await page.evaluate(() => {
+    const create = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => {
+      const url = create(blob);
+      document.documentElement.dataset.ticketReadReady = 'true';
+      return url;
+    };
+  });
+  mode = 'pending';
+  await open.click();
+  await expect(card.getByRole('button', { name: '正在讀取票券…' })).toBeDisabled();
+  await expect.poll(() => Boolean(releaseRead)).toBe(true);
+  await card.getByRole('button', { name: '取消開啟' }).click();
+  releaseRead!();
+  await expect(page.locator('html')).toHaveAttribute('data-ticket-read-ready', 'true');
+  await expect(page.getByTestId('fullscreen-ticket-modal')).toHaveCount(0);
+  mode = 'ready';
+  await open.click();
+  const modal = page.getByTestId('fullscreen-ticket-modal');
+  const image = modal.getByRole('img', { name: '合成閱讀票券' });
+  await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBe(800);
+  await expect(image).toHaveCSS('object-fit', 'contain');
+  await expect(image).toHaveAttribute('src', /^blob:/);
+  await expect(modal.getByRole('button', { name: '關閉票券' })).toBeFocused();
+  await testInfo.attach('image-reading-390', { body: await page.screenshot(), contentType: 'image/png' });
+  await page.keyboard.press('Escape');
+  await expect(modal).toHaveCount(0);
+  await expect(open).toBeFocused();
+  await expect(page.getByTestId('ticket-filter-common')).toHaveAttribute('aria-pressed', 'true');
+  expect(await readTickets()).toEqual(records);
 });
 
 test('圖片票券會上傳、持久化並從 Database 與 Storage 一併刪除', async ({

@@ -1615,7 +1615,8 @@ export const TicketModal = ({ roomId, members, onClose, onSave, t }) => {
   );
 };
 
-export const FullscreenTicketModal = ({ ticket, onClose }) => {
+export const FullscreenTicketModal = ({ ticket, onClose, returnFocusTarget, t = {} }) => {
+  const [imageState, setImageState] = useState('loading');
   useEffect(() => {
     let wakeLock = null;
     const requestWakeLock = async () => {
@@ -1626,19 +1627,28 @@ export const FullscreenTicketModal = ({ ticket, onClose }) => {
   }, []);
 
   return (
-    <div style={{ zIndex: 99999, touchAction: 'none' }} className="fixed inset-0 bg-white flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200" onClick={onClose}>
-      <div className="flex justify-between items-center mb-8 mt-safe">
-         <div className="flex flex-col">
-            <h2 className="text-2xl font-black text-slate-900">{String(ticket.title)}</h2>
-            <span className="text-blue-600 text-sm font-bold mt-1">👤 尊屬持有人: {String(ticket.owner || '所有人')}</span>
-         </div>
-         <button onClick={onClose} className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center font-bold text-xl shadow-sm">✕</button>
+    <ResponsiveBottomSheet
+      testId="fullscreen-ticket-modal"
+      labelledBy="fullscreen-ticket-title"
+      onClose={onClose}
+      returnFocusTarget={returnFocusTarget}
+      panelClassName={`!max-w-none !max-h-full h-full !rounded-none min-w-0 ${t.modalBg || 'bg-white'} ${t.mainText || 'text-slate-900'}`}
+    >
+      <header className="flex shrink-0 items-start justify-between gap-3 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))]">
+        <div className="min-w-0 break-words">
+          <h2 id="fullscreen-ticket-title" className="text-lg font-black">{String(ticket.title)}</h2>
+          <p className={`mt-1 text-sm ${t.subText || 'text-slate-600'}`}>
+            使用成員：{ticket.audienceType === 'members' ? ticket.assignedMembers.join('、') : String(ticket.owner || '所有人')}
+          </p>
+        </div>
+        <button type="button" onClick={onClose} aria-label="關閉票券" className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border text-xl font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${t.cardBorder || 'border-slate-300'}`}>✕</button>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        {imageState !== 'loaded' ? <p role="status" className="py-3 text-sm">{imageState === 'error' ? '圖片暫時無法顯示，請關閉後重新開啟票券。' : '正在顯示票券…'}</p> : null}
+        <img src={ticket.url} alt={String(ticket.title || '票券圖片')} onLoad={() => setImageState('loaded')} onError={() => setImageState('error')} className={`mx-auto h-auto max-h-[70dvh] w-full object-contain ${imageState === 'error' ? 'hidden' : ''}`} />
+        {ticket.memo ? <p className="mt-4 break-words text-sm leading-relaxed">{String(ticket.memo)}</p> : null}
       </div>
-      <div className="flex-1 flex flex-col items-center justify-center pb-20">
-         <img src={ticket.url} alt="ticket" className="w-full h-full max-h-[70vh] object-contain drop-shadow-xl" />
-         {ticket.memo ? <p className="mt-8 text-slate-700 text-base font-bold bg-slate-50 px-6 py-3 rounded-xl border border-slate-200 shadow-inner">{String(ticket.memo)}</p> : null}
-      </div>
-    </div>
+    </ResponsiveBottomSheet>
   );
 };
 
