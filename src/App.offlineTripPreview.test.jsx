@@ -557,6 +557,39 @@ describe('App offline trip preview', () => {
     expect(screen.getByTestId('lobby-skeleton')).toBeInTheDocument();
   });
 
+  it('T3-01 keeps both the trip list and summary pending until account trips resolve', async () => {
+    onValue.mockImplementation(() => vi.fn());
+    render(<App />);
+
+    expect(screen.getByTestId('lobby-skeleton')).toBeInTheDocument();
+    expect(screen.queryByTestId('lobby-empty-state')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('lobby-next-trip-summary-loading')).toBeInTheDocument());
+    expect(screen.queryByText('建立旅程後，這裡會顯示出發倒數與快速入口')).not.toBeInTheDocument();
+  });
+
+  it('T3-01 distinguishes an index failure from an empty account and retries only on request', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    onValue.mockImplementation((_path, _callback, onError) => {
+      onError(new Error('Connection unavailable'));
+      return vi.fn();
+    });
+    render(<App />);
+
+    expect(await screen.findByTestId('lobby-trip-list-error')).toHaveTextContent('無法載入帳號旅程');
+    expect(screen.queryByTestId('lobby-empty-state')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lobby-account-status')).not.toHaveTextContent('0 趟雲端旅程');
+    expect(onValue).toHaveBeenCalledTimes(1);
+
+    onValue.mockImplementation((path, callback) => {
+      if (path === 'userTrips/test-user') callback({ val: () => null });
+      return vi.fn();
+    });
+    fireEvent.click(screen.getByRole('button', { name: '重新載入旅程清單' }));
+    await waitFor(() => expect(screen.getByTestId('lobby-empty-state')).toBeInTheDocument());
+    expect(screen.queryByTestId('lobby-trip-list-error')).not.toBeInTheDocument();
+    expect(onValue).toHaveBeenCalledTimes(2);
+  });
+
   it('never renders an open trip from the previous Google account after switching uid', async () => {
     const view = render(<App />);
     await waitFor(() => expect(getRoomCard()).toBeInTheDocument());

@@ -7,7 +7,7 @@ describe('SyncStatusIndicator', () => {
   it.each([
     ['idle', '正在連線...', ['border-slate-300', 'bg-slate-100/95', 'text-slate-700'], 'bg-slate-500'],
     ['saving', '正在同步...', ['border-amber-300', 'bg-amber-50/95', 'text-amber-900'], 'bg-amber-600'],
-    ['saved', '已同步', ['border-emerald-300', 'bg-emerald-50/95', 'text-emerald-800'], 'bg-emerald-600'],
+    ['saved', '上次已同步', ['border-emerald-300', 'bg-emerald-50/95', 'text-emerald-800'], 'bg-emerald-600'],
     ['remote-updated', '遠端已更新', ['border-blue-300', 'bg-blue-50/95', 'text-blue-800'], 'bg-blue-600'],
     ['error', '同步失敗', ['border-red-300', 'bg-red-50/95', 'text-red-800'], 'bg-red-600'],
     ['offline', '離線', ['border-slate-300', 'bg-slate-100/95', 'text-slate-700'], 'bg-slate-600'],
@@ -50,7 +50,7 @@ describe('SyncStatusIndicator', () => {
     expect(indicator).toHaveClass('min-w-24');
     expect(indicator).toHaveClass('min-h-8', 'text-xs');
     expect(indicator).not.toHaveAttribute('data-compact');
-    expect(screen.getByText('已同步')).not.toHaveClass('sr-only');
+    expect(screen.getByText('上次已同步')).not.toHaveClass('sr-only');
   });
 
   it('drops the visible label and the reserved width when compact', () => {
@@ -67,16 +67,39 @@ describe('SyncStatusIndicator', () => {
     render(<SyncStatusIndicator status="saved" compact />);
     const indicator = screen.getByTestId('sync-status-indicator');
 
-    expect(indicator).toHaveAttribute('title', '已同步');
+    expect(indicator).toHaveAttribute(
+      'title',
+      '上次同步已完成；不代表所有協作者已查看。',
+    );
     expect(indicator).toHaveAttribute('role', 'status');
     expect(indicator).toHaveAttribute('aria-live', 'polite');
-    expect(screen.getByText('已同步')).toHaveClass('sr-only');
+    expect(screen.getByText('上次已同步')).toHaveClass('sr-only');
+  });
+
+  it.each(['idle', 'saving'])('limits the %s pulse to motion-safe environments', (status) => {
+    render(<SyncStatusIndicator status={status} />);
+
+    const dotClasses = screen.getByTestId('sync-status-dot').className.split(' ');
+    expect(dotClasses).toContain('motion-safe:animate-pulse');
+    expect(dotClasses).not.toContain('animate-pulse');
+  });
+
+  it.each([
+    ['error', '同步失敗'],
+    ['offline', '離線'],
+  ])('keeps the critical %s label visible in compact mode', (status, label) => {
+    render(<SyncStatusIndicator status={status} compact />);
+
+    const indicator = screen.getByTestId('sync-status-indicator');
+    expect(screen.getByText(label)).not.toHaveClass('sr-only');
+    expect(indicator).not.toHaveClass('w-8', 'min-w-24');
+    expect(indicator).toHaveClass('h-8', 'px-2.5');
   });
 
   it.each([
     ['idle', '正在連線...'],
     ['saving', '正在同步...'],
-    ['saved', '已同步'],
+    ['saved', '上次已同步'],
     ['remote-updated', '遠端已更新'],
     ['error', '同步失敗'],
     ['offline', '離線'],

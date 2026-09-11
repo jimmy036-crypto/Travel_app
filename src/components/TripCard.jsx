@@ -29,7 +29,7 @@ export function TripCard({
     : 'border-blue-200/25 bg-blue-950/55 text-blue-100';
   const cardContent = (
     <>
-      <h2 data-testid={titleTestId} className={`mb-2 line-clamp-2 text-2xl font-black leading-tight ${theme.mainText}`}>
+      <h2 data-testid={titleTestId} className={`mb-2 line-clamp-2 wrap-anywhere text-2xl font-black leading-tight ${theme.mainText}`}>
         {title}
       </h2>
       {isDeleting || isUnavailable ? (
@@ -44,27 +44,27 @@ export function TripCard({
       ) : (
         <>
           <p className={`mb-5 flex items-center gap-2 truncate text-sm font-bold ${theme.subText}`}>
-            <Icon name="location" size={17} />
+            <Icon name="location" size={17} className="shrink-0" />
             <span className="truncate">{String(trip?.destination || '主要地點未設定')}</span>
           </p>
           <div className={`grid gap-2 rounded-2xl border p-3.5 ${theme.cardMetaBg} ${theme.cardBorder}`}>
-            <p className={`flex items-center gap-2 text-xs font-semibold ${theme.subText}`}>
-              <Icon name="calendar" size={16} />
-              <span>
+            <p className={`flex items-center gap-2 text-sm font-semibold ${theme.subText}`}>
+              <Icon name="calendar" size={16} className="shrink-0" />
+              <span className="min-w-0">
                 {String(trip?.startDate || '').replace(/-/g, '/')}
                 <span className="mx-1.5 opacity-60">–</span>
                 {String(trip?.endDate || '').replace(/-/g, '/')}
               </span>
             </p>
-            <p className={`flex items-center gap-2 truncate text-xs font-semibold ${theme.subText}`}>
-              <Icon name="users" size={16} />
-              <span className="truncate">{Array.isArray(trip?.members) ? trip.members.join(', ') : '自己'}</span>
+            <p className={`flex items-center gap-2 truncate text-sm font-semibold ${theme.subText}`}>
+              <Icon name="users" size={16} className="shrink-0" />
+              <span className="truncate">旅伴：{Array.isArray(trip?.members) ? trip.members.join(', ') : '自己'}</span>
             </p>
           </div>
           {offlineSummary ? (
             <div className={`mt-4 border-t pt-3 ${theme.cardBorder}`} data-testid="offline-cache-status">
-              <p className={`flex items-center gap-2 text-xs font-semibold ${theme.subText}`}>
-                <Icon name="checkCircle" size={16} className="text-emerald-500" />
+              <p className={`flex items-center gap-2 text-sm font-semibold ${theme.subText}`}>
+                <Icon name="checkCircle" size={16} className="shrink-0 text-emerald-500" />
                 離線資料已儲存至 {new Date(offlineSummary.cachedAt).toLocaleString(undefined, {
                   month: 'numeric',
                   day: 'numeric',
@@ -87,9 +87,10 @@ export function TripCard({
       data-access-status={isDeleting ? 'deleting' : isUnavailable ? 'unavailable' : 'ready'}
       onClick={canOpen ? onOpen : undefined}
       style={{ backgroundColor: cardColor }}
-      className={`group rounded-3xl border p-5 shadow-[var(--travel-shadow-card)] transition-[box-shadow,transform,border-color] duration-200 focus-within:ring-2 focus-within:ring-blue-500/40 ${canOpen ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-xl' : 'cursor-default'} ${theme.cardBorder}`}
+      className={`group rounded-3xl border shadow-[var(--travel-shadow-card)] transition-[box-shadow,transform,border-color] duration-200 focus-within:ring-2 focus-within:ring-blue-500/40 ${canOpen ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-xl' : 'cursor-default'} ${theme.cardBorder}`}
     >
-      <div className="mb-3 flex min-h-11 items-start justify-between gap-3">
+      <div className={`rounded-[inherit] p-5 ${theme.cardBg}`}>
+      <div className="mb-3 flex min-h-11 flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <span className={`inline-flex min-h-9 items-center whitespace-nowrap rounded-xl border px-3 text-xs font-extrabold ${theme.isLight ? 'border-black/10 bg-black/5 text-slate-700' : 'border-white/20 bg-white/10 text-white'}`}>
             {String(trip?.transport || '交通未設定')}
@@ -103,7 +104,7 @@ export function TripCard({
             </span>
           ) : null}
         </div>
-        <div className="flex flex-wrap justify-end gap-2">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
           {onEdit && !isDeleting ? (
             <button
               type="button"
@@ -217,10 +218,11 @@ export function TripCard({
         </div>
       )}
       {isDeleting ? (
-        <div className={`mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-xs font-bold ${theme.isLight ? 'text-red-700' : 'text-red-200'}`} role="status">
+        <div className={`mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm font-bold ${theme.isLight ? 'text-red-700' : 'text-red-200'}`} role="status">
           正在清除雲端資料；若長時間沒有完成，可使用上方按鈕重新送出要求。
         </div>
       ) : null}
+      </div>
     </article>
   );
 }

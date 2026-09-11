@@ -25,7 +25,7 @@ export function AccountSection({
 
   return (
     <section data-testid="account-section" aria-labelledby="account-section-title" className="grid gap-3">
-      <h3 id="account-section-title" className={`px-3 text-[11px] font-black uppercase tracking-[0.14em] ${t.subText || ''}`}>
+      <h3 id="account-section-title" className={`px-3 text-xs font-black uppercase tracking-[0.14em] ${t.subText || ''}`}>
         Google 帳號
       </h3>
       {user ? (
@@ -48,7 +48,7 @@ export function AccountSection({
               data-testid="account-context"
               className={`mt-3 flex min-w-0 flex-wrap items-center gap-2 border-t pt-3 text-xs font-bold ${t.cardBorder || ''} ${t.subText || ''}`}
             >
-              {contextLabel ? <span className="min-w-0 break-words">{contextLabel}</span> : null}
+              {contextLabel ? <span className="min-w-0 break-words text-sm leading-6">{contextLabel}</span> : null}
               {roleLabel ? (
                 <span className={`inline-flex min-h-7 items-center whitespace-nowrap rounded-full border px-2.5 ${roleTone}`}>
                   {roleLabel}

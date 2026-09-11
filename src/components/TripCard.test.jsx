@@ -49,6 +49,40 @@ describe('TripCard', () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
+  it('T3-02 opens with Tab, Enter and Space without nesting the tool actions', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    render(<TripCard trip={trip} onOpen={onOpen} onEdit={vi.fn()} onDelete={vi.fn()} />);
+    const open = screen.getByRole('button', { name: `開啟旅程：${trip.title}` });
+
+    await user.tab();
+    expect(screen.getByRole('button', { name: `編輯 ${trip.title}` })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByTestId('delete-trip-action')).toHaveFocus();
+    await user.tab();
+    expect(open).toHaveFocus();
+    await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    expect(open.querySelector('button, a, input, select, textarea, [tabindex]')).toBeNull();
+  });
+
+  it('T3-02 keeps device hiding and retry separate from opening', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const onHide = vi.fn();
+    const onRetry = vi.fn();
+    const view = render(<TripCard trip={{ ...trip, role: 'editor' }} onOpen={onOpen} onHide={onHide} />);
+    await user.click(screen.getByTestId('hide-trip-action'));
+    expect(onHide).toHaveBeenCalledOnce();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    view.rerender(<TripCard trip={{ ...trip, accessStatus: 'unavailable' }} onOpen={onOpen} onRetry={onRetry} />);
+    await user.click(screen.getByTestId('retry-trip-load-action'));
+    expect(onRetry).toHaveBeenCalledOnce();
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['owner', '你是擁有者'],
     ['editor', '共同編輯'],

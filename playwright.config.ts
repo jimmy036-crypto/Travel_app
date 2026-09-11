@@ -69,6 +69,7 @@ export default defineConfig({
 
   reporter: [
     ['list'],
+    ['./scripts/playwright-progress-reporter.mjs'],
     ['html', { open: 'never' }],
   ],
 

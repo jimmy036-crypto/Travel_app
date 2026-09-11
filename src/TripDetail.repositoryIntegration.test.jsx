@@ -230,6 +230,25 @@ describe('TripDetail repository injection', () => {
     ]);
   });
 
+  it.each([0, 10_000])('does not let a listener callback after %i ms overwrite a confirmed sync error', async (elapsed) => {
+    let emitSnapshot;
+    const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
+    repository.subscribeTrip = vi.fn((listener) => {
+      emitSnapshot = listener;
+      queueMicrotask(() => listener(snapshot));
+      return vi.fn();
+    });
+    repository.updateSettlements.mockRejectedValueOnce(new Error('write failed'));
+    await renderWithRepository(repository, 'firebase-trip');
+
+    fireEvent.click(screen.getByTestId('test-mark-settlement-paid'));
+    await waitFor(() => expect(screen.getByTestId('sync-status')).toHaveTextContent('error'));
+
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + elapsed);
+    act(() => emitSnapshot(snapshot));
+    expect(screen.getByTestId('sync-status')).toHaveTextContent('error');
+  });
+
   it('uses only the injected local repository for example settlement writes', async () => {
     const localRepository = createRepository(LOCAL_EXAMPLE_TRIP_CAPABILITIES);
     await renderWithRepository(localRepository, 'local-example-trip');
