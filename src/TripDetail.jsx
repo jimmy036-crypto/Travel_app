@@ -4114,9 +4114,14 @@ const TripDetail = ({
                       className={`min-w-85 md:min-w-85 flex flex-col max-h-full rounded-3xl p-3 border-2 transition-all backdrop-blur-md ${isCurrent ? `border-blue-500 ${t.cardBg} shadow-lg` : `${t.cardBorder} hover:border-blue-300/50 ${t.expenseBlockBg}`}`}
                     >
                       <div className="mb-3 flex flex-col gap-1 group">
-                        <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                           <h3 className={`shrink-0 text-[11px] font-bold uppercase tracking-wide ${t.subText}`}>{String(title)}</h3>
                           {dateStr ? <span className={`shrink-0 text-[10px] font-bold ${t.subText}`}>· {String(dateStr)}</span> : null}
+                          {weatherInfo[dayId] && (
+                            <span data-testid="desktop-day-weather" className={`ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-semibold ${t.cardMetaBg}`}>
+                              🌡️ {weatherInfo[dayId].temp} | 🌧️ {weatherInfo[dayId].rain}%
+                            </span>
+                          )}
                         </div>
                         <div
                           data-testid="day-theme-row"
@@ -4163,11 +4168,6 @@ const TripDetail = ({
                            </p>
                          ) : null}
                          <div className="flex items-center gap-2 mt-0.5">
-                          {weatherInfo[dayId] && (
-                            <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold opacity-90 ${t.cardMetaBg}`}>
-                              🌡️ {weatherInfo[dayId].temp} | 🌧️ {weatherInfo[dayId].rain}%
-                            </span>
-                          )}
                           {optimizationSummaries[dayId] ? (
                             <span
                               title={`重新排列 ${optimizationSummaries[dayId].movedCount} 站，距離${optimizationSummaries[dayId].savedMeters >= 0 ? '減少' : '增加'} ${formatRouteDistance(Math.abs(optimizationSummaries[dayId].savedMeters))}`}

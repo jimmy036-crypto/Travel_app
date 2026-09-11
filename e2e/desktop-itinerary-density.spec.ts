@@ -4,7 +4,18 @@ import { clearEmulatorDatabase, seedTestTrip } from './support/emulator';
 
 const ROOM_ID = 'e2edesktopdensity0001';
 
-test.beforeEach(async () => {
+test.beforeEach(async ({ page }) => {
+  // Density must not depend on the live forecast date range or response timing.
+  await page.route('https://api.open-meteo.com/**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ daily: {
+      time: Array.from({ length: 6 }, (_, index) => `2026-09-${20 + index}`),
+      temperature_2m_min: Array(6).fill(24),
+      temperature_2m_max: Array(6).fill(28),
+      precipitation_probability_max: Array(6).fill(35),
+    } }),
+  }));
   await clearEmulatorDatabase();
   await seedTestTrip(ROOM_ID, {
     title: 'E2E Desktop Density',
@@ -49,10 +60,11 @@ test('desktop navigator reaches Day 6 and returns to Day 1 without losing earlie
   await expect(navigator.getByTestId('desktop-day-previous')).toBeDisabled();
 });
 
-test('1440x900 shows at least 4 basic desktop cards per day column without oversized padding', async ({ page }) => {
+test('1440x900 shows at least 4 basic desktop cards per day column without oversized padding', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await expect(page.getByTestId('itinerary-day-card').first()).toContainText('24~28°C');
 
   const dropzone = page.getByTestId('itinerary-day-dropzone').first();
   const dropzoneBox = await dropzone.boundingBox();
@@ -81,4 +93,54 @@ test('1440x900 shows at least 4 basic desktop cards per day column without overs
   const firstCardBox = await cards.first().boundingBox();
   expect(firstCardBox).not.toBeNull();
   expect(firstCardBox?.height || 0).toBeLessThanOrEqual(112);
+  await testInfo.attach('desktop-density-with-weather', {
+    body: await page.screenshot(), contentType: 'image/png',
+  });
+});
+
+test('a delayed forecast preserves four visible cards and reflows at 200% text', async ({ page }) => {
+  let releaseForecast = () => {};
+  const forecastReady = new Promise<void>((resolve) => { releaseForecast = resolve; });
+  await page.route('https://api.open-meteo.com/**', async (route) => {
+    await forecastReady;
+    await route.fallback();
+  });
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?room=${ROOM_ID}`);
+    const day = page.getByTestId('itinerary-day-card').first();
+    const weather = day.getByTestId('desktop-day-weather');
+    await expect(day.getByTestId('place-card')).toHaveCount(6);
+    await expect(weather).toHaveCount(0);
+    const countFullyVisible = () => day.evaluate((element) => {
+      const bounds = element.querySelector('[data-testid="itinerary-day-dropzone"]')!
+        .getBoundingClientRect();
+      return [...element.querySelectorAll('[data-testid="place-card"]')].filter((card) => {
+        const box = card.getBoundingClientRect();
+        return box.top >= bounds.top && box.bottom <= bounds.bottom + 1;
+      }).length;
+    });
+    expect(await countFullyVisible()).toBeGreaterThanOrEqual(4);
+    releaseForecast();
+    await expect(weather).toContainText('24~28°C');
+    expect(await countFullyVisible()).toBeGreaterThanOrEqual(4);
+
+    // HTML font-size equivalent, not browser zoom or device Dynamic Type.
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    await expect(weather).toBeVisible();
+    const weatherBox = await weather.boundingBox();
+    const dayBox = await day.boundingBox();
+    expect(weatherBox).not.toBeNull();
+    expect(dayBox).not.toBeNull();
+    expect(weatherBox!.x).toBeGreaterThanOrEqual(dayBox!.x);
+    expect(weatherBox!.x + weatherBox!.width).toBeLessThanOrEqual(dayBox!.x + dayBox!.width);
+    const add = day.getByTestId('add-emulator-place-button');
+    const addBox = await add.boundingBox();
+    expect(addBox).not.toBeNull();
+    expect(weatherBox!.y + weatherBox!.height).toBeLessThanOrEqual(addBox!.y);
+    await day.getByTestId('place-info-trigger').first().click();
+    await expect(page.getByTestId('place-detail-sheet')).toBeVisible();
+  } finally {
+    releaseForecast();
+  }
 });
