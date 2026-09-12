@@ -1734,6 +1734,7 @@ export default function TravelApp() {
       </span>
       <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-slate-950 text-white font-bold">載入旅程模組中...</div>}>
         <TripDetail
+          key={JSON.stringify([activeTripSource, activeTripSource === 'firebase' ? accountUid : '', activeRoomId])}
           tripId={activeRoomId}
           repository={activeRepository}
           capabilities={activeRepository?.getCapabilities?.()}

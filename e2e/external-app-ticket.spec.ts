@@ -22,7 +22,8 @@ import {
 } from './support/tickets';
 
 const ROOM_ID = 'e2eexternalapptickets001';
-const ACTIVE_MEMBER_KEY = `travel-active-member-${ROOM_ID}`;
+const ACTIVE_MEMBER_KEY = `travel-companion-v1:${JSON.stringify(['firebase', 'e2e-owner', ROOM_ID])}`;
+const confirmedRecord = (member: string) => JSON.stringify({ version: 1, confirmed: true, member });
 const CANONICAL_KEYS = [
   'appName', 'appUrl', 'assignedMembers', 'attachmentKind', 'audienceType',
   'createdAt', 'dayId', 'dynamicCode', 'fallbackUrl', 'id', 'instructions',
@@ -39,7 +40,8 @@ async function expectSafeAnchor(anchor: ReturnType<Page['getByRole']>, href: str
 }
 
 async function chooseIdentity(page: Page, member: string): Promise<void> {
-  await page.getByTestId('ticket-active-member-button')
+  await page.getByRole('button', { name: '選擇旅伴', exact: true }).click();
+  await page.getByTestId('companion-member')
     .filter({ hasText: member })
     .click();
 }
@@ -303,7 +305,7 @@ test('persists device identity and applies common, member and presenter filters'
   await writeEmulatorData(`rooms/${ROOM_ID}/tickets`, seeded);
   await openTicketPanel(page, ROOM_ID);
 
-  await expect(page.getByText('你是這趟旅程中的哪一位？')).toBeVisible();
+  await expect(page.getByText('設定你在這趟旅程中的名字')).toBeVisible();
   await page.getByTestId('ticket-filter-common').click();
   await expectTitles(page, ['Common seeded']);
   await page.getByTestId('ticket-filter-all').click();
@@ -311,8 +313,11 @@ test('persists device identity and applies common, member and presenter filters'
 
   await chooseIdentity(page, MEMBER_A);
   expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_MEMBER_KEY))
-    .toBe(MEMBER_A);
-  await expect(page.getByTestId('ticket-filter-member').filter({ hasText: `我的・${MEMBER_A}` }))
+    .toBe(confirmedRecord(MEMBER_A));
+  // Confirmation preserves an explicitly chosen "all" view. Mine is separate.
+  await expect(page.getByTestId('ticket-filter-all')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('ticket-filter-mine').click();
+  await expect(page.getByTestId('ticket-filter-mine'))
     .toHaveAttribute('aria-pressed', 'true');
   await expectTitles(page, ['Common seeded', 'A only seeded', 'A B seeded']);
   await expect(ticketCard(page, 'B only seeded')).toHaveCount(0);
@@ -320,7 +325,7 @@ test('persists device identity and applies common, member and presenter filters'
   await page.getByTestId('ticket-filter-member').filter({ hasText: MEMBER_B }).click();
   await expectTitles(page, ['Common seeded', 'B only seeded', 'A B seeded']);
   expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_MEMBER_KEY))
-    .toBe(MEMBER_A);
+    .toBe(confirmedRecord(MEMBER_A));
 
   await page.getByTestId('ticket-filter-all').click();
   await createExternalTicket(page, {
@@ -356,15 +361,16 @@ test('persists device identity and applies common, member and presenter filters'
 
   await page.reload();
   await openTicketPanel(page, ROOM_ID);
-  await expect(page.getByTestId('ticket-filter-member').filter({ hasText: `我的・${MEMBER_A}` }))
+  await expect(page.getByTestId('ticket-filter-mine'))
     .toHaveAttribute('aria-pressed', 'true');
 
   const ticketsBeforeMemberRemoval = await readTickets(ROOM_ID);
   await writeEmulatorData(`rooms/${ROOM_ID}/meta/members`, [MEMBER_B]);
   await page.reload();
   await openTicketPanel(page, ROOM_ID);
-  await expect(page.getByTestId('ticket-active-member-picker')).toBeVisible();
-  expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_MEMBER_KEY)).toBeNull();
+  await expect(page.getByText('設定你在這趟旅程中的名字')).toBeVisible();
+  expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_MEMBER_KEY))
+    .toBe(JSON.stringify({ version: 1, confirmed: false, member: '' }));
   expect(await readTickets(ROOM_ID)).toEqual(ticketsBeforeMemberRemoval);
 });
 
@@ -436,9 +442,9 @@ test('syncs external App CRUD and isolated identities across browser contexts', 
     await expect(pageB.getByTestId('ticket-card')).toHaveCount(1);
 
     expect(await pageA.evaluate((key) => localStorage.getItem(key), ACTIVE_MEMBER_KEY))
-      .toBe(MEMBER_A);
+      .toBe(confirmedRecord(MEMBER_A));
     expect(await pageB.evaluate((key) => localStorage.getItem(key), ACTIVE_MEMBER_KEY))
-      .toBe(MEMBER_B);
+      .toBe(confirmedRecord(MEMBER_B));
 
     await ticketCard(pageA, 'Realtime external pass edited')
       .getByTestId('ticket-delete-button').click();
@@ -618,7 +624,9 @@ for (const theme of [{ name: 'light', color: '#f8fafc' }, { name: 'dark', color:
     for (const sample of [card.getByRole('heading'), card.locator('dd').first(), card.getByTestId('ticket-edit-button'), card.getByTestId('ticket-delete-button'), card.getByText('使用時需要網路')]) {
       contrast[await sample.innerText()] = await expectReadableContrast(sample);
     }
-    const selected = page.getByTestId('ticket-filter-member').filter({ hasText: MEMBER_A });
+    const selected = page.getByTestId('ticket-filter-mine');
+    await expect(selected).toHaveAttribute('aria-pressed', 'true');
+    await expect(selected).toHaveText(`我的・${MEMBER_A}`);
     expect(await selected.evaluate((element) => getComputedStyle(element).backgroundColor))
       .not.toBe(await page.getByTestId('ticket-filter-all').evaluate((element) => getComputedStyle(element).backgroundColor));
     contrast.selected = await expectReadableContrast(selected);
@@ -706,6 +714,6 @@ for (const width of [320, 375, 390, 768, 1024, 1440]) {
     await page.keyboard.press('Escape');
     await expect(card.getByTestId('ticket-edit-button')).toBeFocused();
     expect(await readTickets(ROOM_ID)).toEqual(before);
-    await expect(page.getByTestId('ticket-filter-member').filter({ hasText: `我的・${MEMBER_A}` })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('ticket-filter-mine')).toHaveAttribute('aria-pressed', 'true');
   });
 }

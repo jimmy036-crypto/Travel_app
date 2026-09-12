@@ -934,6 +934,8 @@ const CURRENCIES = [
 
 export const ExpenseModal = ({
   members,
+  defaultPayer = '',
+  companionNotice,
   existingDays,
   startDate,
   defaultDay,
@@ -970,9 +972,8 @@ export const ExpenseModal = ({
     : validDays.includes(String(defaultDay || ""))
       ? String(defaultDay)
       : (validDays[0] || "");
-  const initialPayer = validMembers.includes(String(expense?.payer || ""))
-    ? String(expense.payer)
-    : (validMembers[0] || "自己");
+  const initialPayer = expense ? String(expense.payer || '')
+    : validMembers.includes(defaultPayer) ? defaultPayer : '';
   const initialCategory = CATEGORIES.some(option => option.id === expense?.category)
     ? String(expense.category)
     : "food";
@@ -1076,7 +1077,7 @@ export const ExpenseModal = ({
       return null;
     }
     if (!validMembers.includes(payer)) {
-      alert("代墊人已不在旅程成員中，請重新選擇。");
+      alert(payer ? "付款人已不在旅程成員中，請重新選擇。" : "請選擇付款人。");
       return null;
     }
 
@@ -1270,15 +1271,26 @@ export const ExpenseModal = ({
               </select>
             </div>
             <div>
-              <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>代墊人</label>
+              <label htmlFor="expense-payer" className={`block text-sm font-bold mb-1.5 ${t.mainText}`}>付款人（代墊人）</label>
               <select
+                id="expense-payer"
+                style={{ colorScheme: t.isLight ? 'light' : 'dark' }}
                 data-testid="expense-payer-select"
                 value={payer}
+                aria-invalid={!validMembers.includes(payer)}
+                aria-describedby="expense-payer-help"
                 onChange={event => setPayer(event.target.value)}
                 className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               >
+                <option value="">請選擇付款人</option>
+                {payer && !validMembers.includes(payer) ? <option value={payer}>{payer}（已不在旅伴名單）</option> : null}
                 {validMembers.map(member => <option key={`payer-${member}`} value={member}>{member}</option>)}
               </select>
+              <p id="expense-payer-help" className={`mt-1 text-sm ${t.mainText}`}>
+                {payer && !validMembers.includes(payer) ? '原付款人已不在名單，請明確選擇；其他內容會保留。' : '只設定這筆記帳的付款人，不會更正本趟旅伴。'}
+              </p>
+              {companionNotice}
+              {companionNotice ? <p className={`mt-1 text-sm ${t.mainText}`}>更正旅伴只影響之後新開的記帳；本筆付款人請在上方選擇。</p> : null}
             </div>
           </div>
 
@@ -2848,11 +2860,11 @@ const ChecklistItemEditorModal = ({
 
   const isEditing = mode === 'edit' && Boolean(item);
   const actualScope = String(item?.scope || scope || 'shared');
-  const owner = actualScope === 'personal' ? String(item?.owner || actor || '') : '';
-  const safeMembers = Array.isArray(members) && members.length > 0 ? members : ['自己'];
+  const [owner] = useState(() => actualScope === 'personal' ? String(item ? item.owner || '' : actor || '') : '');
+  const safeMembers = Array.isArray(members) ? members : [];
   const [text, setText] = useState(() => String(item?.text || ''));
   const [category, setCategory] = useState(() => String(item?.category || defaultCategory || 'todo'));
-  const [assignee, setAssignee] = useState(() => actualScope === 'shared' ? String(item?.assignee || '所有人') : String(actor || ''));
+  const [assignee, setAssignee] = useState(() => actualScope === 'shared' ? String(item?.assignee || '所有人') : String(item ? item.assignee || '' : owner));
   const [important, setImportant] = useState(() => Boolean(item?.important));
   const [showDetails, setShowDetails] = useState(() => isEditing || Boolean(item?.important) || (actualScope === 'shared' && String(item?.assignee || '所有人') !== '所有人'));
   const [errorMessage, setErrorMessage] = useState('');
@@ -2864,6 +2876,11 @@ const ChecklistItemEditorModal = ({
   const validateAndSave = () => {
     if (!trimmedText) {
       setErrorMessage('請輸入清單項目。');
+      return;
+    }
+
+    if (actualScope === 'personal' && !safeMembers.includes(owner)) {
+      setErrorMessage('此清單的旅伴已不在名單中，請關閉後重新選擇；未儲存任何變更。');
       return;
     }
 
@@ -2884,7 +2901,7 @@ const ChecklistItemEditorModal = ({
       text: trimmedText,
       scope: actualScope,
       owner,
-      assignee: actualScope === 'shared' ? assignee : actor,
+      assignee,
       category,
       important,
     });
@@ -3072,7 +3089,8 @@ export const ChecklistModal = ({
   items,
   members,
   activeMember,
-  onActiveMemberChange,
+  onRequestCompanion,
+  companionNotice,
   onClose,
   onCreate,
   onUpdate,
@@ -3088,10 +3106,12 @@ export const ChecklistModal = ({
     const normalized = Array.isArray(members)
       ? members.map(member => String(member || '').trim()).filter(Boolean)
       : [];
-    return normalized.length > 0 ? Array.from(new Set(normalized)) : ['自己'];
+    return Array.from(new Set(normalized));
   }, [members]);
 
-  const actor = safeMembers.includes(activeMember) ? activeMember : safeMembers[0];
+  const actor = safeMembers.includes(activeMember) ? activeMember : '';
+  const [viewMember, setViewMember] = useState('');
+  const viewedMember = viewMember ? (safeMembers.includes(viewMember) ? viewMember : '') : actor;
   const [scope, setScope] = useState('shared');
   const [filter, setFilter] = useState('open');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -3105,8 +3125,8 @@ export const ChecklistModal = ({
 
   const scopedItems = useMemo(() => safeItems.filter(item => {
     if (scope === 'shared') return item.scope === 'shared';
-    return item.scope === 'personal' && String(item.owner || '') === actor;
-  }), [actor, safeItems, scope]);
+    return Boolean(viewedMember) && item.scope === 'personal' && String(item.owner || '') === viewedMember;
+  }), [viewedMember, safeItems, scope]);
 
   const completedCount = useMemo(
     () => scopedItems.filter(item => Boolean(item.completed)).length,
@@ -3133,10 +3153,12 @@ export const ChecklistModal = ({
       return Number(a.createdAt || 0) - Number(b.createdAt || 0);
     }), [categoryFilter, filter, scopedItems]);
 
-  const openCreateEditor = () => {
+  const openCreateEditor = (event) => {
+    if (scope === 'personal' && !viewedMember) { onRequestCompanion?.(event.currentTarget); return; }
     setEditorState({
       mode: 'create',
       item: null,
+      owner: viewedMember,
       defaultCategory: categoryFilter !== 'all' ? categoryFilter : 'todo',
     });
   };
@@ -3159,7 +3181,8 @@ export const ChecklistModal = ({
     setEditorState(null);
   };
 
-  const handleTemplateInsert = () => {
+  const handleTemplateInsert = (event) => {
+    if (scope === 'personal' && !viewedMember) { onRequestCompanion?.(event.currentTarget); return; }
     const template = scope === 'shared'
       ? SHARED_CHECKLIST_TEMPLATE
       : PERSONAL_CHECKLIST_TEMPLATE;
@@ -3169,8 +3192,8 @@ export const ChecklistModal = ({
       .map(item => ({
         ...item,
         scope,
-        owner: scope === 'personal' ? actor : '',
-        assignee: scope === 'shared' ? item.assignee : actor,
+        owner: scope === 'personal' ? viewedMember : '',
+        assignee: scope === 'shared' ? item.assignee : viewedMember,
       }));
 
     if (missingItems.length === 0) {
@@ -3232,7 +3255,7 @@ export const ChecklistModal = ({
               <div>
                 <div className="flex items-center justify-between gap-3 mb-2">
                   <span className={`text-xs font-bold ${t.mainText}`}>
-                    {scope === 'shared' ? '共享進度' : `${actor} 的進度`}
+                    {scope === 'shared' ? '共享進度' : `${viewedMember || '未選擇旅伴'} 的進度`}
                   </span>
                   <span className={`text-xs font-mono font-black ${progressPercent === 100 && totalCount > 0 ? 'text-emerald-500' : t.subText}`}>
                     {completedCount}/{totalCount}・{progressPercent}%
@@ -3246,13 +3269,15 @@ export const ChecklistModal = ({
                 </div>
               </div>
 
-              <label className={`text-[10px] font-bold ${t.subText}`}>
-                我目前是
+              <label className={`min-w-0 text-sm font-bold ${t.mainText}`}>
+                查看個人清單
                 <select
-                  value={actor}
-                  onChange={event => onActiveMemberChange?.(event.target.value)}
-                  className={`block mt-1 min-w-36 min-h-11 px-3 rounded-xl border text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                  value={viewMember}
+                  style={{ colorScheme: t.isLight ? 'light' : 'dark' }}
+                  onChange={event => setViewMember(event.target.value)}
+                  className={`block mt-1 w-full min-w-0 min-h-11 px-3 rounded-xl border text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
                 >
+                  <option value="">{actor ? `我的・${actor}` : '我的（尚未確認旅伴）'}</option>
                   {safeMembers.map(member => <option key={`checklist-member-${member}`} value={member}>{member}</option>)}
                 </select>
               </label>
@@ -3263,6 +3288,7 @@ export const ChecklistModal = ({
             style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
             className="flex-1 min-h-0 overflow-y-auto overscroll-contain md:overflow-hidden flex flex-col p-3.5 md:p-6 gap-3 md:gap-4"
           >
+            {companionNotice}
             <div className={`grid grid-cols-2 p-1 rounded-2xl border shrink-0 ${t.cardBg} ${t.cardBorder}`}>
               <button
                 type="button"
@@ -3328,7 +3354,7 @@ export const ChecklistModal = ({
               <div className={`rounded-2xl border p-4 shrink-0 ${t.cardBg} ${t.cardBorder}`}>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
-                    <p className={`text-sm font-black ${t.mainText}`}>{scope === 'shared' ? '共享行前基本範本' : `${actor} 的個人行李範本`}</p>
+                    <p className={`text-sm font-black ${t.mainText}`}>{scope === 'shared' ? '共享行前基本範本' : `${viewedMember || '未選擇旅伴'} 的個人行李範本`}</p>
                     <p className={`text-[10px] mt-1 leading-5 ${t.subText}`}>只補上尚未存在的項目，不會建立重複內容。</p>
                   </div>
                   <button type="button" onClick={handleTemplateInsert} className="min-h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-md active:scale-95">
@@ -3364,12 +3390,15 @@ export const ChecklistModal = ({
                     <div className="flex items-start gap-2">
                       <button
                         type="button"
-                        onClick={() => onUpdate?.({
+                        onClick={(event) => {
+                          if (!item.completed && !actor) { onRequestCompanion?.(event.currentTarget); return; }
+                          onUpdate?.({
                           ...item,
                           completed: !item.completed,
                           completedAt: !item.completed ? Date.now() : null,
                           completedBy: !item.completed ? actor : '',
-                        })}
+                          });
+                        }}
                         aria-label={item.completed ? '標記為未完成' : '標記為已完成'}
                         className="min-w-11 min-h-11 shrink-0 flex items-center justify-center"
                       >
@@ -3397,7 +3426,7 @@ export const ChecklistModal = ({
                               {item.assignee === '所有人' ? '👥 所有人' : `👤 ${String(item.assignee || '未分配')}`}
                             </span>
                           ) : (
-                            <span className="text-[10px] px-2 py-1 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-600">👤 {String(item.owner || actor)}</span>
+                            <span className="text-[10px] px-2 py-1 rounded-lg border border-purple-500/20 bg-purple-500/10 text-purple-600">👤 {String(item.owner || '')}</span>
                           )}
                           {item.completed && item.completedBy ? <span className={`text-[10px] ${t.subText}`}>由 {String(item.completedBy)} 完成</span> : null}
                         </div>
@@ -3438,7 +3467,7 @@ export const ChecklistModal = ({
                 type="button"
                 onClick={() => {
                   if (window.confirm(`確定清除這個清單中已完成的 ${completedCount} 個項目？`)) {
-                    onClearCompleted?.(scope, scope === 'personal' ? actor : '');
+                    onClearCompleted?.(scope, scope === 'personal' ? viewedMember : '');
                   }
                 }}
                 className={`min-h-11 px-3 rounded-xl border text-xs font-bold hover:text-red-500 hover:border-red-500 transition-colors ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
@@ -3456,7 +3485,7 @@ export const ChecklistModal = ({
           mode={editorState.mode}
           item={editorState.item}
           scope={scope}
-          actor={actor}
+          actor={editorState.owner || ''}
           members={safeMembers}
           existingItems={safeItems}
           defaultCategory={editorState.defaultCategory}

@@ -230,7 +230,7 @@ export function TicketWalletSection({
   isActive = true,
   isSavingTicket = false,
   deletingTicketId = '',
-  onSelectActiveMember,
+  companionNotice,
   onCreateTicket,
   onEditTicket,
   onDeleteTicket,
@@ -255,10 +255,6 @@ export function TicketWalletSection({
       : view;
   const filteredTickets = filterTicketsForView(normalizedTickets, effectiveView);
   const filterClass = 'min-h-11 min-w-11 shrink-0 rounded-full border px-3 py-2 text-xs font-black aria-pressed:bg-blue-600 aria-pressed:border-blue-600 aria-pressed:text-white';
-  const pickIdentity = (member) => {
-    onSelectActiveMember(member);
-    setView({ type: 'member', member });
-  };
 
   const emptyTitle = normalizedTickets.length === 0
     ? '尚未加入票券'
@@ -283,31 +279,15 @@ export function TicketWalletSection({
           <button type="button" data-testid="add-ticket-button" onClick={(event) => { event.currentTarget.focus(); onCreateTicket(); }} disabled={isSavingTicket} className="min-h-11 shrink-0 rounded-2xl bg-amber-700 px-3 py-2.5 text-sm font-bold text-white hover:bg-amber-800 disabled:opacity-50 sm:px-5">新增票券</button>
         </div>
 
-        {!normalizedActiveMember && validMembers.length > 0 ? (
-          <div data-testid="ticket-active-member-picker" className="mt-4 rounded-2xl bg-blue-500/10 p-3">
-            <p className={`text-sm font-black ${t?.mainText || ''}`}>你是這趟旅程中的哪一位？</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {validMembers.map((member) => (
-                <button key={member} type="button" data-testid="ticket-active-member-button" data-member={member} onClick={() => pickIdentity(member)} className="min-h-11 min-w-11 max-w-full break-words rounded-xl bg-blue-600 px-3 py-2 text-sm font-black text-white">{member}</button>
-              ))}
-            </div>
-            <p className={`mt-2 text-sm ${t?.subText || ''}`}>只保存在此裝置，不代表登入或存取權限。</p>
-          </div>
-        ) : null}
-
-        {normalizedActiveMember ? (
-          <div className="mt-3 flex items-center justify-between gap-3 text-sm">
-            <span className={`min-w-0 break-words ${t?.subText || ''}`}>此裝置身分：{normalizedActiveMember}</span>
-            <button type="button" onClick={() => onSelectActiveMember('')} className={`min-h-11 shrink-0 rounded-lg px-2 font-black ${t?.isLight ? 'text-blue-700' : 'text-blue-200'}`}>切換身分</button>
-          </div>
-        ) : null}
+        {companionNotice}
 
         <div className="scrollbar-hide mt-4 flex max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-1" aria-label="票券篩選">
           <button type="button" data-testid="ticket-filter-all" aria-pressed={effectiveView.type === 'all'} onClick={() => setView({ type: 'all' })} className={filterClass}>全部</button>
           <button type="button" data-testid="ticket-filter-common" aria-pressed={effectiveView.type === 'common'} onClick={() => setView({ type: 'common' })} className={filterClass}>共同</button>
+          {normalizedActiveMember ? <button type="button" data-testid="ticket-filter-mine" aria-pressed={view.type === 'identity'} onClick={() => setView({ type: 'identity' })} className={filterClass}>我的・{normalizedActiveMember}</button> : null}
           {validMembers.map((member) => (
-            <button key={member} type="button" data-testid="ticket-filter-member" data-member={member} aria-pressed={effectiveView.type === 'member' && effectiveView.member === member} onClick={() => setView({ type: 'member', member })} className={filterClass}>
-              {member === normalizedActiveMember ? `我的・${member}` : member}
+            <button key={member} type="button" data-testid="ticket-filter-member" data-member={member} aria-pressed={view.type === 'member' && effectiveView.member === member} onClick={() => setView({ type: 'member', member })} className={filterClass}>
+              {member}
             </button>
           ))}
         </div>

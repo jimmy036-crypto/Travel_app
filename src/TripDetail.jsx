@@ -64,11 +64,8 @@ import {
 import { TicketEditorModal } from './features/tickets/TicketEditorModal.jsx';
 import { TicketWalletSection } from './features/tickets/TicketWalletSection.jsx';
 import { copyTicketOrderNumber } from './features/tickets/ticketClipboard.js';
-import {
-  clearTicketActiveMember,
-  readTicketActiveMember,
-  writeTicketActiveMember,
-} from './features/tickets/ticketIdentity.js';
+import { useCompanionIdentity } from './features/companion/useCompanionIdentity.js';
+import { CompanionNotice, CompanionPicker } from './features/companion/CompanionIdentity.jsx';
 import { useTicketActions } from './features/tickets/useTicketActions.js';
 import { createDefaultFirebaseTripRepository } from './features/trip-data/defaultFirebaseTripRepository.js';
 import { normalizeTripCapabilities } from './features/trip-data/tripCapabilities.js';
@@ -1479,15 +1476,10 @@ const TripDetail = ({
   const [ticketEditorState, setTicketEditorState] = useState(
     /** @type {{mode: 'create' | 'edit', ticket: any | null} | null} */ (null)
   );
-  const [ticketActiveMember, setTicketActiveMember] = useState('');
+  const [companionPickerKey, setCompanionPickerKey] = useState('');
+  const companionTriggerRef = useRef(null);
+  const companionNoticeRef = useRef(null);
   const [showChecklistModal, setShowChecklistModal] = useState(false);
-  const [checklistActor, setChecklistActorState] = useState(() => {
-    try {
-      return localStorage.getItem(`travel-checklist-actor-${roomId}`) || '';
-    } catch {
-      return '';
-    }
-  });
   const [fullscreenTicket, setFullscreenTicket] = useState(/** @type {any} */ (null));
   const [openingTicketId, setOpeningTicketId] = useState('');
   const ticketOpenRequestRef = useRef(null);
@@ -2258,12 +2250,32 @@ const TripDetail = ({
 
   const membersList = useMemo(() => normalizeMembers(meta?.members), [meta]);
 
+  const companion = useCompanionIdentity({
+    source: isExampleTrip ? 'example' : 'firebase',
+    uid: authLoading ? '' : accountUser?.uid,
+    tripId: roomId,
+    members: membersList,
+    ready: !isLoading && !loadError && Boolean(meta) && ticketLoadedRoomRef.current === roomId,
+    displayName: accountUser?.displayName,
+  });
+  const requestCompanion = (eventOrElement) => {
+    if (!companion.ready) return;
+    const trigger = eventOrElement?.currentTarget || eventOrElement;
+    if (trigger instanceof HTMLElement) {
+      trigger.focus({ preventScroll: true });
+      companionTriggerRef.current = trigger;
+      companionNoticeRef.current = trigger.closest('[data-testid="companion-notice"]');
+    }
+    setCompanionPickerKey(companion.key);
+  };
   useEffect(() => {
-    if (isLoading || !meta || ticketLoadedRoomRef.current !== roomId) return;
-    const storedMember = readTicketActiveMember({ roomId, members: membersList });
-    if (!storedMember) clearTicketActiveMember(roomId);
-    setTicketActiveMember((current) => (current === storedMember ? current : storedMember));
-  }, [isLoading, membersList, meta, roomId]);
+    if (companionPickerKey || !companionTriggerRef.current) return;
+    const trigger = companionTriggerRef.current;
+    const fallback = companionNoticeRef.current?.querySelector('button');
+    (trigger.isConnected ? trigger : fallback)?.focus({ preventScroll: true });
+    companionTriggerRef.current = null;
+    companionNoticeRef.current = null;
+  }, [companionPickerKey]);
 
   const closeTicketEditor = useCallback(() => setTicketEditorState(null), []);
 
@@ -2282,17 +2294,6 @@ const TripDetail = ({
     callbacks: { closeTicketEditor },
   });
 
-  const handleSelectTicketActiveMember = useCallback((member) => {
-    const normalizedMember = String(member || '').trim();
-    if (!normalizedMember) {
-      clearTicketActiveMember(roomId);
-      setTicketActiveMember('');
-      return;
-    }
-    if (writeTicketActiveMember({ roomId, member: normalizedMember, members: membersList })) {
-      setTicketActiveMember(normalizedMember);
-    }
-  }, [membersList, roomId]);
 
   const handleCopyTicketOrderNumber = useCallback(async (orderNumber) => {
     try {
@@ -2414,9 +2415,6 @@ const TripDetail = ({
       successTitle: '已取消轉帳完成狀態',
     });
   }, [persistSettlementRecords, settlements]);
-  const activeChecklistMember = membersList.includes(checklistActor)
-    ? checklistActor
-    : (membersList[0] || '自己');
 
   const sharedChecklistStats = useMemo(() => {
     const sharedItems = checklistItems.filter(item => item.scope === 'shared');
@@ -2811,16 +2809,6 @@ const TripDetail = ({
       });
   }, [repository, roomId]);
 
-  const handleChecklistActorChange = useCallback((member) => {
-    const safeMember = String(member || '').trim();
-    if (!safeMember) return;
-    setChecklistActorState(safeMember);
-    try {
-      localStorage.setItem(`travel-checklist-actor-${roomId}`, safeMember);
-    } catch {
-      // localStorage 不可用時仍可正常使用清單
-    }
-  }, [roomId]);
 
   const handleCreateChecklistItem = useCallback((draft) => {
     const now = Date.now();
@@ -4473,12 +4461,12 @@ const TripDetail = ({
                 isActive={activeTab === 'ticket'}
                 tickets={tickets}
                 members={membersList}
-                activeMember={ticketActiveMember}
+                activeMember={companion.member}
+                companionNotice={<CompanionNotice identity={companion} onChoose={requestCompanion} t={t} />}
                 startDate={meta.startDate}
                 t={t}
                 isSavingTicket={isSavingTicket}
                 deletingTicketId={deletingTicketId}
-                onSelectActiveMember={handleSelectTicketActiveMember}
                 onCreateTicket={openNewTicket}
                 onEditTicket={openTicketEditor}
                 onDeleteTicket={deleteTicket}
@@ -4764,14 +4752,29 @@ const TripDetail = ({
         <ChecklistModal
           items={checklistItems}
           members={membersList}
-          activeMember={activeChecklistMember}
-          onActiveMemberChange={handleChecklistActorChange}
+          activeMember={companion.member}
+          onRequestCompanion={requestCompanion}
+          companionNotice={<CompanionNotice identity={companion} onChoose={requestCompanion} t={t} />}
           onClose={() => setShowChecklistModal(false)}
-          onCreate={handleCreateChecklistItem}
-          onUpdate={handleUpdateChecklistItem}
-          onDelete={handleDeleteChecklistItem}
-          onBulkCreate={handleBulkCreateChecklistItems}
-          onClearCompleted={handleClearCompletedChecklistItems}
+          onCreate={(draft) => {
+            if (!companion.isCurrent() || (draft.scope === 'personal' && !companion.isValidMember(draft.owner))) return;
+            handleCreateChecklistItem(draft);
+          }}
+          onUpdate={(item) => {
+            if (!companion.isCurrent()) return;
+            const wasCompleted = checklistItems.find(previous => previous.id === item.id)?.completed;
+            if (item.completed && !wasCompleted && (!companion.isValidMember(companion.member) || item.completedBy !== companion.member)) {
+              requestCompanion();
+              return;
+            }
+            handleUpdateChecklistItem(item);
+          }}
+          onDelete={(id) => { if (companion.isCurrent()) handleDeleteChecklistItem(id); }}
+          onBulkCreate={(drafts) => {
+            if (!companion.isCurrent() || drafts.some(draft => draft.scope === 'personal' && !companion.isValidMember(draft.owner))) return;
+            handleBulkCreateChecklistItems(drafts);
+          }}
+          onClearCompleted={(scope, owner) => { if (companion.isCurrent()) handleClearCompletedChecklistItems(scope, owner); }}
           t={t}
         />
       ) : null}
@@ -4782,10 +4785,18 @@ const TripDetail = ({
           startDate={meta.startDate}
           defaultDay={editingExpense?.dayId || safeCurrentDay || existingDays[0] || PRE_TRIP_ID}
           expense={editingExpense}
+          defaultPayer={companion.member}
+          companionNotice={<CompanionNotice identity={companion} onChoose={requestCompanion} t={t} />}
           onClose={closeExpenseEditor}
-          onSave={handleSaveExpense}
+          onSave={(expense) => {
+            if (!companion.isCurrent() || !companion.isValidMember(expense.payer)) {
+              alert('旅程、帳號或付款人已變更，請重新確認；未儲存這筆記帳。');
+              return Promise.reject(new Error('Expense context is no longer valid'));
+            }
+            return handleSaveExpense(expense);
+          }}
           onDelete={handleDeleteExpense}
-          onDuplicate={handleDuplicateExpense}
+          onDuplicate={(expense) => { if (companion.isValidMember(expense.payer)) handleDuplicateExpense(expense); }}
           t={t}
         />
       ) : null}
@@ -4797,7 +4808,7 @@ const TripDetail = ({
           existingDays={existingDays}
           startDate={meta.startDate}
           defaultDayId={safeCurrentDay}
-          activeMember={ticketActiveMember}
+          activeMember={companion.member}
           uploadProgress={uploadProgress}
           t={t}
           onClose={closeTicketEditor}
@@ -4872,6 +4883,9 @@ const TripDetail = ({
           onOpenResource={openAttachmentDocument}
           onClose={() => setViewingPlaceResources(null)}
         />
+      ) : null}
+      {companionPickerKey && companionPickerKey === companion.key && companion.ready ? (
+        <CompanionPicker identity={companion} members={membersList} onClose={() => setCompanionPickerKey('')} t={t} />
       ) : null}
       <DndDebugPanel />
     </>

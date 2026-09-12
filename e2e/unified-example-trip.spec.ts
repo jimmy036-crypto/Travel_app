@@ -12,6 +12,7 @@ import { markCurrentReleaseSeen } from './support/releaseNotes';
 const IMAGE_TITLE = '本機圖片票券';
 const PDF_TITLE = '本機 PDF 票券';
 const EXPENSE_TITLE = '本機晚餐';
+const COMPANION_KEY = `travel-companion-v1:${JSON.stringify(['example', '', 'local-example-trip'])}`;
 const PNG_1X1 = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC'
   + 'AAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -53,6 +54,29 @@ async function openTicketPanel(page: Page): Promise<void> {
   await expect(page.getByTestId('ticket-panel')).toBeVisible();
 }
 
+async function readExampleExpenses(page: Page): Promise<Array<Record<string, unknown>>> {
+  return page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('travel-app-local-example-trip');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const record = await new Promise<{
+        snapshot: { expenses: Array<Record<string, unknown>> };
+      }>((resolve, reject) => {
+        const request = database.transaction('tripRecords', 'readonly')
+          .objectStore('tripRecords').get('local-example-trip');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      return record.snapshot.expenses;
+    } finally {
+      database.close();
+    }
+  });
+}
+
 async function addAttachment(
   page: Page,
   title: string,
@@ -91,16 +115,61 @@ test('local example persists itinerary and expense edits with zero cloud writes'
   await expect(page.getByTestId('place-card').filter({ hasText: 'E2E 測試餐廳' })).toBeVisible();
 
   await page.locator('[data-testid="expense-tab-button"]:visible').click();
+  const expensesBefore = await readExampleExpenses(page);
+  expect(await page.evaluate(key => localStorage.getItem(key), COMPANION_KEY)).toBeNull();
   await page.getByTestId('add-expense-button').click();
+  const payer = page.getByTestId('expense-payer-select');
+  await expect(payer).toHaveValue('');
   await page.getByTestId('expense-item-input').fill(EXPENSE_TITLE);
   await page.getByTestId('expense-local-cost-input').fill('900');
+
+  // An unconfirmed companion no longer defaults to the first payer. Rejection
+  // must preserve every existing expense, not merely hide a success message.
+  await Promise.all([
+    page.waitForEvent('dialog').then(async dialog => {
+      expect(dialog.message()).toBe('請選擇付款人。');
+      await dialog.accept();
+    }),
+    page.getByTestId('expense-save-button').click(),
+  ]);
+  await expect(page.getByTestId('expense-modal')).toBeVisible();
+  await expect(page.getByTestId('expense-record').filter({ hasText: EXPENSE_TITLE })).toHaveCount(0);
+  expect(await readExampleExpenses(page)).toEqual(expensesBefore);
+
+  // Explicitly keep the original fixture's payer and exact monetary inputs.
+  // Selecting this expense's payer must not confirm the shared companion.
+  await payer.selectOption('自己');
   await page.getByTestId('expense-save-button').click();
   await expect(page.getByTestId('expense-record').filter({ hasText: EXPENSE_TITLE })).toBeVisible();
+  const expensesAfter = await readExampleExpenses(page);
+  const added = expensesAfter.filter(expense => expense.item === EXPENSE_TITLE);
+  expect(expensesAfter).toHaveLength(expensesBefore.length + 1);
+  expect(added).toHaveLength(1);
+  expect(added[0]).toMatchObject({
+    payer: '自己',
+    cost: 900,
+    localCost: 900,
+    currency: 'TWD',
+    exchangeRate: 1,
+  });
+  expect(added[0].split).toEqual({ 自己: 300, '旅伴 A': 300, '旅伴 B': 300 });
+  expect(expensesAfter.filter(expense => expense.id !== added[0].id)).toEqual(expensesBefore);
+  expect(await page.evaluate(key => localStorage.getItem(key), COMPANION_KEY)).toBeNull();
+
+  // Also check the current in-memory preference, before a reload could hide
+  // an accidental session-only confirmation caused by manual payer selection.
+  await page.getByTestId('add-expense-button').click();
+  await expect(payer).toHaveValue('');
+  await page.getByTestId('expense-close-button').click();
+  await expect(page.getByTestId('expense-modal')).toBeHidden();
+  expect(await readExampleExpenses(page)).toEqual(expensesAfter);
 
   await reopenAfterReload(page);
   await expect(page.getByTestId('place-card').filter({ hasText: 'E2E 測試餐廳' })).toBeVisible();
   await page.locator('[data-testid="expense-tab-button"]:visible').click();
   await expect(page.getByTestId('expense-record').filter({ hasText: EXPENSE_TITLE })).toBeVisible();
+  expect(await readExampleExpenses(page)).toEqual(expensesAfter);
+  expect(await page.evaluate(key => localStorage.getItem(key), COMPANION_KEY)).toBeNull();
 
   expect(await readEmulatorData('rooms')).toBeNull();
   expect(await listEmulatorStorageObjects()).toEqual([]);
