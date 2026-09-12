@@ -1,5 +1,5 @@
 import React from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { TicketWalletSection } from './TicketWalletSection.jsx';
@@ -217,6 +217,40 @@ describe('TicketWalletSection', () => {
     expect(screen.getByText('座位／車次／班次：12A・車次 101')).toBeInTheDocument();
     fireEvent.click(screen.getByText('複製訂單編號'));
     expect(callbacks.onCopyOrderNumber).toHaveBeenCalledWith('KL-100');
+  });
+
+  it('exposes expanded member details without relying on hover', () => {
+    renderWallet({ tickets: [{ ...commonTicket, audienceType: 'members', assignedMembers: members }] });
+    const toggle = screen.getByRole('button', { name: '查看完整成員' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(document.getElementById(toggle.getAttribute('aria-controls')))
+      .toHaveTextContent(`使用成員：${members.join('、')}`);
+  });
+
+  it('blocks duplicate copies while pending and offers selectable text on failure', async () => {
+    let finish;
+    const copy = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    renderWallet({ tickets: [{ ...commonTicket, orderNumber: 'SYNTHETIC-123' }], onCopyOrderNumber: copy });
+    fireEvent.click(screen.getByRole('button', { name: '複製訂單編號' }));
+    expect(screen.getByRole('button', { name: '複製中…' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '複製中…' }));
+    expect(copy).toHaveBeenCalledExactlyOnceWith('SYNTHETIC-123');
+    await act(async () => finish(false));
+    expect(screen.getByLabelText('手動複製訂單編號')).toHaveValue('SYNTHETIC-123');
+    expect(screen.getByRole('status')).toHaveTextContent('無法自動複製');
+  });
+
+  it('shows attachment pending and cancellation without changing ticket data', () => {
+    const cancel = vi.fn();
+    renderWallet({
+      tickets: [{ ...commonTicket, ticketType: 'attachment', attachmentKind: 'pdf', storagePath: 'synthetic/path' }],
+      openingTicketId: 'common', onOpenAttachment: vi.fn(), onCancelOpen: cancel,
+    });
+    expect(screen.getByRole('button', { name: '正在讀取票券…' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '取消開啟' }));
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('presents audience, presenter, date, time, reminder, and memo', () => {

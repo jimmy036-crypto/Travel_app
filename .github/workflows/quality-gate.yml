@@ -112,6 +112,7 @@ jobs:
 
       - name: Run E2E with Firebase Emulator
         env:
+          TRAVEL_E2E_REQUEST_DIAGNOSTICS: 'true'
           DEBUG: pw:webserver
           FIREBASE_CLI_SKIP_UPDATE_CHECK: 'true'
           NO_UPDATE_NOTIFIER: '1'

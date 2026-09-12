@@ -1,4 +1,4 @@
-﻿import { expect, test, type Locator, type Page } from '@playwright/test';
+﻿import { expect, test, type Page } from '@playwright/test';
 
 import {
   clearEmulatorDatabase,
@@ -122,13 +122,6 @@ async function seedEmptyTourTrip(): Promise<void> {
   });
 }
 
-async function requireBoundingBox(locator: Locator, label: string) {
-  const box = await locator.boundingBox();
-  expect(box, `${label} should have a bounding box`).not.toBeNull();
-  if (!box) throw new Error(`${label} should have a bounding box`);
-  return box;
-}
-
 function getOverlapArea(
   first: { x: number; y: number; width: number; height: number },
   second: { x: number; y: number; width: number; height: number },
@@ -153,9 +146,18 @@ async function expectTargetInsideSpotlight(page: Page, targetTestId: string) {
   await expect(spotlight).toBeVisible();
   await expect(card).toBeVisible();
 
-  const targetBox = await requireBoundingBox(target, targetTestId);
-  const spotlightBox = await requireBoundingBox(spotlight, 'feature tour spotlight');
-  const cardBox = await requireBoundingBox(card, 'feature tour card');
+  // Capture related geometry in one browser task, not across protocol round
+  // trips during which a forecast can reflow the header.
+  const [targetBox, spotlightBox, cardBox] = await page.evaluate((ids) => ids.map((id) => {
+    const element = document.querySelector(`[data-testid="${id}"]`);
+    if (!element) throw new Error(`${id} should have a bounding box`);
+    const { x, y, width, height } = element.getBoundingClientRect();
+    return { x, y, width, height };
+  }), [targetTestId, 'feature-tour-spotlight', 'feature-tour-card']);
+  for (const box of [targetBox, spotlightBox, cardBox]) {
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.height).toBeGreaterThan(0);
+  }
   const viewport = page.viewportSize()
     || await page.evaluate(() => ({
       width: window.innerWidth,
@@ -457,39 +459,65 @@ test('completes the desktop feature tour without teaching hidden mobile controls
 test('keeps the active tour target clear and inside the spotlight', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await clearCurrentReleaseSeen(page);
-  await seedTourTrip();
-
-  await page.goto(`/?room=${TOUR_ROOM_ID}`);
-
-  await expect(page.getByTestId('active-trip-view')).toBeVisible({
-    timeout: 20_000,
+  let releaseForecast!: () => void;
+  const forecastReady = new Promise<void>((resolve) => { releaseForecast = resolve; });
+  await page.route('https://api.open-meteo.com/**', async (route) => {
+    await forecastReady;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ daily: {
+      time: ['2026-09-20', '2026-09-21'],
+      temperature_2m_min: [24, 24], temperature_2m_max: [28, 28],
+      precipitation_probability_max: [35, 35],
+    } }) });
   });
-  await page.getByTestId('whats-new-start-tour').click();
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await clearCurrentReleaseSeen(page);
+    await seedTourTrip();
 
-  await expect(page.getByTestId('feature-tour')).toBeVisible();
-  const firstSpotlight = await expectTargetInsideSpotlight(
-    page,
-    'sync-status-indicator',
-  );
+    await page.goto(`/?room=${TOUR_ROOM_ID}`);
 
-  await page.getByTestId('feature-tour-next').click();
-  const secondSpotlight = await expectTargetInsideSpotlight(
-    page,
-    'mobile-day-switcher',
-  );
-  const movement = Math.abs(secondSpotlight.x - firstSpotlight.x)
-    + Math.abs(secondSpotlight.y - firstSpotlight.y);
-  expect(movement).toBeGreaterThan(4);
+    await expect(page.getByTestId('active-trip-view')).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByTestId('whats-new-start-tour').click();
 
-  await page.getByTestId('feature-tour-next').click();
-  await expectStepId(page, 'place-details');
-  await expectTargetInsideSpotlight(page, 'place-card-title');
+    await expect(page.getByTestId('feature-tour')).toBeVisible();
+    const firstSpotlight = await expectTargetInsideSpotlight(
+      page,
+      'sync-status-indicator',
+    );
 
-  await page.getByTestId('feature-tour-next').click();
-  await expectStepId(page, 'map-itinerary');
-  await expectTargetInsideSpotlight(page, 'mobile-nav-map');
+    await page.getByTestId('feature-tour-next').click();
+    const secondSpotlight = await expectTargetInsideSpotlight(
+      page,
+      'mobile-day-switcher',
+    );
+    const movement = Math.abs(secondSpotlight.x - firstSpotlight.x)
+      + Math.abs(secondSpotlight.y - firstSpotlight.y);
+    expect(movement).toBeGreaterThan(4);
+
+    await page.getByTestId('feature-tour-next').click();
+    await expectStepId(page, 'place-details');
+    await expectTargetInsideSpotlight(page, 'place-card-title');
+
+    releaseForecast();
+    await expect(page.getByText('24~28°C').first()).toBeVisible();
+    // Sample together after the asynchronous header reflow. Keep the original
+    // one-pixel containment tolerance; polling only allows the resize callback.
+    await expect.poll(() => page.evaluate(() => {
+      const target = document.querySelector('[data-testid="place-card-title"]')!.getBoundingClientRect();
+      const spotlight = document.querySelector('[data-testid="feature-tour-spotlight"]')!.getBoundingClientRect();
+      return spotlight.top <= target.top + 1 && spotlight.bottom >= target.bottom - 1
+        && spotlight.left <= target.left + 1 && spotlight.right >= target.right - 1;
+    })).toBe(true);
+    await expectTargetInsideSpotlight(page, 'place-card-title');
+
+    await page.getByTestId('feature-tour-next').click();
+    await expectStepId(page, 'map-itinerary');
+    await expectTargetInsideSpotlight(page, 'mobile-nav-map');
+  } finally {
+    releaseForecast();
+  }
 });
 
 test('spotlights desktop-only planner and map targets', async ({ page }) => {

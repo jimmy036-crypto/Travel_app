@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { ResponsiveBottomSheet } from '../../components/ResponsiveBottomSheet.jsx';
 
 import {
   TICKET_AUDIENCE_TYPES,
@@ -93,7 +94,7 @@ const formatDayLabel = (dayId, startDate, index) => {
 };
 
 const FieldError = ({ id, message }) => (
-  message ? <p id={id} className="mt-1 text-xs font-bold text-red-600">{message}</p> : null
+  message ? <p id={id} className="mt-1 text-sm font-bold">{message}</p> : null
 );
 
 const getInitialForm = ({ mode, ticket, members, existingDays, defaultDayId, activeMember }) => {
@@ -192,28 +193,6 @@ export function TicketEditorModal({
   const uploadTrackTone = typeof t?.isLight === 'boolean'
     ? t.isLight ? 'bg-slate-300' : 'bg-slate-700'
     : 'bg-slate-200 dark:bg-white/10';
-
-  useEffect(() => {
-    const previouslyFocused = document.activeElement;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    const frameId = window.requestAnimationFrame(() => titleInputRef.current?.focus());
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape' && !isSubmittingRef.current) {
-        event.preventDefault();
-        onClose?.();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      window.cancelAnimationFrame(frameId);
-      document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = previousOverflow;
-      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
-    };
-  }, [onClose]);
 
   const clearError = (field) => {
     setErrors((previous) => ({ ...previous, [field]: '' }));
@@ -424,27 +403,23 @@ export function TicketEditorModal({
     : Math.min(100, Math.max(0, Math.round(Number(uploadProgress))));
 
   return createPortal(
-    <div
-      data-testid="ticket-editor-modal"
-      className="fixed inset-0 z-[10090] flex max-w-[100vw] items-end justify-center overflow-hidden bg-slate-950/70 p-0 backdrop-blur-sm sm:items-center sm:p-4"
-      role="presentation"
+    <ResponsiveBottomSheet
+      testId="ticket-editor-modal"
+      labelledBy="ticket-editor-title"
+      initialFocusSelector="#ticket-editor-title-input"
+      onClose={() => { if (!isSubmittingRef.current) onClose?.(); }}
+      panelClassName={`!max-w-2xl min-w-0 overflow-hidden ${theme.mainText} ${theme.modalBg} ${theme.cardBorder} [&_button:focus-visible]:outline-2 [&_button:focus-visible]:outline-offset-2 [&_button:focus-visible]:outline-blue-500`}
     >
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="ticket-editor-title"
-        className={`flex max-h-[94dvh] w-full min-w-0 max-w-2xl flex-col overflow-hidden rounded-t-3xl border shadow-2xl sm:max-h-[90dvh] sm:rounded-3xl ${theme.modalBg} ${theme.cardBorder}`}
-      >
         <header className={`shrink-0 border-b px-5 py-4 sm:px-6 ${theme.headerBg} ${theme.cardBorder}`}>
           <h2 id="ticket-editor-title" className={`text-xl font-black ${theme.mainText}`}>
             {isEdit ? '編輯票券' : '新增票券'}
           </h2>
-          <p className={`mt-1 text-xs font-semibold ${theme.subText}`}>
+          <p className={`mt-1 text-sm font-semibold ${theme.subText}`}>
             先填必要資訊，需要時再展開更多設定。
           </p>
         </header>
 
-        <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit} noValidate>
+        <form className="flex min-h-0 flex-1 flex-col" style={{ colorScheme: t?.isLight ? 'light' : 'dark' }} onSubmit={handleSubmit} noValidate>
           <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-5 py-4 sm:px-6">
             <div className={sectionClass}>
               <p className={`text-sm font-black ${theme.mainText}`}>票券形式</p>
@@ -505,7 +480,7 @@ export function TicketEditorModal({
                 ))}
               </select>
               {validDays.length === 0 ? (
-                <p id="ticket-day-error" data-testid="ticket-days-empty-error" className="mt-1 text-xs font-bold text-red-600">
+                <p id="ticket-day-error" data-testid="ticket-days-empty-error" className={`mt-1 text-sm font-bold ${t?.isLight ? 'text-red-700' : 'text-red-200'}`}>
                   目前沒有可用的旅程日期，請先建立行程天數。
                 </p>
               ) : <FieldError id="ticket-day-error" message={errors.dayId} />}
@@ -540,7 +515,7 @@ export function TicketEditorModal({
               {form.audienceType === TICKET_AUDIENCE_TYPES.MEMBERS ? (
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {validMembers.map((member) => (
-                    <label key={member} className={`flex min-h-10 items-center gap-2 rounded-xl px-2 text-sm font-semibold ${theme.mainText}`}>
+                    <label key={member} className={`flex min-h-11 min-w-0 break-words items-center gap-2 rounded-xl px-2 text-sm font-semibold ${theme.mainText}`}>
                       <input
                         type="checkbox"
                         data-testid={`ticket-member-${safeMemberTestId(member)}`}
@@ -563,7 +538,7 @@ export function TicketEditorModal({
                   {isEdit && originalAttachmentValid ? '更換附件' : '上傳附件'} <span aria-hidden="true">*</span>
                 </label>
                 {isEdit && originalTicket.ticketType === TICKET_TYPES.ATTACHMENT ? (
-                  <p data-testid="ticket-existing-attachment-kind" className={`mt-1 text-xs font-semibold ${theme.subText}`}>
+                  <p data-testid="ticket-existing-attachment-kind" className={`mt-1 text-sm font-semibold ${theme.subText}`}>
                     原附件類型：{originalTicket.attachmentKind === 'pdf' ? 'PDF' : originalTicket.attachmentKind === 'image' ? '圖片' : '無法辨識'}
                   </p>
                 ) : null}
@@ -578,7 +553,7 @@ export function TicketEditorModal({
                   aria-invalid={Boolean(errors.file)}
                   className={`mt-2 block w-full min-w-0 text-sm ${theme.mainText}`}
                 />
-                <p data-testid="ticket-file-status" className={`mt-2 text-xs font-semibold ${theme.subText}`}>
+                <p data-testid="ticket-file-status" className={`mt-2 text-sm font-semibold ${theme.subText}`}>
                   {selectedFile ? `已選擇新檔案：${selectedFile.name}` : isEdit && originalAttachmentValid ? '目前保留原附件' : '尚未選擇新檔案'}
                 </p>
                 {selectedFile ? (
@@ -586,13 +561,13 @@ export function TicketEditorModal({
                     type="button"
                     data-testid="ticket-file-cancel-replacement"
                     onClick={cancelFileReplacement}
-                    className="mt-2 text-sm font-black text-blue-600"
+                    className={`mt-2 min-h-11 rounded-lg px-2 text-sm font-black ${t?.isLight ? 'text-blue-700' : 'text-blue-200'}`}
                   >
                     取消更換
                   </button>
                 ) : null}
                 <FieldError id="ticket-file-error" message={errors.file} />
-                <p className={`mt-2 text-xs ${theme.subText}`}>接受 JPEG、PNG、WebP、GIF 或 PDF，最大 10 MB。</p>
+                <p className={`mt-2 text-sm ${theme.subText}`}>接受 JPEG、PNG、WebP、GIF 或 PDF，最大 10 MB。</p>
               </div>
             ) : null}
 
@@ -648,11 +623,11 @@ export function TicketEditorModal({
                     className={inputClass}
                   />
                   <FieldError id="ticket-app-url-error" message={errors.appUrl} />
-                  <p data-testid="ticket-app-launch-preview" className={`mt-2 text-xs font-black ${form.appUrl ? 'text-blue-600' : theme.subText}`}>
+                  <p data-testid="ticket-app-launch-preview" className={`mt-2 text-sm font-black ${form.appUrl ? (t?.isLight ? 'text-blue-700' : 'text-blue-200') : theme.subText}`}>
                     {trimText(form.appUrl) ? '使用 App Link 開啟' : '手動開啟 App'}
                   </p>
                 </div>
-                <div data-testid="ticket-external-app-warning" className={`rounded-2xl border p-3 text-xs font-semibold leading-5 ${editorWarningTone}`}>
+                <div data-testid="ticket-external-app-warning" className={`rounded-2xl border p-3 text-sm font-semibold leading-5 ${editorWarningTone}`}>
                   <p>請優先使用該 App 的「分享票券」或「複製連結」功能。</p>
                   <p>不要輸入帳號密碼、驗證碼、登入 Cookie 或付款資訊。</p>
                 </div>
@@ -697,7 +672,7 @@ export function TicketEditorModal({
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
-                    <p className={`mt-1 text-xs ${theme.subText}`}>
+                    <p className={`mt-1 text-sm ${theme.subText}`}>
                       此設定只會顯示建議提前時間，不會發送系統通知。
                     </p>
                   </div>
@@ -790,13 +765,13 @@ export function TicketEditorModal({
             <div
               data-testid="ticket-submission-error"
               aria-live="assertive"
-              className={submissionError ? 'rounded-xl bg-red-500/10 p-3 text-sm font-bold text-red-600' : 'sr-only'}
+              className={submissionError ? `rounded-xl bg-red-500/10 p-3 text-sm font-bold ${t?.isLight ? 'text-red-700' : 'text-red-200'}` : 'sr-only'}
             >
               {submissionError}
             </div>
             {normalizedUploadProgress !== null ? (
               <div className="space-y-1">
-                <div className={`flex justify-between text-xs font-bold ${theme.subText}`}>
+                <div className={`flex justify-between text-sm font-bold ${theme.subText}`}>
                   <span>附件上傳進度</span>
                   <span>{normalizedUploadProgress}%</span>
                 </div>
@@ -819,7 +794,7 @@ export function TicketEditorModal({
           </div>
 
           <footer
-            className={`grid shrink-0 grid-cols-2 gap-3 border-t px-5 pt-3 sm:flex sm:justify-end sm:px-6 ${theme.headerBg} ${theme.cardBorder}`}
+            className={`grid shrink-0 grid-cols-2 gap-2 border-t px-3 pt-3 sm:flex sm:justify-end sm:px-6 ${theme.headerBg} ${theme.cardBorder}`}
             style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
           >
             <button
@@ -827,7 +802,7 @@ export function TicketEditorModal({
               data-testid="ticket-cancel-button"
               onClick={() => onClose?.()}
               disabled={isSubmitting}
-              className={`min-h-12 rounded-xl border px-5 text-sm font-black ${theme.cardBorder} ${theme.mainText}`}
+              className={`min-h-12 rounded-xl border px-3 text-sm font-black sm:px-5 ${theme.cardBorder} ${theme.mainText}`}
             >
               取消
             </button>
@@ -835,7 +810,7 @@ export function TicketEditorModal({
               type="submit"
               data-testid="ticket-submit-button"
               disabled={validDays.length === 0 || isSubmitting}
-              className="min-h-12 rounded-xl bg-blue-600 px-6 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="min-h-12 rounded-xl bg-blue-600 px-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40 sm:px-6"
             >
               {isSubmitting
                 ? normalizedUploadProgress !== null
@@ -845,8 +820,7 @@ export function TicketEditorModal({
             </button>
           </footer>
         </form>
-      </section>
-    </div>,
+    </ResponsiveBottomSheet>,
     document.body,
   );
 }

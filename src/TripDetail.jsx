@@ -1489,6 +1489,23 @@ const TripDetail = ({
     }
   });
   const [fullscreenTicket, setFullscreenTicket] = useState(/** @type {any} */ (null));
+  const [openingTicketId, setOpeningTicketId] = useState('');
+  const ticketOpenRequestRef = useRef(null);
+  const ticketReturnFocusRef = useRef(null);
+  const cancelTicketOpen = useCallback(() => {
+    const request = ticketOpenRequestRef.current;
+    ticketOpenRequestRef.current = null;
+    request?.popup?.close();
+    setOpeningTicketId('');
+  }, []);
+  useEffect(() => () => cancelTicketOpen(), [roomId, repository, activeTab, cancelTicketOpen]);
+  useEffect(() => { setFullscreenTicket(null); }, [roomId, repository]);
+  const closeFullscreenTicket = useCallback(() => setFullscreenTicket(null), []);
+  const openTicketImage = useCallback((ticket) => {
+    cancelTicketOpen();
+    ticketReturnFocusRef.current = document.activeElement;
+    setFullscreenTicket(ticket);
+  }, [cancelTicketOpen]);
   const [viewingPlacePhoto, setViewingPlacePhoto] = useState(
     /** @type {{url: string, title: string} | null} */ (null)
   );
@@ -2281,8 +2298,10 @@ const TripDetail = ({
     try {
       await copyTicketOrderNumber(orderNumber);
       toast.success({ title: '訂單編號已複製' });
+      return true;
     } catch {
       toast.error({ title: '無法複製訂單編號' });
+      return false;
     }
   }, [toast]);
 
@@ -2898,13 +2917,16 @@ const TripDetail = ({
     return String(attachment?.url || '');
   }, [repository]);
 
-  const openAttachmentDocument = useCallback(async (attachment) => {
+  const openAttachmentDocument = useCallback(async (attachment, ticketRequest = null) => {
     const pendingWindow = attachment?.storagePath
       ? window.open('about:blank', '_blank')
       : null;
     if (pendingWindow) pendingWindow.opener = null;
+    if (ticketRequest) ticketRequest.popup = pendingWindow;
     try {
       const url = await resolveAttachmentUrl(attachment);
+      if (ticketRequest && ticketOpenRequestRef.current !== ticketRequest) return;
+      if (ticketRequest && pendingWindow?.closed) return;
       if (!url) throw new Error('Attachment URL is unavailable.');
       if (pendingWindow) {
         pendingWindow.location.replace(url);
@@ -2919,6 +2941,7 @@ const TripDetail = ({
       }
     } catch (error) {
       pendingWindow?.close();
+      if (ticketRequest && ticketOpenRequestRef.current !== ticketRequest) return;
       console.error('Open protected attachment failed:', error);
       toast.error({
         title: '無法開啟附件',
@@ -2928,22 +2951,35 @@ const TripDetail = ({
   }, [resolveAttachmentUrl, toast]);
 
   const handleOpenTicketAttachment = useCallback(async (ticket) => {
-    if (ticket?.attachmentKind === 'pdf') {
-      await openAttachmentDocument(ticket);
-      return;
-    }
+    if (ticketOpenRequestRef.current?.ticketId === ticket.id) return;
+    cancelTicketOpen();
+    const request = { ticketId: ticket.id, popup: null };
+    ticketOpenRequestRef.current = request;
+    ticketReturnFocusRef.current = document.activeElement;
+    setOpeningTicketId(ticket.id);
     try {
+      if (ticket?.attachmentKind === 'pdf') {
+        await openAttachmentDocument(ticket, request);
+        return;
+      }
       const url = await resolveAttachmentUrl(ticket);
+      if (ticketOpenRequestRef.current !== request) return;
       if (!url) throw new Error('Attachment URL is unavailable.');
       setFullscreenTicket({ ...ticket, url });
     } catch (error) {
+      if (ticketOpenRequestRef.current !== request) return;
       console.error('Open protected ticket failed:', error);
       toast.error({
         title: '無法開啟票券',
         description: '請確認網路連線與旅程權限後再試。',
       });
+    } finally {
+      if (ticketOpenRequestRef.current === request) {
+        ticketOpenRequestRef.current = null;
+        setOpeningTicketId('');
+      }
     }
-  }, [openAttachmentDocument, resolveAttachmentUrl, toast]);
+  }, [cancelTicketOpen, openAttachmentDocument, resolveAttachmentUrl, toast]);
 
   const handleShareLink = useCallback((trigger) => {
     if (!capabilities.sharing) {
@@ -4446,8 +4482,10 @@ const TripDetail = ({
                 onCreateTicket={openNewTicket}
                 onEditTicket={openTicketEditor}
                 onDeleteTicket={deleteTicket}
-                onOpenImage={setFullscreenTicket}
+                onOpenImage={openTicketImage}
                 onOpenAttachment={handleOpenTicketAttachment}
+                openingTicketId={openingTicketId}
+                onCancelOpen={cancelTicketOpen}
                 onCopyOrderNumber={handleCopyTicketOrderNumber}
               />
 
@@ -4766,7 +4804,7 @@ const TripDetail = ({
           onSubmit={saveTicket}
         />
       ) : null}
-      {fullscreenTicket ? <FullscreenTicketModal ticket={fullscreenTicket} onClose={() => setFullscreenTicket(null)} /> : null}
+      {fullscreenTicket ? <FullscreenTicketModal ticket={fullscreenTicket} onClose={closeFullscreenTicket} returnFocusTarget={ticketReturnFocusRef.current} t={t} /> : null}
       {viewingPlaceDetail ? (
         <PlaceItemDetailModal
           key={`place-detail-${String(viewingPlaceDetail.item?.id || viewingPlaceDetail.dayId)}`}

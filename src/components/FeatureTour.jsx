@@ -340,22 +340,37 @@ export const FeatureTour = ({ t, onClose }) => {
 
   useEffect(() => {
     let cancelled = false;
+    let frameId = 0;
 
     const updatePosition = () => {
+      if (cancelled) return;
       const nextRect = getTargetRect(step);
-      if (!cancelled) setTargetRect(nextRect);
+      setTargetRect(nextRect);
+    };
+    const schedulePosition = () => {
+      window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(updatePosition);
     };
 
     // Resolve synchronously so a step change never keeps the previous target's
     // spotlight, then refresh on the next frame once layout has settled.
     updatePosition();
-    window.requestAnimationFrame(updatePosition);
+    schedulePosition();
+    // A forecast or other async header content can resize the planner above
+    // the target without a window resize or scroll. Observe its layout chain,
+    // not only the target whose own dimensions may remain unchanged.
+    const observer = new ResizeObserver(schedulePosition);
+    for (let element = resolveStepTarget(step); element; element = element.parentElement) {
+      observer.observe(element);
+    }
     window.addEventListener('resize', updatePosition);
     window.addEventListener('orientationchange', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
 
     return () => {
       cancelled = true;
+      window.cancelAnimationFrame(frameId);
+      observer.disconnect();
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('orientationchange', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);

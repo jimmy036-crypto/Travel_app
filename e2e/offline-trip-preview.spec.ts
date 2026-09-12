@@ -124,7 +124,7 @@ async function seedOfflinePreviewRoom(): Promise<void> {
 async function prepareAccountCache(page: Page): Promise<void> {
   await markCurrentReleaseSeen(page);
   await page.addInitScript((cacheKey) => {
-    window.localStorage.removeItem(cacheKey);
+    if (window === window.top) window.localStorage.removeItem(cacheKey);
   }, CACHE_KEY);
 }
 
@@ -318,6 +318,19 @@ test.describe('Offline Trip Preview', () => {
     await expect(page.getByTestId('travel-lobby')).toBeVisible();
 
     await context.setOffline(true);
+    // RTDB's long-poll fallback can attach a same-origin about:blank frame.
+    // Test initialization must not clear the completed cache in that child.
+    const cacheAfterChildFrame = await page.evaluate((cacheKey) => new Promise((resolve) => {
+      const frame = document.createElement('iframe');
+      frame.hidden = true;
+      frame.onload = () => {
+        const cache = JSON.parse(window.localStorage.getItem(cacheKey) || '{}');
+        frame.remove();
+        resolve(cache);
+      };
+      document.body.appendChild(frame);
+    }), CACHE_KEY);
+    expect(cacheAfterChildFrame).toHaveProperty(ROOM_ID);
     const initialUrl = page.url();
     await tripCard(page, UNCACHED_ROOM_ID).click();
 

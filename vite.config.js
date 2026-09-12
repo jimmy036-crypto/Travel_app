@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { viteRequestDiagnostics } from './scripts/vite-request-diagnostics.mjs'
 
 // Vercel populates these automatically for every build (no secret involved -
 // they're the same commit metadata already visible in the build logs and PR
@@ -19,6 +20,7 @@ export default defineConfig({
     __QA_BUILD_TIME__: JSON.stringify(qaBuildTime),
   },
   plugins: [
+    viteRequestDiagnostics(),
     react(),
     tailwindcss(),
     VitePWA({

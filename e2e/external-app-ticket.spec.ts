@@ -474,6 +474,36 @@ test('keeps ticket controls usable without overflow or interception on mobile', 
   await openTicketPanel(page, ROOM_ID);
   await chooseIdentity(page, MEMBER_A);
 
+  // Capture the same synthetic wallet at both mobile widths for UX review.
+  const originalViewport = page.viewportSize();
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    const metrics = await page.getByTestId('ticket-panel').evaluate((panel) => ({
+      overflow: document.documentElement.scrollWidth > window.innerWidth,
+      controls: [...panel.querySelectorAll('button')].map((button) => ({
+        name: button.textContent?.trim(),
+        width: button.getBoundingClientRect().width,
+        height: button.getBoundingClientRect().height,
+        fontSize: getComputedStyle(button).fontSize,
+        background: getComputedStyle(button).backgroundColor,
+      })),
+      bodyFont: getComputedStyle(panel.querySelector('dl')!).fontSize,
+    }));
+    expect(metrics.overflow).toBe(false);
+    expect(parseFloat(metrics.bodyFont)).toBeGreaterThanOrEqual(14);
+    for (const control of metrics.controls) {
+      expect(control.width, control.name).toBeGreaterThanOrEqual(44);
+      expect(control.height, control.name).toBeGreaterThanOrEqual(44);
+    }
+    await testInfo.attach(`ticket-wallet-${width}-metrics`, {
+      body: JSON.stringify(metrics, null, 2), contentType: 'application/json',
+    });
+    await testInfo.attach(`ticket-wallet-${width}`, {
+      body: await page.screenshot(), contentType: 'image/png',
+    });
+  }
+  if (originalViewport) await page.setViewportSize(originalViewport);
+
   const filterRow = page.getByLabel('票券篩選');
   if (testInfo.project.name === 'Mobile Safari') {
     expect(await filterRow.evaluate((element) => element.scrollWidth > element.clientWidth))
@@ -511,3 +541,171 @@ test('keeps ticket controls usable without overflow or interception on mobile', 
   await expect(ticketCard(page, 'Mobile created pass')).toBeVisible();
   await expect(page.locator('text=/Firebase Emulator warning/i')).toHaveCount(0);
 });
+
+// Compute contrast against each selected element's actual composited ancestor
+// surfaces, not just the page background. The sampled elements have no gradients
+// or group opacity; those require a separate visual calculation.
+async function expectReadableContrast(locator: ReturnType<Page['getByRole']>): Promise<number> {
+  const ratio = await locator.evaluate((element) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext('2d', { willReadFrequently: true })!;
+    const rgba = (color: string): number[] => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      const value = [...context.getImageData(0, 0, 1, 1).data];
+      return [value[0], value[1], value[2], value[3] / 255];
+    };
+    const composite = (front: number[], back: number[]) => [
+      ...front.slice(0, 3).map((channel, index) => channel * front[3] + back[index] * (1 - front[3])),
+      1,
+    ];
+    const ancestors: Element[] = [];
+    for (let current: Element | null = element; current; current = current.parentElement) ancestors.unshift(current);
+    let background = [255, 255, 255, 1];
+    for (const ancestor of ancestors) {
+      const style = getComputedStyle(ancestor);
+      if (style.backgroundImage !== 'none' || Number(style.opacity) !== 1) {
+        throw new Error('Contrast sample needs manual gradient/group-opacity analysis');
+      }
+      background = composite(rgba(style.backgroundColor), background);
+    }
+    const foreground = composite(rgba(getComputedStyle(element).color), background);
+    const luminance = (channels: number[]) => channels.slice(0, 3).reduce((sum, channel, index) => {
+      const value = channel / 255;
+      const linear = value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      return sum + linear * [0.2126, 0.7152, 0.0722][index];
+    }, 0);
+    const values = [luminance(foreground), luminance(background)];
+    return (Math.max(...values) + 0.05) / (Math.min(...values) + 0.05);
+  });
+  expect(ratio).toBeGreaterThanOrEqual(4.5);
+  return ratio;
+}
+
+async function expectTicketTarget(control: ReturnType<Page['getByRole']>) {
+  await control.scrollIntoViewIfNeeded();
+  const box = await control.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeGreaterThanOrEqual(44);
+  expect(box!.height).toBeGreaterThanOrEqual(44);
+  expect(await control.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+  })).toBe(true);
+}
+
+for (const theme of [{ name: 'light', color: '#f8fafc' }, { name: 'dark', color: '#0f172a' }]) {
+  test(`ticket ${theme.name} contrast, copy recovery and 200% text`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await prepareTicketRoom(ROOM_ID, { tickets: [{
+      id: 'theme-ticket', title: '合成交通票券', ticketType: 'external-app', appName: '合成 App',
+      audienceType: 'all', dayId: 'Day 1', usageTime: '09:15', presenterMember: MEMBER_A,
+      requiresNetwork: true, requiresLogin: true, dynamicCode: true, orderNumber: 'SYNTHETIC-123',
+    }] });
+    await writeEmulatorData(`rooms/${ROOM_ID}/meta/themeColor`, theme.color);
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+        writeText: async () => { throw new Error('synthetic clipboard denial'); },
+      } });
+    });
+    await openTicketPanel(page, ROOM_ID);
+    await chooseIdentity(page, MEMBER_A);
+    const card = ticketCard(page, '合成交通票券');
+    const contrast: Record<string, number> = {};
+    for (const sample of [card.getByRole('heading'), card.locator('dd').first(), card.getByTestId('ticket-edit-button'), card.getByTestId('ticket-delete-button'), card.getByText('使用時需要網路')]) {
+      contrast[await sample.innerText()] = await expectReadableContrast(sample);
+    }
+    const selected = page.getByTestId('ticket-filter-member').filter({ hasText: MEMBER_A });
+    expect(await selected.evaluate((element) => getComputedStyle(element).backgroundColor))
+      .not.toBe(await page.getByTestId('ticket-filter-all').evaluate((element) => getComputedStyle(element).backgroundColor));
+    contrast.selected = await expectReadableContrast(selected);
+    await card.getByRole('button', { name: '複製訂單編號' }).click();
+    const manualCopy = card.getByLabel('手動複製訂單編號');
+    await expect(manualCopy).toHaveValue('SYNTHETIC-123');
+    await expect(page.getByTestId('toast').filter({ hasText: '訂單編號已複製' })).toHaveCount(0);
+    await manualCopy.focus();
+    expect(await manualCopy.evaluate((element: HTMLInputElement) => element.value.slice(element.selectionStart!, element.selectionEnd!))).toBe('SYNTHETIC-123');
+    await page.getByTestId('toast').filter({ hasText: '無法複製訂單編號' }).getByTestId('toast-dismiss').click();
+    await testInfo.attach(`contrast-${theme.name}`, { body: JSON.stringify(contrast), contentType: 'application/json' });
+
+    // HTML root font-size equivalent only: not browser zoom or a real soft keyboard.
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    await expectTicketTarget(card.getByRole('button', { name: '查看開啟方式' }));
+    await card.getByRole('button', { name: '查看開啟方式' }).click();
+    await expect(card.getByText('找到這張票券')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    await testInfo.attach(`ticket-${theme.name}-200-wallet`, { body: await page.screenshot(), contentType: 'image/png' });
+    await card.getByTestId('ticket-edit-button').click();
+    await expectTicketTarget(page.getByTestId('ticket-submit-button'));
+    await expectTicketTarget(page.getByTestId('ticket-cancel-button'));
+    expect(await page.getByTestId('ticket-submit-button').evaluate((element) => {
+      const style = getComputedStyle(element);
+      return element.getBoundingClientRect().height <= Math.max(parseFloat(style.minHeight), 2 * parseFloat(style.lineHeight)) + 2;
+    })).toBe(true);
+    await page.getByTestId('ticket-app-name-input').fill('合成 App 文字放大');
+    await testInfo.attach(`ticket-${theme.name}-200-editor`, { body: await page.screenshot(), contentType: 'image/png' });
+    await page.getByTestId('ticket-cancel-button').click();
+    const navigation = page.getByTestId('mobile-bottom-navigation');
+    for (const button of await navigation.getByRole('button').all()) await expectTicketTarget(button);
+  });
+}
+
+for (const width of [320, 375, 390, 768, 1024, 1440]) {
+  test(`ticket reading and editor remain operable at ${width}px with long content`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    const longMember = 'SyntheticMemberWithoutSpacesForTicketReadingVerification';
+    const title = '合成票券長中文名稱與無空格英文SyntheticUnbrokenEnglishTicketNameForReading';
+    await prepareTicketRoom(ROOM_ID, {
+      members: [...TEST_MEMBERS, longMember],
+      tickets: [{
+        id: 'long-reading', title, ticketType: 'external-app', appName: '合成列車 App',
+        audienceType: 'members', assignedMembers: [...TEST_MEMBERS, longMember],
+        presenterMember: MEMBER_A, dayId: 'Day 1', usageTime: '09:15',
+        orderNumber: 'SYNTHETIC-ORDER-NOT-A-VALID-TICKET-12345678901234567890',
+        instructions: '僅供測試，請先登入原 App，再開啟票券。',
+        requiresNetwork: true, requiresLogin: true, dynamicCode: true,
+      }],
+    });
+    await openTicketPanel(page, ROOM_ID);
+    await chooseIdentity(page, MEMBER_A);
+    const card = ticketCard(page, title);
+    const tools = card.getByTestId('ticket-tools');
+    expect(await tools.getByRole('button').count()).toBe(2);
+    const editBox = await card.getByTestId('ticket-edit-button').boundingBox();
+    const deleteBox = await card.getByTestId('ticket-delete-button').boundingBox();
+    expect(deleteBox!.x - editBox!.x - editBox!.width).toBeGreaterThanOrEqual(8);
+    const titleBox = await card.getByRole('heading').boundingBox();
+    expect(titleBox!.x + titleBox!.width).toBeLessThanOrEqual(editBox!.x);
+    await expectTicketTarget(card.getByTestId('ticket-edit-button'));
+    await expectTicketTarget(card.getByTestId('ticket-delete-button'));
+    const details = card.getByRole('button', { name: '查看開啟方式' });
+    await expectTicketTarget(details);
+    await details.focus();
+    await page.keyboard.press('Enter');
+    await expect(details).toHaveAttribute('aria-expanded', 'true');
+    await expect(card.getByText(`使用成員：${[...TEST_MEMBERS, longMember].join('、')}`)).toBeVisible();
+    await page.keyboard.press('Space');
+    await expect(details).toHaveAttribute('aria-expanded', 'false');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    await testInfo.attach(`long-wallet-${width}`, { body: await page.screenshot(), contentType: 'image/png' });
+
+    const before = await readTickets(ROOM_ID);
+    await card.getByTestId('ticket-edit-button').click();
+    await expect(page.getByTestId('ticket-title-input')).toBeFocused();
+    await expectTicketTarget(page.getByTestId('ticket-submit-button'));
+    await page.getByTestId('ticket-submit-button').focus();
+    await page.keyboard.press('Tab');
+    await expect(page.getByTestId('ticket-type-attachment')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.getByTestId('ticket-submit-button')).toBeFocused();
+    await page.getByTestId('ticket-title-input').fill('Cancelled synthetic edit');
+    await testInfo.attach(`ticket-editor-${width}`, { body: await page.screenshot(), contentType: 'image/png' });
+    await page.keyboard.press('Escape');
+    await expect(card.getByTestId('ticket-edit-button')).toBeFocused();
+    expect(await readTickets(ROOM_ID)).toEqual(before);
+    await expect(page.getByTestId('ticket-filter-member').filter({ hasText: `我的・${MEMBER_A}` })).toHaveAttribute('aria-pressed', 'true');
+  });
+}

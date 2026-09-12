@@ -78,6 +78,23 @@ const chooseExternalApp = async (user, { title = 'App 票券', appName = 'Rail A
 };
 
 describe('TicketEditorModal progressive form', () => {
+  it('keeps Tab and Shift+Tab inside the editor and restores its trigger', async () => {
+    const user = userEvent.setup();
+    const trigger = document.createElement('button');
+    document.body.append(trigger);
+    trigger.focus();
+    const view = renderEditor({ mode: 'edit', ticket: webTicket });
+    await waitFor(() => expect(screen.getByTestId('ticket-title-input')).toHaveFocus());
+    screen.getByTestId('ticket-submit-button').focus();
+    await user.tab();
+    expect(screen.getByRole('dialog')).toContainElement(document.activeElement);
+    screen.getByTestId('ticket-type-attachment').focus();
+    await user.tab({ shift: true });
+    expect(screen.getByTestId('ticket-submit-button')).toHaveFocus();
+    view.unmount();
+    expect(trigger).toHaveFocus();
+    trigger.remove();
+  });
   it('EDITOR-01 defaults create audience to a valid active member', () => {
     renderEditor();
 

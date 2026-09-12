@@ -16,6 +16,7 @@ const firebaseMocks = vi.hoisted(() => ({
   storage: { mocked: true },
   listeners: new Map(),
   rooms: new Map(),
+  deferInitialValue: false,
 }));
 
 vi.mock('./firebase.js', () => ({
@@ -28,7 +29,7 @@ vi.mock('firebase/database', () => ({
   update: vi.fn().mockResolvedValue(undefined),
   onValue: vi.fn((ref, next) => {
     firebaseMocks.listeners.set(ref.path, next);
-    queueMicrotask(() => next({ val: () => firebaseMocks.rooms.get(ref.path) || null }));
+    if (!firebaseMocks.deferInitialValue) queueMicrotask(() => next({ val: () => firebaseMocks.rooms.get(ref.path) || null }));
     return vi.fn();
   }),
 }));
@@ -190,6 +191,7 @@ describe('TripDetail ticket wallet integration', () => {
     ticketMocks.saveTicket.mockReset().mockResolvedValue({ id: 'saved' });
     ticketMocks.deleteTicket.mockReset().mockResolvedValue(true);
     firebaseMocks.listeners.clear();
+    firebaseMocks.deferInitialValue = false;
     firebaseMocks.rooms.clear();
     firebaseMocks.rooms.set('rooms/room-1', roomData());
     firebaseMocks.rooms.set('rooms/room-2', roomData(['Carol']));
@@ -254,6 +256,50 @@ describe('TripDetail ticket wallet integration', () => {
     expect(ticketMocks.actionDeps.refs.dirtyBranchesRef.current.tickets).toBe(false);
   });
 
+  it('does not show an empty wallet before the trip listener supplies tickets', async () => {
+    firebaseMocks.deferInitialValue = true;
+    render(<TripDetail roomId="room-1" onBack={vi.fn()} />);
+    // Finish the mount's queued loading initialization before delivering the delayed listener.
+    await act(async () => {});
+    expect(screen.queryByTestId('ticket-panel')).not.toBeInTheDocument();
+    await act(async () => firebaseMocks.listeners.get('rooms/room-1')({ val: () => roomData() }));
+    expect(screen.getByTestId('wallet-ticket-count')).toHaveTextContent('1');
+  });
+
+  it('does not open a stale image after switching trips', async () => {
+    const view = await renderTrip();
+    let finishRead;
+    vi.spyOn(ticketMocks.actionDeps.room.repository, 'readAttachment').mockImplementation(
+      () => new Promise((resolve) => { finishRead = resolve; }),
+    );
+    let pending;
+    act(() => { pending = ticketMocks.walletProps.onOpenAttachment(ticketMocks.walletProps.tickets[0]); });
+    view.rerender(<TripDetail {...view.props} roomId="room-2" />);
+    await act(async () => { finishRead('blob:old-ticket'); await pending; });
+    expect(screen.queryByTestId('fullscreen-ticket')).not.toBeInTheDocument();
+  });
+
+  it('opens one protected PDF window while an attachment read is pending', async () => {
+    await renderTrip();
+    let finishRead;
+    const read = vi.spyOn(ticketMocks.actionDeps.room.repository, 'readAttachment').mockImplementation(
+      () => new Promise((resolve) => { finishRead = resolve; }),
+    );
+    const popup = { opener: null, closed: false, location: { replace: vi.fn() }, close: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup);
+    const ticket = { ...ticketMocks.walletProps.tickets[0], attachmentKind: 'pdf' };
+    let first;
+    let second;
+    act(() => {
+      first = ticketMocks.walletProps.onOpenAttachment(ticket);
+      second = ticketMocks.walletProps.onOpenAttachment(ticket);
+    });
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(1);
+    await act(async () => { finishRead('blob:protected-pdf'); await Promise.all([first, second]); });
+    expect(popup.location.replace).toHaveBeenCalledWith('blob:protected-pdf');
+  });
+
   it('reads identity per room, persists valid selection, rejects invalid selection, and clears removed members', async () => {
     localStorage.setItem('travel-active-member-room-1', 'Ann');
     const view = await renderTrip();
@@ -280,5 +326,23 @@ describe('TripDetail ticket wallet integration', () => {
     expect(source).not.toMatch(/\bdeleteObject\b/);
     expect(source).toContain('<TicketWalletSection');
     expect(source).toContain('state: { setTicketsState, setSyncStatus }');
+  });
+
+  it('closes a pending PDF window when another ticket is selected, without stale navigation', async () => {
+    await renderTrip();
+    let finishPdf;
+    const read = vi.spyOn(ticketMocks.actionDeps.room.repository, 'readAttachment');
+    read.mockImplementationOnce(() => new Promise((resolve) => { finishPdf = resolve; }));
+    read.mockResolvedValueOnce('blob:latest-image');
+    const popup = { opener: null, closed: false, location: { replace: vi.fn() }, close: vi.fn() };
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+    const source = ticketMocks.walletProps.tickets[0];
+    let pending;
+    act(() => { pending = ticketMocks.walletProps.onOpenAttachment({ ...source, attachmentKind: 'pdf' }); });
+    await act(async () => ticketMocks.walletProps.onOpenAttachment({ ...source, id: 'new-image', title: 'Latest image' }));
+    expect(popup.close).toHaveBeenCalledOnce();
+    await act(async () => { finishPdf('blob:old-pdf'); await pending; });
+    expect(popup.location.replace).not.toHaveBeenCalled();
+    expect(screen.getByTestId('fullscreen-ticket')).toHaveTextContent('Latest image');
   });
 });
