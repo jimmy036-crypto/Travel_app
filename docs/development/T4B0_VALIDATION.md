@@ -90,7 +90,16 @@ All PASS entries refer only to the concrete local synthetic coverage below, not 
 - After locator repair: entire external-app-ticket suite **30 passed / 0 failed / 0 flaky / 0 skipped**, 3.2m, 0 automatic retries. This is a separate manual rerun, not a single 110/110 run.
 - The new companion suite's **20/20** passed in the related batch. Existing realtime suite uses independent browser contexts for actual Emulator listener propagation; same-device account isolation is separately tested within one context.
 - `git diff --check`: PASS (LF/CRLF warnings are not whitespace errors).
-- Full local E2E not run: no config/shared fixture/infrastructure change; complete regression belongs to Draft PR CI. Branch CI status must be read from the PR, not inferred from baseline or local passes.
+- Initial implementation did not run full local E2E: no config/shared fixture/infrastructure change. After CI failed, the failed-CI reproduction exception was used; see the separate follow-up below. Branch CI status must be read from the PR, not inferred from baseline or local passes.
+
+### CI repair follow-up (2026-09-12)
+
+- Original head `99a1d831` push/PR E2E jobs were cancelled at the 30-minute job limit; fast gates and guardrails passed. Both consistently failed the demo-expense case because it still assumed the automatic first payer. Other retry-passed startup/browser stalls remain separately unresolved.
+- Repair only changes `e2e/unified-example-trip.spec.ts` and documents. It explicitly chooses the original fixture payer, adds exact blank-payer rejection/history/split/reload checks and proves manual payer selection does not confirm companion identity. No product/config/shared fixture changes or assertion weakening.
+- Local chronology: first startup ran 0 tests (Functions discovery failure); separate red invocation **2 failed**; repair's related four-suite invocation **46 passed**; independent review added exact split and next-form checks; final **`verify:full` PASS**, 1161 Unit/Integration tests and **354 E2E passed / 0 failed / 0 flaky / 14 existing skipped**, 0 automatic retries, E2E 21.6m. These remain distinct invocations.
+- All 14 skips belong to the seven PWA cases under both default projects. Dedicated PWA config was not invoked; this is not 368 passing tests or PWA browser verification.
+- Pre-commit `npm run verify:fast` separately passed again (106 files / 1161 tests, typecheck/lint/build, 72.3s); `git diff --check` passed. No automatic retry or configuration changes.
+- [Detailed failure/repair history, trace/request correlation and limits](T4B0_CI_DIAGNOSTICS.md). CI artifacts are linked there; local ignored reports are not presented as public evidence. New-commit CI still requires its own result; Linux browser/snapshot stall root cause is not claimed fixed.
 
 ### Repair / rerun history (no assertion weakening)
 
