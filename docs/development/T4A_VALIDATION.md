@@ -128,6 +128,8 @@ Contrast samples used each element's actual computed color plus alpha-composited
 
 CI follow-up (2026-09-12): the original head's PR/push E2E jobs were cancelled at the existing 30-minute limit, not all-pass. Two bounded fixes and their separate red/green runs are documented in [T4A_CI_DIAGNOSTICS](T4A_CI_DIAGNOSTICS.md): suite initialization deleting cache inside a child frame, and tour geometry remaining stale after header reflow. Follow-up verification: 1108 Unit/Integration tests plus fast checks passed; 76 affected E2E passed, with zero retries. Shared dependent-module loading stalls remain unresolved; this does not clear T4A-10's PARTIAL status or replace the original run history.
 
+Separately authorized diagnostics: opt-in Vite server request-boundary JSONL, no product/timeout/retry/worker/fixture change. Its full local verification passed with **1141 Unit/Integration tests and 334 E2E passed / 14 existing skipped / zero failed, flaky or retries**. The 14.1 MB sanitized diagnostic artifact survived teardown. See the [authorized diagnostics section](T4A_CI_DIAGNOSTICS.md#authorized-request-boundary-diagnostics--2026-09-12) for exact scope, latest completed CI failures, privacy guards and interpretation limits. A new CI run is still needed; this is not a claim that the module-load stall was fixed.
+
 - Real Google Places search → select → focus → Add remains unverified.
 - Real Google login and deployment smoke evidence remain unverified; deployment status is separate from tests.
 - Physical iPhone Safari/PWA native PDF, soft keyboard, external App/login/ticket presentation, gestures and safe-area require manual testing. MIME/bytes and WebKit emulation do not prove native-reader behavior.

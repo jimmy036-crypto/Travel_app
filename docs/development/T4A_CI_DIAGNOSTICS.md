@@ -1,5 +1,7 @@
 # T4A CI follow-up — bounded fixes, unresolved module-load stalls
 
+The sections through “Scope, skills and review” record repair commit `6a27460`. The later, separately authorized instrumentation and its verification are recorded under “Authorized request-boundary diagnostics”; earlier statements about unchanged CI/Vite settings describe only that earlier repair.
+
 ## Baseline and actual CI result
 
 Investigated head `5ab0711d7ff935d8454d48ce26ad65ffa533849a`, Draft PR #66, on 2026-09-12 (Asia/Taipei). Task worktree was clean and matched the pushed task branch. `npm run task:preflight -- --allow-feature` returned **FAIL** solely because shared local main remains six commits behind fetched origin/main; branch/upstream/clean worktree checks passed. This is a continuation on the existing feature, not a new stacked PR. Only PR #66 was open.
@@ -92,3 +94,66 @@ All browser tests use existing demo Emulators and `TRAVEL_E2E_SKIP_LOCAL_ENV=tru
 - ui-ux-pro-max local async-layout-shift guidance, Impeccable narrow hardening guidance and Web Interface Guidelines informed the local update/cleanup review; MASTER remains authoritative. No skill download/update/installation or launcher download.
 - Product risk: medium (tour positioning). Test review risk: high (existing E2E assertions/setup). Previous T4A device/PDF/theme/200% limitations remain unchanged.
 - Unmerged rollback: close Draft PR. To undo only this follow-up after merge, verify the actual merge method/commit and create a new revert branch + PR; no history rewrite or automatic deployment.
+
+## Authorized request-boundary diagnostics — 2026-09-12
+
+The user explicitly replied “授權” to the request for minimal CI/Vite request diagnostics, excluding timeout/retry/parallelism changes and logging of tokens, headers or content. This authorizes the following instrumentation, not speculative changes to Vite optimization, product bootstrapping, Firebase or CI scheduling.
+
+Fresh `npm run task:preflight -- --allow-feature`: **FAIL**, shared local main still six commits behind fetched origin/main. The task worktree was clean at head `6a27460`, matched its upstream, contained fetched main `fedd9936dba987d560fbb1dc7dfdc88889cabb1a`, and PR #66 was the only open PR. No other branch/worktree was reset. This infrastructure-only follow-up did not use UI redesign skills; the Firestore Skill was read for the existing Emulator test scope, without cloud queries or installation. No Skill was installed or updated.
+
+### Latest completed CI, before instrumentation
+
+Head `6a27460f85ab415dbe0fe76bdffc157e744229e2`:
+
+| Run | Actual termination | Completed attempts | Retries |
+|---|---|---|---|
+| [PR 34628366561](https://github.com/jimmy036-crypto/Travel_app/actions/runs/34628366561) | Cancelled at the unchanged 30-minute job limit | 322 passed / 3 timedOut / 14 existing skipped | 3; all three later passed |
+| [Push 34628364631](https://github.com/jimmy036-crypto/Travel_app/actions/runs/34628364631) | Runner shutdown signal after about 18m15s; **not** the 30-minute limit | 208 passed / 2 timedOut / 7 existing skipped | 2; both later passed |
+
+These are incomplete attempt counts, not a final suite pass. The push run has no artifacts and its last in-progress test has no final result; the logs do not identify who or what caused the shutdown. The [PR artifact](https://github.com/jimmy036-crypto/Travel_app/actions/runs/34628366561/artifacts/10276417438) contains useful failed-attempt traces.
+
+- Chromium `editable-demo-clone:104` and `offline-trip-preview:314` both stall in their initial `active-trip-view` wait, after TripDetail returns HTTP 200. The offline case has **not reached offline/reconnect**, so this is not a recurrence of the repaired iframe/cache deletion.
+- Both traces show the same eleven unfinished `/src` requests: SettlementPanel, ItineraryTimelineCard, TransitTimelineRow, mapItineraryModel, MapItinerarySheet and six parking modules. HAR alone still cannot locate the server/browser boundary.
+- WebKit `realtime-sync:940` opens its first context successfully, but the second waits for `active-trip-view` before the deletion mutation starts. Its trace lacks the same pending-request records; do not assume an identical cause.
+- The repaired spotlight case passed without retry in Chromium in both runs. WebKit did not reach that case before termination. Offline/reconnect passed in push Chromium and PR WebKit; PR Chromium passed on retry after the separate bootstrap timeout.
+
+### Minimal implementation and privacy boundary
+
+- `.github/workflows/quality-gate.yml`: add only `TRAVEL_E2E_REQUEST_DIAGNOSTICS: 'true'` to the existing E2E step. Same command, runner, job limit, retry/worker policy and artifact upload.
+- `vite.config.js`: register one server-only diagnostic plugin. No product/client code, dependency optimization, warmup, routing or proxy change.
+- `scripts/vite-request-diagnostics.mjs`: activate only for **serve + emulator mode + exact opt-in + demo-travel-e2e + Emulator flag + 127.0.0.1:4174 + strictPort**. All checks precede filesystem I/O. Normal development/build/preview do not acquire a new diagnostic endpoint or client script.
+- The middleware observes only code/module pathnames: `/src/...` JS/TS/CSS, `/node_modules/.vite/deps/...js` including scoped-package filenames, and Vite/React refresh clients. It rejects arbitrary routes, filesystem URLs, encoded/backslash/control-character/dot-segment paths, hidden files and overly long paths. Query strings/fragments are removed; headers, bodies, tokens, credentials, error payloads and arbitrary data URLs are not read into the records.
+- JSONL fields are limited to event, server-local sequential request id, pathname, epoch time, duration and HTTP status. No correlation header or extra browser request is injected. Existing Playwright traces remain the browser-side evidence; no fixture, route interception, reporter or Playwright config change.
+- Output is `test-results/vite-request-diagnostics/vite-<epoch>-<pid>.jsonl`, already ignored and already covered by the non-hidden `test-results/` artifact path. Installed Playwright clears output **before** starting its web servers. No broad hidden-directory upload was added.
+- Asynchronous file writes are capped at 64 MiB, with a reserved truncation marker and a 1 MiB buffer threshold. If disk I/O fails or bounds are reached, diagnostics stop with a fixed warning; application requests are not paused waiting for disk/drain. No raw error is logged. Remaining records are then unavailable, not evidence of absent requests.
+
+### How to interpret the evidence
+
+| Server evidence matched by pathname/time to a browser trace | Supported interpretation |
+|---|---|
+| `request-start`, no terminal row before a test fails | The request reached this middleware, but no completed server response is recorded before failure. This alone does not prove a deadlock. |
+| `response-finish`, browser trace still unfinished | Server output completed its handoff; browser receipt/processing or trace completeness still needs investigation. |
+| `response-close` before finish | The response closed early, possibly because navigation/test teardown cancelled it; not automatically a server defect. Status is null if no headers were sent. |
+| Browser pending request, no matching server start | No evidence it reached the observed middleware; this does **not** alone prove the browser never sent it. Check filtering, other middleware, log availability and truncation. |
+
+Node's [ServerResponse finish/close semantics](https://nodejs.org/api/http.html#class-httpserverresponse) do not certify that the client received or evaluated the response. Vite's [configureServer hook](https://vite.dev/guide/api-plugin.html#configureserver) installs this middleware before its transform middlewares; teardown uses `httpServer.close`, not the hook's returned post-install callback. A forced process/runner shutdown can omit the final log tail or prevent artifact upload. Request ids are local to each server file; no unique browser/server id was injected, so same-path concurrent requests require careful timestamp correlation.
+
+### Executed validation
+
+- New diagnostic Unit tests: **33 passed**. Covers opt-in/build/project/host/port gates, safe scoped dependency paths, denied paths, no sensitive fields, one `next()`, finish/close deduplication, null pre-header status, filesystem/stream failure, file/buffer caps and cleanup. Existing progress reporter test also passed separately.
+- Harness repair history: initial mock omitted the `node:fs` default export (**0 tests**, suite import failure); the next partial mock left that default bound to real fs (**24 passed / 6 failed**). Second repair mocked named and default exports consistently; **30 passed**, followed by cap/scoped-path additions and **33 passed**. These were test-harness defects, not application or Emulator failures; no assertion was relaxed.
+- That intermediate mock generated six small synthetic JSONL files under `C:\synthetic-repo\test-results\vite-request-diagnostics`. Automatic cleanup was denied by the execution environment; these contain only synthetic test records and remain for manual cleanup. The fixture root now resolves inside the worktree's ignored `.tmp`, and the corrected tests mock all writes. No user file was overwritten or removed.
+- Workflow parsed successfully; asserted the exact opt-in flag and unchanged E2E command, 30-minute job limit, 45-second test timeout, two CI retries and one worker. No diagnostic code/flag was found in built client JS.
+- **`npm run verify:full`: PASS**, 1219.8s overall. TypeScript, ESLint, build and **1141 Unit/Integration tests / 104 files** passed. Full E2E: **334 passed** (167 Chromium + 167 WebKit), **0 failed / 0 flaky / 14 existing skipped / 0 retries**, 19.3m. This was one complete local run with instrumentation enabled, not combined runs.
+- The actual diagnostic artifact survived full teardown: **14,134,290 bytes**, **111,175 records**, **55,587 request starts and 55,587 response finishes**, no unmatched requests, no truncation. Counts include one explicit read-only module GET used to verify logging, not only browser E2E requests. Statuses: 45,043 HTTP 200 / 10,544 HTTP 304. All paths/field names passed a post-run allowlist check. No server-close row was emitted by forced process teardown; do not invent one.
+- Separate final `npm run verify:fast`: **PASS**, 91.4s, 104 files / 1141 tests plus typecheck/lint/build. `git diff --check`: **PASS** before commit.
+
+```powershell
+$env:TRAVEL_E2E_SKIP_LOCAL_ENV='true'
+$env:TRAVEL_E2E_REQUEST_DIAGNOSTICS='true'
+npm run verify:full
+npm run verify:fast
+git diff --check
+```
+
+Full E2E was run because this follow-up changes CI/Vite diagnostic infrastructure. No tracked-file edits occurred while it ran. Local logs/artifacts are not presented as remotely accessible CI evidence; the next GitHub run must separately confirm upload and provide Linux request-boundary evidence. Local full PASS does not resolve the CI stall or inherited T4A-10 PARTIAL status. Product risk is low for this addition (server-only opt-in observer); infrastructure/test-review risk is high. Earlier T4A product changes retain their medium risk. No deployment, production Firebase, secret file, package/lockfile, model/rules, T4B or unrelated worktree change.
