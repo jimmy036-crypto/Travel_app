@@ -30,6 +30,7 @@ const theme = {
 
 const commonProps = {
   members: ['自己', '朋友'],
+  defaultPayer: '自己',
   existingDays: ['Day 1'],
   startDate: '2026-09-20',
   defaultDay: 'Day 1',
@@ -49,6 +50,45 @@ describe('ExpenseModal Phase 2B 表單流程', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it('unconfirmed payer requires an explicit choice without changing split inputs', async () => {
+    const onSave = vi.fn();
+    const view = render(<ExpenseModal {...commonProps} defaultPayer="" onSave={onSave} />);
+    expect(view.getByTestId('expense-payer-select')).toHaveValue('');
+    fireEvent.change(view.getByTestId('expense-item-input'), { target: { value: '晚餐' } });
+    fireEvent.change(view.getByTestId('expense-local-cost-input'), { target: { value: '1000' } });
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(window.alert).toHaveBeenCalledWith('請選擇付款人。');
+    fireEvent.change(view.getByTestId('expense-payer-select'), { target: { value: '朋友' } });
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ payer: '朋友', cost: 1000, split: { 自己: 500, 朋友: 500 } });
+  });
+
+  it('does not overwrite an open draft when the shared preference loads or changes', () => {
+    const view = render(<ExpenseModal {...commonProps} defaultPayer="" />);
+    fireEvent.change(view.getByTestId('expense-item-input'), { target: { value: '草稿' } });
+    view.rerender(<ExpenseModal {...commonProps} defaultPayer="朋友" />);
+    expect(view.getByTestId('expense-payer-select')).toHaveValue('');
+    fireEvent.change(view.getByTestId('expense-payer-select'), { target: { value: '自己' } });
+    view.rerender(<ExpenseModal {...commonProps} defaultPayer="朋友" />);
+    expect(view.getByTestId('expense-payer-select')).toHaveValue('自己');
+    expect(view.getByTestId('expense-item-input')).toHaveValue('草稿');
+  });
+
+  it('preserves a removed source payer and blocks both save and duplicate until explicitly corrected', () => {
+    const onSave = vi.fn();
+    const onDuplicate = vi.fn();
+    const expense = { id: 'old', payer: '已離開', item: '原帳目', cost: 1000, localCost: 1000, currency: 'TWD', exchangeRate: 1, dayId: 'Day 1', split: { 自己: 500, 朋友: 500 } };
+    const view = render(<ExpenseModal {...commonProps} expense={expense} onSave={onSave} onDuplicate={onDuplicate} />);
+    expect(view.getByTestId('expense-payer-select')).toHaveValue('已離開');
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    fireEvent.click(view.getByTestId('expense-duplicate-button'));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onDuplicate).not.toHaveBeenCalled();
+    expect(expense.payer).toBe('已離開');
   });
 
   it('新增平均分帳時會產生守恆的兩人分攤', async () => {

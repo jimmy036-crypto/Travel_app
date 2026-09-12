@@ -97,8 +97,7 @@ vi.mock('./features/tickets/TicketWalletSection.jsx', () => ({
         <button data-testid="wallet-edit" onClick={() => props.onEditTicket(firstTicket)}>edit</button>
         <button data-testid="wallet-delete" onClick={() => props.onDeleteTicket(firstTicket?.id)}>delete</button>
         <button data-testid="wallet-image" onClick={() => props.onOpenImage(firstTicket)}>image</button>
-        <button data-testid="wallet-select-valid" onClick={() => props.onSelectActiveMember('Bob')}>select Bob</button>
-        <button data-testid="wallet-select-invalid" onClick={() => props.onSelectActiveMember('Ghost')}>select Ghost</button>
+        {props.companionNotice}
       </section>
     );
   },
@@ -169,6 +168,7 @@ const roomData = (members = ['Ann', 'Bob']) => ({
 const renderTrip = async (roomId = 'room-1') => {
   const props = {
     roomId,
+    accountUser: { uid: `test-account-${++accountSequence}` },
     onBack: vi.fn(),
     onUpdateTripMeta: vi.fn(),
     onOpenReleaseNotes: vi.fn(),
@@ -182,6 +182,8 @@ const renderTrip = async (roomId = 'room-1') => {
   await waitFor(() => expect(screen.getByTestId('wallet-ticket-count')).toHaveTextContent('1'));
   return { ...view, props };
 };
+
+let accountSequence = 0;
 
 describe('TripDetail ticket wallet integration', () => {
   beforeEach(() => {
@@ -300,23 +302,33 @@ describe('TripDetail ticket wallet integration', () => {
     expect(popup.location.replace).toHaveBeenCalledWith('blob:protected-pdf');
   });
 
-  it('reads identity per room, persists valid selection, rejects invalid selection, and clears removed members', async () => {
+  it('requires legacy confirmation, scopes it to account and room, excludes invalid choices, and invalidates removed members', async () => {
     localStorage.setItem('travel-active-member-room-1', 'Ann');
     const view = await renderTrip();
-    await waitFor(() => expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('Ann'));
-
-    fireEvent.click(screen.getByTestId('wallet-select-valid'));
-    expect(localStorage.getItem('travel-active-member-room-1')).toBe('Bob');
-    fireEvent.click(screen.getByTestId('wallet-select-invalid'));
-    expect(localStorage.getItem('travel-active-member-room-1')).toBe('Bob');
+    expect(screen.getByTestId('wallet-active-member').textContent).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: '選擇旅伴' }));
+    expect(screen.queryByRole('button', { name: 'Ghost', exact: true })).not.toBeInTheDocument();
+    const { update } = await import('firebase/database');
+    update.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Bob', exact: true }));
+    expect(update).not.toHaveBeenCalled();
+    expect(ticketMocks.saveTicket).not.toHaveBeenCalled();
+    expect(ticketMocks.deleteTicket).not.toHaveBeenCalled();
+    expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('Bob');
+    expect(localStorage.getItem('travel-active-member-room-1')).toBe('Ann');
 
     localStorage.setItem('travel-active-member-room-2', 'Carol');
     view.rerender(<TripDetail {...view.props} roomId="room-2" />);
-    await waitFor(() => expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('Carol'));
+    await waitFor(() => expect(screen.getByRole('button', { name: '選擇旅伴' })).toBeEnabled());
+    expect(screen.getByTestId('wallet-active-member').textContent).toBe('');
+    fireEvent.click(screen.getByRole('button', { name: '選擇旅伴' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Carol', exact: true }));
+    expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('Carol');
 
     act(() => firebaseMocks.listeners.get('rooms/room-2')({ val: () => roomData(['Dana']) }));
     await waitFor(() => expect(screen.getByTestId('wallet-active-member')).toHaveTextContent(''));
-    expect(localStorage.getItem('travel-active-member-room-2')).toBeNull();
+    expect(screen.getByText('原旅伴已不在名單中，請重新選擇。')).toBeInTheDocument();
+    expect(localStorage.getItem('travel-active-member-room-2')).toBe('Carol');
   });
 
   it('has removed the legacy formal TicketModal and direct ticket Storage deletion paths', () => {

@@ -54,7 +54,7 @@ async function openExpenseTab(page: Page): Promise<void> {
   await expect(page.getByTestId('expense-panel')).toBeVisible();
 }
 
-async function openNewExpenseModal(page: Page): Promise<void> {
+async function openNewExpenseModal(page: Page, selectPayer = true): Promise<void> {
   await page.getByTestId('add-expense-button').click();
 
   await expect(page.getByTestId('expense-modal')).toBeVisible();
@@ -62,6 +62,10 @@ async function openNewExpenseModal(page: Page): Promise<void> {
     'data-mode',
     'create',
   );
+  // B0: this test's fixed financial input explicitly names the payer;
+  // opening a new expense no longer guesses the first companion.
+  await expect(page.getByTestId('expense-payer-select')).toHaveValue('');
+  if (selectPayer) await page.getByTestId('expense-payer-select').selectOption('自己');
 }
 
 function expenseRecord(page: Page, itemName: string) {
@@ -181,7 +185,7 @@ test('expense editor uses an accessible responsive sheet and supports every clos
 }) => {
   await page.goto(`/?room=${ROOM_ID}`);
   await openExpenseTab(page);
-  await openNewExpenseModal(page);
+  await openNewExpenseModal(page, false);
 
   const overlay = page.getByTestId('expense-modal');
   const dialog = page.getByRole('dialog');
@@ -210,11 +214,11 @@ test('expense editor uses an accessible responsive sheet and supports every clos
     await expect(page.getByTestId('add-expense-button')).toBeFocused();
   }
 
-  await openNewExpenseModal(page);
+  await openNewExpenseModal(page, false);
   await page.getByTestId('expense-modal').click({ position: { x: 4, y: 4 } });
   await expect(page.getByTestId('expense-modal')).toBeHidden();
 
-  await openNewExpenseModal(page);
+  await openNewExpenseModal(page, false);
   await page.getByTestId('expense-close-button').click();
   await expect(page.getByTestId('expense-modal')).toBeHidden();
 });

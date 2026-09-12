@@ -39,7 +39,7 @@ const privateB = {
 
 const renderWallet = (props = {}) => {
   const callbacks = {
-    onSelectActiveMember: vi.fn(),
+    onRequestCompanion: vi.fn(),
     onCreateTicket: vi.fn(),
     onEditTicket: vi.fn(),
     onDeleteTicket: vi.fn(),
@@ -53,6 +53,7 @@ const renderWallet = (props = {}) => {
       activeMember="王泓文"
       startDate="2026-09-20"
       t={{}}
+      companionNotice={<button type="button" onClick={callbacks.onRequestCompanion}>更正旅伴</button>}
       {...callbacks}
       {...props}
     />,
@@ -99,7 +100,7 @@ describe('TicketWalletSection', () => {
 
   it('marks filters with aria-pressed and labels the active identity as mine', () => {
     renderWallet();
-    const own = screen.getAllByTestId('ticket-filter-member').find((button) => button.dataset.member === '王泓文');
+    const own = screen.getByTestId('ticket-filter-mine');
     expect(own).toHaveTextContent('我的・王泓文');
     expect(own).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByTestId('ticket-filter-all'));
@@ -107,12 +108,15 @@ describe('TicketWalletSection', () => {
     expect(own).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('shows the inline identity picker and selection changes identity plus the view', () => {
-    const { callbacks } = renderWallet({ activeMember: '' });
-    expect(screen.getByTestId('ticket-active-member-picker')).toBeInTheDocument();
-    const memberButton = screen.getAllByTestId('ticket-active-member-button').find((button) => button.dataset.member === '成員 B');
-    fireEvent.click(memberButton);
-    expect(callbacks.onSelectActiveMember).toHaveBeenCalledWith('成員 B');
+  it('renders the shared preference entry without creating a second picker or assigning mine', () => {
+    const choose = vi.fn();
+    renderWallet({ activeMember: '', companionNotice: <button onClick={choose}>選擇旅伴</button> });
+    expect(screen.queryByTestId('ticket-active-member-picker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ticket-filter-mine')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('選擇旅伴'));
+    expect(choose).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByTestId('ticket-card')).toHaveLength(3);
+    fireEvent.click(screen.getAllByTestId('ticket-filter-member').find(button => button.dataset.member === '成員 B'));
     expect(screen.getByText('成員 B 票券')).toBeInTheDocument();
     expect(screen.queryByText('王泓文票券')).not.toBeInTheDocument();
   });
@@ -121,8 +125,23 @@ describe('TicketWalletSection', () => {
     const { callbacks } = renderWallet();
     const memberButton = screen.getAllByTestId('ticket-filter-member').find((button) => button.dataset.member === '成員 B');
     fireEvent.click(memberButton);
-    expect(callbacks.onSelectActiveMember).not.toHaveBeenCalled();
+    expect(callbacks.onRequestCompanion).not.toHaveBeenCalled();
+    expect(screen.getByTestId('ticket-filter-mine')).toHaveTextContent('我的・王泓文');
     expect(screen.getByText('成員 B 票券')).toBeInTheDocument();
+  });
+
+  it('keeps explicit browsing independent when the confirmed companion changes', () => {
+    const view = renderWallet();
+    fireEvent.click(screen.getAllByTestId('ticket-filter-member').find(button => button.dataset.member === '成員 B'));
+    view.rerender(<TicketWalletSection tickets={[commonTicket, privateA, privateB]} members={members} activeMember="成員 C" t={{}} />);
+    expect(screen.getByText('成員 B 票券')).toBeInTheDocument();
+    expect(screen.queryByText('王泓文票券')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ticket-filter-mine')).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByTestId('ticket-filter-mine'));
+    expect(screen.getAllByTestId('ticket-card')).toHaveLength(1);
+    view.rerender(<TicketWalletSection tickets={[commonTicket, privateA, privateB]} members={members} activeMember="王泓文" t={{}} />);
+    expect(screen.getByText('王泓文票券')).toBeInTheDocument();
+    expect(screen.getAllByTestId('ticket-card')).toHaveLength(2);
   });
 
   it('normalizes legacy image, PDF, and link tickets without mutating them', () => {
