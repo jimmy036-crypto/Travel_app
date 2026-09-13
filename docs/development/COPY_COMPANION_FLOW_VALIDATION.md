@@ -4,8 +4,8 @@
 
 - 基準 `origin/main`：`c48e9fd4bdda969506486b3e02578a09d208b295`，已包含 PR #67。
 - 分支：`fix/travel-copy-companion-flow`；獨立 worktree，未覆蓋其他工作目錄。
-- 狀態：本機實作與相關驗證完成，準備 Draft PR；**完整 CI 驗收仍為 PARTIAL**。完整本機批次曾有 2 個入口適配失敗，修正後相關 104 個 E2E 通過；不能合併成虛構的單次完整全過。
-- 不修改 CI、Playwright 設定、timeout、重試、資料／權限 fixture、正式 Firebase 或部署。
+- 狀態：實作已提交 [Draft PR #68](https://github.com/jimmy036-crypto/Travel_app/pull/68)；**完整 CI 驗收仍為 PARTIAL**。舊完整本機批次及 CI 失敗分別記錄於下，不合併成虛構的單次全過。
+- 使用者於 CI 診斷後另行授權：僅將 `.github/workflows/quality-gate.yml` 的兩個瀏覽器分成獨立 runner／Emulator。保留 timeout、重試、單一 worker、所有案例與斷言；不修改 Playwright 設定、資料／權限 fixture、正式 Firebase 或部署。
 
 ## Preflight
 
@@ -69,6 +69,8 @@ origin/main 未變、無未合併 PR，繼續使用原獨立 worktree；未 stas
 刻意改變的測試契約：`companion-identity.spec.ts` 的 B0-08 不再從記帳表單更正旅伴，改為驗證表單不含更正、付款人獨立、關閉後從旅程設定更正、新表單使用新預設、完整歷史記錄不變。原 `payer`、1000 金額及 500／500 分攤精確斷言保留；unit 仍驗證已開草稿不被後續旅伴變更覆蓋。
 
 文件：本驗證紀錄與 11 張合成圖片。沒有提交使用者真實帳目截圖或私密資料。
+
+追加授權的 CI 修改只有 `.github/workflows/quality-gate.yml`：兩個瀏覽器各自安裝所需 browser、啟動既有 Emulator、跑原 project 全部案例，artifact 按 browser 分名；保留 `Playwright E2E` 彙總名稱，任一 browser 失敗／取消／跳過均不通過。未變更產品或測試斷言。
 
 ## 第三部分的修改前證據
 
@@ -167,8 +169,8 @@ origin/main 未變、無未合併 PR，繼續使用原獨立 worktree；未 stas
 | 三組核准文案精簡且保留必要限制 | PASS：對應 unit、分享錯誤＋retry、離線常駐唯讀說明、地圖範圍及停車來源元件驗證 |
 | 首次提示／公告／導覽不爭搶焦點 | PASS：4 個先紅後綠案例、最終 whats-new-tour 全 suite |
 | 手機、桌面、主題、鍵盤與 200% | PASS：上述明確 browser／harness 範圍；200% 僅 html font-size equivalent |
-| 全面回歸／CI | PARTIAL：完整本機批次 352／2／14，修補後相關 104 通過；本分支完整 CI 尚待完成 |
-| 安全與資料邊界 | PASS：受限檔案 diff 為空；未改 repo／model／計算／權限／附件生命週期，未連正式 Firebase |
+| 全面回歸／CI | PARTIAL：本輪完整 E2E 重啟批次 358 passed／0 failed／14 既有 skipped，0 retry；初次 verify:full 因 Emulator 啟動失敗，GitHub 分流結果仍待完成。早期批次歷史保留於上 |
+| 安全與資料邊界 | PASS：僅另行授權的 workflow 有 CI diff；未改 repo／model／計算／權限／附件生命週期，未連正式 Firebase |
 
 ## 基準 CI 與尚未定位問題
 
@@ -178,7 +180,48 @@ origin/main 未變、無未合併 PR，繼續使用原獨立 worktree；未 stas
 - Desktop `place-crud.spec.ts:459` 首次 timedOut、retry 1 passed；這是既有 retry-pass／flaky 證據，根因未確認。
 - 終止時 Mobile `expense-crud.spec.ts:415` 尚無 test-end，不宣告該筆是產品失敗。
 - 已完成日誌事件是 224 首次 passed、1 retry passed、7 skipped、1 首次 timedOut；368 cases 未跑完，無最終全套 summary。artifact 上傳 skipped，實際 artifacts 0。
-- 本次僅唯讀核對，不改 CI／timeout／並行策略、不觸發重跑；本地測試通過不能清除這些限制。
+- 此基準 run 僅唯讀核對，未人工重跑；後續授權的分流不代表上述間歇失敗已修复。
+
+## PR #68 CI 分流：診斷、授權與驗證
+
+### 修改前：確定的總時長上限與未定位的間歇失敗
+
+產品 commit `02aa72e8cf85836bd7a7ebe99a765e54bdb70102` 的兩次 run 均有 GitHub annotation：`The job has exceeded the maximum execution time of 30m0s`。兩次 fast／guardrails 成功，E2E cancelled，取消前一秒仍有 test-end，不能把當時正在執行的下一筆列為產品失敗。
+
+| Run | 已完成 attempt 事件（不是完整 suite summary） | 重試與取消前階段 |
+| --- | --- | --- |
+| [Push 34741317874](https://github.com/jimmy036-crypto/Travel_app/actions/runs/34741317874) | 340 passed（含 1 retry pass）、1 failed、14 skipped | Mobile Safari `create-trip.spec.ts:32` 最後返回首頁等待旅程卡失敗；retry 1 成功。最後完成 `whats-new-tour:247`，下一例執行中取消 |
+| [PR 34741327602](https://github.com/jimmy036-crypto/Travel_app/actions/runs/34741327602) | 320 首次 passed、1 retry passed、1 首次 timedOut、14 skipped | Desktop Chrome `companion-identity.spec.ts:100` 卡在旅程模組載入，尚未開始旅伴／清單寫入；retry 1 成功。最後完成 `ticket-edit-lifecycle:201`，下一例執行中取消 |
+
+Push 已完成測試耗時合計 28 分 26.907 秒，啟動／安裝另約 95 秒；其中唯一失敗 11.524 秒。PR 已完成 attempt 合計 28 分 08.564 秒，含一次 59.133 秒逾時。正常持續執行本身已接近或超出工作總預算，不能僅以一個 flaky 解釋未完成整套 372 cases。
+
+兩次事件的 `github.ref` 不同，各自有 runner，不是共用同一 Emulator 而互相污染。此次不修改 push／PR triggers 或 concurrency。
+
+間歇失敗保持 **PARTIAL／根因未確認**：
+
+- PR trace 中 13 個未記錄完成的模組請求，可與 Vite 記錄逐一對上 server HTTP 200 finish（0.191–0.893ms）；server finish 不證明瀏覽器已成功接收／執行，不能武斷歸因 Vite transform 或 Emulator。
+- Push trace 最後首頁載入的 35 個未記錄完成的模組請求，沒有逐一對應成 server 已回應；另有前一次 navigation 的取消請求，不能混算。
+- Vite 診斷 PR 55,642／Push 58,756 個 start 均有 finish，沒有 truncation；局部 trace、context、video 與 JSONL 已從各 run artifacts 取得。GitHub artifacts 為可分享證據，保留期 14 天；`.tmp/ci-<run>/` 只供本機調查，不宣稱他人可存取。
+
+### 授權後的最小修正
+
+- `e2e-browser` 兩個 matrix jobs：Desktop Chrome／chromium、Mobile Safari／webkit；每個獨立 runner／Emulator，`fail-fast: false`，互不因對方失敗而取消。
+- 每個 browser 仍是單一 worker、既有 CI retry 2、test deadline 45 秒、job 上限 30 分鐘；沒有改 test config 或斷言。
+- 保留總檢查 `Playwright E2E`。`needs` 結果只有 success 可通過，failure／cancelled／skipped／缺失不能變綠。
+- artifact 名稱加 browser 後綴，保留失敗 attempt trace、進度 reporter、Vite 診斷、`always()` 上傳與 14 天保留期。取消時上傳仍是 best effort。
+- 只讀核對：main branch protection API 回傳 `Branch not protected`，現有 main ruleset 為 disabled。未修改保護設定；仍保留原檢查名稱，方便人工審查及未來啟用規則。
+- 設計依據：[GitHub matrix jobs 與 artifacts](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations)、[needs 與 always 條件](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idneeds)。
+
+### 本輪驗證（與前批分開）
+
+- `npm run task:preflight -- --allow-feature`：PASS；開始修改前工作樹乾淨，origin/main 未變，僅本 PR 開啟；其他 worktree 未動。
+- 既有 YAML parser：語法／重複 key、matrix 精確兩列、原 steps／env／timeout 不變、不同 artifact 名稱均 PASS。以 Bash 實際執行彙總 step：success exit 0；failure／cancelled／skipped／空值各 exit 1。
+- Playwright `--list`：每個 project 186 cases，兩者 union 精確等於原 372 cases，無重複或遺漏。**列舉不是執行通過**。
+- `npm run verify:fast`：**PASS**，107 files／1206 tests、0 failed／skipped，TypeScript／ESLint／build PASS，75.1 秒。`.tmp/ci-split-verify-fast.log`。
+- `npm run verify:full`：**FAIL（環境啟動）**。107 files／1206 tests 及其餘快速檢查 PASS；Functions discovery 在原 10 秒內未完成，Playwright 隨後在原 webServer 120 秒期限停止，**0 E2E cases 開始**。`.tmp/ci-split-verify-full.log`；首次 Emulator log 另存 `.tmp/ci-split-startup-1-firebase-debug.log`。不更改上述期限或 Functions／Emulator 設定，也不把原命令改記 PASS。
+- 第一輪處理：確認 localhost ports 已清理，**沒有修改程式**，只重跑失敗階段 `npm run test:e2e` 一次。Emulator 正常啟動，**358 passed／0 failed／0 flaky／14 skipped，retry 0，22.3 分鐘**；兩個 project 各 179 passed／7 既有 PWA guard skipped。`.tmp/ci-split-e2e-restart-1.log` 與本機 `playwright-report/`。這是完整、獨立的重啟批次，不與初次啟動失敗拼成一次 verify:full 全過，也不宣稱啟動間歇性已定位／修復。
+- `git diff --check`：PASS。独立 review 核對 matrix 隔離、彙總失敗處理、artifact 無碰撞及診斷數字，無阻擋發現。
+- 新 GitHub CI：推送後執行；必須另看各 browser 結果、時間及 retry，不能用本機完整通過替代 CI 驗收。
 
 ## 風險及承接限制
 
