@@ -1566,9 +1566,15 @@ export default function TravelApp() {
   const tourCtaMode = activeRoomId
     ? 'trip'
     : (hasOpenableTrips ? 'lobby-trips' : 'lobby-empty');
+  // First-entry companion selection owns focus before an unread release.
+  // Reuse trip readiness so two independent modal traps never compete.
+  const releaseCanOpen = !canRenderActiveTrip || Boolean(
+    tripTourAvailability.roomId === activeRoomId
+    && (tripTourAvailability.ready || tripTourAvailability.failed)
+  );
   const releaseExperience = showFirstRunWelcome ? null : (
     <>
-      {showWhatsNew ? (
+      {showWhatsNew && releaseCanOpen ? (
         <WhatsNewDialog
           notes={CURRENT_RELEASE_NOTES}
           t={t}
@@ -1789,14 +1795,15 @@ export default function TravelApp() {
                   </div>
                   <h1 className={`min-w-0 text-3xl font-black leading-tight tracking-tight md:text-4xl ${t.mainText}`}>智の旅行</h1>
                 </div>
-                <p className={`text-sm font-semibold leading-6 md:text-base ${t.subText}`}>集中規劃行程、地圖、票券與旅費</p>
                 <p data-testid="lobby-account-status" className={`mt-2 inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-bold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>
                   <span aria-hidden="true" className={`h-2 w-2 rounded-full ${authSession.user ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                   <span className="truncate">
                     {authSession.loading
                       ? '正在確認 Google 帳號…'
                       : authSession.user
-                        ? `${authSession.user.displayName || 'Google 使用者'} · ${accountTripContext}`
+                        ? visibleTripListError
+                          ? authSession.user.displayName || 'Google 使用者'
+                          : `${authSession.user.displayName || 'Google 使用者'} · ${accountTripContext}`
                         : 'Google 未登入 · 示範模式'}
                   </span>
                 </p>
@@ -1831,10 +1838,8 @@ export default function TravelApp() {
                 />
               </div>
             </div>
-            <div className="min-w-0 md:col-start-2 md:row-start-1">
-              {lobbyLoading ? summaryLoadingPlaceholder : visibleTripListError ? (
-                <p className={`text-sm font-semibold leading-6 ${t.subText}`}>旅程清單尚未載入，請重新載入後查看旅程摘要。</p>
-              ) : <Suspense fallback={summaryLoadingPlaceholder}>
+            {lobbyLoading || (!visibleTripListError && hasTrips) ? <div className="min-w-0 md:col-start-2 md:row-start-1">
+              {lobbyLoading ? summaryLoadingPlaceholder : <Suspense fallback={summaryLoadingPlaceholder}>
                 <LobbyNextTripSummary
                   mode={t.isLight ? 'light' : 'dark'}
                   summary={lobbyTripSummary}
@@ -1844,7 +1849,7 @@ export default function TravelApp() {
                     : undefined}
                 />
               </Suspense>}
-            </div>
+            </div> : null}
           </div>
 
           {hasTrips ? (
@@ -1984,7 +1989,6 @@ export default function TravelApp() {
           <section aria-labelledby="trip-list-heading">
             <div className="mb-4 flex items-end justify-between gap-4 px-1">
               <div>
-                <p className="mb-1 text-xs font-extrabold uppercase tracking-[0.16em] text-blue-600">Travel workspace</p>
                 <h2 id="trip-list-heading" className={`text-2xl font-black tracking-tight ${t.mainText}`}>你的旅程</h2>
               </div>
               <span className={`rounded-full border px-3 py-1 text-xs font-extrabold ${t.cardBg} ${t.cardBorder} ${t.subText}`}>

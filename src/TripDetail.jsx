@@ -65,7 +65,7 @@ import { TicketEditorModal } from './features/tickets/TicketEditorModal.jsx';
 import { TicketWalletSection } from './features/tickets/TicketWalletSection.jsx';
 import { copyTicketOrderNumber } from './features/tickets/ticketClipboard.js';
 import { useCompanionIdentity } from './features/companion/useCompanionIdentity.js';
-import { CompanionNotice, CompanionPicker } from './features/companion/CompanionIdentity.jsx';
+import { CompanionPicker } from './features/companion/CompanionIdentity.jsx';
 import { useTicketActions } from './features/tickets/useTicketActions.js';
 import { createDefaultFirebaseTripRepository } from './features/trip-data/defaultFirebaseTripRepository.js';
 import { normalizeTripCapabilities } from './features/trip-data/tripCapabilities.js';
@@ -244,7 +244,6 @@ const PlacePhotoLightbox = ({ photo, onClose }) => {
         <div className="flex min-h-16 items-center gap-3 border-b border-white/10 bg-slate-950/90 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 text-white sm:px-5 sm:pt-3">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-black">{String(photo.title || '景點參考照片')}</p>
-            <p className="mt-0.5 text-[10px] text-slate-400">留在 App 內查看，不會跳轉到外部網址</p>
           </div>
           <button
             type="button"
@@ -1478,7 +1477,8 @@ const TripDetail = ({
   );
   const [companionPickerKey, setCompanionPickerKey] = useState('');
   const companionTriggerRef = useRef(null);
-  const companionNoticeRef = useRef(null);
+  const companionWasOpenRef = useRef(false);
+  const companionWarningRef = useRef('');
   const [showChecklistModal, setShowChecklistModal] = useState(false);
   const [fullscreenTicket, setFullscreenTicket] = useState(/** @type {any} */ (null));
   const [openingTicketId, setOpeningTicketId] = useState('');
@@ -1981,13 +1981,68 @@ const TripDetail = ({
     closePlaceActionMenu();
   }, [activeTab, closePlaceActionMenu, copyingItem, currentDay, editingItemData, viewingPlaceDetail]);
 
+  const membersList = useMemo(() => normalizeMembers(meta?.members), [meta]);
+  const companion = useCompanionIdentity({
+    source: isExampleTrip ? 'example' : 'firebase',
+    uid: authLoading ? '' : accountUser?.uid,
+    tripId: roomId,
+    members: membersList,
+    ready: !isLoading && !loadError && Boolean(meta) && ticketLoadedRoomRef.current === roomId,
+    displayName: accountUser?.displayName,
+  });
+  const showCompanionIntroduction = companion.ready && !companion.known
+    && !companion.skipped && membersList.length > 0;
+  const showCompanionPicker = companion.ready && (
+    showCompanionIntroduction || companionPickerKey === companion.key
+  );
+  const requestCompanion = useCallback((eventOrElement) => {
+    if (!companion.ready) return;
+    const trigger = eventOrElement?.currentTarget || eventOrElement;
+    if (trigger instanceof HTMLElement) {
+      trigger.focus({ preventScroll: true });
+      companionTriggerRef.current = trigger;
+    }
+    setCompanionPickerKey(companion.key);
+  }, [companion.ready, companion.key]);
+  useEffect(() => {
+    if (showCompanionPicker) {
+      companionWasOpenRef.current = true;
+      return;
+    }
+    if (!companionWasOpenRef.current) return;
+    companionWasOpenRef.current = false;
+    const trigger = companionTriggerRef.current;
+    const fallback = [...document.querySelectorAll('[data-testid="back-to-lobby"]')]
+      .find(element => element.getClientRects().length > 0);
+    (trigger?.isConnected ? trigger : fallback)?.focus({ preventScroll: true });
+    companionTriggerRef.current = null;
+  }, [showCompanionPicker]);
+  useEffect(() => {
+    if (showCompanionPicker) return;
+    const warning = companion.ready && (companion.invalidated || companion.storageError)
+      ? JSON.stringify([companion.key, companion.invalidated, companion.storageError, companion.member]) : '';
+    if (!warning || warning === companionWarningRef.current) {
+      if (!warning) companionWarningRef.current = '';
+      return;
+    }
+    companionWarningRef.current = warning;
+    toast.info({
+      title: companion.invalidated ? '請重新確認旅伴' : '無法記住旅伴設定',
+      description: companion.invalidated
+        ? '原旅伴已不在名單中。可在旅程設定更正，或在需要本人歸屬時選擇。'
+        : companion.member
+          ? '本次已確認的選擇仍可使用；重新載入後請再確認設定。'
+          : '無法確認瀏覽器已記住的旅伴；重新載入後請再次檢查設定。',
+    });
+  }, [showCompanionPicker, companion.ready, companion.key, companion.invalidated, companion.storageError, companion.member, toast]);
+
   const existingDays = useMemo(() => sortDayIds(Object.keys(itinerary)), [itinerary]);
   useEffect(() => {
     if (typeof onTourAvailabilityChange !== 'function') return undefined;
 
     const availability = {
       roomId,
-      ready: !isLoading && Boolean(meta) && !loadError,
+      ready: !isLoading && Boolean(meta) && !loadError && !showCompanionPicker,
       blockingEditor: Boolean(
         editingItemData
         || copyingItem
@@ -2013,6 +2068,7 @@ const TripDetail = ({
     roomId,
     showChecklistModal,
     showExpenseModal,
+    showCompanionPicker,
     ticketEditorState,
   ]);
 
@@ -2247,35 +2303,6 @@ const TripDetail = ({
       },
     }));
   };
-
-  const membersList = useMemo(() => normalizeMembers(meta?.members), [meta]);
-
-  const companion = useCompanionIdentity({
-    source: isExampleTrip ? 'example' : 'firebase',
-    uid: authLoading ? '' : accountUser?.uid,
-    tripId: roomId,
-    members: membersList,
-    ready: !isLoading && !loadError && Boolean(meta) && ticketLoadedRoomRef.current === roomId,
-    displayName: accountUser?.displayName,
-  });
-  const requestCompanion = (eventOrElement) => {
-    if (!companion.ready) return;
-    const trigger = eventOrElement?.currentTarget || eventOrElement;
-    if (trigger instanceof HTMLElement) {
-      trigger.focus({ preventScroll: true });
-      companionTriggerRef.current = trigger;
-      companionNoticeRef.current = trigger.closest('[data-testid="companion-notice"]');
-    }
-    setCompanionPickerKey(companion.key);
-  };
-  useEffect(() => {
-    if (companionPickerKey || !companionTriggerRef.current) return;
-    const trigger = companionTriggerRef.current;
-    const fallback = companionNoticeRef.current?.querySelector('button');
-    (trigger.isConnected ? trigger : fallback)?.focus({ preventScroll: true });
-    companionTriggerRef.current = null;
-    companionNoticeRef.current = null;
-  }, [companionPickerKey]);
 
   const closeTicketEditor = useCallback(() => setTicketEditorState(null), []);
 
@@ -2992,7 +3019,7 @@ const TripDetail = ({
     }] : []),
     {
       id: 'checklist',
-      label: '共享清單',
+      label: '共用清單',
       icon: '✅',
       onSelect: () => setShowChecklistModal(true),
     },
@@ -3002,7 +3029,12 @@ const TripDetail = ({
       icon: '🖨️',
       onSelect: () => setShowExportModal(true),
     },
-  ]), [capabilities.sharing, handleShareLink, tripAccessRole]);
+    {
+      id: 'companion',
+      label: companion.member ? `本趟旅伴：${companion.member} · 更正旅伴` : '選擇本趟旅伴',
+      onSelect: requestCompanion,
+    },
+  ]), [capabilities.sharing, handleShareLink, tripAccessRole, companion.member, requestCompanion]);
 
   const focusMapOnPlace = useCallback((item) => {
     if (!map || !isValidCoordinates(item?.lat, item?.lng)) return;
@@ -4462,7 +4494,6 @@ const TripDetail = ({
                 tickets={tickets}
                 members={membersList}
                 activeMember={companion.member}
-                companionNotice={<CompanionNotice identity={companion} onChoose={requestCompanion} t={t} />}
                 startDate={meta.startDate}
                 t={t}
                 isSavingTicket={isSavingTicket}
@@ -4754,7 +4785,6 @@ const TripDetail = ({
           members={membersList}
           activeMember={companion.member}
           onRequestCompanion={requestCompanion}
-          companionNotice={<CompanionNotice identity={companion} onChoose={requestCompanion} t={t} />}
           onClose={() => setShowChecklistModal(false)}
           onCreate={(draft) => {
             if (!companion.isCurrent() || (draft.scope === 'personal' && !companion.isValidMember(draft.owner))) return;
@@ -4786,7 +4816,6 @@ const TripDetail = ({
           defaultDay={editingExpense?.dayId || safeCurrentDay || existingDays[0] || PRE_TRIP_ID}
           expense={editingExpense}
           defaultPayer={companion.member}
-          companionNotice={<CompanionNotice identity={companion} onChoose={requestCompanion} t={t} />}
           onClose={closeExpenseEditor}
           onSave={(expense) => {
             if (!companion.isCurrent() || !companion.isValidMember(expense.payer)) {
@@ -4884,8 +4913,15 @@ const TripDetail = ({
           onClose={() => setViewingPlaceResources(null)}
         />
       ) : null}
-      {companionPickerKey && companionPickerKey === companion.key && companion.ready ? (
-        <CompanionPicker identity={companion} members={membersList} onClose={() => setCompanionPickerKey('')} t={t} />
+      {showCompanionPicker ? (
+        <CompanionPicker
+          key={companion.key}
+          identity={companion}
+          members={membersList}
+          introduction={showCompanionIntroduction}
+          onClose={() => setCompanionPickerKey('')}
+          t={t}
+        />
       ) : null}
       <DndDebugPanel />
     </>

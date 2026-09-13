@@ -8,6 +8,7 @@ vi.mock('@vis.gl/react-google-maps', () => ({
 }));
 
 import { ParkingLayerController } from './ParkingLayerController.jsx';
+import { ParkingResultSheet } from './ParkingResultSheet.jsx';
 import { createParkingFacility } from './parkingFacilityModel.js';
 
 const theme = { headerBg: 'bg-white', cardBg: 'bg-white', cardBorder: 'border-slate-200', mainText: 'text-slate-900', subText: 'text-slate-500' };
@@ -147,7 +148,7 @@ describe('ParkingLayerController', () => {
       anchor: { lat: 25.033, lng: 121.5654 },
       radius: 500,
     });
-    expect(await screen.findByText(/TDX 尚未設定/)).toBeInTheDocument();
+    expect(await screen.findByText('官方停車資料尚未啟用；仍顯示 Google Maps 停車位置。')).toBeInTheDocument();
     expect(screen.getByTestId('parking-result-sheet')).toHaveTextContent('為 台北 101 找停車');
     expect(screen.getByTestId('parking-result-sheet')).toHaveClass('bottom-2', 'lg:w-96');
     expect(screen.getAllByRole('button', { name: /停車場 1/ })[0]).toHaveAttribute('aria-pressed', 'true');
@@ -182,6 +183,7 @@ describe('ParkingLayerController', () => {
     const card = screen.getByTestId('saved-parking-card');
     expect(card).toHaveClass('relative');
     expect(card).not.toHaveClass('absolute');
+    expect(card).toHaveTextContent('資料記錄時間：2026-09-09T00:00:00Z；可能已過期，請確認最新狀態。');
     await user.click(screen.getByRole('button', { name: '移除' }));
     expect(onRemove).toHaveBeenCalledOnce();
   });
@@ -193,11 +195,11 @@ describe('ParkingLayerController', () => {
     await user.click(screen.getByTestId('unified-parking-entry'));
     await user.click(screen.getByTestId('parking-search-button'));
     expect(await screen.findByTestId('parking-result-sheet')).toBeInTheDocument();
-    expect(await screen.findByText(/TDX 尚未設定/)).toBeInTheDocument();
+    expect(await screen.findByText('官方停車資料尚未啟用；仍顯示 Google Maps 停車位置。')).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText('為 台北 101 找停車的搜尋半徑'), '1000');
     expect(screen.queryByTestId('parking-result-sheet')).not.toBeInTheDocument();
-    expect(screen.queryByText(/TDX 尚未設定/)).not.toBeInTheDocument();
+    expect(screen.queryByText('官方停車資料尚未啟用；仍顯示 Google Maps 停車位置。')).not.toBeInTheDocument();
     expect(screen.getByTestId('parking-search-button')).toHaveTextContent('搜尋／重新搜尋');
     expect(searchParking).toHaveBeenCalledOnce();
 
@@ -282,5 +284,45 @@ describe('ParkingLayerController', () => {
     await user.click(screen.getByTestId('unified-parking-entry'));
     await user.click(screen.getByTestId('parking-search-button'));
     expect((await screen.findAllByText(/費率資料未提供/)).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['timeout', '官方停車資料回應逾時；目前顯示 Google Maps 停車位置。'],
+    ['rate_limited', '官方停車資料查詢次數已達上限；仍顯示 Google Maps 停車位置。'],
+  ])('explains the %s source limitation without implementation jargon', async (tdxStatus, message) => {
+    const user = userEvent.setup();
+    const searchParking = vi.fn().mockResolvedValue({ facilities, googleStatus: 'ok', tdxStatus });
+    render(<Harness searchParking={searchParking} />);
+    await user.click(screen.getByTestId('unified-parking-entry'));
+    await user.click(screen.getByTestId('parking-search-button'));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getAllByTestId('parking-result')).toHaveLength(5);
+    expect(searchParking).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['high', '可信度高'],
+    ['medium', '可信度中'],
+    ['low', '可信度低'],
+    ['unknown', '尚未確認'],
+  ])('keeps source, freshness, price, and %s match uncertainty understandable', (matchConfidence, matchLabel) => {
+    const facility = createParkingFacility({
+      ...facilities[0],
+      matchConfidence,
+      restrictions: { reservation: true },
+      source: { label: 'TDX', providerUpdatedAt: '2026-09-01T00:00:00Z', fetchedAt: '2026-09-02T00:00:00Z' },
+    });
+    render(<ParkingResultSheet facilities={[facility]} selectedId={facility.id} anchor={anchor} sort="best" t={theme} />);
+    const result = screen.getByTestId('parking-result');
+    expect(result).toHaveTextContent(`來源：TDX · 資料配對：${matchLabel} · 更新：2026-09-01T00:00:00Z`);
+    expect(result).toHaveTextContent('官方原始費率：每小時 60 元');
+    expect(result).toHaveTextContent('支援預約（本 App 不提供預約操作）');
+    expect(screen.getByText('Google Maps 與 TDX 資料分開標示；價格以現場公告為準。')).toBeInTheDocument();
+    expect(result).not.toHaveTextContent(/Provider:|confidence:|MVP/);
+    if (matchConfidence === 'medium') {
+      expect(result).toHaveTextContent('官方資料為可能配對，請確認名稱與位置。');
+    } else {
+      expect(result).not.toHaveTextContent('官方資料為可能配對，請確認名稱與位置。');
+    }
   });
 });

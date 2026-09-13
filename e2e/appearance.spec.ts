@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test, type Page } from '@playwright/test';
 
 import { markCurrentReleaseSeen } from './support/releaseNotes';
@@ -60,6 +61,7 @@ test('custom light surfaces stay readable when the device prefers dark mode', as
   }
 
   await page.goto('/?room=appearance-room');
+  await skipCompanionIntroduction(page);
   const syncStatus = page.getByTestId('sync-status-indicator').first();
   await expect(syncStatus).toContainText('已同步');
   await expect(syncStatus).toHaveAttribute('data-theme', 'light');
@@ -126,6 +128,7 @@ test('settings appearance trigger works at desktop width and returns focus to se
 
 test('Trip Settings opens the context-aware appearance dialog and persists its color', async ({ page }) => {
   await page.goto('/?room=appearance-room');
+  await skipCompanionIntroduction(page);
   const settingsTrigger = page.getByTestId('app-settings-trigger');
   await settingsTrigger.click();
   await page.getByTestId('app-settings-appearance').click();
@@ -143,5 +146,6 @@ test('Trip Settings opens the context-aware appearance dialog and persists its c
   await expect.poll(() => readEmulatorData('rooms/appearance-room/meta/themeColor'))
     .toBe('#123456');
   await page.reload();
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('active-trip-view')).toHaveCSS('background-color', 'rgb(18, 52, 86)');
 });

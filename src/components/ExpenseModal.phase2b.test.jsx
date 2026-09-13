@@ -69,13 +69,20 @@ describe('ExpenseModal Phase 2B 表單流程', () => {
 
   it('does not overwrite an open draft when the shared preference loads or changes', () => {
     const view = render(<ExpenseModal {...commonProps} defaultPayer="" />);
+    expect(view.queryByRole('button', { name: /選擇旅伴|更正旅伴/ })).not.toBeInTheDocument();
+    expect(view.queryByText('記錄付款人、分攤方式與外幣金額。')).not.toBeInTheDocument();
     fireEvent.change(view.getByTestId('expense-item-input'), { target: { value: '草稿' } });
+    fireEvent.change(view.getByTestId('expense-local-cost-input'), { target: { value: '420' } });
+    fireEvent.change(view.getByTestId('expense-note-input'), { target: { value: '保留備註' } });
     view.rerender(<ExpenseModal {...commonProps} defaultPayer="朋友" />);
     expect(view.getByTestId('expense-payer-select')).toHaveValue('');
     fireEvent.change(view.getByTestId('expense-payer-select'), { target: { value: '自己' } });
     view.rerender(<ExpenseModal {...commonProps} defaultPayer="朋友" />);
     expect(view.getByTestId('expense-payer-select')).toHaveValue('自己');
     expect(view.getByTestId('expense-item-input')).toHaveValue('草稿');
+    expect(view.getByTestId('expense-local-cost-input')).toHaveValue(420);
+    expect(view.getByTestId('expense-note-input')).toHaveValue('保留備註');
+    expect(view.getByTestId('expense-payer-select')).not.toHaveAttribute('aria-describedby');
   });
 
   it('preserves a removed source payer and blocks both save and duplicate until explicitly corrected', () => {
@@ -84,10 +91,15 @@ describe('ExpenseModal Phase 2B 表單流程', () => {
     const expense = { id: 'old', payer: '已離開', item: '原帳目', cost: 1000, localCost: 1000, currency: 'TWD', exchangeRate: 1, dayId: 'Day 1', split: { 自己: 500, 朋友: 500 } };
     const view = render(<ExpenseModal {...commonProps} expense={expense} onSave={onSave} onDuplicate={onDuplicate} />);
     expect(view.getByTestId('expense-payer-select')).toHaveValue('已離開');
+    expect(view.getByTestId('expense-payer-select')).toHaveAttribute('aria-invalid', 'true');
+    expect(view.getByTestId('expense-payer-select')).toHaveAccessibleDescription('原付款人已不在名單，請明確選擇；其他內容會保留。');
+    expect(view.queryByText('修改後，結算、預算與圓餅圖會自動重新計算。')).not.toBeInTheDocument();
     fireEvent.click(view.getByTestId('expense-save-button'));
     fireEvent.click(view.getByTestId('expense-duplicate-button'));
     expect(onSave).not.toHaveBeenCalled();
     expect(onDuplicate).not.toHaveBeenCalled();
+    expect(window.alert).toHaveBeenCalledTimes(2);
+    expect(window.alert).toHaveBeenCalledWith('付款人已不在旅程成員中，請重新選擇。');
     expect(expense.payer).toBe('已離開');
   });
 
@@ -100,6 +112,8 @@ describe('ExpenseModal Phase 2B 表單流程', () => {
       />,
     );
 
+    expect(view.getByTestId('expense-payer-select')).toHaveValue('自己');
+    expect(view.queryByRole('button', { name: /選擇旅伴|更正旅伴/ })).not.toBeInTheDocument();
     fireEvent.change(view.getByTestId('expense-item-input'), {
       target: { value: '測試晚餐' },
     });

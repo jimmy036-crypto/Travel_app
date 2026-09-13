@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test, type Page } from '@playwright/test';
 
 import {
@@ -79,6 +80,7 @@ async function addTestPlace(page: Page): Promise<void> {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   await expect
     .poll(
@@ -221,6 +223,7 @@ test('景點封面圖片會上傳、持久化並從 Database 與 Storage 一併�
 
   await page.reload();
   await expect(placeCard(page)).toBeVisible({ timeout: 20_000 });
+  await skipCompanionIntroduction(page);
   await openPlaceEditor(page);
   await expect(page.getByTestId('place-photo-preview')).toBeVisible();
 
@@ -368,6 +371,7 @@ test('景點資料圖片會上傳、持久化並從 Database 與 Storage 一併�
 
   await page.reload();
   await expect(placeCard(page)).toBeVisible({ timeout: 20_000 });
+  await skipCompanionIntroduction(page);
   await openPlaceEditor(page);
 
   const persistedResourceRow = page
@@ -525,6 +529,7 @@ test('景點 PDF 附件會上傳、持久化並從 Database 與 Storage 一併�
 
   await page.reload();
   await expect(placeCard(page)).toBeVisible({ timeout: 20_000 });
+  await skipCompanionIntroduction(page);
   await openPlaceEditor(page);
 
   const persistedResourceRow = page

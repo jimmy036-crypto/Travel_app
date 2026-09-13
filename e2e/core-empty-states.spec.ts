@@ -9,6 +9,7 @@ import {
   seedTestTripInvite,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 const ROOM_ID = 'e2ecoreemptystatesroom0001';
 
@@ -89,6 +90,7 @@ async function openTrip(page: Page, itinerary: Record<string, SeedPlace[]>) {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 }
 
 test('shows a useful lobby empty state when there are no trips', async ({
@@ -151,6 +153,7 @@ test('joins a trip only after redeeming a secure invite link', async ({ page }) 
   );
   await expect(page.getByTestId('toast').filter({ hasText: '已加入旅程' }))
     .toBeVisible();
+  await skipCompanionIntroduction(page);
   expect(await readEmulatorData(
     `roomAccess/${ROOM_ID}/members/${E2E_AUTH_UID}/role`,
   )).toBe('editor');

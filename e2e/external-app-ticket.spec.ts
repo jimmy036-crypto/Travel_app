@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { writeEmulatorData } from './support/emulator';
 import {
@@ -15,7 +15,6 @@ import {
   prepareTicketRoom,
   readTicket,
   readTickets,
-  safeMemberTestId,
   submitTicket,
   ticketCard,
   type TicketRecord,
@@ -40,10 +39,12 @@ async function expectSafeAnchor(anchor: ReturnType<Page['getByRole']>, href: str
 }
 
 async function chooseIdentity(page: Page, member: string): Promise<void> {
-  await page.getByRole('button', { name: '選擇旅伴', exact: true }).click();
-  await page.getByTestId('companion-member')
-    .filter({ hasText: member })
-    .click();
+  await page.getByTestId('app-settings-trigger').click();
+  await page.getByTestId('app-settings-trip-companion').click();
+  await expect(page.getByRole('dialog', { name: '選擇本趟旅伴', exact: true })).toBeVisible();
+  await page.getByTestId('companion-picker').getByRole('button', { name: member, exact: true }).click();
+  await expect(page.getByTestId('companion-picker')).toHaveCount(0);
+  await expect(page.getByTestId('app-settings-trigger')).toBeFocused();
 }
 
 async function expectTitles(page: Page, expected: string[]): Promise<void> {
@@ -305,7 +306,9 @@ test('persists device identity and applies common, member and presenter filters'
   await writeEmulatorData(`rooms/${ROOM_ID}/tickets`, seeded);
   await openTicketPanel(page, ROOM_ID);
 
-  await expect(page.getByText('設定你在這趟旅程中的名字')).toBeVisible();
+  await expect(page.getByTestId('ticket-filter-mine')).toHaveCount(0);
+  await expect(page.getByTestId('companion-notice')).toHaveCount(0);
+  expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_MEMBER_KEY)).toBeNull();
   await page.getByTestId('ticket-filter-common').click();
   await expectTitles(page, ['Common seeded']);
   await page.getByTestId('ticket-filter-all').click();
@@ -360,15 +363,23 @@ test('persists device identity and applies common, member and presenter filters'
   await expect(ticketCard(page, 'Editor common ticket')).toHaveCount(1);
 
   await page.reload();
-  await openTicketPanel(page, ROOM_ID);
+  await openTicketPanel(page, ROOM_ID, { companionConfirmed: true });
   await expect(page.getByTestId('ticket-filter-mine'))
     .toHaveAttribute('aria-pressed', 'true');
 
   const ticketsBeforeMemberRemoval = await readTickets(ROOM_ID);
   await writeEmulatorData(`rooms/${ROOM_ID}/meta/members`, [MEMBER_B]);
+  await expect(page.getByTestId('ticket-filter-mine')).toHaveCount(0);
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), ACTIVE_MEMBER_KEY))
+    .toBe(JSON.stringify({ version: 1, confirmed: false, member: '' }));
   await page.reload();
-  await openTicketPanel(page, ROOM_ID);
-  await expect(page.getByText('設定你在這趟旅程中的名字')).toBeVisible();
+  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await expect(page.getByRole('dialog', { name: '你是這趟旅程中的哪位旅伴？', exact: true })).toHaveCount(0);
+  await page.locator('[data-testid="ticket-tab-button"]:visible').click();
+  await expect(page.getByTestId('ticket-filter-mine')).toHaveCount(0);
+  await page.getByTestId('app-settings-trigger').click();
+  await expect(page.getByTestId('app-settings-trip-companion')).toHaveText('選擇本趟旅伴');
+  await page.keyboard.press('Escape');
   expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_MEMBER_KEY))
     .toBe(JSON.stringify({ version: 1, confirmed: false, member: '' }));
   expect(await readTickets(ROOM_ID)).toEqual(ticketsBeforeMemberRemoval);

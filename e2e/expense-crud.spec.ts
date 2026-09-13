@@ -1,4 +1,5 @@
 import { expect, test, type Dialog, type Page } from '@playwright/test';
+import { skipCompanionIntroduction } from './support/companion';
 
 import {
   clearEmulatorDatabase,
@@ -43,6 +44,7 @@ async function openExpenseTab(page: Page): Promise<void> {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   const expenseTab = page.locator(
     '[data-testid="expense-tab-button"]:visible',

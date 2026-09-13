@@ -183,10 +183,16 @@ describe('App unified example trip integration', () => {
     offlineMocks.list.mockReturnValue([]);
   });
 
-  it('shows the example with the shared TripCard in an empty lobby', async () => {
+  it('keeps one empty-lobby explanation and both entry actions beside the shared example card', async () => {
     await renderLobby();
+    const emptyState = await screen.findByTestId('lobby-empty-state');
+    expect(within(emptyState).getByRole('heading', { name: '建立你的第一個旅程' })).toBeVisible();
+    expect(within(emptyState).getByText('集中管理每日行程、景點、費用與旅伴協作，從第一個旅程開始規劃。')).toBeVisible();
+    expect(within(emptyState).getByRole('button', { name: '建立新旅程' })).toBeEnabled();
+    expect(within(emptyState).getByRole('button', { name: '加入旅程' })).toBeEnabled();
     expect(within(screen.getByTestId('demo-trip-entry-card')).getByTestId('trip-card')).toBeVisible();
-    expect(await screen.findByTestId('lobby-next-trip-summary')).toHaveAttribute('data-state', 'empty');
+    expect(screen.queryByTestId('lobby-next-trip-summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('集中規劃行程、地圖、票券與旅費')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /開啟下一趟旅程/ })).not.toBeInTheDocument();
   });
 
@@ -194,6 +200,8 @@ describe('App unified example trip integration', () => {
     await renderLobby([REAL_TRIP]);
     expect(screen.getAllByTestId('trip-card')).toHaveLength(2);
     expect(screen.getByTestId('demo-trip-entry-card')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '你的旅程' })).toBeVisible();
+    expect(screen.queryByText('Travel workspace')).not.toBeInTheDocument();
   });
 
   it('opens the earliest real upcoming trip from the Lobby summary', async () => {

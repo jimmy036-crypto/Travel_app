@@ -132,8 +132,8 @@ describe('AppSettingsMenu', () => {
     }
 
     expect(screen.getByTestId('app-settings-release-notes')).toHaveTextContent('更新內容');
-    expect(screen.getByTestId('app-settings-feature-introduction')).toHaveTextContent('功能介紹');
-    expect(screen.getByTestId('app-settings-feature-tour')).toHaveTextContent('功能導覽');
+    expect(screen.getByTestId('app-settings-feature-introduction')).toHaveTextContent('認識 Travel');
+    expect(screen.getByTestId('app-settings-feature-tour')).toHaveTextContent('操作導覽');
     expect(screen.getAllByTestId('app-settings-menu')).toHaveLength(1);
   });
 
@@ -442,9 +442,10 @@ describe('AppSettingsMenu', () => {
     await openMenu(user);
     const introduction = screen.getByTestId('app-settings-feature-introduction');
     const tour = screen.getByTestId('app-settings-feature-tour');
-    expect(introduction).toHaveTextContent('功能介紹');
-    expect(introduction).toHaveAccessibleName('重新開啟功能介紹');
-    expect(tour).toHaveAccessibleName('開啟旅程功能導覽');
+    expect(introduction).toHaveTextContent('認識 Travel');
+    expect(introduction).toHaveAccessibleName('認識 Travel');
+    expect(tour).toHaveTextContent('操作導覽');
+    expect(tour).toHaveAccessibleName('開啟操作導覽');
 
     await user.click(introduction);
     expect(onOpenFeatureIntroduction).toHaveBeenCalledTimes(1);

@@ -935,7 +935,6 @@ const CURRENCIES = [
 export const ExpenseModal = ({
   members,
   defaultPayer = '',
-  companionNotice,
   existingDays,
   startDate,
   defaultDay,
@@ -1173,9 +1172,6 @@ export const ExpenseModal = ({
             >
               {isEditing ? "✏️ 編輯帳目" : "💰 新增記帳"}
             </h2>
-            <p className={`text-[11px] mt-1 ${t.subText}`}>
-              {isEditing ? "修改後，結算、預算與圓餅圖會自動重新計算。" : "記錄付款人、分攤方式與外幣金額。"}
-            </p>
           </div>
           <button
             type="button"
@@ -1278,7 +1274,7 @@ export const ExpenseModal = ({
                 data-testid="expense-payer-select"
                 value={payer}
                 aria-invalid={!validMembers.includes(payer)}
-                aria-describedby="expense-payer-help"
+                aria-describedby={payer && !validMembers.includes(payer) ? 'expense-payer-help' : undefined}
                 onChange={event => setPayer(event.target.value)}
                 className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               >
@@ -1286,11 +1282,11 @@ export const ExpenseModal = ({
                 {payer && !validMembers.includes(payer) ? <option value={payer}>{payer}（已不在旅伴名單）</option> : null}
                 {validMembers.map(member => <option key={`payer-${member}`} value={member}>{member}</option>)}
               </select>
-              <p id="expense-payer-help" className={`mt-1 text-sm ${t.mainText}`}>
-                {payer && !validMembers.includes(payer) ? '原付款人已不在名單，請明確選擇；其他內容會保留。' : '只設定這筆記帳的付款人，不會更正本趟旅伴。'}
-              </p>
-              {companionNotice}
-              {companionNotice ? <p className={`mt-1 text-sm ${t.mainText}`}>更正旅伴只影響之後新開的記帳；本筆付款人請在上方選擇。</p> : null}
+              {payer && !validMembers.includes(payer) ? (
+                <p id="expense-payer-help" className={`mt-1 text-sm ${t.mainText}`}>
+                  原付款人已不在名單，請明確選擇；其他內容會保留。
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -2500,7 +2496,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
                         <input data-testid="place-resource-image-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleImageResourceChange} className="hidden" />
                       </label>
 
-                      <p className={`text-[10px] leading-relaxed ${t.subText}`}>菜單照片會合併成 App 內相簿，可左右滑動，不會當成景點封面。</p>
+                      <p className={`text-[10px] leading-relaxed ${t.subText}`}>菜單照片可在相簿左右滑動查看。</p>
 
                       <div className="flex gap-2">
                         {editingResourceId && editingResourceKind === 'image' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
@@ -2547,7 +2543,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
                         <input data-testid="place-resource-pdf-input" type="file" accept="application/pdf,.pdf" onChange={handlePdfChange} className="hidden" />
                       </label>
 
-                      <p className={`text-[10px] leading-relaxed ${t.subText}`}>PDF 會集中在「菜單」或「資料」面板中，不會塞滿行程卡片。</p>
+                      <p className={`text-[10px] leading-relaxed ${t.subText}`}>儲存後可從「菜單」或「資料」開啟 PDF。</p>
 
                       <div className="flex gap-2">
                         {editingResourceId && editingResourceKind === 'file' ? <button type="button" onClick={resetResourceDrafts} className={`min-h-11 px-4 rounded-xl border text-xs font-bold ${t.cardBorder} ${t.mainText}`}>取消編輯</button> : null}
@@ -2933,14 +2929,11 @@ const ChecklistItemEditorModal = ({
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className={`text-[10px] font-black tracking-widest uppercase ${actualScope === 'shared' ? 'text-blue-500' : 'text-purple-500'}`}>
-                {actualScope === 'shared' ? '共享項目' : `${owner || actor} 的個人項目`}
+                {actualScope === 'shared' ? '共用項目' : `${owner || actor} 的個人項目`}
               </p>
               <h3 id="checklist-item-editor-title" className={`text-xl font-black mt-1 ${t.mainText}`}>
                 {isEditing ? '編輯清單項目' : '新增清單項目'}
               </h3>
-              <p className={`text-xs mt-1 leading-5 ${t.subText}`}>
-                先輸入要完成的事情，分類與負責人可再視需要設定。
-              </p>
             </div>
             <button
               type="button"
@@ -3090,7 +3083,6 @@ export const ChecklistModal = ({
   members,
   activeMember,
   onRequestCompanion,
-  companionNotice,
   onClose,
   onCreate,
   onUpdate,
@@ -3230,7 +3222,6 @@ export const ChecklistModal = ({
                   <span className="text-2xl">✅</span>
                   <h2 id="checklist-modal-title" className={`text-xl md:text-2xl font-black ${t.mainText}`}>行前清單</h2>
                 </div>
-                <p className={`text-xs mt-1 leading-5 ${t.subText}`}>集中查看待辦與行李；新增和編輯會在獨立視窗完成。</p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -3255,7 +3246,7 @@ export const ChecklistModal = ({
               <div>
                 <div className="flex items-center justify-between gap-3 mb-2">
                   <span className={`text-xs font-bold ${t.mainText}`}>
-                    {scope === 'shared' ? '共享進度' : `${viewedMember || '未選擇旅伴'} 的進度`}
+                    {scope === 'shared' ? '共用清單進度' : `${viewedMember || '未選擇旅伴'} 的進度`}
                   </span>
                   <span className={`text-xs font-mono font-black ${progressPercent === 100 && totalCount > 0 ? 'text-emerald-500' : t.subText}`}>
                     {completedCount}/{totalCount}・{progressPercent}%
@@ -3288,7 +3279,6 @@ export const ChecklistModal = ({
             style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
             className="flex-1 min-h-0 overflow-y-auto overscroll-contain md:overflow-hidden flex flex-col p-3.5 md:p-6 gap-3 md:gap-4"
           >
-            {companionNotice}
             <div className={`grid grid-cols-2 p-1 rounded-2xl border shrink-0 ${t.cardBg} ${t.cardBorder}`}>
               <button
                 type="button"
@@ -3308,7 +3298,7 @@ export const ChecklistModal = ({
 
             {scope === 'personal' ? (
               <div className="rounded-xl border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-[11px] leading-5 text-purple-600 shrink-0">
-                這是依成員分開顯示的共編清單，不是私人加密空間；持有旅程連結的人仍可切換成員查看。
+                個人清單僅依旅伴分類，不是私密空間；有此旅程存取權的成員仍可查看。
               </div>
             ) : null}
 
@@ -3354,11 +3344,11 @@ export const ChecklistModal = ({
               <div className={`rounded-2xl border p-4 shrink-0 ${t.cardBg} ${t.cardBorder}`}>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div>
-                    <p className={`text-sm font-black ${t.mainText}`}>{scope === 'shared' ? '共享行前基本範本' : `${viewedMember || '未選擇旅伴'} 的個人行李範本`}</p>
-                    <p className={`text-[10px] mt-1 leading-5 ${t.subText}`}>只補上尚未存在的項目，不會建立重複內容。</p>
+                    <p className={`text-sm font-black ${t.mainText}`}>{scope === 'shared' ? '共用行前基本範本' : `${viewedMember || '未選擇旅伴'} 的個人行李範本`}</p>
+                    <p className={`text-[10px] mt-1 leading-5 ${t.subText}`}>僅加入尚未存在的項目。</p>
                   </div>
                   <button type="button" onClick={handleTemplateInsert} className="min-h-11 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black shadow-md active:scale-95">
-                    一鍵加入 {scope === 'shared' ? SHARED_CHECKLIST_TEMPLATE.length : PERSONAL_CHECKLIST_TEMPLATE.length} 項
+                    加入範本項目
                   </button>
                 </div>
               </div>
@@ -3371,8 +3361,12 @@ export const ChecklistModal = ({
               {visibleItems.length === 0 ? (
                 <div className={`h-full min-h-52 rounded-2xl border border-dashed flex flex-col items-center justify-center text-center p-6 ${t.cardBorder}`}>
                   <span className="text-4xl mb-3">{filter === 'done' ? '🎉' : '🧳'}</span>
-                  <p className={`text-sm font-black ${t.mainText}`}>{filter === 'done' ? '目前沒有已完成項目' : categoryFilter === 'all' ? '這個清單目前是空的' : '此分類目前沒有項目'}</p>
-                  <p className={`text-xs mt-1 leading-5 max-w-xs ${t.subText}`}>{filter === 'done' ? '勾選完成後，項目會出現在這裡。' : '用新增按鈕建立一個項目，或套用常用範本快速開始。'}</p>
+                  <p className={`text-sm font-black ${t.mainText}`}>
+                    {totalCount === 0 ? '這個清單目前是空的' : filter === 'open' && openCount === 0 ? '目前沒有待完成項目' : '目前篩選沒有符合項目'}
+                  </p>
+                  <p className={`text-xs mt-1 leading-5 max-w-xs ${t.subText}`}>
+                    {totalCount === 0 ? '新增項目，或加入常用範本開始準備。' : filter === 'open' && openCount === 0 ? '項目都已完成，可切換「已完成」查看。' : '切換完成狀態或分類，查看其他項目。'}
+                  </p>
                   {filter !== 'done' ? (
                     <div className="flex flex-wrap justify-center gap-2 mt-4">
                       <button type="button" onClick={openCreateEditor} className={`min-h-11 px-4 rounded-xl text-white text-xs font-black shadow-md ${scope === 'shared' ? 'bg-blue-600' : 'bg-purple-600'}`}>＋ 新增項目</button>
@@ -3542,7 +3536,6 @@ export const ExportItineraryModal = ({
         <header className={`sticky top-0 z-10 flex items-start justify-between gap-4 p-5 md:p-6 border-b backdrop-blur-xl ${t.headerBg} ${t.cardBorder}`}>
           <div>
             <h2 className={`text-xl font-black ${t.mainText}`}>🖨️ 匯出行程</h2>
-            <p className={`text-xs mt-1 leading-5 ${t.subText}`}>完整行程適合列印、另存 PDF 或傳給不常使用 App 的同行者。</p>
           </div>
           <button onClick={onClose} className={`w-10 h-10 rounded-full bg-slate-500/10 flex items-center justify-center text-lg hover:bg-red-500 hover:text-white transition-colors shrink-0 ${t.subText}`}>✕</button>
         </header>
@@ -3633,7 +3626,7 @@ export const ExportItineraryModal = ({
               </select>
               <div className={`mt-4 rounded-2xl border p-4 ${t.cardMetaBg} ${t.cardBorder}`}>
                 <p className={`text-xs font-bold ${t.mainText}`}>適合快速傳到聊天室</p>
-                <p className={`text-[10px] mt-1 leading-5 ${t.subText}`}>會延續原本功能，把單日行程卡輸出成 JPG；長行程仍建議使用完整 PDF 版。</p>
+                <p className={`text-[10px] mt-1 leading-5 ${t.subText}`}>單日行程輸出為 JPG；長行程建議選擇完整行程，透過瀏覽器列印另存 PDF。</p>
               </div>
             </section>
           )}

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -79,6 +79,9 @@ describe('TripSharingDialog', () => {
     expect(screen.getAllByText('擁有者')).toHaveLength(2);
     expect(screen.getByText('旅伴')).toBeInTheDocument();
     expect(client.listTripMembers).toHaveBeenCalledWith('room-1');
+    expect(screen.getByRole('heading', { name: '邀請與成員' })).toBeVisible();
+    expect(screen.getByText('受邀者需以 Google 登入並透過有效連結加入。請勿公開張貼。')).toBeVisible();
+    expect(screen.queryByText('安全共編')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '複製' }));
     expect(clipboardWrite).toHaveBeenCalledWith(inviteInput.value);
@@ -100,6 +103,8 @@ describe('TripSharingDialog', () => {
     await user.click(screen.getByRole('button', { name: '停用連結' }));
     await waitFor(() => expect(client.revokeTripInvite).toHaveBeenCalledWith('room-1'));
     expect(screen.queryByRole('textbox', { name: '旅程邀請連結' })).not.toBeInTheDocument();
+    expect(screen.getByText('邀請目前未啟用。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '建立連結' })).toBeEnabled();
     expect(dialogMocks.confirm).toHaveBeenCalledTimes(2);
   });
 
@@ -173,7 +178,11 @@ describe('TripSharingDialog', () => {
     });
     render(<TripSharingDialog open roomId="room-1" role="owner" onClose={vi.fn()} client={client} />);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('你不是此旅程的成員。');
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent('你不是此旅程的成員。');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(within(error.parentElement).getByRole('button', { name: '重新載入分享設定' })).toBeEnabled();
+    expect(screen.queryByText('分享設定載入失敗，請重新載入。')).not.toBeInTheDocument();
   });
 
   it('keeps loading distinct from inactive invites and retries a failed load explicitly', async () => {
@@ -186,12 +195,40 @@ describe('TripSharingDialog', () => {
     expect(screen.queryByText(/未啟用|沒有可管理/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '建立連結' })).not.toBeInTheDocument();
     await act(async () => pending.resolve(Promise.reject(new Error('Synthetic load failure'))));
-    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent('Synthetic load failure');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(within(error.parentElement).getByRole('button', { name: '重新載入分享設定' })).toBeEnabled();
     expect(client.getOrCreateTripInvite).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(/未啟用|沒有可管理/)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '重新載入分享設定' }));
     expect(await screen.findByRole('textbox', { name: '旅程邀請連結' })).toBeInTheDocument();
     expect(client.getOrCreateTripInvite).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['換發連結', 'rotateTripInvite'],
+    ['停用連結', 'revokeTripInvite'],
+    ['移除成員：旅伴', 'removeTripMember'],
+  ])('retains the specific %s failure without duplicating a load error or discarding owner data', async (name, method) => {
+    const user = userEvent.setup();
+    const client = createClient();
+    client[method].mockRejectedValue(new Error('這次操作未完成，請稍後再試。'));
+    render(<TripSharingDialog open roomId="room-1" role="owner" onClose={vi.fn()} client={client} />);
+    const inviteInput = await screen.findByRole('textbox', { name: '旅程邀請連結' });
+
+    await user.click(screen.getByRole('button', { name }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('這次操作未完成，請稍後再試。');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: '重新載入分享設定' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '旅程邀請連結' })).toBe(inviteInput);
+    expect(inviteInput).toHaveValue(`http://localhost:3000/#invite=${inviteToken}`);
+    expect(screen.getByText('旅伴')).toBeVisible();
+    expect(screen.getByRole('button', { name })).toBeEnabled();
+    expect(client[method]).toHaveBeenCalledOnce();
+    expect(dialogMocks.toastInfo).not.toHaveBeenCalled();
   });
 
   it.each([

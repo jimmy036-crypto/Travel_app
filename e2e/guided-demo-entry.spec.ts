@@ -8,6 +8,7 @@ import {
   seedTestTrip,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 const REAL_ROOM_ID = 'e2eunifiedrealroom01';
 const EXAMPLE_ID = 'local-example-trip';
@@ -68,6 +69,7 @@ test('example card opens the shared TripDetail without cloud writes', async ({ p
 
   const initialUrl = page.url();
   await openExample(page);
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('trip-route-context')).toHaveAttribute(
     'data-trip-source',
     'example',
@@ -115,9 +117,11 @@ test('example and regular cards retain the same structure and isolated data', as
   await expect(cards.nth(1).getByTestId('trip-card-title')).toHaveText(REAL_TRIP.title);
 
   await openExample(page);
+  await skipCompanionIntroduction(page);
   await page.getByTestId('back-to-lobby').click();
   await cards.nth(1).getByTestId('trip-card-title').click();
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('trip-route-context')).toHaveAttribute(
     'data-trip-source',
     'firebase',

@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import {
   devices,
   expect,
@@ -119,6 +120,7 @@ async function openRoom(
     timeout: 20_000,
   });
   await expectTripTitle(page, INITIAL_TITLE);
+  await skipCompanionIntroduction(page);
 
   return { context, page };
 }
@@ -825,6 +827,7 @@ test('syncs storage attachment status between active browser contexts in realtim
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(contextB.page);
     await expectTripTitle(contextB.page, INITIAL_TITLE);
     await openTicketPanel(contextB.page);
     await expectSyncedTicketAttachment(contextB.page);
@@ -860,6 +863,7 @@ test('syncs expense creation between active browser contexts in realtime', async
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(contextB.page);
     await expectTripTitle(contextB.page, INITIAL_TITLE);
     await openExpenseTab(contextB.page);
     await expectSyncedExpense(contextB.page);
@@ -897,6 +901,7 @@ test('syncs expense edits between active browser contexts in realtime', async ({
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(contextB.page);
     await expectTripTitle(contextB.page, INITIAL_TITLE);
     await openExpenseTab(contextB.page);
     await expectEditedExpense(contextB.page);
@@ -928,6 +933,7 @@ test('syncs expense deletion between active browser contexts in realtime', async
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(contextB.page);
     await expectTripTitle(contextB.page, INITIAL_TITLE);
     await openExpenseTab(contextB.page);
     await expectDeletedExpense(contextB.page);
@@ -960,6 +966,7 @@ test('syncs place deletion between active browser contexts in realtime', async (
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(contextB.page);
     await expectTripTitle(contextB.page, INITIAL_TITLE);
     await expect(placeCardByName(contextB.page, CREATED_PLACE.name))
       .toBeHidden({ timeout: 20_000 });
@@ -1028,6 +1035,7 @@ test('syncs itinerary drag changes between active browser contexts in realtime',
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(contextB.page);
     await expectTripTitle(contextB.page, INITIAL_TITLE);
     await expect
       .poll(() => visibleOrder(contextB.page, 'Day 1'), {
@@ -1061,6 +1069,7 @@ test('syncs place creation between active browser contexts in realtime', async (
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(contextB.page);
     await expectTripTitle(contextB.page, INITIAL_TITLE);
     await expectSyncedPlaceDetails(contextB.page, CREATED_PLACE);
   } finally {
@@ -1103,6 +1112,7 @@ test('syncs place edits between active browser contexts in realtime', async ({
     await expect(contextB.page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(contextB.page);
     await expectTripTitle(contextB.page, INITIAL_TITLE);
     await expect(placeCardByName(contextB.page, CREATED_PLACE.name))
       .toBeHidden({ timeout: 20_000 });

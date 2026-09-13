@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { skipCompanionIntroduction } from './support/companion';
 import { createAttachmentTicket } from './support/tickets';
 
 import {
@@ -83,6 +84,7 @@ async function waitForActiveTrip(page: Page): Promise<void> {
 
 async function openTicketPanel(page: Page): Promise<void> {
   await waitForActiveTrip(page);
+  await skipCompanionIntroduction(page);
 
   const ticketTab = page.locator(
     '[data-testid="ticket-tab-button"]:visible',

@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import {
   devices,
   expect,
@@ -30,6 +31,7 @@ async function openRoom(browser: Browser, projectName: string) {
   const page = await context.newPage();
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+  await skipCompanionIntroduction(page);
   return { context, page };
 }
 

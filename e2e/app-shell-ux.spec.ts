@@ -7,6 +7,7 @@ import {
   seedTestTripInvite,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 const SHELL_ROOM_ID = 'e2eappshelluxroom0001';
 const COLLABORATION_ROOM_ID = 'e2eappshellcollaboration';
@@ -116,11 +117,12 @@ async function openShellTrip(page: Page): Promise<void> {
     timeout: 20_000,
   });
   await expect(page.getByTestId('itinerary-horizontal-scroll')).toBeVisible();
+  await skipCompanionIntroduction(page);
 }
 
 test('mobile lobby actions use a consistent responsive layout', async ({
   page,
-}) => {
+}, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await markCurrentReleaseSeen(page);
   await seedShellTrip();
@@ -131,6 +133,9 @@ test('mobile lobby actions use a consistent responsive layout', async ({
   const importButton = page.getByTestId('import-trip-button');
 
   await expect(page.getByTestId('travel-lobby')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '你的旅程', exact: true })).toBeVisible();
+  await expect(page.getByText('Travel workspace', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('集中規劃行程、地圖、票券與旅費', { exact: true })).toHaveCount(0);
   await expect(page.getByTestId('app-settings-trigger')).toBeVisible();
   await expect(createButton).toBeVisible();
   await expect(importButton).toBeVisible();
@@ -151,9 +156,20 @@ test('mobile lobby actions use a consistent responsive layout', async ({
   expect(visualBox?.height).toBeGreaterThanOrEqual(84);
   expect((infoBox?.y || 0) + (infoBox?.height || 0)).toBeLessThanOrEqual((visualBox?.y || 0) + 1);
   expect(headerBox?.height || Number.POSITIVE_INFINITY).toBeLessThan(430);
+  await testInfo.attach('after-copy-lobby-390', {
+    body: await page.screenshot({
+      path: `.tmp/copy-evidence/app-shell-${testInfo.project.name.replace(/[^a-z0-9-]/giu, '-')}-lobby-390.png`,
+      animations: 'disabled',
+    }),
+    contentType: 'image/png',
+  });
 
   await page.getByTestId('app-settings-trigger').click();
   await expect(page.getByTestId('app-settings-feature-introduction')).toBeVisible();
+  await expect(page.getByTestId('app-settings-feature-introduction')).toHaveText('認識 Travel');
+  await expect(page.getByTestId('app-settings-feature-introduction')).toHaveAccessibleName('認識 Travel');
+  await expect(page.getByTestId('app-settings-feature-tour')).toHaveText('操作導覽');
+  await expect(page.getByTestId('app-settings-feature-tour')).toHaveAccessibleName('開啟操作導覽');
   await expect(page.getByTestId('app-settings-appearance')).toBeVisible();
 });
 
@@ -176,6 +192,9 @@ test('opens release notes and feature tour from the settings menu', async ({
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await expect(page.getByRole('dialog', { name: '你是這趟旅程中的哪位旅伴？', exact: true })).toBeVisible();
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('feature-tour')).toBeVisible({
     timeout: 20_000,
   });
@@ -303,9 +322,11 @@ test('T3 lobby long names, native trip controls and theme surfaces remain usable
   await page.getByTestId('trip-modal').getByRole('button', { name: '取消', exact: true }).click();
   await cards[0].getByRole('button', { name: /^開啟旅程：/ }).press('Enter');
   await expect(page.getByTestId('trip-detail-title')).toHaveText(LONG_CHINESE_TITLE);
+  await skipCompanionIntroduction(page);
   await page.getByTestId('back-to-lobby').click();
   await cards[1].getByRole('button', { name: /^開啟旅程：/ }).press('Space');
   await expect(page.getByTestId('trip-detail-title')).toHaveText(LONG_ENGLISH_TITLE);
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('mobile-bottom-navigation').getByRole('button')).toHaveText(['行程', '地圖', '票券', '記帳']);
 });
 
@@ -322,6 +343,7 @@ test('T3 owner sharing loading, retry, clipboard fallback and confirmation remai
   });
   await page.goto(`/?room=${SHELL_ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   let releaseInitialLoad!: () => void;
   const heldLoad = new Promise<void>((resolve) => { releaseInitialLoad = resolve; });
   let inviteLoads = 0;
@@ -346,9 +368,24 @@ test('T3 owner sharing loading, retry, clipboard fallback and confirmation remai
   await expect(page.getByTestId('trip-sharing-close')).toBeFocused();
   await testInfo.attach('after-sharing-loading-320', { body: await page.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   releaseInitialLoad();
-  await expect(sharing.getByRole('alert')).toBeVisible();
+  const loadError = sharing.getByRole('alert');
+  await expect(loadError).toHaveCount(1);
+  await expect(loadError).toBeVisible();
+  await expect(loadError).toHaveText('服務目前無法連線，請稍後再試。');
+  await expect(sharing.getByText('分享設定載入失敗，請重新載入。', { exact: true })).toHaveCount(0);
   await expect(sharing).not.toContainText('目前未啟用');
-  await page.getByRole('button', { name: '重新載入分享設定', exact: true }).click();
+  const retryLoad = sharing.getByRole('button', { name: '重新載入分享設定', exact: true });
+  await expect(retryLoad).toBeEnabled();
+  await expectTouchTarget(retryLoad);
+  await expectReadableContrast(loadError);
+  await testInfo.attach('after-copy-sharing-error-320', {
+    body: await page.screenshot({
+      path: `.tmp/copy-evidence/app-shell-${testInfo.project.name.replace(/[^a-z0-9-]/giu, '-')}-sharing-error-320.png`,
+      animations: 'disabled',
+    }),
+    contentType: 'image/png',
+  });
+  await retryLoad.click();
   const inviteInput = sharing.getByRole('textbox', { name: '旅程邀請連結' });
   await expect(inviteInput).toBeVisible();
   expect(inviteLoads).toBe(2);
@@ -361,7 +398,8 @@ test('T3 owner sharing loading, retry, clipboard fallback and confirmation remai
   await expectTouchTarget(page.getByTestId('trip-sharing-close'));
   for (const id of ['copy-trip-invite', 'rotate-trip-invite', 'revoke-trip-invite']) await expectTouchTarget(page.getByTestId(id));
   await expectNoPageOverflow(page);
-  await expectReadableContrast(sharing.getByText('只有用 Google 登入並成功兌換連結的人才會加入旅程。請勿公開張貼。', { exact: true }));
+  await expectReadableContrast(sharing.getByText('受邀者需以 Google 登入並透過有效連結加入。請勿公開張貼。', { exact: true }));
+  await expect(sharing.getByText('安全共編', { exact: true })).toHaveCount(0);
   const inviteBefore = await readEmulatorData(`roomAccess/${SHELL_ROOM_ID}/invite`);
   for (const id of ['rotate-trip-invite', 'revoke-trip-invite']) {
     await page.getByTestId(id).click();
@@ -397,6 +435,7 @@ test('T3 returning between owner and editor trips keeps permissions and sharing 
   await page.getByRole('textbox', { name: '旅程邀請連結' }).fill(`https://example.test/#invite=${token}`);
   await page.getByRole('button', { name: '驗證並加入' }).click();
   await expect(page.getByTestId('trip-detail-title')).toHaveText('E2E editor collaboration trip');
+  await skipCompanionIntroduction(page);
   await page.getByTestId('app-settings-trigger').click();
   await expect(page.getByTestId('app-settings-trip-share')).toHaveCount(0);
   await expect(page.getByTestId('app-settings-menu')).toContainText('共同編輯');
@@ -408,6 +447,7 @@ test('T3 returning between owner and editor trips keeps permissions and sharing 
   await expect(editorCard.getByTestId('trip-role-badge')).toHaveText('共同編輯');
   await expect(editorCard.getByTestId('delete-trip-action')).toHaveCount(0);
   await ownerCard.getByRole('button', { name: /^開啟旅程：/ }).press('Enter');
+  await skipCompanionIntroduction(page);
   await page.getByTestId('app-settings-trigger').click();
   await page.getByTestId('app-settings-trip-share').click();
   await expect(page.getByTestId('trip-sharing-dialog').getByRole('textbox', { name: '旅程邀請連結' })).toBeVisible();
@@ -449,6 +489,7 @@ test('T3 lobby and sharing controls reflow at html font-size equivalent 200%', a
   await expectReadableContrast(card.getByText('2026/09/20', { exact: false }));
   await testInfo.attach('after-card-200-percent-html-font-size', { body: await card.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   await card.getByRole('button', { name: /^開啟旅程：/ }).click();
+  await skipCompanionIntroduction(page);
   await page.getByTestId('app-settings-trigger').click();
   await page.getByTestId('app-settings-trip-share').click();
   const sharing = page.getByTestId('trip-sharing-dialog');
@@ -464,7 +505,7 @@ test('T3 lobby and sharing controls reflow at html font-size equivalent 200%', a
     expect(overflow.x).toBeLessThanOrEqual(1);
     expect(overflow.y).toBeLessThanOrEqual(1);
   }
-  await expectReadableContrast(sharing.getByText('只有用 Google 登入並成功兌換連結的人才會加入旅程。請勿公開張貼。', { exact: true }));
+  await expectReadableContrast(sharing.getByText('受邀者需以 Google 登入並透過有效連結加入。請勿公開張貼。', { exact: true }));
   await testInfo.attach('after-sharing-light-200-percent-html-font-size', { body: await page.screenshot({ animations: 'disabled', mask: [inviteInput] }), contentType: 'image/png' });
   await page.getByTestId('trip-sharing-close').click();
   await expect(sharing).toHaveCount(0);

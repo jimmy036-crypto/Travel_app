@@ -175,9 +175,9 @@ export function ParkingLayerController({
         />
         {layerState.status === 'empty' ? <p className={`mt-2 rounded-xl border p-2 text-xs ${t.headerBg} ${t.cardBorder} ${t.mainText}`}>{anchor?.customName || anchor?.name || '此景點'}附近找不到停車場，請調整搜尋半徑後再試。</p> : null}
         {layerState.status === 'error' ? <p role="alert" className={`mt-2 rounded-xl border p-2 text-xs ${errorText} ${t.headerBg} ${t.cardBorder}`}>停車資料暫時無法取得，請稍後重新搜尋；原行程不受影響。</p> : null}
-        {layerState.providerStatus.tdx === 'not_configured' ? <p className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.subText}`}>TDX 尚未設定；仍顯示 Google Maps 停車位置。</p> : null}
-        {layerState.providerStatus.tdx === 'timeout' ? <p className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.subText}`}>TDX 逾時；已降級顯示 Google Maps。</p> : null}
-        {layerState.providerStatus.tdx === 'rate_limited' ? <p className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.subText}`}>TDX 搜尋次數已達安全上限；仍顯示 Google Maps。</p> : null}
+        {layerState.providerStatus.tdx === 'not_configured' ? <p className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.subText}`}>官方停車資料尚未啟用；仍顯示 Google Maps 停車位置。</p> : null}
+        {layerState.providerStatus.tdx === 'timeout' ? <p className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.subText}`}>官方停車資料回應逾時；目前顯示 Google Maps 停車位置。</p> : null}
+        {layerState.providerStatus.tdx === 'rate_limited' ? <p className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.subText}`}>官方停車資料查詢次數已達上限；仍顯示 Google Maps 停車位置。</p> : null}
         {layerState.providerStatus.tdx === 'access_denied' ? <p role="alert" className={`mt-2 rounded-xl border p-2 text-[10px] ${t.headerBg} ${t.cardBorder} ${t.mainText}`}>無法確認旅程權限；請重新登入或確認你仍是旅程成員。</p> : null}
       </div>
       <ParkingResultSheet

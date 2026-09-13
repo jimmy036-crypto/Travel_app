@@ -7,6 +7,7 @@ import {
   seedTestTrip,
 } from './support/emulator';
 import { CURRENT_RELEASE_SEEN_KEY } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 const ONBOARDING_KEY = 'travel-app-seen-onboarding-v1';
 const DEEP_LINK_ROOM_ID = 'e2efirstrundeepinkroom01';
@@ -76,6 +77,7 @@ test('fresh user completes five steps and opens the local Tokyo demo', async ({ 
   await page.getByTestId('first-run-open-demo').click();
   await expect(welcome).toHaveCount(0);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('trip-detail-title')).toContainText('東京三日自由行（範例）');
   await expect(page.getByTestId('trip-route-context')).toHaveAttribute('data-trip-source', 'example');
   expect(new URL(page.url()).searchParams.has('room')).toBe(false);
@@ -191,6 +193,7 @@ test('room deep link loads first and shows Welcome only after returning to Lobby
   await expect(page.getByTestId('whats-new-dialog')).toHaveCount(0);
   expect(await page.evaluate((key) => localStorage.getItem(key), ONBOARDING_KEY)).toBeNull();
 
+  await skipCompanionIntroduction(page);
   await page.getByTestId('back-to-lobby').click();
   await expect(page.getByTestId('first-run-welcome-dialog')).toBeVisible();
   await expect(page.getByTestId('trip-detail-title')).toHaveCount(0);

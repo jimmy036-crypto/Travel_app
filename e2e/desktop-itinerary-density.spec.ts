@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test } from '@playwright/test';
 
 import { clearEmulatorDatabase, seedTestTrip } from './support/emulator';
@@ -42,6 +43,7 @@ test.beforeEach(async ({ page }) => {
 test('desktop navigator reaches Day 6 and returns to Day 1 without losing earlier days', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`/?room=${ROOM_ID}`);
+  await skipCompanionIntroduction(page);
   const navigator = page.getByTestId('desktop-day-navigator');
   await expect(navigator).toBeVisible();
   const dayButtons = navigator.getByTestId('desktop-day-button');
@@ -64,6 +66,7 @@ test('1440x900 shows at least 4 basic desktop cards per day column without overs
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('itinerary-day-card').first()).toContainText('24~28°C');
 
   const dropzone = page.getByTestId('itinerary-day-dropzone').first();
@@ -108,6 +111,7 @@ test('a delayed forecast preserves four visible cards and reflows at 200% text',
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/?room=${ROOM_ID}`);
+    await skipCompanionIntroduction(page);
     const day = page.getByTestId('itinerary-day-card').first();
     const weather = day.getByTestId('desktop-day-weather');
     await expect(day.getByTestId('place-card')).toHaveCount(6);

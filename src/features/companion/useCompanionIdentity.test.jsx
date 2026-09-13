@@ -14,11 +14,13 @@ describe('single shared companion state', () => {
   it('never guesses the first, only, owner-like, or exact name candidate', () => {
     const { result } = setup({ members: ['Ann'], displayName: 'Ann' });
     expect(result.current.member).toBe('');
+    expect(result.current.known).toBe(false);
     expect(result.current.candidate).toBe('Ann');
     expect(exactCompanionCandidate('ann', ['Ann'])).toBe('');
     expect(exactCompanionCandidate('Ann', ['Ann', 'Ann'])).toBe('');
     act(() => result.current.confirm('Ann'));
     expect(result.current.member).toBe('Ann');
+    expect(result.current.known).toBe(true);
   });
   it('restores persisted records and isolates UID, trip, demo, and signed-out contexts', () => {
     const { result, props, rerender } = setup();
@@ -39,6 +41,7 @@ describe('single shared companion state', () => {
     writeCompanionPreference(companionStorageKey(props), 'Ann', props.members);
     const { result } = renderHook(() => useCompanionIdentity(props));
     expect(result.current.member).toBe('Ann');
+    expect(result.current.known).toBe(true);
   });
   it('keeps temporary unloaded members from invalidating a stored preference', () => {
     const { result, props, rerender } = setup();
@@ -79,6 +82,7 @@ describe('single shared companion state', () => {
     rerender({ ...props, members: [...props.members] });
     expect(result.current.member).toBe('');
     expect(result.current.candidate).toBe('');
+    expect(result.current.known).toBe(true);
     expect(localStorage.getItem(`travel-active-member-${tripId}`)).toBe('Ann');
   });
   it('shares session choices when get/set/remove fail, including reopening the trip', () => {
@@ -111,6 +115,7 @@ describe('single shared companion state', () => {
     act(() => result.current.skip());
     expect(result.current.skipped).toBe(true);
     expect(result.current.member).toBe('');
+    expect(result.current.known).toBe(false);
     expect(write).not.toHaveBeenCalled();
   });
 });

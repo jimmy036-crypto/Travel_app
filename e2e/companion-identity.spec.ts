@@ -1,14 +1,35 @@
 import { expect, test, type Page, type Locator } from '@playwright/test';
 import { markReleaseSeen, openTicketPanel, prepareTicketRoom, MEMBER_A, MEMBER_B } from './support/tickets';
 import { readEmulatorData, seedTestTrip, seedTestTripInvite, writeEmulatorData } from './support/emulator';
+import { skipCompanionIntroduction } from './support/companion';
 
 const ROOM = 'e2ecompanionidentity001';
 const storageKey = (uid = 'e2e-owner', room = ROOM) => `travel-companion-v1:${JSON.stringify(['firebase', uid, room])}`;
 const checklist = { c1: { id: 'c1', scope: 'shared', text: '合成行前項目', category: 'todo', completed: false, completedBy: '', createdAt: 1 } };
-async function choose(page: Page, member: string) {
-  await page.getByRole('button', { name: /^(選擇旅伴|更正旅伴)$/ }).click();
-  await page.getByTestId('companion-member').filter({ hasText: member }).click();
+const introduction = (page: Page) => page.getByRole('dialog', { name: '你是這趟旅程中的哪位旅伴？', exact: true });
+async function openIntroduction(page: Page, room = ROOM) {
+  await page.goto(`/?room=${room}`);
+  await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+  await expect(introduction(page)).toBeVisible();
+  await expect(introduction(page).getByRole('button', { name: '先看看', exact: true })).toBeFocused();
+}
+async function selectMember(page: Page, member: string) {
+  await page.getByTestId('companion-picker').getByRole('button', { name: member, exact: true }).click();
   await expect(page.getByTestId('companion-picker')).toHaveCount(0);
+}
+async function showTickets(page: Page) {
+  await page.locator('[data-testid="ticket-tab-button"]:visible').click();
+  await expect(page.getByTestId('ticket-panel')).toBeVisible();
+}
+async function openCorrection(page: Page) {
+  await page.getByTestId('app-settings-trigger').click();
+  await page.getByTestId('app-settings-trip-companion').click();
+  await expect(page.getByRole('dialog', { name: '選擇本趟旅伴', exact: true })).toBeVisible();
+}
+async function choose(page: Page, member: string) {
+  await openCorrection(page);
+  await selectMember(page, member);
+  await expect(page.getByTestId('app-settings-trigger')).toBeFocused();
 }
 async function openChecklist(page: Page) {
   await page.getByTestId('app-settings-trigger').click();
@@ -46,18 +67,23 @@ test('B0-01/05/06: confirm once, browse another member, share with checklist and
       if (['p', 'm'].includes(request?.a) && String(request?.b?.p).startsWith('/rooms/')) businessWrites += 1;
     } catch { /* Firebase framing/control packets are not JSON writes. */ }
   }));
-  await openTicketPanel(page, ROOM);
+  await openIntroduction(page);
   const writesBefore = businessWrites;
   const before = await readEmulatorData(`rooms/${ROOM}`);
-  await choose(page, MEMBER_A);
+  expect(await page.evaluate(key => localStorage.getItem(key), storageKey())).toBeNull();
+  await selectMember(page, MEMBER_A);
+  await showTickets(page);
   await page.getByTestId('ticket-filter-member').filter({ hasText: MEMBER_B }).click();
-  await expect(page.getByTestId('companion-notice')).toContainText(`本趟旅伴：${MEMBER_A}`);
+  await expect(page.getByTestId('ticket-filter-mine')).toHaveText(`我的・${MEMBER_A}`);
+  await expect(page.getByTestId('ticket-filter-mine')).toHaveAttribute('aria-pressed', 'false');
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}').member, storageKey())).toBe(MEMBER_A);
+  await expect(page.getByTestId('companion-notice')).toHaveCount(0);
   await page.screenshot({ path: `.tmp/b0-evidence/after-wallet-390-${testInfo.project.name}.png` });
   expect(await readEmulatorData(`rooms/${ROOM}`)).toEqual(before);
   expect(businessWrites).toBe(writesBefore);
   await openChecklist(page);
   const dialog = page.getByRole('dialog', { name: '行前清單', exact: true });
-  await expect(dialog).toContainText(`本趟旅伴：${MEMBER_A}`);
+  await expect(dialog.getByTestId('companion-notice')).toHaveCount(0);
   await dialog.getByRole('button', { name: '標記為已完成' }).click();
   await expect.poll(async () => (await readEmulatorData<{ completedBy: string }>(`rooms/${ROOM}/checklist/c1`))?.completedBy).toBe(MEMBER_A);
   await dialog.getByRole('button', { name: '關閉行前清單' }).click();
@@ -66,17 +92,21 @@ test('B0-01/05/06: confirm once, browse another member, share with checklist and
   await page.screenshot({ path: `.tmp/b0-evidence/after-payer-390-${testInfo.project.name}.png` });
   await page.keyboard.press('Escape');
   await page.reload();
-  await openTicketPanel(page, ROOM);
-  await expect(page.getByTestId('companion-notice')).toContainText(`本趟旅伴：${MEMBER_A}`);
-  await expect(page.getByText('設定你在這趟旅程中的名字')).toHaveCount(0);
+  await openTicketPanel(page, ROOM, { companionConfirmed: true });
+  await expect(page.getByTestId('ticket-filter-mine')).toHaveText(`我的・${MEMBER_A}`);
+  await expect(introduction(page)).toHaveCount(0);
 });
 
 test('B0-06: cancel confirmation writes nothing; confirming does not complete until another explicit click', async ({ page }) => {
-  await openTicketPanel(page, ROOM);
-  await page.getByRole('button', { name: '先看全部' }).click();
+  await openIntroduction(page);
+  const beforeSkip = await readEmulatorData(`rooms/${ROOM}`);
+  await skipCompanionIntroduction(page);
+  expect(await page.evaluate(key => localStorage.getItem(key), storageKey())).toBeNull();
+  expect(await readEmulatorData(`rooms/${ROOM}`)).toEqual(beforeSkip);
+  await showTickets(page);
   await openChecklist(page);
   const dialog = page.getByRole('dialog', { name: '行前清單', exact: true });
-  await expect(dialog.getByText('設定你在這趟旅程中的名字')).toHaveCount(0);
+  await expect(dialog.getByTestId('companion-notice')).toHaveCount(0);
   await dialog.getByRole('button', { name: '標記為已完成' }).click();
   await page.getByTestId('companion-picker').getByRole('button', { name: '取消' }).click();
   expect(await readEmulatorData(`rooms/${ROOM}/checklist`)).toEqual(checklist);
@@ -117,7 +147,13 @@ test('B0-11: long names, keyboard and targets at 320/375/390/768/1024 plus html 
   await openTicketPanel(page, ROOM);
   for (const width of [320, 375, 390, 768, 1024]) {
     await page.setViewportSize({ width, height: 844 });
-    const entry = page.getByRole('button', { name: '選擇旅伴', exact: true });
+    const trigger = page.getByTestId('app-settings-trigger');
+    // Crossing md replaces the header; wait for the committed variant before
+    // measuring its controls, rather than capturing the outgoing mobile node.
+    await expect(trigger).toHaveAttribute('aria-haspopup', width < 768 ? 'dialog' : 'menu');
+    await target(trigger);
+    await trigger.press('Enter');
+    const entry = page.getByTestId('app-settings-trip-companion');
     await target(entry);
     await entry.press('Enter');
     const picker = page.getByTestId('companion-picker');
@@ -126,11 +162,12 @@ test('B0-11: long names, keyboard and targets at 320/375/390/768/1024 plus html 
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     if (width === 320 || width === 390) await page.screenshot({ path: `.tmp/b0-evidence/after-picker-${width}-${testInfo.project.name}.png` });
     await page.keyboard.press('Escape');
-    await expect(entry).toBeFocused();
+    await expect(trigger).toBeFocused();
   }
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId('app-settings-trigger')).toHaveAttribute('aria-haspopup', 'dialog');
   await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
-  await page.getByRole('button', { name: '選擇旅伴', exact: true }).click();
+  await openCorrection(page);
   for (const control of await page.getByTestId('companion-picker').getByRole('button').all()) await target(control);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   await page.screenshot({ path: `.tmp/b0-evidence/after-picker-200pct-${testInfo.project.name}.png` });
@@ -140,39 +177,50 @@ test('B0-11: long names, keyboard and targets at 320/375/390/768/1024 plus html 
 test('B0-02: same account trip switch isolates and restores local preference', async ({ page }) => {
   const otherRoom = `${ROOM}y`;
   await seedTestTrip(otherRoom, { members: [MEMBER_A, MEMBER_B] });
-  await openTicketPanel(page, ROOM);
-  await choose(page, MEMBER_A);
-  await openTicketPanel(page, otherRoom);
-  await expect(page.getByText('設定你在這趟旅程中的名字')).toBeVisible();
-  await choose(page, MEMBER_B);
-  await openTicketPanel(page, ROOM);
-  await expect(page.getByTestId('companion-notice')).toContainText(`本趟旅伴：${MEMBER_A}`);
+  await openIntroduction(page);
+  await selectMember(page, MEMBER_A);
+  await showTickets(page);
+  await openIntroduction(page, otherRoom);
+  expect(await page.evaluate(key => localStorage.getItem(key), storageKey('e2e-owner', otherRoom))).toBeNull();
+  await selectMember(page, MEMBER_B);
+  await showTickets(page);
+  await openTicketPanel(page, ROOM, { companionConfirmed: true });
+  await expect(introduction(page)).toHaveCount(0);
+  await expect(page.getByTestId('ticket-filter-mine')).toHaveText(`我的・${MEMBER_A}`);
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}').member, storageKey('e2e-owner', otherRoom))).toBe(MEMBER_B);
 });
 
-test('B0-08: correcting companion inside an open draft preserves payer, amount and split', async ({ page }) => {
+test('B0-08: manual payer stays independent; settings correction changes new defaults without rewriting history', async ({ page }) => {
   await openTicketPanel(page, ROOM);
   await choose(page, MEMBER_A);
   await openExpense(page);
   const expense = page.getByTestId('expense-modal');
   await page.getByTestId('expense-item-input').fill('保留中的草稿');
   await page.getByTestId('expense-local-cost-input').fill('1000');
-  await expense.getByRole('button', { name: '更正旅伴', exact: true }).click();
-  await page.getByTestId('companion-member').filter({ hasText: MEMBER_B }).click();
+  await expect(expense.getByRole('button', { name: '更正旅伴', exact: true })).toHaveCount(0);
+  await page.getByTestId('expense-payer-select').selectOption(MEMBER_B);
+  await expect(page.getByTestId('expense-payer-select')).toHaveValue(MEMBER_B);
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}').member, storageKey())).toBe(MEMBER_A);
+  await page.getByTestId('expense-payer-select').selectOption(MEMBER_A);
   await expect(page.getByTestId('expense-payer-select')).toHaveValue(MEMBER_A);
   await expect(page.getByTestId('expense-local-cost-input')).toHaveValue('1000');
-  await expect(expense.getByTestId('companion-notice')).toContainText(`本趟旅伴：${MEMBER_B}`);
+  await expect(expense.getByTestId('companion-notice')).toHaveCount(0);
   await page.getByTestId('expense-save-button').click();
   await expect(expense).toHaveCount(0);
   const records = Object.values((await readEmulatorData<Record<string, unknown>>(`rooms/${ROOM}/expenses`)) || {});
   expect(records).toHaveLength(1);
   expect(records[0]).toMatchObject({ payer: MEMBER_A, cost: 1000, split: { [MEMBER_A]: 500, [MEMBER_B]: 500 } });
+  await choose(page, MEMBER_B);
+  expect(Object.values((await readEmulatorData<Record<string, unknown>>(`rooms/${ROOM}/expenses`)) || {})).toEqual(records);
   await page.getByTestId('add-expense-button').click();
   await expect(page.getByTestId('expense-payer-select')).toHaveValue(MEMBER_B);
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '編輯帳目 保留中的草稿', exact: true }).click();
   await expect(page.getByTestId('expense-payer-select')).toHaveValue(MEMBER_A);
-  await expense.getByRole('button', { name: '更正旅伴', exact: true }).click();
-  await page.getByTestId('companion-member').filter({ hasText: MEMBER_A }).click();
+  await expect(page.getByTestId('expense-local-cost-input')).toHaveValue('1000');
+  await page.keyboard.press('Escape');
+  await choose(page, MEMBER_A);
+  await page.getByRole('button', { name: '編輯帳目 保留中的草稿', exact: true }).click();
   await expect(page.getByTestId('expense-payer-select')).toHaveValue(MEMBER_A);
   await page.keyboard.press('Escape');
   expect(Object.values((await readEmulatorData<Record<string, unknown>>(`rooms/${ROOM}/expenses`)) || {})).toEqual(records);
@@ -213,10 +261,13 @@ test('B0-11: light/dark companion text uses actual surface contrast, keyboard tr
   const contrasts: Record<string, number> = {};
   for (const [name, color] of [['dark', '#172b4d'], ['light', '#d9f3fb']]) {
     await writeEmulatorData(`rooms/${ROOM}/meta/themeColor`, color);
-    await openTicketPanel(page, ROOM);
-    contrasts[`${name}-notice`] = await readableContrast(page.getByText('設定你在這趟旅程中的名字'));
-    const entry = page.getByRole('button', { name: '選擇旅伴', exact: true });
-    await entry.press('Enter');
+    await openIntroduction(page);
+    await introduction(page).evaluate(async el => { await Promise.all(el.getAnimations().map(animation => animation.finished)); });
+    contrasts[`${name}-introduction`] = await readableContrast(introduction(page).getByText('只記住在這個瀏覽器，不會更改帳號或旅程權限。'));
+    await skipCompanionIntroduction(page);
+    await showTickets(page);
+    await page.getByTestId('app-settings-trigger').press('Enter');
+    await page.getByTestId('app-settings-trip-companion').press('Enter');
     const picker = page.getByTestId('companion-picker');
     await picker.getByRole('dialog').evaluate(async el => { await Promise.all(el.getAnimations().map(animation => animation.finished)); });
     contrasts[`${name}-picker`] = await readableContrast(picker.getByText('這是本機操作偏好，不是帳號或權限認證。更正不會改寫已有的記帳、票券或清單。'));
@@ -246,7 +297,8 @@ test('B0-10: blocked preference storage retains session selection across tools a
   await openTicketPanel(page, ROOM);
   const before = await readEmulatorData(`rooms/${ROOM}`);
   await choose(page, MEMBER_B);
-  await expect(page.getByTestId('companion-notice')).toContainText('無法記住到下次');
+  await expect(page.getByTestId('toast').filter({ hasText: '無法記住旅伴設定' })).toContainText('本次已確認的選擇仍可使用；重新載入後請再確認設定。');
+  expect(await page.evaluate(key => localStorage.getItem(key), storageKey())).toBeNull();
   await page.getByTestId('back-to-lobby').click();
   await page.locator(`[data-testid="trip-card"][data-room-id="${ROOM}"]`).getByRole('button', { name: /^開啟旅程：/ }).click();
   await openExpense(page);
@@ -262,11 +314,11 @@ test('B0-10: signed-out example uses its own namespace and requires explicit con
   const example = page.getByTestId('demo-trip-entry-card');
   await example.getByRole('button', { name: /^開啟旅程：/ }).click();
   await expect(page.getByTestId('trip-route-context')).toHaveAttribute('data-trip-source', 'example');
-  await page.locator('[data-testid="ticket-tab-button"]:visible').click();
-  await expect(page.getByText('設定你在這趟旅程中的名字')).toBeVisible();
-  await page.getByRole('button', { name: '選擇旅伴', exact: true }).click();
-  await page.getByTestId('companion-member').filter({ hasText: '旅伴 A' }).click();
   const demoKey = `travel-companion-v1:${JSON.stringify(['example', '', 'local-example-trip'])}`;
+  await expect(introduction(page)).toBeVisible();
+  expect(await page.evaluate(key => localStorage.getItem(key), demoKey)).toBeNull();
+  await selectMember(page, '旅伴 A');
+  await showTickets(page);
   expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}').member, demoKey)).toBe('旅伴 A');
   expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}').member, storageKey())).toBe(MEMBER_A);
 });
@@ -290,7 +342,7 @@ test('B0-02/09: same browser switches synthetic Auth Emulator accounts A/B/A wit
       if (auth.currentUser?.uid !== nextUid) throw Error('Unexpected synthetic account');
     }, uid);
     await expect(page.getByRole('button', { name: '加入旅程', exact: true })).toBeVisible();
-    await expect(page.getByTestId('companion-notice')).toHaveCount(0);
+    await expect(page.getByTestId('companion-picker')).toHaveCount(0);
   };
   const openFromLobby = async () => {
     // Do not cold-load the E2E bootstrap: it deliberately signs in e2e-owner.
@@ -298,6 +350,7 @@ test('B0-02/09: same browser switches synthetic Auth Emulator accounts A/B/A wit
     const card = page.locator(`[data-testid="trip-card"][data-room-id="${ROOM}"]`);
     await card.getByRole('button', { name: /^開啟旅程：/ }).click();
     await expect(page.getByTestId('active-trip-view')).toBeVisible();
+    await expect(introduction(page)).toHaveCount(0);
     await page.locator('[data-testid="ticket-tab-button"]:visible').click();
   };
   await openTicketPanel(page, ROOM);
@@ -308,14 +361,15 @@ test('B0-02/09: same browser switches synthetic Auth Emulator accounts A/B/A wit
   await page.getByRole('textbox', { name: '旅程邀請連結' }).fill(`https://example.test/#invite=${invite}`);
   await page.getByRole('button', { name: '驗證並加入' }).click();
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
-  await page.locator('[data-testid="ticket-tab-button"]:visible').click();
-  await expect(page.getByText('設定你在這趟旅程中的名字')).toBeVisible();
-  await choose(page, MEMBER_B);
+  await expect(introduction(page)).toBeVisible();
+  expect(await page.evaluate(key => localStorage.getItem(key), storageKey(uidB))).toBeNull();
+  await selectMember(page, MEMBER_B);
+  await showTickets(page);
   await switchAccount('e2e-owner');
   await openFromLobby();
-  await expect(page.getByTestId('companion-notice')).toContainText(`本趟旅伴：${MEMBER_A}`);
+  await expect(page.getByTestId('ticket-filter-mine')).toHaveText(`我的・${MEMBER_A}`);
   expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) || '{}').member, storageKey(uidB))).toBe(MEMBER_B);
   await switchAccount(uidB);
   await openFromLobby();
-  await expect(page.getByTestId('companion-notice')).toContainText(`本趟旅伴：${MEMBER_B}`);
+  await expect(page.getByTestId('ticket-filter-mine')).toHaveText(`我的・${MEMBER_B}`);
 });

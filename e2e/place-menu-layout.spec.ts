@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test, type Page } from '@playwright/test';
 
 import {
@@ -51,6 +52,7 @@ for (const width of [320, 375, 390]) {
     await page.setViewportSize({ width, height: 844 });
     await page.goto(`/?room=${ROOM_ID}`);
     await expect(page.getByTestId('active-trip-view')).toBeVisible();
+    await skipCompanionIntroduction(page);
 
     for (const name of NAMES) {
       const card = placeCard(page, name);
@@ -132,6 +134,7 @@ test('desktop breakpoint keeps only 景點資訊 on the card and moves actions i
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
 
   const card = placeCard(page, NAMES[0]);
   await expect(card).toHaveCSS('padding-top', '12px');

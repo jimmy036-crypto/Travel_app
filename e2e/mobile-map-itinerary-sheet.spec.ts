@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test, type Page } from '@playwright/test';
 
 import {
@@ -87,6 +88,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto(`/?room=${ROOM_ID}`);
     await expect(page.getByTestId('active-trip-view')).toBeVisible();
+    await skipCompanionIntroduction(page);
     await page.getByTestId('mobile-nav-map').click();
 
     await expect(page.getByTestId('mobile-trip-header')).toHaveCount(0);
@@ -206,6 +208,7 @@ for (const viewport of [
 test('map cards use two-stage details access without timeline-only actions', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${ROOM_ID}`);
+  await skipCompanionIntroduction(page);
   await page.getByTestId('mobile-nav-map').click();
 
   const thirdCard = mapCard(page, 'map-c');
@@ -226,6 +229,7 @@ for (const width of [768, 1024, 1440]) {
     await page.setViewportSize({ width, height: 800 });
     await page.goto(`/?room=${ROOM_ID}`);
     await expect(page.getByTestId('active-trip-view')).toBeVisible();
+    await skipCompanionIntroduction(page);
 
     await expect(page.getByTestId('mobile-trip-header')).toHaveCount(0);
     await expect(page.getByTestId('mobile-trip-map-view')).toHaveCount(0);

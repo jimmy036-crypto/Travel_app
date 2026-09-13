@@ -1,4 +1,5 @@
 import { devices, expect, type BrowserContextOptions, type Page } from '@playwright/test';
+import { skipCompanionIntroduction } from './companion';
 
 import {
   clearEmulatorDatabase,
@@ -86,9 +87,14 @@ export async function readTicket(roomId: string, title: string): Promise<TicketR
   return found as TicketRecord;
 }
 
-export async function openTicketPanel(page: Page, roomId: string): Promise<void> {
+export async function openTicketPanel(
+  page: Page,
+  roomId: string,
+  { companionConfirmed = false }: { companionConfirmed?: boolean } = {},
+): Promise<void> {
   await page.goto(`/?room=${roomId}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+  if (!companionConfirmed) await skipCompanionIntroduction(page);
   const tab = page.locator('[data-testid="ticket-tab-button"]:visible');
   await expect(tab).toHaveCount(1);
   await tab.click();

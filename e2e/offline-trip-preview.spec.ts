@@ -6,6 +6,7 @@ import {
   seedTestTrip,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 const ROOM_ID = 'offline-preview-room';
 const UNCACHED_ROOM_ID = 'uncached-room';
@@ -198,6 +199,7 @@ async function openTripAndWaitForCache(page: Page): Promise<OfflineCacheSnapshot
   );
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
   await expect(page.getByTestId('trip-detail-title')).toContainText('Test Offline Trip');
+  await skipCompanionIntroduction(page);
 
   return await expectOfflineCacheReady(page);
 }

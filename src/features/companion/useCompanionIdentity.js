@@ -40,6 +40,7 @@ export function useCompanionIdentity({ source, uid, tripId, members, ready, disp
     ? readLegacyCompanionCandidate(tripId, members) : { candidate: '', conflict: false };
   return {
     key, member, ready: Boolean(key && ready), confirm, skip,
+    known: selection.known,
     skipped: selection.skipped,
     storageError: selection.storageError,
     invalidated: invalid || selection.invalidated,

@@ -243,20 +243,19 @@ export function TripSharingDialog({ open, roomId, role, onClose, returnFocusTarg
     >
       <div className={`flex items-start justify-between gap-4 border-b p-5 ${t.cardBorder || ''}`}>
         <div>
-          <p className={`text-xs font-black uppercase tracking-[0.14em] ${t.isLight === false ? 'text-blue-200' : 'text-blue-700'}`}>安全共編</p>
-          <h2 id="trip-sharing-title" className={`mt-1 text-xl font-black ${t.mainText || ''}`}>邀請與成員</h2>
+          <h2 id="trip-sharing-title" className={`text-xl font-black ${t.mainText || ''}`}>邀請與成員</h2>
         </div>
         <button data-testid="trip-sharing-close" type="button" aria-label="關閉邀請與成員" onClick={onClose} className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl ${t.mainText || ''}`}>×</button>
       </div>
       <div className="min-h-0 overflow-y-auto p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
         <section aria-labelledby="invite-link-title">
           <h3 id="invite-link-title" className={`font-black ${t.mainText || ''}`}>邀請連結</h3>
-          <p className={`mt-1 text-sm font-semibold leading-6 ${t.subText || ''}`}>只有用 Google 登入並成功兌換連結的人才會加入旅程。請勿公開張貼。</p>
+          <p className={`mt-1 text-sm font-semibold leading-6 ${t.subText || ''}`}>受邀者需以 Google 登入並透過有效連結加入。請勿公開張貼。</p>
           {loadPending && isOwner ? (
             <p role="status" aria-live="polite" className={`mt-3 rounded-xl border p-3 text-sm ${t.cardBorder || ''} ${t.subText || ''}`}>正在載入分享設定…</p>
           ) : loadState === 'error' && isOwner ? (
             <div className={`mt-3 rounded-xl border p-3 ${t.cardBorder || ''}`}>
-              <p className={`text-sm font-semibold ${t.subText || ''}`}>分享設定載入失敗，請重新載入。</p>
+              <p role="alert" className={`text-sm font-semibold ${errorClass}`}>{error}</p>
               <Button
                 data-testid="retry-trip-sharing-load"
                 onClick={load}
@@ -280,7 +279,7 @@ export function TripSharingDialog({ open, roomId, role, onClose, returnFocusTarg
             </div>
           ) : (
             <p className={`mt-3 rounded-xl border p-3 text-sm ${t.cardBorder || ''} ${t.subText || ''}`}>
-              {isOwner ? '邀請目前未啟用。建立後即可提供安全連結。' : '只有旅程擁有者可以建立或查看邀請連結。'}
+              {isOwner ? '邀請目前未啟用。' : '只有旅程擁有者可以建立或查看邀請連結。'}
             </p>
           )}
           {copyError && inviteUrl ? <p id="trip-invite-copy-error" role="alert" className={`mt-2 rounded-xl bg-red-500/10 p-3 text-sm font-bold ${errorClass}`}>{copyError}</p> : null}
@@ -331,7 +330,7 @@ export function TripSharingDialog({ open, roomId, role, onClose, returnFocusTarg
             </div>
           </section>
         ) : null}
-        {error ? <p role="alert" className={`mt-4 rounded-xl bg-red-500/10 p-3 text-sm font-bold ${errorClass}`}>{error}</p> : null}
+        {error && !(isOwner && loadState === 'error') ? <p role="alert" className={`mt-4 rounded-xl bg-red-500/10 p-3 text-sm font-bold ${errorClass}`}>{error}</p> : null}
       </div>
     </ResponsiveBottomSheet>
   );

@@ -6,6 +6,7 @@ import {
   writeEmulatorData,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 const LOBBY_TRIP = {
   roomId: 'e2eskeletonlobbyroom0001',
@@ -93,6 +94,7 @@ test('does not restore full-page skeletons during realtime itinerary updates', a
   await expect(page.getByTestId('place-card').filter({
     hasText: initialPlace.name,
   })).toBeVisible();
+  await skipCompanionIntroduction(page);
 
   await writeEmulatorData(`rooms/${ROOM_ID}/itinerary`, {
     'Day 1': [initialPlace, updatedPlace],

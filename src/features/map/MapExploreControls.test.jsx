@@ -35,6 +35,17 @@ const baseProps = {
 };
 
 describe('MapExploreControls', () => {
+  it('keeps map scope explicit without repeating it in the header', () => {
+    render(<MapExploreControls {...baseProps} query="拉麵" />);
+
+    expect(screen.getByText('附近搜尋')).toBeInTheDocument();
+    expect(screen.queryByText('探索目前區域')).not.toBeInTheDocument();
+    expect(screen.queryByText('依目前地圖畫面搜尋')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '目前區域' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '這站附近' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('searchbox', { name: '搜尋目前地圖區域' })).toHaveValue('拉麵');
+  });
+
   it('uses one collapsed entry for nearby places and parking', () => {
     const onOpen = vi.fn();
     render(<MapExploreControls {...baseProps} open={false} onOpen={onOpen} />);
@@ -57,6 +68,7 @@ describe('MapExploreControls', () => {
     );
 
     expect(screen.getByText('台北車站')).toBeInTheDocument();
+    expect(screen.queryByText('找這站附近')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '這站附近' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('searchbox', { name: '搜尋台北車站附近' })).toBeInTheDocument();
 
@@ -94,10 +106,12 @@ describe('MapExploreControls', () => {
   });
 
   it('disables place-scoped actions when the selected stop has no coordinates', () => {
-    render(<MapExploreControls {...baseProps} anchorAvailable={false} />);
+    render(<MapExploreControls {...baseProps} scope="place" anchorAvailable={false} />);
 
     expect(screen.getByRole('button', { name: '這站附近' })).toBeDisabled();
     expect(screen.getByTestId('parking-layer-trigger')).toBeDisabled();
+    expect(screen.getByRole('button', { name: '目前區域' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('searchbox', { name: '搜尋目前地圖區域' })).toBeInTheDocument();
   });
 
   it('requires an explicit place scope before parking becomes available', () => {
