@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test, type Page } from '@playwright/test';
 
 import {
@@ -44,6 +45,7 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
 });
 
 test('an adjacent drag release swaps order immediately without an extra tap or opening details', async ({ page }) => {

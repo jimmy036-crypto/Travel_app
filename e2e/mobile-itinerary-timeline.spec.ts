@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
@@ -166,6 +167,7 @@ for (const { width, height } of [
     await page.setViewportSize({ width, height });
     await page.goto(`/?room=${ROOM_ID}`);
     await expect(page.getByTestId('active-trip-view')).toBeVisible();
+    await skipCompanionIntroduction(page);
 
     await expect(page.getByTestId('mobile-trip-header')).toBeVisible();
     await expect(page.getByTestId('mobile-day-switcher')).toBeVisible();
@@ -301,6 +303,7 @@ test('mobile date overflow stays inside the date switcher', async ({ page }) => 
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('itinerary-day-switch-button')).toHaveCount(9);
 
   const dateScroller = page.getByTestId('mobile-day-switcher').locator(':scope > div');
@@ -338,6 +341,7 @@ test('place details supports Tab, Enter, and Space without tool or drag misfires
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
 
   const card = placeCard(page, LONG_CHINESE);
   const details = card.getByTestId('place-details-trigger');
@@ -392,6 +396,7 @@ test('390px itinerary reflows at 200% text size and keeps actions operable', asy
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
 
   const firstCard = placeCard(page, LONG_CHINESE);
@@ -532,6 +537,7 @@ test('itinerary details focus and readable text remain visible in light and dark
     await page.goto(`/?room=${ROOM_ID}`);
     const activeTrip = page.getByTestId('active-trip-view');
     await expect(activeTrip).toBeVisible();
+    await skipCompanionIntroduction(page);
     await expect(activeTrip).toHaveCSS('background-color', theme.background);
 
     const card = placeCard(page, LONG_CHINESE);
@@ -562,6 +568,7 @@ for (const { width, height } of [
     await page.setViewportSize({ width, height });
     await page.goto(`/?room=${ROOM_ID}`);
     await expect(page.getByTestId('active-trip-view')).toBeVisible();
+    await skipCompanionIntroduction(page);
     await expect(page.getByTestId('mobile-trip-header')).toHaveCount(0);
     await expect(page.getByTestId('mobile-bottom-navigation')).toBeHidden();
     await expect(page.getByTestId('desktop-day-navigator')).toBeVisible();
@@ -578,6 +585,7 @@ test('timeline supports first/last drag, cancellation-safe scrolling, and persis
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
 
   const initialOrder = await visibleOrder(page);
   await dragByKeyboard(page, LONG_CHINESE, 'ArrowDown', 11);
@@ -605,5 +613,6 @@ test('timeline supports first/last drag, cancellation-safe scrolling, and persis
 
   await page.reload();
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   await expect.poll(() => visibleOrder(page)).toEqual(initialOrder);
 });

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import { expect, test, type Page } from '@playwright/test';
+import { skipCompanionIntroduction } from './support/companion';
 
 import {
   E2E_AUTH_UID,
@@ -137,6 +138,7 @@ test('owner permanently deletes one complete trip without touching another room'
   await expect(routeContext).toBeAttached();
   const roomId = String(await routeContext.getAttribute('data-room-id') || '');
   expect(roomId).not.toBe('');
+  await skipCompanionIntroduction(page);
 
   const storagePath = `rooms/${roomId}/tickets/delete-ticket/attachment.pdf`;
 

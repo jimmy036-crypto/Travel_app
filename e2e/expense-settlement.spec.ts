@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { skipCompanionIntroduction } from './support/companion';
 
 import {
   assertNoExampleCloudArtifacts,
@@ -30,6 +31,7 @@ function toList<T>(value: T[] | Record<string, T> | null): T[] {
 }
 
 async function openSettlement(page: Page): Promise<void> {
+  await skipCompanionIntroduction(page);
   await page.locator('[data-testid="expense-tab-button"]:visible').click();
   await page.getByTestId('expense-settlement-view-button').click();
 }

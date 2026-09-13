@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test } from '@playwright/test';
 
 import { clearEmulatorDatabase, seedTestTrip } from './support/emulator';
@@ -32,6 +33,7 @@ test('the debug panel does not render without ?dndDebug=1', async ({ page }) => 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('dnd-debug-panel')).toHaveCount(0);
 });
 
@@ -39,6 +41,7 @@ test('?dndDebug=1 shows a non-PII lifecycle log with no extra tap or click', asy
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${ROOM_ID}&dndDebug=1`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
 
   const panel = page.getByTestId('dnd-debug-panel');
   await expect(panel).toBeVisible();

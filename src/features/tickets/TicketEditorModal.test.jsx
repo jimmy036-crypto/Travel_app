@@ -78,6 +78,14 @@ const chooseExternalApp = async (user, { title = 'App 票券', appName = 'Rail A
 };
 
 describe('TicketEditorModal progressive form', () => {
+  it('keeps the title, optional settings, and attachment requirements without an instructional intro', () => {
+    renderEditor();
+    expect(screen.getByRole('heading', { name: '新增票券' })).toBeInTheDocument();
+    expect(screen.queryByText('先填必要資訊，需要時再展開更多設定。')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '更多設定' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText('接受 JPEG、PNG、WebP、GIF 或 PDF，最大 10 MB。')).toBeInTheDocument();
+  });
+
   it('keeps Tab and Shift+Tab inside the editor and restores its trigger', async () => {
     const user = userEvent.setup();
     const trigger = document.createElement('button');

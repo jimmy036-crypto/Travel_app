@@ -39,7 +39,6 @@ const privateB = {
 
 const renderWallet = (props = {}) => {
   const callbacks = {
-    onRequestCompanion: vi.fn(),
     onCreateTicket: vi.fn(),
     onEditTicket: vi.fn(),
     onDeleteTicket: vi.fn(),
@@ -53,7 +52,6 @@ const renderWallet = (props = {}) => {
       activeMember="王泓文"
       startDate="2026-09-20"
       t={{}}
-      companionNotice={<button type="button" onClick={callbacks.onRequestCompanion}>更正旅伴</button>}
       {...callbacks}
       {...props}
     />,
@@ -66,6 +64,12 @@ const cardFor = (title) => screen.getByText(title).closest('[data-testid="ticket
 describe('TicketWalletSection', () => {
   afterEach(cleanup);
 
+  it('uses one concise wallet heading', () => {
+    renderWallet();
+    expect(screen.getByRole('heading', { name: '票券夾', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByText('隨身協作大廳')).not.toBeInTheDocument();
+  });
+
   it('shows the complete empty state without an identity picker when members are empty', () => {
     renderWallet({ tickets: [], members: [], activeMember: '' });
     expect(screen.getByText('尚未加入票券')).toBeInTheDocument();
@@ -77,6 +81,8 @@ describe('TicketWalletSection', () => {
     renderWallet({ tickets: [privateA] });
     fireEvent.click(screen.getByTestId('ticket-filter-common'));
     expect(screen.getByText('尚未加入共同票券')).toBeInTheDocument();
+    expect(screen.queryByText('可以查看全部票券，或新增一張適合這個分類的票券。')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '新增票券' })).toHaveLength(2);
     fireEvent.click(screen.getByText('查看全部票券'));
     expect(screen.getByText('王泓文票券')).toBeInTheDocument();
   });
@@ -108,24 +114,24 @@ describe('TicketWalletSection', () => {
     expect(own).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('renders the shared preference entry without creating a second picker or assigning mine', () => {
-    const choose = vi.fn();
-    renderWallet({ activeMember: '', companionNotice: <button onClick={choose}>選擇旅伴</button> });
+  it('allows unconfirmed browsing without a repeated companion settings entry or assigning mine', () => {
+    renderWallet({ activeMember: '' });
     expect(screen.queryByTestId('ticket-active-member-picker')).not.toBeInTheDocument();
     expect(screen.queryByTestId('ticket-filter-mine')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText('選擇旅伴'));
-    expect(choose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: '選擇旅伴' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '更正旅伴' })).not.toBeInTheDocument();
     expect(screen.getAllByTestId('ticket-card')).toHaveLength(3);
     fireEvent.click(screen.getAllByTestId('ticket-filter-member').find(button => button.dataset.member === '成員 B'));
     expect(screen.getByText('成員 B 票券')).toBeInTheDocument();
     expect(screen.queryByText('王泓文票券')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('ticket-filter-mine')).not.toBeInTheDocument();
   });
 
   it('viewing another member does not change device identity', () => {
-    const { callbacks } = renderWallet();
+    renderWallet();
     const memberButton = screen.getAllByTestId('ticket-filter-member').find((button) => button.dataset.member === '成員 B');
     fireEvent.click(memberButton);
-    expect(callbacks.onRequestCompanion).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '更正旅伴' })).not.toBeInTheDocument();
     expect(screen.getByTestId('ticket-filter-mine')).toHaveTextContent('我的・王泓文');
     expect(screen.getByText('成員 B 票券')).toBeInTheDocument();
   });

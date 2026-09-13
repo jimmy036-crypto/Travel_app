@@ -34,7 +34,7 @@ describe('OfflineBanner', () => {
 
   it.each([
     ['lobby', '雲端旅程操作暫時不可用'],
-    ['offline-preview', '此裝置的唯讀快取'],
+    ['offline-preview', /^目前離線。$/u],
   ])('uses the %s data-mode copy', (mode, expectedCopy) => {
     render(<OfflineBanner isOnline={false} mode={mode} />);
 

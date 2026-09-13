@@ -4,7 +4,7 @@ const OFFLINE_COPY = {
   cloud: '目前離線，無法確認雲端同步狀態。恢復網路後請先確認資料，再繼續操作。',
   lobby: '目前離線，雲端旅程操作暫時不可用。恢復網路後再試。',
   'local-example': '目前離線。示範旅程仍可使用；地圖、搜尋等需要網路的功能暫時不可用。',
-  'offline-preview': '目前離線。你正在查看此裝置的唯讀快取；內容可能不是雲端最新版本。',
+  'offline-preview': '目前離線。',
 };
 
 export function OfflineBanner({

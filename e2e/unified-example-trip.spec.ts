@@ -8,6 +8,7 @@ import {
   readEmulatorData,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 const IMAGE_TITLE = '本機圖片票券';
 const PDF_TITLE = '本機 PDF 票券';
@@ -47,6 +48,7 @@ async function openExample(page: Page): Promise<void> {
 async function reopenAfterReload(page: Page): Promise<void> {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await openExample(page);
+  await skipCompanionIntroduction(page);
 }
 
 async function openTicketPanel(page: Page): Promise<void> {
@@ -101,6 +103,7 @@ test.beforeEach(async ({ page }) => {
 test('local example persists itinerary and expense edits with zero cloud writes', async ({ page }) => {
   await page.goto('/');
   await openExample(page);
+  await skipCompanionIntroduction(page);
 
   await expect.poll(() => page.evaluate(() => typeof (
     window as Window & {
@@ -183,6 +186,7 @@ test('local example persists itinerary and expense edits with zero cloud writes'
 test('local image and PDF attachments survive reload and reset stays isolated', async ({ page }) => {
   await page.goto('/');
   await openExample(page);
+  await skipCompanionIntroduction(page);
   await openTicketPanel(page);
 
   await addAttachment(page, IMAGE_TITLE, {
@@ -222,6 +226,7 @@ test('local image and PDF attachments survive reload and reset stays isolated', 
 test('cloud-only collaboration keeps its position and explains availability', async ({ page }) => {
   await page.goto('/');
   await openExample(page);
+  await skipCompanionIntroduction(page);
 
   page.once('dialog', async (dialog) => {
     expect(dialog.message()).toBe('建立自己的旅程後即可使用此功能');

@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { clearEmulatorDatabase, seedTestTrip } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 const ROOM_ID = 'e2eprintpreviewreturn0001';
 
@@ -28,6 +29,7 @@ test.beforeEach(async ({ page }) => {
 test('generated preview keeps opener isolated and provides a safe return path', async ({ page }) => {
   await page.goto(`/?room=${ROOM_ID}`);
   const returnUrl = page.url();
+  await skipCompanionIntroduction(page);
   await openExportDialog(page);
   const popupPromise = page.waitForEvent('popup');
   await page.getByRole('button', { name: '開啟列印預覽' }).click();

@@ -55,7 +55,7 @@ function SettingsMenuButton({
       disabled={disabled}
       aria-disabled={disabled ? 'true' : undefined}
       aria-label={ariaLabel}
-      className={`min-h-11 rounded-xl px-3 text-left text-sm font-black transition-colors hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 ${t.mainText}`}
+      className={`min-h-11 min-w-0 rounded-xl px-3 py-2 text-left text-sm font-black [overflow-wrap:anywhere] transition-colors hover:bg-blue-500/10 disabled:cursor-not-allowed disabled:opacity-60 ${t.mainText}`}
     >
       {children}
     </button>
@@ -146,21 +146,21 @@ function SettingsMenuContent({
             <SettingsMenuButton
               testId="app-settings-feature-introduction"
               onClick={() => onRunAction(onOpenFeatureIntroduction)}
-              ariaLabel="重新開啟功能介紹"
+              ariaLabel="認識 Travel"
               menuItem={menuItem}
               t={t}
             >
-              功能介紹
+              認識 Travel
             </SettingsMenuButton>
           ) : null}
           <SettingsMenuButton
             testId="app-settings-feature-tour"
             onClick={() => onRunAction(onStartFeatureTour)}
-            ariaLabel="開啟旅程功能導覽"
+            ariaLabel="開啟操作導覽"
             menuItem={menuItem}
             t={t}
           >
-            功能導覽
+            操作導覽
           </SettingsMenuButton>
           {showDemoEntry && typeof onOpenDemo === 'function' ? (
             <SettingsMenuButton

@@ -292,4 +292,34 @@ describe('ExpenseSection', () => {
     expect(screen.getByTestId('expense-chart-view-button')).toBeVisible();
     expect(screen.getByTestId('expense-settlement-view-button')).toBeVisible();
   });
+
+  it('labels group and personal distribution and explains allocation only once', () => {
+    render(<ExpenseSection {...defaultProps} />);
+    fireEvent.click(screen.getByTestId('expense-chart-view-button'));
+    expect(screen.getByRole('heading', { name: '📊 全團花費分布' })).toBeVisible();
+    expect(screen.getByText('依所有記帳項目的完整金額統計')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '👤 Alice', exact: true }));
+    expect(screen.getByRole('heading', { name: '👤 Alice 的個人花費分布' })).toBeVisible();
+    expect(screen.getAllByText(/分攤金額.*代墊金額/)).toHaveLength(1);
+    expect(screen.getByText('依實際分攤金額計算，不是代墊金額。')).toBeVisible();
+    expect(screen.queryByText(/個人圓餅圖依/)).not.toBeInTheDocument();
+  });
+
+  it('explains separate settlement once in all scopes and keeps it when viewing one scope', () => {
+    render(<ExpenseSection {...defaultProps} />);
+    fireEvent.click(screen.getByTestId('expense-settlement-view-button'));
+    const allScopeNote = '行前與旅途中分開結算，不會跨範圍互相抵銷。';
+    const singleScopeNote = '付款紀錄只抵銷本範圍，與其他範圍分開核對。';
+    expect(screen.getAllByText(allScopeNote)).toHaveLength(1);
+    expect(screen.queryByText(singleScopeNote)).not.toBeInTheDocument();
+    expect(screen.getByTestId('settlement-scope-pretrip')).toBeVisible();
+    expect(screen.getByTestId('settlement-scope-intrip')).toBeVisible();
+    for (const scope of ['pretrip', 'intrip']) {
+      fireEvent.click(screen.getByTestId(`settlement-scope-tab-${scope}`));
+      expect(screen.getAllByText(singleScopeNote)).toHaveLength(1);
+      expect(screen.queryByText(allScopeNote)).not.toBeInTheDocument();
+      expect(screen.getByTestId(`settlement-scope-${scope}`)).toBeVisible();
+      expect(screen.queryByTestId(`settlement-scope-${scope === 'pretrip' ? 'intrip' : 'pretrip'}`)).not.toBeInTheDocument();
+    }
+  });
 });

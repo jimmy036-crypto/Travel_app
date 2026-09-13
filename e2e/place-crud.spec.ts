@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test, type Dialog, type Page } from '@playwright/test';
 
 import {
@@ -105,6 +106,7 @@ test('shows a success toast after creating a place', async ({ page }) => {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   await addPlaceWithEmulatorHook(page);
 
@@ -143,6 +145,7 @@ test('adds once to the selected day when the add action is triggered twice', asy
 
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+  await skipCompanionIntroduction(page);
   await page.locator(
     '[data-testid="itinerary-day-switch-button"][data-day-id="Day 2"]',
   ).click();
@@ -217,6 +220,7 @@ test('shows a success toast after editing a place', async ({ page }) => {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   const placeCard = placeCardByName(page, 'Day 1', seededPlaceName);
   await expect(placeCard).toBeVisible();
@@ -267,6 +271,7 @@ test('cancelling an edit keeps the original place in UI, Database, and reload', 
 
   await page.goto(`/?room=${ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+  await skipCompanionIntroduction(page);
   const detailTrigger = placeCardByName(page, 'Day 1', seededPlaceName)
     .getByTestId('place-details-trigger');
   await detailTrigger.click();
@@ -295,6 +300,7 @@ test('cancelling an edit keeps the original place in UI, Database, and reload', 
 
   await page.reload();
   await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+  await skipCompanionIntroduction(page);
   await expect(placeCardByName(page, 'Day 1', seededPlaceName)).toBeVisible();
   await expect(placeCardByName(page, 'Day 1', '不應儲存的名稱')).toHaveCount(0);
 });
@@ -307,6 +313,7 @@ test('新增、編輯景點與詳細資訊會保存到 Firebase Emulator', async
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   await expect
     .poll(
@@ -375,6 +382,7 @@ test('新增、編輯景點與詳細資訊會保存到 Firebase Emulator', async
   await expect(placeCard).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   await placeCard.click();
 
@@ -444,6 +452,7 @@ test('新增、編輯景點與詳細資訊會保存到 Firebase Emulator', async
   await expect(placeCard).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   await placeCard.click();
 
@@ -492,6 +501,7 @@ test('uses the shared confirmation dialog before deleting a place', async ({
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
   await expect(placeCardByName(page, 'Day 1', placeName)).toBeVisible();
 
   await openDeleteConfirmationForPlace(page, 'Day 1', placeName);
@@ -617,6 +627,7 @@ test('mobile day switching does not accidentally trigger place editing', async (
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   const day1Switch = page.locator(
     '[data-testid="itinerary-day-switch-button"][data-day-id="Day 1"]',
@@ -742,6 +753,7 @@ test('mobile place action menu stays visible and closes on outside interaction',
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   const firstPlace = placeCardByName(page, 'Day 1', 'E2E Action first');
   const secondPlace = placeCardByName(page, 'Day 1', 'E2E Action second');
@@ -797,6 +809,7 @@ test('mobile place action menu stays visible and closes on outside interaction',
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   const reloadedFirstPlace = placeCardByName(page, 'Day 1', 'E2E Action first');
   await reloadedFirstPlace.getByTestId('place-action-menu-trigger').click();
@@ -809,6 +822,7 @@ test('mobile place action menu stays visible and closes on outside interaction',
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   const desktopPlace = placeCardByName(page, 'Day 1', 'E2E Action first');
   await expect(desktopPlace.getByTestId('place-action-menu-trigger')).toBeHidden();

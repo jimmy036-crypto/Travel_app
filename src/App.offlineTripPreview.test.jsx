@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import App from './App.jsx';
 import * as offlineCache from './features/offline/offlineTripCache.js';
 import { set, update, get, onValue } from 'firebase/database';
@@ -277,6 +277,11 @@ describe('App offline trip preview', () => {
 
     await waitFor(() => expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument());
     expect(screen.getByTestId('offline-preview-title')).toHaveTextContent('Trip 1');
+    expect(screen.getByTestId('offline-preview-readonly-status')).toHaveTextContent('離線唯讀預覽');
+    expect(screen.getByTestId('offline-preview-cache-time')).toHaveTextContent('快取時間：');
+    expect(screen.getByTestId('offline-preview-cache-time')).not.toHaveTextContent('快取時間未知');
+    expect(screen.getByTestId('offline-preview-stale-note')).toHaveTextContent('這是此裝置保存的離線資料，可能不是雲端最新內容。');
+    expect(screen.getByTestId('offline-banner')).toHaveTextContent(/^目前離線。$/u);
   });
 
   it('APP-03 VIEW-02 VIEW-03 VIEW-04 unmounts Lobby and TripDetail while Preview is open', async () => {
@@ -438,6 +443,12 @@ describe('App offline trip preview', () => {
     rerender(<App />);
 
     expect(screen.getByTestId('offline-trip-preview')).toBeInTheDocument();
+    expect(screen.getByTestId('offline-preview-readonly-status')).toHaveTextContent('離線唯讀預覽');
+    expect(screen.getByTestId('offline-preview-cache-time')).toHaveTextContent('快取時間：');
+    expect(screen.getByTestId('offline-preview-stale-note')).toHaveTextContent('可能不是雲端最新內容');
+    expect(screen.getByText('已恢復連線')).toBeVisible();
+    expect(screen.queryByTestId('offline-banner')).not.toBeInTheDocument();
+    expect(screen.queryByText(/已同步|已保存|已儲存/u)).not.toBeInTheDocument();
     expect(screen.queryByTestId('mock-trip-detail')).not.toBeInTheDocument();
     expect(window.location.search).toBe(searchBeforeOnline);
     fireEvent.click(screen.getByTestId('offline-preview-open-online'));
@@ -575,8 +586,15 @@ describe('App offline trip preview', () => {
     });
     render(<App />);
 
-    expect(await screen.findByTestId('lobby-trip-list-error')).toHaveTextContent('無法載入帳號旅程');
+    const errorSection = await screen.findByTestId('lobby-trip-list-error');
+    expect(errorSection).toHaveTextContent('無法載入帳號旅程');
+    expect(within(errorSection).getByRole('alert')).toHaveTextContent('無法載入帳號旅程，請確認網路連線後重新載入。');
+    expect(within(errorSection).getByRole('button', { name: '重新載入旅程清單' })).toBeEnabled();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.queryByTestId('lobby-next-trip-summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('旅程清單尚未載入，請重新載入後查看旅程摘要。')).not.toBeInTheDocument();
     expect(screen.queryByTestId('lobby-empty-state')).not.toBeInTheDocument();
+    expect(screen.getByTestId('lobby-account-status')).toHaveTextContent(/^測試使用者$/u);
     expect(screen.getByTestId('lobby-account-status')).not.toHaveTextContent('0 趟雲端旅程');
     expect(onValue).toHaveBeenCalledTimes(1);
 

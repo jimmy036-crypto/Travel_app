@@ -60,11 +60,8 @@ export function MapExploreControls({
     >
       <div className="flex min-w-0 items-center justify-between gap-2 px-1">
         <div className="min-w-0">
-          <p className={`text-[10px] font-black uppercase tracking-wide ${t.subText}`}>
-            {anchored ? '找這站附近' : '探索目前區域'}
-          </p>
           <p className={`truncate text-xs font-black ${t.mainText}`}>
-            {anchored ? safeAnchorName : '依目前地圖畫面搜尋'}
+            {anchored ? safeAnchorName : '附近搜尋'}
           </p>
         </div>
         <button

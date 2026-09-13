@@ -2,6 +2,12 @@ import React from 'react';
 import { estimateParkingCost } from './parkingEstimate.js';
 import { getMaximumLabel } from './parkingTariffModel.js';
 
+const matchConfidenceLabels = new Map([
+  ['high', '可信度高'],
+  ['medium', '可信度中'],
+  ['low', '可信度低'],
+]);
+
 const openSafely = (url) => {
   if (/^https:\/\/(?:www\.)?google\.com\/maps\//i.test(String(url || '')) || /^https:\/\/tdx\.transportdata\.tw\//i.test(String(url || ''))) {
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -38,10 +44,10 @@ export function ParkingResultSheet({ facilities, selectedId, onSelect, onSave, c
                 {facility.tariff.hourlyEquivalent !== null ? <p className={`text-[10px] ${positiveText}`}>約 NT${facility.tariff.hourlyEquivalent}／小時</p> : null}
                 {getMaximumLabel(facility.tariff) ? <p className={`text-[10px] ${positiveText}`}>{getMaximumLabel(facility.tariff)}</p> : null}
                 <p className={`text-[10px] ${estimate.amount === null ? t.subText : accentText}`}>{estimate.message}</p>
-                <p className={`mt-1 text-[9px] ${t.subText}`}>Provider: {facility.source.label} · confidence: {facility.matchConfidence} · 更新 {facility.source.providerUpdatedAt || facility.source.fetchedAt || '未知'}</p>
+                <p className={`mt-1 text-[9px] ${t.subText}`}>來源：{facility.source.label} · 資料配對：{matchConfidenceLabels.get(facility.matchConfidence) || '尚未確認'} · 更新：{facility.source.providerUpdatedAt || facility.source.fetchedAt || '未知'}</p>
                 {facility.matchConfidence === 'medium' ? <p className={`mt-1 text-[9px] font-black ${warningText}`}>官方資料為可能配對，請確認名稱與位置。</p> : null}
                 {facility.restrictions.maxHeightMeters !== null ? <p className={`text-[9px] ${t.subText}`}>限高 {facility.restrictions.maxHeightMeters}m</p> : null}
-                {facility.restrictions.reservation === true ? <p className={`text-[9px] ${t.subText}`}>支援預約（MVP 不提供預約操作）</p> : null}
+                {facility.restrictions.reservation === true ? <p className={`text-[9px] ${t.subText}`}>支援預約（本 App 不提供預約操作）</p> : null}
               </button>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button type="button" onClick={() => openSafely(facility.navigationUrl)} className="min-h-11 w-full rounded-xl bg-blue-700 px-3 text-[10px] font-black text-white transition-colors hover:bg-blue-800">導航到停車場</button>

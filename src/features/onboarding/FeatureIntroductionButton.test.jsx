@@ -8,8 +8,8 @@ describe('FeatureIntroductionButton', () => {
   it('renders a reusable high-level introduction action', () => {
     render(<FeatureIntroductionButton onOpen={() => {}} />);
     const button = screen.getByTestId('feature-introduction-button');
-    expect(button).toHaveTextContent('功能介紹');
-    expect(button).toHaveAccessibleName('開啟功能介紹');
+    expect(button).toHaveTextContent('認識 Travel');
+    expect(button).toHaveAccessibleName('認識 Travel');
     expect(button).toHaveAttribute('type', 'button');
   });
 

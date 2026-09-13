@@ -6,6 +6,7 @@ import {
   seedTestTrip,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 test('T3 offline notices leave all four mobile destinations reachable', async ({ page, context }, testInfo) => {
   await clearEmulatorDatabase();
@@ -14,6 +15,7 @@ test('T3 offline notices leave all four mobile destinations reachable', async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?room=t3-offline-navigation');
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('sync-status-indicator')).toContainText('上次已同步');
   await context.setOffline(true);
   const banner = page.getByTestId('offline-banner');
@@ -141,6 +143,7 @@ test.describe('Offline Awareness', () => {
 
     await page.goto('/?room=offline-test-room');
     await page.waitForSelector('[data-testid="trip-route-context"]');
+    await skipCompanionIntroduction(page);
 
     // Wait until it's "已同步" or idle
     // Debug: if error occurs, print it

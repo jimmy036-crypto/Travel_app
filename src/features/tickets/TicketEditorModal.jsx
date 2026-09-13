@@ -414,9 +414,6 @@ export function TicketEditorModal({
           <h2 id="ticket-editor-title" className={`text-xl font-black ${theme.mainText}`}>
             {isEdit ? '編輯票券' : '新增票券'}
           </h2>
-          <p className={`mt-1 text-sm font-semibold ${theme.subText}`}>
-            先填必要資訊，需要時再展開更多設定。
-          </p>
         </header>
 
         <form className="flex min-h-0 flex-1 flex-col" style={{ colorScheme: t?.isLight ? 'light' : 'dark' }} onSubmit={handleSubmit} noValidate>

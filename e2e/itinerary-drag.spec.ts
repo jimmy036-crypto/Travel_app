@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test, type Page } from '@playwright/test';
 
 import {
@@ -186,6 +187,7 @@ test('真實 DnD 操作會重排同日景點、重算時間並保存', async ({
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
   await expect(dayCard(page, 'Day 1')).toBeVisible();
 
   await expect
@@ -248,6 +250,7 @@ test('真實 DnD 操作會重排同日景點、重算時間並保存', async ({
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   await expect
     .poll(() => visibleOrder(page, 'Day 1'), {
@@ -350,6 +353,7 @@ test('跨日搬移會使用同一拖曳處理流程並保存兩日資料', async
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   await expect
     .poll(
@@ -448,6 +452,7 @@ test('跨日搬移會使用同一拖曳處理流程並保存兩日資料', async
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
   if (await mobileDayTwoSwitch.count()) {
     await mobileDayTwoSwitch.click();
   } else {
@@ -491,6 +496,7 @@ test('mobile-safe handle supports 12-item first/last moves, cancellation, scroll
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${LONG_LIST_ROOM_ID}`);
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
 
   const firstHandle = placeCard(page, 'Day 1', longName).getByTestId('place-drag-handle');
   await expect(firstHandle).toHaveCSS('touch-action', /pan-y|manipulation/);
@@ -533,5 +539,6 @@ test('mobile-safe handle supports 12-item first/last moves, cancellation, scroll
 
   await page.reload();
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
   await expect.poll(() => visibleOrder(page, 'Day 1')).toEqual(items.map((item) => item.name));
 });

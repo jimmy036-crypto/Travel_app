@@ -227,6 +227,7 @@ describe('FirstRunWelcomeDialog', () => {
     expect(dialog).toHaveAttribute('data-mode', 'replay');
     expect(dialog).toHaveAccessibleName();
     expect(screen.queryByTestId('first-run-welcome-dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('feature-introduction-close')).toHaveAccessibleName('關閉認識 Travel');
     await user.click(screen.getByTestId('feature-introduction-close'));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(storageGet).not.toHaveBeenCalled();

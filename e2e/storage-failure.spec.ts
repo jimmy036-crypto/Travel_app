@@ -1,3 +1,4 @@
+import { skipCompanionIntroduction } from './support/companion';
 import { expect, test, type Dialog, type Page, type Route } from '@playwright/test';
 
 import {
@@ -130,6 +131,7 @@ async function openTicketModal(page: Page): Promise<void> {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   const ticketTab = page.locator(
     '[data-testid="ticket-tab-button"]:visible',
@@ -152,6 +154,7 @@ async function addTestPlace(page: Page): Promise<void> {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   await expect
     .poll(

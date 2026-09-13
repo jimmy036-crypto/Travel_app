@@ -132,14 +132,14 @@ export const ExpenseSection = ({
 
   const activeExpenseChart = safeExpenseChartOwner === 'ALL'
     ? {
-        title: '📊 全團花費圓餅圖分析',
+        title: '📊 全團花費分布',
         subtitle: '依所有記帳項目的完整金額統計',
         total: expenseStats?.totalExpense || 0,
         categories: categoryStats,
       }
     : {
-        title: `👤 ${safeExpenseChartOwner} 的個人花費`,
-        subtitle: '依每筆帳款實際分攤到此成員的金額統計',
+        title: `👤 ${safeExpenseChartOwner} 的個人花費分布`,
+        subtitle: '依實際分攤金額計算，不是代墊金額。',
         total: memberCategoryStats[safeExpenseChartOwner]?.total || 0,
         categories: memberCategoryStats[safeExpenseChartOwner]?.categories || [],
       };
@@ -275,10 +275,6 @@ export const ExpenseSection = ({
               stats={activeExpenseChart.categories}
               t={t}
             />
-
-            <p className={`text-[10px] leading-relaxed px-2 ${t.subText}`}>
-              個人圓餅圖依「分帳金額」計算，而不是依「代墊人」計算；因此共同花費會按照每位成員實際分攤的金額歸類。
-            </p>
           </div>
         ) : expenseView === 'list' ? (
           <div className="space-y-6">

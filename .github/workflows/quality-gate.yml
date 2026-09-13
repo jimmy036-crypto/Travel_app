@@ -75,10 +75,19 @@ jobs:
       - name: Production build
         run: npm run build
 
-  e2e:
-    name: Playwright E2E
+  e2e-browser:
+    name: Playwright E2E (${{ matrix.project }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      # Each browser gets its own runner and Emulator; tests within it stay serial.
+      fail-fast: false
+      matrix:
+        include:
+          - project: Desktop Chrome
+            browser: chromium
+          - project: Mobile Safari
+            browser: webkit
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -108,7 +117,7 @@ jobs:
         run: npm run firebase:version
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium webkit
+        run: npx playwright install --with-deps ${{ matrix.browser }}
 
       - name: Run E2E with Firebase Emulator
         env:
@@ -116,7 +125,7 @@ jobs:
           DEBUG: pw:webserver
           FIREBASE_CLI_SKIP_UPDATE_CHECK: 'true'
           NO_UPDATE_NOTIFIER: '1'
-        run: npm run test:e2e
+        run: npm run test:e2e -- --project="${{ matrix.project }}"
 
       - name: Upload Playwright artifacts
         # Keep failed-attempt traces even when retries make the run green.
@@ -124,9 +133,25 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-${{ github.run_id }}-${{ github.run_attempt }}
+          name: playwright-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.browser }}
           path: |
             playwright-report/
             test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  e2e:
+    # Preserve the existing check name and reject failed, cancelled or skipped runs.
+    name: Playwright E2E
+    needs: e2e-browser
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both browser jobs to pass
+        env:
+          BROWSER_RESULT: ${{ needs.e2e-browser.result }}
+        run: |
+          if [ "$BROWSER_RESULT" != "success" ]; then
+            echo "Browser E2E jobs did not all pass: $BROWSER_RESULT"
+            exit 1
+          fi

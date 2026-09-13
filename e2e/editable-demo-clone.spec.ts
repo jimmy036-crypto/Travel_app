@@ -7,6 +7,7 @@ import {
   readEmulatorData,
 } from './support/emulator';
 import { markCurrentReleaseSeen } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 const EXAMPLE_ID = 'local-example-trip';
 const LEGACY_SANDBOX_KEY = 'travel-app-demo-sandbox-v1';
@@ -26,6 +27,7 @@ async function openExample(page: Page): Promise<void> {
   await expect(card).toBeVisible();
   await card.getByTestId('example-trip-card-title').click();
   await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
 }
 
 test.beforeEach(async ({ page }) => {

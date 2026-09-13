@@ -7,11 +7,13 @@ import {
 import {
   CURRENT_RELEASE_HIGHLIGHT_COUNT,
   CURRENT_RELEASE_PUBLISHED_AT,
+  CURRENT_RELEASE_SEEN_KEY,
   CURRENT_RELEASE_TITLE,
   CURRENT_RELEASE_VERSION,
   clearCurrentReleaseSeen,
   markCurrentReleaseSeen,
 } from './support/releaseNotes';
+import { skipCompanionIntroduction } from './support/companion';
 
 // The contextual tour teaches these areas, in this order, on both layouts.
 const TOUR_STEP_IDS = [
@@ -241,6 +243,42 @@ test('shows release notes for an unseen version', async ({ page }) => {
   await expect(dialog).not.toContainText('多人即時協作改善');
 });
 
+for (const dismissal of ['Escape', '先看看'] as const) {
+  test(`serializes first companion and unread release focus using ${dismissal}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await clearCurrentReleaseSeen(page);
+    await seedTourTrip();
+    await page.goto(`/?room=${TOUR_ROOM_ID}`);
+    await expect(page.getByTestId('active-trip-view')).toBeVisible({ timeout: 20_000 });
+
+    const companion = page.getByRole('dialog', { name: '你是這趟旅程中的哪位旅伴？', exact: true });
+    const release = page.getByTestId('whats-new-dialog');
+    await expect(companion).toBeVisible();
+    await page.screenshot({ path: `.tmp/copy-evidence/entry-handoff-${dismissal}-${testInfo.project.name}.png` });
+    await expect(release).toHaveCount(0);
+    await expect(companion.getByRole('button', { name: '先看看', exact: true })).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(companion.getByTestId('companion-member').last()).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(companion.getByRole('button', { name: '先看看', exact: true })).toBeFocused();
+    if (dismissal === 'Escape') await page.keyboard.press('Escape');
+    else await companion.getByRole('button', { name: '先看看', exact: true }).click();
+
+    await expect(companion).toHaveCount(0);
+    await expect(release).toBeVisible();
+    await expect(release.getByRole('button', { name: '關閉本次更新', exact: true })).toBeFocused();
+    expect(await page.evaluate(key => localStorage.getItem(key), CURRENT_RELEASE_SEEN_KEY)).toBeNull();
+    await page.keyboard.press('Shift+Tab');
+    await expect(release.getByTestId('whats-new-dismiss-version')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(release.getByRole('button', { name: '關閉本次更新', exact: true })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(release).toHaveCount(0);
+    await expect(page.getByTestId('back-to-lobby')).toBeFocused();
+    expect(await page.evaluate(key => localStorage.getItem(key), CURRENT_RELEASE_SEEN_KEY)).toBeNull();
+  });
+}
+
 test('settings shows the current release version', async ({ page }) => {
   await markCurrentReleaseSeen(page);
 
@@ -303,6 +341,9 @@ test('routes from the lobby into a trip before starting the tour', async ({
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await expect(page.getByRole('dialog', { name: '你是這趟旅程中的哪位旅伴？', exact: true })).toBeVisible();
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('feature-tour')).toBeVisible();
   await expect(page.getByTestId('feature-tour-step')).toBeVisible();
   await expect(page.getByTestId('feature-tour-empty-place-fallback')).toHaveCount(0);
@@ -333,6 +374,9 @@ test('asks the user to choose a trip when multiple trips exist', async ({
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await expect(page.getByRole('dialog', { name: '你是這趟旅程中的哪位旅伴？', exact: true })).toBeVisible();
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('feature-tour')).toBeVisible();
   await expect(page.getByTestId('trip-route-context')).toHaveAttribute(
     'data-room-id',
@@ -381,6 +425,7 @@ test('cancels a pending tour without starting it', async ({ page }) => {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('feature-tour')).toHaveCount(0);
 });
 
@@ -394,6 +439,7 @@ test('completes the mobile feature tour', async ({ page }) => {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('whats-new-dialog')).toBeVisible();
 
   await page.getByTestId('whats-new-start-tour').click();
@@ -443,6 +489,7 @@ test('completes the desktop feature tour without teaching hidden mobile controls
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
   await page.getByTestId('whats-new-start-tour').click();
   await expect(page.getByTestId('feature-tour')).toBeVisible();
 
@@ -479,6 +526,7 @@ test('keeps the active tour target clear and inside the spotlight', async ({
     await expect(page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(page);
     await page.getByTestId('whats-new-start-tour').click();
 
     await expect(page.getByTestId('feature-tour')).toBeVisible();
@@ -530,6 +578,7 @@ test('spotlights desktop-only planner and map targets', async ({ page }) => {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
   await page.getByTestId('whats-new-start-tour').click();
   await expect(page.getByTestId('feature-tour')).toBeVisible();
 
@@ -565,6 +614,7 @@ test('does not activate another tab while teaching the map and expense areas', a
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
   await page.getByTestId('whats-new-start-tour').click();
   await expect(page.getByTestId('feature-tour')).toBeVisible();
 
@@ -596,6 +646,7 @@ test('uses instructional steps instead of spotlighting a hidden planner', async 
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
 
   // Start the tour from the expense tab, where the planner DOM is hidden.
   await page.getByTestId('expense-tab-button').click();
@@ -628,6 +679,9 @@ test('ends the tour when navigating away from the trip', async ({ page }) => {
   await page.goto('/');
   await page.getByTestId('whats-new-choose-trip-tour').click();
 
+  await expect(page.getByRole('dialog', { name: '你是這趟旅程中的哪位旅伴？', exact: true })).toBeVisible();
+  await expect(page.getByTestId('feature-tour')).toHaveCount(0);
+  await skipCompanionIntroduction(page);
   await expect(page.getByTestId('feature-tour')).toBeVisible({
     timeout: 20_000,
   });
@@ -666,6 +720,7 @@ for (const [layoutName, viewport] of [
     await expect(page.getByTestId('active-trip-view')).toBeVisible({
       timeout: 20_000,
     });
+    await skipCompanionIntroduction(page);
     await page.getByTestId('whats-new-start-tour').click();
     await expect(page.getByTestId('feature-tour')).toBeVisible();
 
@@ -699,6 +754,7 @@ test('describes the empty place fallback without promising hidden actions', asyn
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
+  await skipCompanionIntroduction(page);
   await page.getByTestId('whats-new-start-tour').click();
 
   await expect(page.getByTestId('feature-tour')).toBeVisible();

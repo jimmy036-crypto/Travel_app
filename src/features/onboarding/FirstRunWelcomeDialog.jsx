@@ -199,7 +199,7 @@ export default function FirstRunWelcomeDialog({
           <button
             type="button"
             data-testid={isReplay ? 'feature-introduction-close' : 'first-run-skip'}
-            aria-label={isReplay ? '關閉功能介紹' : undefined}
+            aria-label={isReplay ? '關閉認識 Travel' : undefined}
             onClick={() => finishOnce(closeCallback)}
             className="min-h-11 rounded-xl px-4 py-2 font-bold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800"
           >

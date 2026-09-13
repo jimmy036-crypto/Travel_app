@@ -130,6 +130,30 @@ const openModal = () => {
 };
 
 describe('EditItemModal', () => {
+  it.each([
+    { kind: 'image', fileName: 'menu.png', contentType: 'image/png', keep: '保留目前圖片；點此可替換', limit: 'JPG／PNG／WebP，最多 5 MB', hint: '菜單照片可在相簿左右滑動查看。' },
+    { kind: 'pdf', fileName: 'menu.pdf', contentType: 'application/pdf', keep: '保留目前 PDF；點此可替換', limit: '僅支援 PDF，最多 15 MB', hint: '儲存後可從「菜單」或「資料」開啟 PDF。' },
+  ])('keeps $kind attachment limits, replacement guidance and original data after cancelling resource edits', async ({ kind, fileName, contentType, keep, limit, hint }) => {
+    const resource = {
+      id: 'resource-1', kind: 'file', type: 'menu', title: '合成菜單', url: '',
+      storagePath: `rooms/synthetic/resources/${fileName}`, fileName, contentType, size: 128, uploadedAt: 1,
+    };
+    const onSave = vi.fn();
+    render(<EditItemModal item={{ ...item, resources: [resource] }} roomId="room-1" onSave={onSave} onClose={vi.fn()} t={theme} />);
+    fireEvent.click(within(screen.getByTestId('place-resource-row')).getByTitle('編輯資料'));
+    expect(screen.getByText(keep)).toBeVisible();
+    expect(within(screen.getByTestId(`place-resource-${kind}-input`).closest('label')).getByText(limit)).toBeVisible();
+    expect(screen.getByText(hint)).toBeVisible();
+    fireEvent.change(screen.getByTestId(`place-resource-${kind}-title-input`), { target: { value: '未保存的附件名稱' } });
+    fireEvent.click(screen.getByRole('button', { name: '取消編輯', exact: true }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByTestId('place-resource-row')).toHaveTextContent('合成菜單');
+    expect(screen.queryByText('未保存的附件名稱')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0].resources).toEqual([resource]);
+  });
+
   it('returns focus to a stable card action after the opening menu item unmounts', async () => {
     render(<UnmountingMenuHarness />);
     const stableTrigger = screen.getByRole('button', { name: '開啟景點操作' });

@@ -29,7 +29,7 @@ export function SavedParkingCard({
       <p className={`text-[10px] font-black ${accentText}`}>已選停車場</p>
       <strong className={`text-xs ${t.mainText}`}>{title}</strong>
       <p className={`text-[10px] ${t.subText}`}>步行約 {plan.walkingMinutes ?? '—'} 分鐘 · 儲存時費率：{tariff}</p>
-      <p className={`text-[9px] ${t.subText}`}>快照時間：{capturedAt || '未知'}；過期資料不代表即時狀態</p>
+      <p className={`text-[9px] ${t.subText}`}>資料記錄時間：{capturedAt || '未知'}；可能已過期，請確認最新狀態。</p>
       <div className="mt-2 flex flex-wrap gap-1">
         <button type="button" onClick={onReplace} className="min-h-11 rounded-xl bg-blue-700 px-3 text-[10px] font-black text-white transition-colors hover:bg-blue-800">更新或更換</button>
         {navigationUrl ? <a href={navigationUrl} target="_blank" rel="noreferrer" className={`flex min-h-11 items-center rounded-xl border px-2 text-[10px] font-black ${t.cardBorder} ${t.mainText}`}>導航到停車場</a> : null}

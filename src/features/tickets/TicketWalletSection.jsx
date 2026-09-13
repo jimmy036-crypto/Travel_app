@@ -230,7 +230,6 @@ export function TicketWalletSection({
   isActive = true,
   isSavingTicket = false,
   deletingTicketId = '',
-  companionNotice,
   onCreateTicket,
   onEditTicket,
   onDeleteTicket,
@@ -273,13 +272,10 @@ export function TicketWalletSection({
       <header className={`shrink-0 border-b p-4 shadow-lg backdrop-blur-2xl sm:p-6 ${t?.headerBg || ''} ${t?.cardBorder || ''}`}>
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className={`text-xs font-bold uppercase tracking-widest ${t?.subText || ''}`}>隨身協作大廳</p>
-            <h2 className={`mt-1 break-words text-xl font-black sm:text-2xl ${t?.mainText || ''}`}>共同票券夾 🎟️</h2>
+            <h2 className={`break-words text-xl font-black sm:text-2xl ${t?.mainText || ''}`}>票券夾</h2>
           </div>
           <button type="button" data-testid="add-ticket-button" onClick={(event) => { event.currentTarget.focus(); onCreateTicket(); }} disabled={isSavingTicket} className="min-h-11 shrink-0 rounded-2xl bg-amber-700 px-3 py-2.5 text-sm font-bold text-white hover:bg-amber-800 disabled:opacity-50 sm:px-5">新增票券</button>
         </div>
-
-        {companionNotice}
 
         <div className="scrollbar-hide mt-4 flex max-w-full gap-2 overflow-x-auto overscroll-x-contain pb-1" aria-label="票券篩選">
           <button type="button" data-testid="ticket-filter-all" aria-pressed={effectiveView.type === 'all'} onClick={() => setView({ type: 'all' })} className={filterClass}>全部</button>
@@ -298,9 +294,11 @@ export function TicketWalletSection({
           <div className="mx-auto mt-12 flex max-w-md flex-col items-center text-center">
             <span className="text-5xl" aria-hidden="true">🎟️</span>
             <h3 className={`mt-4 font-black ${t?.mainText || ''}`}>{emptyTitle}</h3>
-            <p className={`mt-2 text-sm ${t?.subText || ''}`}>
-              {normalizedTickets.length === 0 ? '可加入圖片、PDF、網頁票券，或只保存外部 App 的開啟方式。' : '可以查看全部票券，或新增一張適合這個分類的票券。'}
-            </p>
+            {normalizedTickets.length === 0 ? (
+              <p className={`mt-2 text-sm ${t?.subText || ''}`}>
+                可加入圖片、PDF、網頁票券，或只保存外部 App 的開啟方式。
+              </p>
+            ) : null}
             <div className="mt-4 flex gap-2">
               {normalizedTickets.length > 0 ? <button type="button" onClick={() => setView({ type: 'all' })} className="min-h-11 rounded-xl border px-3 py-2 text-sm font-black">查看全部票券</button> : null}
               <button type="button" onClick={(event) => { event.currentTarget.focus(); onCreateTicket(); }} disabled={isSavingTicket} className="min-h-11 rounded-xl bg-amber-700 px-3 py-2 text-sm font-black text-white hover:bg-amber-800 disabled:opacity-50">新增票券</button>

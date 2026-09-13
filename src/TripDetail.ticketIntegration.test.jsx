@@ -9,6 +9,7 @@ const ticketMocks = vi.hoisted(() => ({
   actionDeps: null,
   saveTicket: vi.fn(),
   deleteTicket: vi.fn(),
+  toastInfo: vi.fn(),
 }));
 
 const firebaseMocks = vi.hoisted(() => ({
@@ -65,12 +66,14 @@ vi.mock('./components/UIComponents.jsx', () => ({
 }));
 
 vi.mock('./components/SyncStatusIndicator.jsx', () => ({ SyncStatusIndicator: () => null }));
-vi.mock('./components/AppSettingsMenu.jsx', () => ({ AppSettingsMenu: () => null }));
+vi.mock('./components/AppSettingsMenu.jsx', () => ({ AppSettingsMenu: ({ tripActions = [] }) => (
+  <div>{tripActions.map(action => <button key={action.id} data-testid={`settings-${action.id}`} onClick={action.onSelect}>{action.label}</button>)}</div>
+) }));
 vi.mock('./components/ui/EmptyState.jsx', () => ({ EmptyState: () => <div /> }));
 vi.mock('./components/ui/Skeleton.jsx', () => ({ SkeletonButton: () => <div />, SkeletonText: () => <div /> }));
 vi.mock('./components/ui/useConfirm.js', () => ({ useConfirm: () => vi.fn() }));
 vi.mock('./components/ui/useToast.js', () => ({
-  useToast: () => ({ info: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() }),
+  useToast: () => ({ info: ticketMocks.toastInfo, warning: vi.fn(), error: vi.fn(), success: vi.fn() }),
 }));
 vi.mock('./features/places/usePlaceActions.js', () => ({
   usePlaceActions: () => ({ addPlaceFromSearch: vi.fn(), savePlace: vi.fn(), deletePlace: vi.fn(), duplicatePlace: vi.fn() }),
@@ -97,7 +100,6 @@ vi.mock('./features/tickets/TicketWalletSection.jsx', () => ({
         <button data-testid="wallet-edit" onClick={() => props.onEditTicket(firstTicket)}>edit</button>
         <button data-testid="wallet-delete" onClick={() => props.onDeleteTicket(firstTicket?.id)}>delete</button>
         <button data-testid="wallet-image" onClick={() => props.onOpenImage(firstTicket)}>image</button>
-        {props.companionNotice}
       </section>
     );
   },
@@ -165,7 +167,7 @@ const roomData = (members = ['Ann', 'Bob']) => ({
   checklist: {},
 });
 
-const renderTrip = async (roomId = 'room-1') => {
+const renderTrip = async (roomId = 'room-1', keepIntroduction = false) => {
   const props = {
     roomId,
     accountUser: { uid: `test-account-${++accountSequence}` },
@@ -180,6 +182,9 @@ const renderTrip = async (roomId = 'room-1') => {
   };
   const view = render(<TripDetail {...props} />);
   await waitFor(() => expect(screen.getByTestId('wallet-ticket-count')).toHaveTextContent('1'));
+  if (!keepIntroduction && screen.queryByRole('button', { name: '先看看' })) {
+    fireEvent.click(screen.getByRole('button', { name: '先看看' }));
+  }
   return { ...view, props };
 };
 
@@ -192,6 +197,7 @@ describe('TripDetail ticket wallet integration', () => {
     ticketMocks.actionDeps = null;
     ticketMocks.saveTicket.mockReset().mockResolvedValue({ id: 'saved' });
     ticketMocks.deleteTicket.mockReset().mockResolvedValue(true);
+    ticketMocks.toastInfo.mockReset();
     firebaseMocks.listeners.clear();
     firebaseMocks.deferInitialValue = false;
     firebaseMocks.rooms.clear();
@@ -304,9 +310,9 @@ describe('TripDetail ticket wallet integration', () => {
 
   it('requires legacy confirmation, scopes it to account and room, excludes invalid choices, and invalidates removed members', async () => {
     localStorage.setItem('travel-active-member-room-1', 'Ann');
-    const view = await renderTrip();
+    const view = await renderTrip('room-1', true);
     expect(screen.getByTestId('wallet-active-member').textContent).toBe('');
-    fireEvent.click(screen.getByRole('button', { name: '選擇旅伴' }));
+    expect(screen.getByRole('dialog', { name: '你是這趟旅程中的哪位旅伴？' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Ghost', exact: true })).not.toBeInTheDocument();
     const { update } = await import('firebase/database');
     update.mockClear();
@@ -319,16 +325,116 @@ describe('TripDetail ticket wallet integration', () => {
 
     localStorage.setItem('travel-active-member-room-2', 'Carol');
     view.rerender(<TripDetail {...view.props} roomId="room-2" />);
-    await waitFor(() => expect(screen.getByRole('button', { name: '選擇旅伴' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Carol', exact: true })).toBeEnabled());
     expect(screen.getByTestId('wallet-active-member').textContent).toBe('');
-    fireEvent.click(screen.getByRole('button', { name: '選擇旅伴' }));
     fireEvent.click(screen.getByRole('button', { name: 'Carol', exact: true }));
     expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('Carol');
 
     act(() => firebaseMocks.listeners.get('rooms/room-2')({ val: () => roomData(['Dana']) }));
     await waitFor(() => expect(screen.getByTestId('wallet-active-member')).toHaveTextContent(''));
-    expect(screen.getByText('原旅伴已不在名單中，請重新選擇。')).toBeInTheDocument();
+    expect(ticketMocks.toastInfo).toHaveBeenCalledWith({
+      title: '請重新確認旅伴',
+      description: '原旅伴已不在名單中。可在旅程設定更正，或在需要本人歸屬時選擇。',
+    });
+    expect(screen.queryByTestId('companion-picker')).not.toBeInTheDocument();
     expect(localStorage.getItem('travel-active-member-room-2')).toBe('Carol');
+  });
+
+  it('introduces the companion on entry, defers the tour, and skips without any business write', async () => {
+    const view = await renderTrip('room-1', true);
+    const { update } = await import('firebase/database');
+    update.mockClear();
+    await waitFor(() => expect(view.props.onTourAvailabilityChange).toHaveBeenLastCalledWith(expect.objectContaining({ ready: false })));
+    expect(screen.getByRole('button', { name: '先看看' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: '先看看' }));
+    expect(screen.queryByTestId('companion-picker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('companion-notice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('');
+    expect(update).not.toHaveBeenCalled();
+    expect(ticketMocks.saveTicket).not.toHaveBeenCalled();
+    await waitFor(() => expect(view.props.onTourAvailabilityChange).toHaveBeenLastCalledWith(expect.objectContaining({ ready: true })));
+    view.rerender(<TripDetail {...view.props} />);
+    expect(screen.queryByTestId('companion-picker')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('settings-companion'));
+    expect(screen.getByRole('button', { name: '取消', exact: true })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'Bob', exact: true }));
+    expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('Bob');
+    expect(update).not.toHaveBeenCalled();
+    view.unmount();
+    render(<TripDetail {...view.props} />);
+    await waitFor(() => expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('Bob'));
+    expect(screen.queryByTestId('companion-picker')).not.toBeInTheDocument();
+  });
+
+  it.each(['getItem throws', 'corrupt preference'])('does not claim a confirmed companion when %s leaves no member', async failure => {
+    const key = `travel-companion-v1:${JSON.stringify(['firebase', `test-account-${accountSequence + 1}`, 'room-1'])}`;
+    if (failure === 'corrupt preference') {
+      localStorage.setItem(key, 'invalid-json');
+    } else {
+      const getItem = Storage.prototype.getItem;
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (storageKey) {
+        if (storageKey === key) throw new DOMException('Preference read blocked', 'SecurityError');
+        return getItem.call(this, storageKey);
+      });
+    }
+    const { update } = await import('firebase/database');
+    update.mockClear();
+    const view = await renderTrip('room-1', true);
+    const neutralWarning = {
+      title: '無法記住旅伴設定',
+      description: '無法確認瀏覽器已記住的旅伴；重新載入後請再次檢查設定。',
+    };
+    await waitFor(() => expect(ticketMocks.toastInfo).toHaveBeenCalledExactlyOnceWith(neutralWarning));
+    expect(screen.getByTestId('wallet-active-member').textContent).toBe('');
+    expect(screen.queryByTestId('companion-picker')).not.toBeInTheDocument();
+    expect(screen.getByTestId('settings-companion')).toHaveTextContent('選擇本趟旅伴');
+    view.rerender(<TripDetail {...view.props} />);
+    expect(ticketMocks.toastInfo).toHaveBeenCalledExactlyOnceWith(neutralWarning);
+    expect(update).not.toHaveBeenCalled();
+    expect(ticketMocks.saveTicket).not.toHaveBeenCalled();
+    expect(ticketMocks.deleteTicket).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicit companion usable after setItem fails and gives neutral feedback if clearing also fails', async () => {
+    const key = `travel-companion-v1:${JSON.stringify(['firebase', `test-account-${accountSequence + 1}`, 'room-1'])}`;
+    const setItem = Storage.prototype.setItem;
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (storageKey, value) {
+      if (storageKey === key) throw new DOMException('Preference write blocked', 'QuotaExceededError');
+      return setItem.call(this, storageKey, value);
+    });
+    const { update } = await import('firebase/database');
+    update.mockClear();
+    const view = await renderTrip('room-1', true);
+    expect(ticketMocks.toastInfo).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Bob', exact: true }));
+    await waitFor(() => expect(ticketMocks.toastInfo).toHaveBeenCalledExactlyOnceWith({
+      title: '無法記住旅伴設定',
+      description: '本次已確認的選擇仍可使用；重新載入後請再確認設定。',
+    }));
+    expect(write).toHaveBeenCalledWith(key, JSON.stringify({ version: 1, confirmed: true, member: 'Bob' }));
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('Bob');
+    expect(screen.getByTestId('settings-companion')).toHaveTextContent('本趟旅伴：Bob · 更正旅伴');
+    view.rerender(<TripDetail {...view.props} />);
+    expect(screen.getByTestId('wallet-active-member')).toHaveTextContent('Bob');
+    expect(ticketMocks.toastInfo).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('settings-companion'));
+    expect(screen.getByRole('button', { name: 'Bob', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    expect(ticketMocks.toastInfo).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '清除本趟旅伴設定' }));
+    await waitFor(() => expect(ticketMocks.toastInfo).toHaveBeenCalledTimes(2));
+    expect(ticketMocks.toastInfo).toHaveBeenLastCalledWith({
+      title: '無法記住旅伴設定',
+      description: '無法確認瀏覽器已記住的旅伴；重新載入後請再次檢查設定。',
+    });
+    expect(write).toHaveBeenCalledWith(key, JSON.stringify({ version: 1, confirmed: false, member: '' }));
+    expect(screen.getByTestId('wallet-active-member').textContent).toBe('');
+    expect(screen.queryByTestId('companion-picker')).not.toBeInTheDocument();
+    expect(localStorage.getItem(key)).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+    expect(ticketMocks.saveTicket).not.toHaveBeenCalled();
+    expect(ticketMocks.deleteTicket).not.toHaveBeenCalled();
   });
 
   it('has removed the legacy formal TicketModal and direct ticket Storage deletion paths', () => {

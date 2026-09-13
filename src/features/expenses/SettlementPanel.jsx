@@ -77,9 +77,11 @@ function ScopeSection({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className={`text-sm font-black ${t.mainText}`}>{label}結算</h3>
-          <p className={`mt-1 text-[10px] font-bold ${t.subText}`}>
-            付款紀錄只抵銷本範圍，與其他範圍分開核對。
-          </p>
+          {!showBadge ? (
+            <p className={`mt-1 text-[10px] font-bold ${t.subText}`}>
+              付款紀錄只抵銷本範圍，與其他範圍分開核對。
+            </p>
+          ) : null}
         </div>
         {showBadge ? (
           <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-[10px] font-black text-blue-500">
