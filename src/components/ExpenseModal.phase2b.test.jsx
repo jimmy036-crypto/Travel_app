@@ -47,6 +47,16 @@ describe('ExpenseModal Phase 2B 表單流程', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
+  it('欄位標籤與控制項正式關聯，窄螢幕表單仍保留可達控制', () => {
+    const view = render(<ExpenseModal {...commonProps} />);
+    expect(view.getByLabelText('項目名稱 *')).toBe(view.getByTestId('expense-item-input'));
+    expect(view.getByLabelText('幣別')).toBe(view.getByTestId('expense-currency-select'));
+    expect(view.getByLabelText('當地金額 *')).toBe(view.getByTestId('expense-local-cost-input'));
+    expect(view.getByLabelText('換算匯率')).toBe(view.getByTestId('expense-rate-input'));
+    expect(view.getByLabelText('日期')).toBe(view.getByTestId('expense-day-select'));
+    expect(view.getByLabelText('備註（選填）')).toBe(view.getByTestId('expense-note-input'));
+  });
+
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();

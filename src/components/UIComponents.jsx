@@ -1187,8 +1187,9 @@ export const ExpenseModal = ({
 
         <div className="overflow-y-auto overscroll-contain px-5 sm:px-6 py-5 space-y-5 scrollbar-hide flex-1">
           <div>
-            <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>項目名稱 *</label>
+            <label htmlFor="expense-item-input" className={`block text-xs font-bold mb-1.5 ${t.subText}`}>項目名稱 *</label>
             <input
+              id="expense-item-input"
               data-testid="expense-item-input"
               value={item}
               onChange={event => setItem(event.target.value)}
@@ -1197,10 +1198,11 @@ export const ExpenseModal = ({
             />
           </div>
 
-          <div className="grid grid-cols-[minmax(110px,0.85fr)_minmax(0,1.4fr)] gap-2 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-[minmax(110px,0.85fr)_minmax(0,1.4fr)] gap-3 items-end">
             <div>
-              <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>幣別</label>
+              <label htmlFor="expense-currency-select" className={`block text-xs font-bold mb-1.5 ${t.subText}`}>幣別</label>
               <select
+                id="expense-currency-select"
                 data-testid="expense-currency-select"
                 value={currency}
                 onChange={handleCurrencyChange}
@@ -1210,8 +1212,9 @@ export const ExpenseModal = ({
               </select>
             </div>
             <div>
-              <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>當地金額 *</label>
+              <label htmlFor="expense-local-cost-input" className={`block text-xs font-bold mb-1.5 ${t.subText}`}>當地金額 *</label>
               <input
+                id="expense-local-cost-input"
                 data-testid="expense-local-cost-input"
                 type="number"
                 inputMode="decimal"
@@ -1227,8 +1230,9 @@ export const ExpenseModal = ({
 
           <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-4 ${t.cardMetaBg} ${t.cardBorder}`}>
             <div className="min-w-0">
-              <span className={`text-[10px] font-bold uppercase ${t.subText}`}>換算匯率</span>
+              <label htmlFor="expense-rate-input" className={`text-xs font-bold ${t.subText}`}>換算匯率</label>
               <input
+                id="expense-rate-input"
                 data-testid="expense-rate-input"
                 type="number"
                 inputMode="decimal"
@@ -1240,7 +1244,7 @@ export const ExpenseModal = ({
               />
             </div>
             <div className="text-right shrink-0">
-              <span className={`text-[10px] font-bold uppercase block ${t.subText}`}>折合台幣</span>
+              <span className={`text-xs font-bold block ${t.subText}`}>折合台幣</span>
               <span
                 data-testid="expense-twd-total"
                 className="text-lg font-black font-mono text-emerald-500"
@@ -1250,10 +1254,11 @@ export const ExpenseModal = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>日期</label>
+              <label htmlFor="expense-day-select" className={`block text-xs font-bold mb-1.5 ${t.subText}`}>日期</label>
               <select
+                id="expense-day-select"
                 data-testid="expense-day-select"
                 value={dayId}
                 onChange={event => setDayId(event.target.value)}
@@ -1291,7 +1296,7 @@ export const ExpenseModal = ({
           </div>
 
           <div>
-            <label className={`block text-[10px] font-bold mb-2 uppercase ${t.subText}`}>分類</label>
+            <label className={`block text-xs font-bold mb-2 ${t.subText}`}>分類</label>
             <div className="flex overflow-x-auto gap-2 pb-1 scrollbar-hide">
               {CATEGORIES.map(option => (
                 <button
@@ -1316,7 +1321,7 @@ export const ExpenseModal = ({
                   type="button"
                   data-testid="expense-split-equal-button"
                   onClick={() => setSplitType("EQUAL")}
-                  className={`flex-1 px-3 py-2 text-[11px] font-bold rounded-md ${splitType === "EQUAL" ? "bg-blue-600 text-white" : t.subText}`}
+                  className={`min-h-11 flex-1 px-3 py-2 text-xs font-bold rounded-md focus-visible:outline-2 focus-visible:outline-blue-500 ${splitType === "EQUAL" ? "bg-blue-600 text-white" : t.subText}`}
                 >
                   勾選平分
                 </button>
@@ -1324,7 +1329,7 @@ export const ExpenseModal = ({
                   type="button"
                   data-testid="expense-split-custom-button"
                   onClick={() => setSplitType("CUSTOM")}
-                  className={`flex-1 px-3 py-2 text-[11px] font-bold rounded-md ${splitType === "CUSTOM" ? "bg-purple-600 text-white" : t.subText}`}
+                  className={`min-h-11 flex-1 px-3 py-2 text-xs font-bold rounded-md focus-visible:outline-2 focus-visible:outline-purple-500 ${splitType === "CUSTOM" ? "bg-purple-600 text-white" : t.subText}`}
                 >
                   自訂金額
                 </button>
@@ -1361,11 +1366,11 @@ export const ExpenseModal = ({
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <p className={`text-[10px] ${t.subText}`}>直接輸入每位成員應負擔的台幣金額。</p>
+                  <p className={`text-sm ${t.subText}`}>直接輸入每位成員應負擔的台幣金額。</p>
                   <button
                     type="button"
                     onClick={rebalanceCustomSplit}
-                    className="shrink-0 text-[10px] font-bold text-purple-600 hover:underline"
+                    className="min-h-11 shrink-0 rounded-lg px-2 text-xs font-bold text-purple-600 hover:underline focus-visible:outline-2 focus-visible:outline-purple-500"
                   >
                     依比例重算
                   </button>
@@ -1404,8 +1409,9 @@ export const ExpenseModal = ({
           </div>
 
           <div>
-            <label className={`block text-[10px] font-bold mb-1.5 uppercase ${t.subText}`}>備註（選填）</label>
+            <label htmlFor="expense-note-input" className={`block text-xs font-bold mb-1.5 ${t.subText}`}>備註（選填）</label>
             <textarea
+              id="expense-note-input"
               data-testid="expense-note-input"
               value={note}
               onChange={event => setNote(event.target.value)}
@@ -1420,7 +1426,7 @@ export const ExpenseModal = ({
               data-testid="expense-more-actions"
               className={`rounded-xl border p-3 ${t.cardBg} ${t.cardBorder}`}
             >
-              <summary className={`cursor-pointer text-xs font-bold ${t.subText}`}>更多操作</summary>
+              <summary className={`min-h-11 flex items-center cursor-pointer text-sm font-bold ${t.subText}`}>更多操作</summary>
               <div className="grid grid-cols-2 gap-2 mt-3">
                 <button
                   type="button"

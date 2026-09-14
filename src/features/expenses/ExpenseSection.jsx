@@ -164,14 +164,14 @@ export const ExpenseSection = ({
             type="button"
             data-testid="add-expense-button"
             onClick={onCreateExpense}
-            className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-700/25 transition-all hover:bg-emerald-800 active:scale-95"
+            className="min-h-11 rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-emerald-700/25 transition-all hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 active:scale-95"
           >
             ➕ 新增記帳
           </button>
         </div>
 
         <div className="mt-6 space-y-3">
-          <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${t.subText}`}>個人預算與消費額度</p>
+          <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${t.subText}`}>個人預算與消費額度</p>
           {membersList.map(m => {
             const pBudget = meta.memberBudgets?.[m] ?? 10000;
             const pSpent = expenseStats?.personalSpent?.[m] || 0;
@@ -190,12 +190,12 @@ export const ExpenseSection = ({
                     <span
                       data-testid="member-spent"
                       data-member={String(m)}
-                      className={`text-[10px] font-bold ${pOver ? 'text-red-500' : 'text-emerald-500'}`}
+                      className={`text-sm font-bold ${pOver ? 'text-red-500' : 'text-emerald-500'}`}
                     >
                       已花 NT${Math.round(pSpent).toLocaleString()}
                     </span>
-                    <span className={`text-[10px] opacity-40 ${t.mainText}`}>/</span>
-                    <input type="number" value={String(pBudget)} onChange={e => onUpdateBudget(m, e.target.value)} className={`bg-transparent outline-none w-14 text-right text-[10px] font-bold border-b border-dashed focus:border-blue-500 ${t.mainText}`} title="點擊修改預算" />
+                    <span className={`text-xs opacity-40 ${t.mainText}`}>/</span>
+                    <input type="number" value={String(pBudget)} onChange={e => onUpdateBudget(m, e.target.value)} aria-label={`${String(m)} 個人預算（新台幣）`} className={`min-h-11 w-24 rounded-lg bg-transparent px-2 text-right text-sm font-bold outline-none border border-dashed focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500 ${t.mainText}`} title="點擊修改預算" />
                   </div>
                 </div>
                 <div className={`flex w-full h-1.5 rounded-full overflow-hidden border ${t.cardBg} ${t.cardBorder}`}>
@@ -211,7 +211,8 @@ export const ExpenseSection = ({
             type="button"
             data-testid="expense-list-view-button"
             onClick={() => setExpenseView('list')}
-            className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'list' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
+            aria-pressed={expenseView === 'list'}
+            className={`min-h-11 flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all focus-visible:outline-2 focus-visible:outline-blue-500 ${expenseView === 'list' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
           >
             📜 歷史明細
           </button>
@@ -219,7 +220,8 @@ export const ExpenseSection = ({
             type="button"
             data-testid="expense-settlement-view-button"
             onClick={() => setExpenseView('settle')}
-            className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'settle' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
+            aria-pressed={expenseView === 'settle'}
+            className={`min-h-11 flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all focus-visible:outline-2 focus-visible:outline-blue-500 ${expenseView === 'settle' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
           >
             ⚖️ 結算表
           </button>
@@ -227,7 +229,8 @@ export const ExpenseSection = ({
             type="button"
             data-testid="expense-chart-view-button"
             onClick={() => setExpenseView('chart')}
-            className={`flex-1 py-2 text-[10px] md:text-xs font-bold rounded-lg transition-all ${expenseView === 'chart' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
+            aria-pressed={expenseView === 'chart'}
+            className={`min-h-11 flex-1 py-2 text-xs md:text-sm font-bold rounded-lg transition-all focus-visible:outline-2 focus-visible:outline-blue-500 ${expenseView === 'chart' ? `bg-slate-500 text-white shadow-md` : `hover:opacity-70 ${t.subText}`}`}
           >
             📊 圓餅圖
           </button>
@@ -238,11 +241,13 @@ export const ExpenseSection = ({
         {expenseView === 'chart' ? (
           <div className="space-y-6 animate-in fade-in">
             <div className={`rounded-2xl border p-2 ${t.cardBg} ${t.cardBorder}`}>
-              <p className={`px-2 pt-1 pb-2 text-[10px] font-bold uppercase tracking-widest ${t.subText}`}>
+              <p className={`px-2 pt-1 pb-2 text-xs font-bold uppercase tracking-widest ${t.subText}`}>
                 選擇統計對象
               </p>
               <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
                 <button
+                  type="button"
+                  aria-pressed={safeExpenseChartOwner === 'ALL'}
                   onClick={() => setExpenseChartOwner('ALL')}
                   className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
                     safeExpenseChartOwner === 'ALL'
@@ -255,6 +260,8 @@ export const ExpenseSection = ({
                 {membersList.map(member => (
                   <button
                     key={`chart-owner-${member}`}
+                    type="button"
+                    aria-pressed={safeExpenseChartOwner === String(member)}
                     onClick={() => setExpenseChartOwner(String(member))}
                     className={`shrink-0 px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
                       safeExpenseChartOwner === String(member)
@@ -306,7 +313,7 @@ export const ExpenseSection = ({
                               <div className="flex items-center gap-2 min-w-0">
                                 <p
                                   data-testid="expense-record-title"
-                                  className={`text-sm font-bold truncate ${t.mainText}`}
+                                  className={`text-sm font-bold break-words [overflow-wrap:anywhere] ${t.mainText}`}
                                 >
                                   {String(e.item)}
                                 </p>
@@ -314,10 +321,10 @@ export const ExpenseSection = ({
                                   <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-500 font-bold">已編輯</span>
                                 ) : null}
                               </div>
-                              <p className={`text-[10px] font-bold mt-0.5 ${t.subText}`}>
+                              <p className={`text-sm font-bold mt-0.5 ${t.subText}`}>
                                 {cat.label} • <span className="text-blue-500">{String(e.payer)}</span> 先付 • {Object.values(e.split || {}).filter(amount => Number(amount) > 0).length || membersList.length} 人分攤
                               </p>
-                              {e.note ? <p className={`text-[10px] mt-1 truncate ${t.subText}`}>📝 {String(e.note)}</p> : null}
+                              {e.note ? <p className={`text-sm mt-1 break-words ${t.subText}`}>📝 {String(e.note)}</p> : null}
                             </div>
                           </div>
                           <div className="flex items-center gap-3 shrink-0">

@@ -293,6 +293,16 @@ describe('ExpenseSection', () => {
     expect(screen.getByTestId('expense-settlement-view-button')).toBeVisible();
   });
 
+  it('主要視圖、統計對象與預算輸入具備選取語意與可存取名稱', () => {
+    render(<ExpenseSection {...defaultProps} />);
+    expect(screen.getByTestId('expense-list-view-button')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Alice 個人預算（新台幣）')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('expense-chart-view-button'));
+    expect(screen.getByRole('button', { name: '👥 全團' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: '👤 Bob' }));
+    expect(screen.getByRole('button', { name: '👤 Bob' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('labels group and personal distribution and explains allocation only once', () => {
     render(<ExpenseSection {...defaultProps} />);
     fireEvent.click(screen.getByTestId('expense-chart-view-button'));
