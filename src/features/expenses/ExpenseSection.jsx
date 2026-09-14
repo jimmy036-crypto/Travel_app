@@ -13,9 +13,9 @@ const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
       <div className="flex items-start justify-between gap-4 mb-6">
         <div className="min-w-0">
           <h3 className={`text-sm font-bold flex items-center gap-2 ${t.mainText}`}>{title}</h3>
-          {subtitle ? <p className={`text-[10px] mt-1 ${t.subText}`}>{subtitle}</p> : null}
+          {subtitle ? <p className={`text-sm mt-1 ${t.subText}`}>{subtitle}</p> : null}
         </div>
-        <span className={`text-[10px] font-mono font-bold whitespace-nowrap ${t.subText}`}>
+        <span className={`text-xs font-mono font-bold whitespace-nowrap ${t.subText}`}>
           NT$ {Math.round(safeTotal).toLocaleString()}
         </span>
       </div>
@@ -60,7 +60,7 @@ const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
             </svg>
 
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className={`text-[10px] font-bold ${t.subText}`}>總計</span>
+              <span className={`text-xs font-bold ${t.subText}`}>總計</span>
               <span className={`text-base font-black font-mono ${t.mainText}`}>
                 NT${Math.round(safeTotal).toLocaleString()}
               </span>
@@ -76,7 +76,7 @@ const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
                     {category.icon}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className={`text-[10px] font-bold truncate ${t.subText}`}>{category.label} {percent}%</p>
+                    <p className={`text-sm font-bold break-words [overflow-wrap:anywhere] ${t.subText}`}>{category.label} {percent}%</p>
                     <p className={`text-xs font-mono font-black truncate ${category.text || category.color.replace('bg-', 'text-')}`}>
                       NT${Math.round(Number(category.amount) || 0).toLocaleString()}
                     </p>
@@ -114,6 +114,7 @@ export const ExpenseSection = ({
 }) => {
   const [expenseView, setExpenseView] = useState('list');
   const [expenseChartOwner, setExpenseChartOwner] = useState('ALL');
+  const [budgetExpanded, setBudgetExpanded] = useState(false);
 
   const categoryStats = useMemo(
     () => calculateCategoryStats(expenses, CATEGORIES),
@@ -149,8 +150,8 @@ export const ExpenseSection = ({
       data-testid="expense-panel"
       className={`scrollbar-hide flex-1 flex-col overflow-y-auto overscroll-y-contain backdrop-blur-xl ${t.sidebarBg} ${isActive ? 'flex' : 'hidden'}`}
     >
-      <div className={`p-6 border-b shrink-0 shadow-sm ${t.headerBg} ${t.cardBorder}`}>
-        <div className="flex items-center justify-between mb-2">
+      <div className={`flex flex-col p-6 border-b shrink-0 shadow-sm ${t.headerBg} ${t.cardBorder}`}>
+        <div className="order-1 flex items-center justify-between mb-2">
           <div>
             <p className={`text-xs font-bold uppercase tracking-widest ${t.subText}`}>全團花費總計</p>
             <h2
@@ -170,9 +171,19 @@ export const ExpenseSection = ({
           </button>
         </div>
 
-        <div className="mt-6 space-y-3">
-          <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${t.subText}`}>個人預算與消費額度</p>
-          {membersList.map(m => {
+        <div className="order-3 mt-6 space-y-3">
+          <button
+            type="button"
+            data-testid="budget-toggle"
+            aria-expanded={budgetExpanded}
+            aria-controls="member-budget-list"
+            onClick={() => setBudgetExpanded(value => !value)}
+            className={`flex min-h-11 w-full items-center justify-between rounded-xl border px-4 text-left text-sm font-bold focus-visible:outline-2 focus-visible:outline-blue-500 ${t.expenseBlockBg} ${t.cardBorder} ${t.mainText}`}
+          >
+            <span>個人預算與消費額度</span>
+            <span className={`text-xs ${t.subText}`}>{membersList.length} 人 · {budgetExpanded ? '收合' : '查看'}</span>
+          </button>
+          {budgetExpanded ? <div id="member-budget-list" className="space-y-3">{membersList.map(m => {
             const pBudget = meta.memberBudgets?.[m] ?? 10000;
             const pSpent = expenseStats?.personalSpent?.[m] || 0;
             const pOver = pSpent > pBudget;
@@ -203,10 +214,10 @@ export const ExpenseSection = ({
                 </div>
               </div>
             );
-          })}
+          })}</div> : null}
         </div>
 
-        <div className={`flex p-1.5 rounded-xl border mt-6 shadow-inner ${t.cardBg} ${t.cardBorder}`}>
+        <div className={`order-2 flex p-1.5 rounded-xl border mt-6 shadow-inner ${t.cardBg} ${t.cardBorder}`}>
           <button
             type="button"
             data-testid="expense-list-view-button"

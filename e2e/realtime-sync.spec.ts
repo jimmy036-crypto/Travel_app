@@ -472,6 +472,15 @@ async function openExpenseTab(page: Page): Promise<void> {
   await expenseTab.click();
 
   await expect(page.getByTestId('expense-panel')).toBeVisible();
+
+  // FIX1 keeps budgets collapsed on entry (including after reload). Both
+  // contexts must explicitly open them before checking live per-member totals.
+  const budgetToggle = page.getByTestId('budget-toggle');
+  await expect(budgetToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('member-budget-row')).toHaveCount(0);
+  await budgetToggle.click();
+  await expect(budgetToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('member-budget-row')).toHaveCount(2);
 }
 
 async function openTicketPanel(page: Page): Promise<void> {
