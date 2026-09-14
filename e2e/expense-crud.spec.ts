@@ -40,7 +40,7 @@ async function readExpenses(): Promise<ExpenseItem[]> {
   return toList(value);
 }
 
-async function openExpenseTab(page: Page): Promise<void> {
+async function openExpenseTab(page: Page, expandBudget = true): Promise<void> {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
   });
@@ -54,6 +54,12 @@ async function openExpenseTab(page: Page): Promise<void> {
   await expenseTab.click();
 
   await expect(page.getByTestId('expense-panel')).toBeVisible();
+  if (expandBudget) {
+    const budgetToggle = page.getByTestId('budget-toggle');
+    await expect(budgetToggle).toHaveAttribute('aria-expanded', 'false');
+    await budgetToggle.press('Enter');
+    await expect(budgetToggle).toHaveAttribute('aria-expanded', 'true');
+  }
 }
 
 async function openNewExpenseModal(page: Page, selectPayer = true): Promise<void> {
@@ -115,6 +121,38 @@ test('shows a success toast after creating an expense', async ({ page }) => {
   await expect(successToast).toHaveCount(1);
   await expect(successToast).toHaveAttribute('data-toast-type', 'success');
   await expect(successToast).toContainText('分帳與結算統計已更新。');
+});
+
+test('keeps the expense workflow visible before six-person budget details', async ({ page }) => {
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E 六人首屏測試旅程',
+    members: ['王小明', '陳小華', '林小美', '張大同', '李安', '周怡君'],
+    memberBudgets: {
+      王小明: 10000,
+      陳小華: 10000,
+      林小美: 10000,
+      張大同: 10000,
+      李安: 10000,
+      周怡君: 10000,
+    },
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page, false);
+
+  await expect(page.getByTestId('expense-list-view-button')).toBeVisible();
+  await expect(page.getByTestId('expense-settlement-view-button')).toBeVisible();
+  await expect(page.getByTestId('expense-chart-view-button')).toBeVisible();
+  await expect(page.getByTestId('budget-toggle')).toContainText('6 人');
+  await expect(page.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByTestId('member-budget-row')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+  await page.getByTestId('budget-toggle').press('Enter');
+  await expect(page.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByTestId('member-budget-row')).toHaveCount(6);
+  await page.getByTestId('budget-toggle').press(' ');
+  await expect(page.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('shows a success toast after editing an expense', async ({ page }) => {

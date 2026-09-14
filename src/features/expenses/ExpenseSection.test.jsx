@@ -99,6 +99,7 @@ describe('ExpenseSection', () => {
     const totalEl = screen.getByTestId('expense-total');
     expect(totalEl).toHaveTextContent('NT$ 500');
 
+    fireEvent.click(screen.getByTestId('budget-toggle'));
     const spentAlice = screen.getByText('已花 NT$300');
     expect(spentAlice).toBeInTheDocument();
     
@@ -132,6 +133,7 @@ describe('ExpenseSection', () => {
     // 點擊結算表
     render(<ExpenseSection {...settleProps} />);
     fireEvent.click(screen.getByTestId('expense-settlement-view-button'));
+    expect(screen.getByTestId('settlement-scope-tab-all')).toHaveAttribute('aria-pressed', 'true');
     
     // 檢查結算總覽
     expect(screen.getAllByText('剩餘應收 +NT$100').length).toBeGreaterThan(0);
@@ -296,11 +298,37 @@ describe('ExpenseSection', () => {
   it('主要視圖、統計對象與預算輸入具備選取語意與可存取名稱', () => {
     render(<ExpenseSection {...defaultProps} />);
     expect(screen.getByTestId('expense-list-view-button')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByTestId('budget-toggle'));
     expect(screen.getByLabelText('Alice 個人預算（新台幣）')).toBeInTheDocument();
+    expect(screen.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(screen.getByTestId('expense-chart-view-button'));
     expect(screen.getByRole('button', { name: '👥 全團' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: '👤 Bob' }));
     expect(screen.getByRole('button', { name: '👤 Bob' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByTestId('budget-toggle'));
+    expect(screen.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('六位旅伴預算預設收合，展開只呈現資料且不觸發預算寫入', () => {
+    const onUpdateBudget = vi.fn();
+    render(<ExpenseSection
+      {...defaultProps}
+      membersList={['甲', '乙', '丙', '丁', '戊', '己']}
+      meta={{ ...defaultProps.meta, memberBudgets: { 甲: 1000, 乙: 2000, 丙: 3000, 丁: 4000, 戊: 5000, 己: 6000 } }}
+      expenseStats={{ ...defaultProps.expenseStats, personalSpent: { 甲: 100, 乙: 200, 丙: 300, 丁: 400, 戊: 500, 己: 600 } }}
+      onUpdateBudget={onUpdateBudget}
+    />);
+    expect(screen.getByTestId('budget-toggle')).toHaveTextContent('6 人');
+    expect(screen.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('member-budget-row')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('budget-toggle'));
+    expect(screen.getAllByTestId('member-budget-row')).toHaveLength(6);
+    expect(screen.getByLabelText('己 個人預算（新台幣）')).toHaveValue(6000);
+    expect(onUpdateBudget).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('budget-toggle'));
+    expect(screen.queryByTestId('member-budget-row')).not.toBeInTheDocument();
+    expect(onUpdateBudget).not.toHaveBeenCalled();
   });
 
   it('labels group and personal distribution and explains allocation only once', () => {
@@ -326,6 +354,7 @@ describe('ExpenseSection', () => {
     expect(screen.getByTestId('settlement-scope-intrip')).toBeVisible();
     for (const scope of ['pretrip', 'intrip']) {
       fireEvent.click(screen.getByTestId(`settlement-scope-tab-${scope}`));
+      expect(screen.getByTestId(`settlement-scope-tab-${scope}`)).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getAllByText(singleScopeNote)).toHaveLength(1);
       expect(screen.queryByText(allScopeNote)).not.toBeInTheDocument();
       expect(screen.getByTestId(`settlement-scope-${scope}`)).toBeVisible();

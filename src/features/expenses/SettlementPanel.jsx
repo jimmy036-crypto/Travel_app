@@ -214,7 +214,6 @@ export function SettlementPanel({
   return (
     <div className="space-y-5" data-testid="settlement-panel">
       <div
-        role="tablist"
         aria-label="結算範圍"
         className={`sticky top-0 z-10 grid grid-cols-3 gap-1 rounded-2xl border p-1.5 ${t.headerBg} ${t.cardBorder}`}
       >
@@ -222,11 +221,10 @@ export function SettlementPanel({
           <button
             key={scope}
             type="button"
-            role="tab"
-            aria-selected={activeScope === scope}
+            aria-pressed={activeScope === scope}
             data-testid={`settlement-scope-tab-${scope}`}
             onClick={() => setActiveScope(scope)}
-            className={`min-h-11 rounded-xl px-3 text-xs font-black ${
+            className={`min-h-11 rounded-xl px-3 text-xs font-black focus-visible:outline-2 focus-visible:outline-blue-500 ${
               activeScope === scope ? 'bg-blue-600 text-white shadow-md' : t.mainText
             }`}
           >
