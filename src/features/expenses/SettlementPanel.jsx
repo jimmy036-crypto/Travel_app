@@ -15,22 +15,22 @@ function SummaryCards({ expenseTotal, summary, t, aggregate = false }) {
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4" data-testid="settlement-summary">
       <div className={`rounded-xl border p-3 ${t.itemBg} ${t.cardBorder}`}>
-        <p className={`text-[9px] font-bold ${t.subText}`}>範圍支出</p>
+        <p className={`text-xs font-bold ${t.subText}`}>範圍支出</p>
         <p className={`mt-1 font-mono font-black ${t.mainText}`}>{money(expenseTotal)}</p>
       </div>
       <div className={`rounded-xl border p-3 ${t.itemBg} ${t.cardBorder}`}>
-        <p className={`text-[9px] font-bold ${t.subText}`}>剩餘應收／應付</p>
+        <p className={`text-xs font-bold ${t.subText}`}>剩餘應收／應付</p>
         <p className="mt-1 font-mono font-black text-emerald-500">
           {money(summary.receivableTotal)}
           <span className="text-red-500">／{money(summary.payableTotal)}</span>
         </p>
       </div>
       <div className={`rounded-xl border p-3 ${t.itemBg} ${t.cardBorder}`}>
-        <p className={`text-[9px] font-bold ${t.subText}`}>剩餘轉帳筆數</p>
+        <p className={`text-xs font-bold ${t.subText}`}>剩餘轉帳筆數</p>
         <p className={`mt-1 font-mono font-black ${t.mainText}`}>{summary.transferCount} 筆</p>
       </div>
       <div className={`rounded-xl border p-3 ${t.itemBg} ${t.cardBorder}`}>
-        <p className={`text-[9px] font-bold ${t.subText}`}>
+        <p className={`text-xs font-bold ${t.subText}`}>
           {aggregate ? '已結清人數（各範圍）' : '已結清人數'}
         </p>
         <p className={`mt-1 font-mono font-black ${t.mainText}`}>{summary.balancedMemberCount} 人</p>
@@ -78,7 +78,7 @@ function ScopeSection({
         <div>
           <h3 className={`text-sm font-black ${t.mainText}`}>{label}結算</h3>
           {!showBadge ? (
-            <p className={`mt-1 text-[10px] font-bold ${t.subText}`}>
+            <p className={`mt-1 text-sm font-bold ${t.subText}`}>
               付款紀錄只抵銷本範圍，與其他範圍分開核對。
             </p>
           ) : null}
@@ -118,7 +118,7 @@ function ScopeSection({
                 >
                   <div className="min-w-0">
                     {showBadge ? <span className="text-[10px] font-black text-blue-500">{label}</span> : null}
-                    <p className={`truncate text-sm font-black ${t.mainText}`}>
+                    <p className={`break-words text-sm font-black [overflow-wrap:anywhere] ${t.mainText}`}>
                       {transfer.fromParticipantId} → {transfer.toParticipantId}
                     </p>
                     <p className={`mt-1 font-mono text-lg font-black ${t.mainText}`}>{money(transfer.amount)}</p>
@@ -128,7 +128,7 @@ function ScopeSection({
                     data-testid="mark-settlement-paid"
                     disabled={isSaving}
                     onClick={() => onMarkTransferPaid?.(transfer)}
-                    className="min-h-11 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-black text-white shadow-md disabled:cursor-wait disabled:opacity-60"
+                      className="min-h-11 min-w-11 rounded-xl bg-indigo-600 px-3 py-2 text-xs font-black text-white shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-wait disabled:opacity-60"
                   >
                     {isSaving ? '儲存中…' : '標記為已轉帳'}
                   </button>
@@ -151,7 +151,7 @@ function ScopeSection({
                 <div key={record.id} data-testid="completed-settlement-transfer" data-scope={model.scope} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border p-4 ${t.itemBg} ${t.cardBorder}`}>
                   <div className="min-w-0">
                     {showBadge ? <span className="text-[10px] font-black text-blue-500">{label}</span> : null}
-                    <p className={`truncate text-sm font-black ${t.mainText}`}>
+                    <p className={`break-words text-sm font-black [overflow-wrap:anywhere] ${t.mainText}`}>
                       {record.fromParticipantId} → {record.toParticipantId}
                     </p>
                     <p className={`mt-1 font-mono text-base font-black ${t.mainText}`}>{money(record.amount)}</p>
@@ -172,7 +172,7 @@ function ScopeSection({
                     data-testid="cancel-settlement-paid"
                     disabled={isSaving}
                     onClick={() => onCancelTransferPaid?.(record.id)}
-                    className={`min-h-11 rounded-xl border px-3 py-2 text-xs font-bold disabled:cursor-wait disabled:opacity-60 ${t.cardBorder} ${t.subText}`}
+                    className={`min-h-11 min-w-11 rounded-xl border px-3 py-2 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-wait disabled:opacity-60 ${t.cardBorder} ${t.subText}`}
                   >
                     {isSaving ? '儲存中…' : '取消已轉帳'}
                   </button>
