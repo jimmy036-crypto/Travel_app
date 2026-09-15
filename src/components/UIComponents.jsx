@@ -1205,8 +1205,9 @@ export const ExpenseModal = ({
                 id="expense-currency-select"
                 data-testid="expense-currency-select"
                 value={currency}
+                style={{ colorScheme: t.isLight ? 'light' : 'dark' }}
                 onChange={handleCurrencyChange}
-                className={`w-full py-3 px-2 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border text-xs font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                className={`min-h-11 w-full py-3 px-2 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border text-sm font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               >
                 {CURRENCIES.map(option => <option key={option.code} value={option.code}>{option.label}</option>)}
               </select>
@@ -1261,8 +1262,9 @@ export const ExpenseModal = ({
                 id="expense-day-select"
                 data-testid="expense-day-select"
                 value={dayId}
+                style={{ colorScheme: t.isLight ? 'light' : 'dark' }}
                 onChange={event => setDayId(event.target.value)}
-                className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                className={`min-h-11 w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               >
                 {validDays.map(day => (
                   <option key={`day-${day}`} value={day}>
@@ -1281,7 +1283,7 @@ export const ExpenseModal = ({
                 aria-invalid={!validMembers.includes(payer)}
                 aria-describedby={payer && !validMembers.includes(payer) ? 'expense-payer-help' : undefined}
                 onChange={event => setPayer(event.target.value)}
-                className={`w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                className={`min-h-11 w-full py-3 px-3 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               >
                 <option value="">請選擇付款人</option>
                 {payer && !validMembers.includes(payer) ? <option value={payer}>{payer}（已不在旅伴名單）</option> : null}
