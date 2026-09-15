@@ -1,0 +1,1177 @@
+{
+  "generatedAt": "2026-09-15T16:25:34.529Z",
+  "sourceCommit": "b187d0a5730136478369d933f89f245f808f0df1",
+  "baseUrl": "http://127.0.0.1:4175/",
+  "environment": {
+    "node": "v22.22.0",
+    "browser": "149.0.7827.55",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "sampleCount": 5,
+    "warmupCount": 1,
+    "serviceWorkers": "blocked for measurement isolation",
+    "cpuThrottle": "none",
+    "networkThrottle": "none"
+  },
+  "rooms": {
+    "t5b-general-synthetic-room": {
+      "data": {
+        "days": 5,
+        "placesPerDay": 5,
+        "members": 6,
+        "tickets": 12,
+        "expenses": 40,
+        "places": 25
+      },
+      "cold": {
+        "samples": [
+          {
+            "cold": true,
+            "lobbyReadyMs": 139.09999999403954,
+            "roomOpenMs": 750.2000000029802,
+            "mapTabMs": 114.59999999403954,
+            "planTabMs": 103.40000000596046,
+            "ticketTabMs": 71,
+            "expenseTabMs": 99.5,
+            "budgetOpenMs": 33.599999994039536,
+            "budgetCloseMs": 48.6000000089407,
+            "chartTabMs": 62.8999999910593,
+            "modalOpenMs": 128.29999999701977,
+            "dom": {
+              "elements": 1228,
+              "resources": 49,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": true,
+            "lobbyReadyMs": 133.70000000298023,
+            "roomOpenMs": 734.0999999940395,
+            "mapTabMs": 103.19999998807907,
+            "planTabMs": 71.20000000298023,
+            "ticketTabMs": 55.900000005960464,
+            "expenseTabMs": 78.29999999701977,
+            "budgetOpenMs": 61.19999998807907,
+            "budgetCloseMs": 40,
+            "chartTabMs": 60,
+            "modalOpenMs": 85.1000000089407,
+            "dom": {
+              "elements": 1055,
+              "resources": 48,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": true,
+            "lobbyReadyMs": 156.8999999910593,
+            "roomOpenMs": 754.6000000089407,
+            "mapTabMs": 104.5,
+            "planTabMs": 76.70000000298023,
+            "ticketTabMs": 63.29999999701977,
+            "expenseTabMs": 77.80000001192093,
+            "budgetOpenMs": 48.5,
+            "budgetCloseMs": 41.20000000298023,
+            "chartTabMs": 63.099999994039536,
+            "modalOpenMs": 88.5,
+            "dom": {
+              "elements": 1055,
+              "resources": 48,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": true,
+            "lobbyReadyMs": 232.5,
+            "roomOpenMs": 627.3999999910593,
+            "mapTabMs": 98.6000000089407,
+            "planTabMs": 43.20000000298023,
+            "ticketTabMs": 53.70000000298023,
+            "expenseTabMs": 83.5,
+            "budgetOpenMs": 29.69999998807907,
+            "budgetCloseMs": 31.299999997019768,
+            "chartTabMs": 43.30000001192093,
+            "modalOpenMs": 87.09999999403954,
+            "dom": {
+              "elements": 1055,
+              "resources": 48,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": true,
+            "lobbyReadyMs": 222.20000000298023,
+            "roomOpenMs": 645.5999999791384,
+            "mapTabMs": 101.90000000596046,
+            "planTabMs": 81,
+            "ticketTabMs": 62.599999994039536,
+            "expenseTabMs": 78.29999999701977,
+            "budgetOpenMs": 41.599999994039536,
+            "budgetCloseMs": 45,
+            "chartTabMs": 64.09999999403954,
+            "modalOpenMs": 91.69999998807907,
+            "dom": {
+              "elements": 1055,
+              "resources": 48,
+              "longTasks": 0
+            }
+          }
+        ],
+        "summary": {
+          "lobbyReadyMs": {
+            "rawMs": [
+              139.1,
+              133.7,
+              156.9,
+              232.5,
+              222.2
+            ],
+            "medianMs": 156.9,
+            "rangeMs": [
+              133.7,
+              232.5
+            ]
+          },
+          "roomOpenMs": {
+            "rawMs": [
+              750.2,
+              734.1,
+              754.6,
+              627.4,
+              645.6
+            ],
+            "medianMs": 734.1,
+            "rangeMs": [
+              627.4,
+              754.6
+            ]
+          },
+          "mapTabMs": {
+            "rawMs": [
+              114.6,
+              103.2,
+              104.5,
+              98.6,
+              101.9
+            ],
+            "medianMs": 103.2,
+            "rangeMs": [
+              98.6,
+              114.6
+            ]
+          },
+          "planTabMs": {
+            "rawMs": [
+              103.4,
+              71.2,
+              76.7,
+              43.2,
+              81
+            ],
+            "medianMs": 76.7,
+            "rangeMs": [
+              43.2,
+              103.4
+            ]
+          },
+          "ticketTabMs": {
+            "rawMs": [
+              71,
+              55.9,
+              63.3,
+              53.7,
+              62.6
+            ],
+            "medianMs": 62.6,
+            "rangeMs": [
+              53.7,
+              71
+            ]
+          },
+          "expenseTabMs": {
+            "rawMs": [
+              99.5,
+              78.3,
+              77.8,
+              83.5,
+              78.3
+            ],
+            "medianMs": 78.3,
+            "rangeMs": [
+              77.8,
+              99.5
+            ]
+          },
+          "budgetOpenMs": {
+            "rawMs": [
+              33.6,
+              61.2,
+              48.5,
+              29.7,
+              41.6
+            ],
+            "medianMs": 41.6,
+            "rangeMs": [
+              29.7,
+              61.2
+            ]
+          },
+          "budgetCloseMs": {
+            "rawMs": [
+              48.6,
+              40,
+              41.2,
+              31.3,
+              45
+            ],
+            "medianMs": 41.2,
+            "rangeMs": [
+              31.3,
+              48.6
+            ]
+          },
+          "chartTabMs": {
+            "rawMs": [
+              62.9,
+              60,
+              63.1,
+              43.3,
+              64.1
+            ],
+            "medianMs": 62.9,
+            "rangeMs": [
+              43.3,
+              64.1
+            ]
+          },
+          "modalOpenMs": {
+            "rawMs": [
+              128.3,
+              85.1,
+              88.5,
+              87.1,
+              91.7
+            ],
+            "medianMs": 88.5,
+            "rangeMs": [
+              85.1,
+              128.3
+            ]
+          }
+        },
+        "dom": [
+          {
+            "elements": 1228,
+            "resources": 49,
+            "longTasks": 0
+          },
+          {
+            "elements": 1055,
+            "resources": 48,
+            "longTasks": 0
+          },
+          {
+            "elements": 1055,
+            "resources": 48,
+            "longTasks": 0
+          },
+          {
+            "elements": 1055,
+            "resources": 48,
+            "longTasks": 0
+          },
+          {
+            "elements": 1055,
+            "resources": 48,
+            "longTasks": 0
+          }
+        ]
+      },
+      "warm": {
+        "samples": [
+          {
+            "cold": false,
+            "lobbyReadyMs": 230.90000000596046,
+            "roomOpenMs": 639.7999999970198,
+            "mapTabMs": 108.59999999403954,
+            "planTabMs": 85.5,
+            "ticketTabMs": 73.09999999403954,
+            "expenseTabMs": 90.90000000596046,
+            "budgetOpenMs": 49.599999994039536,
+            "budgetCloseMs": 37.29999999701977,
+            "chartTabMs": 67.69999998807907,
+            "modalOpenMs": 103.5,
+            "dom": {
+              "elements": 1228,
+              "resources": 52,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": false,
+            "lobbyReadyMs": 168.80000001192093,
+            "roomOpenMs": 769.3999999910593,
+            "mapTabMs": 101.20000000298023,
+            "planTabMs": 85.29999999701977,
+            "ticketTabMs": 63,
+            "expenseTabMs": 98.3999999910593,
+            "budgetOpenMs": 44.79999999701977,
+            "budgetCloseMs": 38,
+            "chartTabMs": 70.19999998807907,
+            "modalOpenMs": 130.70000000298023,
+            "dom": {
+              "elements": 1228,
+              "resources": 52,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": false,
+            "lobbyReadyMs": 201.40000000596046,
+            "roomOpenMs": 641.6000000089407,
+            "mapTabMs": 39.3999999910593,
+            "planTabMs": 77.59999999403954,
+            "ticketTabMs": 37.8999999910593,
+            "expenseTabMs": 66.5,
+            "budgetOpenMs": 43.29999999701977,
+            "budgetCloseMs": 31.30000001192093,
+            "chartTabMs": 40.20000000298023,
+            "modalOpenMs": 59.79999999701977,
+            "dom": {
+              "elements": 1055,
+              "resources": 49,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": false,
+            "lobbyReadyMs": 147.59999999403954,
+            "roomOpenMs": 681.2999999970198,
+            "mapTabMs": 40,
+            "planTabMs": 84.20000000298023,
+            "ticketTabMs": 47.20000000298023,
+            "expenseTabMs": 65.5,
+            "budgetOpenMs": 27.200000002980232,
+            "budgetCloseMs": 31.80000001192093,
+            "chartTabMs": 39.6000000089407,
+            "modalOpenMs": 58,
+            "dom": {
+              "elements": 1055,
+              "resources": 48,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": false,
+            "lobbyReadyMs": 140.40000000596046,
+            "roomOpenMs": 714,
+            "mapTabMs": 40.70000000298023,
+            "planTabMs": 62.70000000298023,
+            "ticketTabMs": 40.8999999910593,
+            "expenseTabMs": 59,
+            "budgetOpenMs": 28.200000002980232,
+            "budgetCloseMs": 32.400000005960464,
+            "chartTabMs": 39.29999999701977,
+            "modalOpenMs": 59.29999999701977,
+            "dom": {
+              "elements": 1055,
+              "resources": 49,
+              "longTasks": 0
+            }
+          }
+        ],
+        "summary": {
+          "lobbyReadyMs": {
+            "rawMs": [
+              230.9,
+              168.8,
+              201.4,
+              147.6,
+              140.4
+            ],
+            "medianMs": 168.8,
+            "rangeMs": [
+              140.4,
+              230.9
+            ]
+          },
+          "roomOpenMs": {
+            "rawMs": [
+              639.8,
+              769.4,
+              641.6,
+              681.3,
+              714
+            ],
+            "medianMs": 681.3,
+            "rangeMs": [
+              639.8,
+              769.4
+            ]
+          },
+          "mapTabMs": {
+            "rawMs": [
+              108.6,
+              101.2,
+              39.4,
+              40,
+              40.7
+            ],
+            "medianMs": 40.7,
+            "rangeMs": [
+              39.4,
+              108.6
+            ]
+          },
+          "planTabMs": {
+            "rawMs": [
+              85.5,
+              85.3,
+              77.6,
+              84.2,
+              62.7
+            ],
+            "medianMs": 84.2,
+            "rangeMs": [
+              62.7,
+              85.5
+            ]
+          },
+          "ticketTabMs": {
+            "rawMs": [
+              73.1,
+              63,
+              37.9,
+              47.2,
+              40.9
+            ],
+            "medianMs": 47.2,
+            "rangeMs": [
+              37.9,
+              73.1
+            ]
+          },
+          "expenseTabMs": {
+            "rawMs": [
+              90.9,
+              98.4,
+              66.5,
+              65.5,
+              59
+            ],
+            "medianMs": 66.5,
+            "rangeMs": [
+              59,
+              98.4
+            ]
+          },
+          "budgetOpenMs": {
+            "rawMs": [
+              49.6,
+              44.8,
+              43.3,
+              27.2,
+              28.2
+            ],
+            "medianMs": 43.3,
+            "rangeMs": [
+              27.2,
+              49.6
+            ]
+          },
+          "budgetCloseMs": {
+            "rawMs": [
+              37.3,
+              38,
+              31.3,
+              31.8,
+              32.4
+            ],
+            "medianMs": 32.4,
+            "rangeMs": [
+              31.3,
+              38
+            ]
+          },
+          "chartTabMs": {
+            "rawMs": [
+              67.7,
+              70.2,
+              40.2,
+              39.6,
+              39.3
+            ],
+            "medianMs": 40.2,
+            "rangeMs": [
+              39.3,
+              70.2
+            ]
+          },
+          "modalOpenMs": {
+            "rawMs": [
+              103.5,
+              130.7,
+              59.8,
+              58,
+              59.3
+            ],
+            "medianMs": 59.8,
+            "rangeMs": [
+              58,
+              130.7
+            ]
+          }
+        },
+        "dom": [
+          {
+            "elements": 1228,
+            "resources": 52,
+            "longTasks": 0
+          },
+          {
+            "elements": 1228,
+            "resources": 52,
+            "longTasks": 0
+          },
+          {
+            "elements": 1055,
+            "resources": 49,
+            "longTasks": 0
+          },
+          {
+            "elements": 1055,
+            "resources": 48,
+            "longTasks": 0
+          },
+          {
+            "elements": 1055,
+            "resources": 49,
+            "longTasks": 0
+          }
+        ]
+      },
+      "repeatedUsage": {
+        "cycles": {
+          "rawMs": [
+            175,
+            143.5,
+            130.7,
+            132.6,
+            165.7,
+            148.5,
+            132.6,
+            131.8,
+            130.2,
+            132.6
+          ],
+          "medianMs": 132.6,
+          "rangeMs": [
+            130.2,
+            175
+          ]
+        },
+        "resourcesPerCycle": [
+          14,
+          9,
+          0,
+          0,
+          2,
+          0,
+          1,
+          0,
+          0,
+          0
+        ],
+        "domBefore": {
+          "elements": 1124,
+          "resources": 25
+        },
+        "domAfter": {
+          "elements": 1226,
+          "resources": 0,
+          "longTasks": 0
+        }
+      }
+    },
+    "t5b-large-synthetic-room": {
+      "data": {
+        "days": 14,
+        "placesPerDay": 10,
+        "members": 10,
+        "tickets": 60,
+        "expenses": 300,
+        "places": 140
+      },
+      "cold": {
+        "samples": [
+          {
+            "cold": true,
+            "lobbyReadyMs": 135.80000001192093,
+            "roomOpenMs": 711.9999999850988,
+            "mapTabMs": 67,
+            "planTabMs": 54.8999999910593,
+            "ticketTabMs": 65.5,
+            "expenseTabMs": 73,
+            "budgetOpenMs": 45.1000000089407,
+            "budgetCloseMs": 41.3999999910593,
+            "chartTabMs": 39.5,
+            "modalOpenMs": 78.1000000089407,
+            "dom": {
+              "elements": 5761,
+              "resources": 53,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": true,
+            "lobbyReadyMs": 163.5,
+            "roomOpenMs": 679.1999999880791,
+            "mapTabMs": 85.59999999403954,
+            "planTabMs": 61.70000000298023,
+            "ticketTabMs": 62.900000005960464,
+            "expenseTabMs": 81.5,
+            "budgetOpenMs": 43.29999999701977,
+            "budgetCloseMs": 44.29999999701977,
+            "chartTabMs": 55.20000000298023,
+            "modalOpenMs": 76.5,
+            "dom": {
+              "elements": 5761,
+              "resources": 53,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": true,
+            "lobbyReadyMs": 131.5,
+            "roomOpenMs": 719.5999999940395,
+            "mapTabMs": 90.09999999403954,
+            "planTabMs": 57.1000000089407,
+            "ticketTabMs": 64,
+            "expenseTabMs": 79.79999999701977,
+            "budgetOpenMs": 45.400000005960464,
+            "budgetCloseMs": 44.5,
+            "chartTabMs": 53.70000000298023,
+            "modalOpenMs": 75.80000001192093,
+            "dom": {
+              "elements": 5761,
+              "resources": 53,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": true,
+            "lobbyReadyMs": 129.59999999403954,
+            "roomOpenMs": 716.9000000059605,
+            "mapTabMs": 85.69999998807907,
+            "planTabMs": 60.5,
+            "ticketTabMs": 49.3999999910593,
+            "expenseTabMs": 75.59999999403954,
+            "budgetOpenMs": 46.8999999910593,
+            "budgetCloseMs": 42.20000000298023,
+            "chartTabMs": 42.099999994039536,
+            "modalOpenMs": 75.20000000298023,
+            "dom": {
+              "elements": 5761,
+              "resources": 53,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": true,
+            "lobbyReadyMs": 130.79999999701977,
+            "roomOpenMs": 703.5999999940395,
+            "mapTabMs": 87.19999998807907,
+            "planTabMs": 64.09999999403954,
+            "ticketTabMs": 61.29999999701977,
+            "expenseTabMs": 79.29999999701977,
+            "budgetOpenMs": 43.19999998807907,
+            "budgetCloseMs": 43.5,
+            "chartTabMs": 54.900000005960464,
+            "modalOpenMs": 82.40000000596046,
+            "dom": {
+              "elements": 5761,
+              "resources": 53,
+              "longTasks": 0
+            }
+          }
+        ],
+        "summary": {
+          "lobbyReadyMs": {
+            "rawMs": [
+              135.8,
+              163.5,
+              131.5,
+              129.6,
+              130.8
+            ],
+            "medianMs": 131.5,
+            "rangeMs": [
+              129.6,
+              163.5
+            ]
+          },
+          "roomOpenMs": {
+            "rawMs": [
+              712,
+              679.2,
+              719.6,
+              716.9,
+              703.6
+            ],
+            "medianMs": 712,
+            "rangeMs": [
+              679.2,
+              719.6
+            ]
+          },
+          "mapTabMs": {
+            "rawMs": [
+              67,
+              85.6,
+              90.1,
+              85.7,
+              87.2
+            ],
+            "medianMs": 85.7,
+            "rangeMs": [
+              67,
+              90.1
+            ]
+          },
+          "planTabMs": {
+            "rawMs": [
+              54.9,
+              61.7,
+              57.1,
+              60.5,
+              64.1
+            ],
+            "medianMs": 60.5,
+            "rangeMs": [
+              54.9,
+              64.1
+            ]
+          },
+          "ticketTabMs": {
+            "rawMs": [
+              65.5,
+              62.9,
+              64,
+              49.4,
+              61.3
+            ],
+            "medianMs": 62.9,
+            "rangeMs": [
+              49.4,
+              65.5
+            ]
+          },
+          "expenseTabMs": {
+            "rawMs": [
+              73,
+              81.5,
+              79.8,
+              75.6,
+              79.3
+            ],
+            "medianMs": 79.3,
+            "rangeMs": [
+              73,
+              81.5
+            ]
+          },
+          "budgetOpenMs": {
+            "rawMs": [
+              45.1,
+              43.3,
+              45.4,
+              46.9,
+              43.2
+            ],
+            "medianMs": 45.1,
+            "rangeMs": [
+              43.2,
+              46.9
+            ]
+          },
+          "budgetCloseMs": {
+            "rawMs": [
+              41.4,
+              44.3,
+              44.5,
+              42.2,
+              43.5
+            ],
+            "medianMs": 43.5,
+            "rangeMs": [
+              41.4,
+              44.5
+            ]
+          },
+          "chartTabMs": {
+            "rawMs": [
+              39.5,
+              55.2,
+              53.7,
+              42.1,
+              54.9
+            ],
+            "medianMs": 53.7,
+            "rangeMs": [
+              39.5,
+              55.2
+            ]
+          },
+          "modalOpenMs": {
+            "rawMs": [
+              78.1,
+              76.5,
+              75.8,
+              75.2,
+              82.4
+            ],
+            "medianMs": 76.5,
+            "rangeMs": [
+              75.2,
+              82.4
+            ]
+          }
+        },
+        "dom": [
+          {
+            "elements": 5761,
+            "resources": 53,
+            "longTasks": 0
+          },
+          {
+            "elements": 5761,
+            "resources": 53,
+            "longTasks": 0
+          },
+          {
+            "elements": 5761,
+            "resources": 53,
+            "longTasks": 0
+          },
+          {
+            "elements": 5761,
+            "resources": 53,
+            "longTasks": 0
+          },
+          {
+            "elements": 5761,
+            "resources": 53,
+            "longTasks": 0
+          }
+        ]
+      },
+      "warm": {
+        "samples": [
+          {
+            "cold": false,
+            "lobbyReadyMs": 139.59999999403954,
+            "roomOpenMs": 704.5,
+            "mapTabMs": 78.20000000298023,
+            "planTabMs": 52,
+            "ticketTabMs": 53.6000000089407,
+            "expenseTabMs": 77.59999999403954,
+            "budgetOpenMs": 47.69999998807907,
+            "budgetCloseMs": 42.5,
+            "chartTabMs": 38.29999999701977,
+            "modalOpenMs": 130.5,
+            "dom": {
+              "elements": 5934,
+              "resources": 56,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": false,
+            "lobbyReadyMs": 136.30000001192093,
+            "roomOpenMs": 719.2999999821186,
+            "mapTabMs": 75.20000000298023,
+            "planTabMs": 55.29999999701977,
+            "ticketTabMs": 47.8999999910593,
+            "expenseTabMs": 78.70000000298023,
+            "budgetOpenMs": 43,
+            "budgetCloseMs": 47.70000000298023,
+            "chartTabMs": 41,
+            "modalOpenMs": 78,
+            "dom": {
+              "elements": 5761,
+              "resources": 54,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": false,
+            "lobbyReadyMs": 149.40000000596046,
+            "roomOpenMs": 714.8999999910593,
+            "mapTabMs": 89.09999999403954,
+            "planTabMs": 57.29999999701977,
+            "ticketTabMs": 47.29999999701977,
+            "expenseTabMs": 81.80000001192093,
+            "budgetOpenMs": 41.6000000089407,
+            "budgetCloseMs": 46.6000000089407,
+            "chartTabMs": 54,
+            "modalOpenMs": 125,
+            "dom": {
+              "elements": 5934,
+              "resources": 56,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": false,
+            "lobbyReadyMs": 114.20000000298023,
+            "roomOpenMs": 783.1999999880791,
+            "mapTabMs": 75.09999999403954,
+            "planTabMs": 53.70000000298023,
+            "ticketTabMs": 51.69999998807907,
+            "expenseTabMs": 78.5,
+            "budgetOpenMs": 42.70000000298023,
+            "budgetCloseMs": 46.400000005960464,
+            "chartTabMs": 39.400000005960464,
+            "modalOpenMs": 128.69999998807907,
+            "dom": {
+              "elements": 5934,
+              "resources": 55,
+              "longTasks": 0
+            }
+          },
+          {
+            "cold": false,
+            "lobbyReadyMs": 137.70000000298023,
+            "roomOpenMs": 708.6999999880791,
+            "mapTabMs": 84.09999999403954,
+            "planTabMs": 58.5,
+            "ticketTabMs": 54.70000000298023,
+            "expenseTabMs": 76.90000000596046,
+            "budgetOpenMs": 43.69999998807907,
+            "budgetCloseMs": 43.400000005960464,
+            "chartTabMs": 38.19999998807907,
+            "modalOpenMs": 135.29999999701977,
+            "dom": {
+              "elements": 5934,
+              "resources": 56,
+              "longTasks": 0
+            }
+          }
+        ],
+        "summary": {
+          "lobbyReadyMs": {
+            "rawMs": [
+              139.6,
+              136.3,
+              149.4,
+              114.2,
+              137.7
+            ],
+            "medianMs": 137.7,
+            "rangeMs": [
+              114.2,
+              149.4
+            ]
+          },
+          "roomOpenMs": {
+            "rawMs": [
+              704.5,
+              719.3,
+              714.9,
+              783.2,
+              708.7
+            ],
+            "medianMs": 714.9,
+            "rangeMs": [
+              704.5,
+              783.2
+            ]
+          },
+          "mapTabMs": {
+            "rawMs": [
+              78.2,
+              75.2,
+              89.1,
+              75.1,
+              84.1
+            ],
+            "medianMs": 78.2,
+            "rangeMs": [
+              75.1,
+              89.1
+            ]
+          },
+          "planTabMs": {
+            "rawMs": [
+              52,
+              55.3,
+              57.3,
+              53.7,
+              58.5
+            ],
+            "medianMs": 55.3,
+            "rangeMs": [
+              52,
+              58.5
+            ]
+          },
+          "ticketTabMs": {
+            "rawMs": [
+              53.6,
+              47.9,
+              47.3,
+              51.7,
+              54.7
+            ],
+            "medianMs": 51.7,
+            "rangeMs": [
+              47.3,
+              54.7
+            ]
+          },
+          "expenseTabMs": {
+            "rawMs": [
+              77.6,
+              78.7,
+              81.8,
+              78.5,
+              76.9
+            ],
+            "medianMs": 78.5,
+            "rangeMs": [
+              76.9,
+              81.8
+            ]
+          },
+          "budgetOpenMs": {
+            "rawMs": [
+              47.7,
+              43,
+              41.6,
+              42.7,
+              43.7
+            ],
+            "medianMs": 43,
+            "rangeMs": [
+              41.6,
+              47.7
+            ]
+          },
+          "budgetCloseMs": {
+            "rawMs": [
+              42.5,
+              47.7,
+              46.6,
+              46.4,
+              43.4
+            ],
+            "medianMs": 46.4,
+            "rangeMs": [
+              42.5,
+              47.7
+            ]
+          },
+          "chartTabMs": {
+            "rawMs": [
+              38.3,
+              41,
+              54,
+              39.4,
+              38.2
+            ],
+            "medianMs": 39.4,
+            "rangeMs": [
+              38.2,
+              54
+            ]
+          },
+          "modalOpenMs": {
+            "rawMs": [
+              130.5,
+              78,
+              125,
+              128.7,
+              135.3
+            ],
+            "medianMs": 128.7,
+            "rangeMs": [
+              78,
+              135.3
+            ]
+          }
+        },
+        "dom": [
+          {
+            "elements": 5934,
+            "resources": 56,
+            "longTasks": 0
+          },
+          {
+            "elements": 5761,
+            "resources": 54,
+            "longTasks": 0
+          },
+          {
+            "elements": 5934,
+            "resources": 56,
+            "longTasks": 0
+          },
+          {
+            "elements": 5934,
+            "resources": 55,
+            "longTasks": 0
+          },
+          {
+            "elements": 5934,
+            "resources": 56,
+            "longTasks": 0
+          }
+        ]
+      },
+      "repeatedUsage": {
+        "cycles": {
+          "rawMs": [
+            292.2,
+            214.2,
+            244.4,
+            219.1,
+            213.9,
+            233.4,
+            214.2,
+            217.7,
+            213,
+            218.3
+          ],
+          "medianMs": 218.3,
+          "rangeMs": [
+            213,
+            292.2
+          ]
+        },
+        "resourcesPerCycle": [
+          23,
+          1,
+          3,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "domBefore": {
+          "elements": 5982,
+          "resources": 29
+        },
+        "domAfter": {
+          "elements": 5932,
+          "resources": 0,
+          "longTasks": 0
+        }
+      }
+    }
+  }
+}
+
