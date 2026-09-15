@@ -246,6 +246,10 @@ async function runScenario(browser, room, cold, sharedContext = null) {
   const results = { lobbyReadyMs, roomOpenMs };
   results.mapTabMs = await measureAction(page, () => mobileMap.click(), () => page.getByTestId('map-panel').waitFor({ state: 'visible' }));
   results.planTabMs = await measureAction(page, () => mobilePlan.click(), () => page.getByTestId('itinerary-horizontal-scroll').waitFor({ state: 'visible' }));
+  const nextDay = page.getByTestId('itinerary-day-switch-button').nth(1);
+  results.daySwitchMs = await measureAction(page, () => nextDay.click(), () => nextDay.getAttribute('aria-current').then((value) => {
+    if (value !== 'date') throw new Error('日期未切換');
+  }));
   results.ticketTabMs = await measureAction(page, () => ticketTab.click(), () => page.getByTestId('ticket-panel').waitFor({ state: 'visible' }));
   results.expenseTabMs = await measureAction(page, () => expenseTab.click(), () => page.getByTestId('expense-panel').waitFor({ state: 'visible' }));
   const budget = page.getByTestId('budget-toggle');
