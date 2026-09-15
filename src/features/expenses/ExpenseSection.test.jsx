@@ -310,6 +310,26 @@ describe('ExpenseSection', () => {
     expect(screen.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('將可聚焦的視圖與預算控制依畫面順序放在 DOM 中', () => {
+    const { container } = render(<ExpenseSection {...defaultProps} />);
+    const controls = Array.from(container.querySelectorAll(
+      '[data-testid="add-expense-button"], [data-testid="expense-list-view-button"], [data-testid="expense-settlement-view-button"], [data-testid="expense-chart-view-button"], [data-testid="budget-toggle"]',
+    ));
+
+    expect(controls.map((element) => element.getAttribute('data-testid'))).toEqual([
+      'add-expense-button',
+      'expense-list-view-button',
+      'expense-settlement-view-button',
+      'expense-chart-view-button',
+      'budget-toggle',
+    ]);
+    expect(
+      Array.from(container.querySelectorAll('[class]')).some((element) => (
+        Array.from(element.classList).some((className) => className.startsWith('order-'))
+      )),
+    ).toBe(false);
+  });
+
   it('六位旅伴預算預設收合，展開只呈現資料且不觸發預算寫入', () => {
     const onUpdateBudget = vi.fn();
     render(<ExpenseSection
@@ -331,6 +351,17 @@ describe('ExpenseSection', () => {
     expect(onUpdateBudget).not.toHaveBeenCalled();
   });
 
+  it('將明確輸入的預算交給既有更新 callback', () => {
+    const onUpdateBudget = vi.fn();
+    render(<ExpenseSection {...defaultProps} onUpdateBudget={onUpdateBudget} />);
+    fireEvent.click(screen.getByTestId('budget-toggle'));
+    fireEvent.change(screen.getByLabelText('Alice 個人預算（新台幣）'), {
+      target: { value: '12345' },
+    });
+    expect(onUpdateBudget).toHaveBeenCalledTimes(1);
+    expect(onUpdateBudget).toHaveBeenCalledWith('Alice', '12345');
+  });
+
   it('labels group and personal distribution and explains allocation only once', () => {
     render(<ExpenseSection {...defaultProps} />);
     fireEvent.click(screen.getByTestId('expense-chart-view-button'));
@@ -346,6 +377,7 @@ describe('ExpenseSection', () => {
   it('explains separate settlement once in all scopes and keeps it when viewing one scope', () => {
     render(<ExpenseSection {...defaultProps} />);
     fireEvent.click(screen.getByTestId('expense-settlement-view-button'));
+    expect(screen.getByRole('group', { name: '結算範圍' })).toBeInTheDocument();
     const allScopeNote = '行前與旅途中分開結算，不會跨範圍互相抵銷。';
     const singleScopeNote = '付款紀錄只抵銷本範圍，與其他範圍分開核對。';
     expect(screen.getAllByText(allScopeNote)).toHaveLength(1);

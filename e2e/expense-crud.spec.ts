@@ -1,4 +1,4 @@
-import { expect, test, type Dialog, type Page } from '@playwright/test';
+import { expect, test, type Dialog, type Locator, type Page } from '@playwright/test';
 import { skipCompanionIntroduction } from './support/companion';
 
 import {
@@ -76,6 +76,58 @@ async function openNewExpenseModal(page: Page, selectPayer = true): Promise<void
   if (selectPayer) await page.getByTestId('expense-payer-select').selectOption('自己');
 }
 
+async function expectVisibleAboveMobileNavigation(locator: Locator): Promise<{ width: number; height: number }> {
+  const target = await locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const navigation = document.querySelector('[data-testid="mobile-bottom-navigation"]');
+    const navigationTop = navigation?.getBoundingClientRect().top ?? window.innerHeight;
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    return {
+      width: rect.width,
+      height: rect.height,
+      fullyInsideVisibleArea: rect.left >= 0
+        && rect.right <= window.innerWidth
+        && rect.top >= 0
+        && rect.bottom <= Math.min(window.innerHeight, navigationTop),
+      receivesCenterHit: element.contains(document.elementFromPoint(centerX, centerY)),
+    };
+  });
+
+  expect(target.fullyInsideVisibleArea).toBe(true);
+  expect(target.receivesCenterHit).toBe(true);
+  return target;
+}
+
+async function expectUnobscuredTarget(locator: Locator): Promise<void> {
+  const target = await expectVisibleAboveMobileNavigation(locator);
+  expect(target.width).toBeGreaterThanOrEqual(44);
+  expect(target.height).toBeGreaterThanOrEqual(44);
+}
+
+async function expectUnobscuredModalTarget(locator: Locator): Promise<void> {
+  const target = await locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    return {
+      width: rect.width,
+      height: rect.height,
+      fullyInsideViewport: rect.left >= 0
+        && rect.right <= window.innerWidth
+        && rect.top >= 0
+        && rect.bottom <= window.innerHeight,
+      receivesCenterHit: element.contains(document.elementFromPoint(centerX, centerY)),
+    };
+  });
+
+  expect(target.width).toBeGreaterThanOrEqual(44);
+  expect(target.height).toBeGreaterThanOrEqual(44);
+  expect(target.fullyInsideViewport).toBe(true);
+  expect(target.receivesCenterHit).toBe(true);
+}
+
 function expenseRecord(page: Page, itemName: string) {
   return page
     .getByTestId('expense-record')
@@ -123,10 +175,11 @@ test('shows a success toast after creating an expense', async ({ page }) => {
   await expect(successToast).toContainText('分帳與結算統計已更新。');
 });
 
-test('keeps the expense workflow visible before six-person budget details', async ({ page }) => {
+test('keeps the expense workflow visible before six-person budget details', async ({ page }, testInfo) => {
+  const sixMembers = ['王小明', '陳小華', '林小美', '張大同', '李安', '周怡君'];
   await seedTestTrip(ROOM_ID, {
     title: 'E2E 六人首屏測試旅程',
-    members: ['王小明', '陳小華', '林小美', '張大同', '李安', '周怡君'],
+    members: sixMembers,
     memberBudgets: {
       王小明: 10000,
       陳小華: 10000,
@@ -135,24 +188,160 @@ test('keeps the expense workflow visible before six-person budget details', asyn
       李安: 10000,
       周怡君: 10000,
     },
+    expenses: [{
+      id: 'six-person-first-expense',
+      dayId: 'Day 1',
+      item: '合成六人首屏第一筆帳目',
+      cost: 1200,
+      localCost: 1200,
+      currency: 'TWD',
+      exchangeRate: 1,
+      category: 'food',
+      payer: sixMembers[0],
+      split: Object.fromEntries(sixMembers.map((member) => [member, 200])),
+      createdAt: 1,
+      updatedAt: 1,
+    }],
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/?room=${ROOM_ID}`);
   await openExpenseTab(page, false);
 
-  await expect(page.getByTestId('expense-list-view-button')).toBeVisible();
-  await expect(page.getByTestId('expense-settlement-view-button')).toBeVisible();
-  await expect(page.getByTestId('expense-chart-view-button')).toBeVisible();
-  await expect(page.getByTestId('budget-toggle')).toContainText('6 人');
-  await expect(page.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'false');
+  const addExpense = page.getByTestId('add-expense-button');
+  const listView = page.getByTestId('expense-list-view-button');
+  const settlementView = page.getByTestId('expense-settlement-view-button');
+  const chartView = page.getByTestId('expense-chart-view-button');
+  const budgetToggle = page.getByTestId('budget-toggle');
+  const firstExpense = expenseRecord(page, '合成六人首屏第一筆帳目');
+  const beforeUiOnlyOperations = await readEmulatorData(`rooms/${ROOM_ID}`);
+
+  // Do not scroll before this measurement: each target must be usable in the
+  // collapsed 390×844 first screen above the mobile navigation.
+  for (const control of [addExpense, listView, settlementView, chartView, budgetToggle]) {
+    await expectUnobscuredTarget(control);
+  }
+  await expectVisibleAboveMobileNavigation(firstExpense.getByTestId('expense-record-title'));
+  await expect(budgetToggle).toContainText('6 人');
+  await expect(budgetToggle).toHaveAttribute('aria-expanded', 'false');
   await expect(page.getByTestId('member-budget-row')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const collapsedScreenshot = await page.screenshot({ path: `.tmp/t5a-evidence/expense-collapsed-390-${testInfo.project.name}.png` });
+  await testInfo.attach('t5a-expense-collapsed-390', { body: collapsedScreenshot, contentType: 'image/png' });
 
-  await page.getByTestId('budget-toggle').press('Enter');
-  await expect(page.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'true');
+  await addExpense.focus();
+  await page.keyboard.press('Tab');
+  await expect(listView).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(settlementView).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(chartView).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(budgetToggle).toBeFocused();
+
+  await budgetToggle.press('Enter');
+  await expect(budgetToggle).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByTestId('member-budget-row')).toHaveCount(6);
-  await page.getByTestId('budget-toggle').press(' ');
-  await expect(page.getByTestId('budget-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel(`${sixMembers[0]} 個人預算（新台幣）`)).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(budgetToggle).toBeFocused();
+  for (const member of sixMembers) {
+    const input = page.getByLabel(`${member} 個人預算（新台幣）`);
+    await input.scrollIntoViewIfNeeded();
+    await expect(input).toHaveValue('10000');
+    await expectUnobscuredTarget(input);
+  }
+  const expandedScreenshot = await page.screenshot({ path: `.tmp/t5a-evidence/expense-expanded-390-${testInfo.project.name}.png` });
+  await testInfo.attach('t5a-expense-expanded-390', { body: expandedScreenshot, contentType: 'image/png' });
+  await budgetToggle.focus();
+  await budgetToggle.press(' ');
+  await expect(budgetToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(budgetToggle).toBeFocused();
+  expect(await readEmulatorData(`rooms/${ROOM_ID}`)).toEqual(beforeUiOnlyOperations);
+});
+
+test('keeps long expense content and native selects usable across widths, themes, and html font-size 200%', async ({ page }, testInfo) => {
+  const longMembers = ['合成旅伴很長的中文名字用來驗證換行', 'SyntheticCompanionWithAnUnbrokenLongEnglishName'];
+  const longItem = '合成帳目名稱用於驗證長中文與不含空格英文SyntheticExpenseNameWithoutSpaces';
+  const now = Date.now();
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E 記帳寬度與主題驗證',
+    members: longMembers,
+    themeColor: '#d9f3fb',
+    expenses: [{
+      id: 'long-expense',
+      dayId: 'Day 1',
+      item: longItem,
+      cost: 9876543,
+      localCost: 47030681,
+      currency: 'JPY',
+      exchangeRate: 0.21,
+      category: 'accommodation',
+      payer: longMembers[0],
+      split: { [longMembers[0]]: 4938272, [longMembers[1]]: 4938271 },
+      createdAt: now,
+      updatedAt: now,
+    }],
+  });
+
+  for (const width of [320, 375, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(`/?room=${ROOM_ID}`);
+    await openExpenseTab(page, false);
+    const record = expenseRecord(page, longItem);
+    await expect(record).toContainText('NT$9,876,543');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await page.getByTestId('add-expense-button').click();
+    const currency = page.getByTestId('expense-currency-select');
+    const day = page.getByTestId('expense-day-select');
+    const payer = page.getByTestId('expense-payer-select');
+    for (const control of [currency, day, payer]) {
+      await expect(control).toHaveCSS('color-scheme', 'light');
+      const box = await control.boundingBox();
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+    }
+    await page.keyboard.press('Escape');
+  }
+
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E 深色記帳原生選單驗證',
+    members: longMembers,
+    themeColor: '#172b4d',
+  });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page, false);
+  await page.getByTestId('add-expense-button').click();
+  for (const control of [
+    page.getByTestId('expense-currency-select'),
+    page.getByTestId('expense-day-select'),
+    page.getByTestId('expense-payer-select'),
+  ]) {
+    await expect(control).toHaveCSS('color-scheme', 'dark');
+  }
+  await page.keyboard.press('Escape');
+
+  await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+  const addExpense = page.getByTestId('add-expense-button');
+  await addExpense.focus();
+  await addExpense.press('Enter');
+  const modal = page.getByTestId('expense-modal');
+  const cancel = page.getByTestId('expense-cancel-button');
+  const save = page.getByTestId('expense-save-button');
+  await expect(modal).toBeVisible();
+  await expectUnobscuredModalTarget(cancel);
+  await expectUnobscuredModalTarget(save);
+  await save.focus();
+  await page.keyboard.press('Tab');
+  await expect(page.getByTestId('expense-close-button')).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(save).toBeFocused();
+  const zoomedScreenshot = await page.screenshot({ path: `.tmp/t5a-evidence/expense-modal-200pct-${testInfo.project.name}.png` });
+  await testInfo.attach('t5a-expense-modal-200pct', { body: zoomedScreenshot, contentType: 'image/png' });
+  await page.keyboard.press('Escape');
+  await expect(addExpense).toBeFocused();
 });
 
 test('shows a success toast after editing an expense', async ({ page }) => {

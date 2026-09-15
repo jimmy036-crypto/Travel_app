@@ -84,7 +84,7 @@ function ScopeSection({
           ) : null}
         </div>
         {showBadge ? (
-          <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-[10px] font-black text-blue-500">
+          <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-xs font-black text-blue-500">
             {label}
           </span>
         ) : null}
@@ -117,7 +117,7 @@ function ScopeSection({
                   className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border p-4 ${t.isLight ? 'border-blue-200 bg-blue-50' : 'border-blue-500/30 bg-blue-900/20'}`}
                 >
                   <div className="min-w-0">
-                    {showBadge ? <span className="text-[10px] font-black text-blue-500">{label}</span> : null}
+                    {showBadge ? <span className="text-xs font-black text-blue-500">{label}</span> : null}
                     <p className={`break-words text-sm font-black [overflow-wrap:anywhere] ${t.mainText}`}>
                       {transfer.fromParticipantId} → {transfer.toParticipantId}
                     </p>
@@ -150,21 +150,21 @@ function ScopeSection({
               return (
                 <div key={record.id} data-testid="completed-settlement-transfer" data-scope={model.scope} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border p-4 ${t.itemBg} ${t.cardBorder}`}>
                   <div className="min-w-0">
-                    {showBadge ? <span className="text-[10px] font-black text-blue-500">{label}</span> : null}
+                    {showBadge ? <span className="text-xs font-black text-blue-500">{label}</span> : null}
                     <p className={`break-words text-sm font-black [overflow-wrap:anywhere] ${t.mainText}`}>
                       {record.fromParticipantId} → {record.toParticipantId}
                     </p>
                     <p className={`mt-1 font-mono text-base font-black ${t.mainText}`}>{money(record.amount)}</p>
-                    <p className={`mt-1 text-[10px] font-bold ${t.subText}`}>
+                    <p className={`mt-1 text-xs font-bold ${t.subText}`}>
                       已轉帳 · {new Date(record.paidAt).toLocaleString('zh-TW')}
                     </p>
                     {!record.matchesCurrent ? (
-                      <p className="mt-1 text-[10px] font-bold text-amber-500">
+                      <p className="mt-1 text-sm font-bold text-amber-500">
                         此紀錄已不符合目前分帳金額，未抵銷剩餘款項
                       </p>
                     ) : null}
                     {record.inferredScope ? (
-                      <p className={`mt-1 text-[10px] font-bold ${t.subText}`}>依目前唯一相符項目判定範圍</p>
+                      <p className={`mt-1 text-sm font-bold ${t.subText}`}>依目前唯一相符項目判定範圍</p>
                     ) : null}
                   </div>
                   <button
@@ -187,7 +187,7 @@ function ScopeSection({
 
       <details className={`mt-5 rounded-2xl border p-4 ${t.itemBg} ${t.cardBorder}`}>
         <summary className={`cursor-pointer text-xs font-black ${t.mainText}`}>原始分帳結果</summary>
-        <p className={`mt-2 text-[10px] font-bold ${t.subText}`}>只依原始支出計算，不扣除付款紀錄。</p>
+        <p className={`mt-2 text-sm font-bold ${t.subText}`}>只依原始支出計算，不扣除付款紀錄。</p>
         <BalanceRows balances={model.rawBalances} t={t} testId="raw-balance-list" />
       </details>
     </section>
@@ -214,6 +214,7 @@ export function SettlementPanel({
   return (
     <div className="space-y-5" data-testid="settlement-panel">
       <div
+        role="group"
         aria-label="結算範圍"
         className={`sticky top-0 z-10 grid grid-cols-3 gap-1 rounded-2xl border p-1.5 ${t.headerBg} ${t.cardBorder}`}
       >
@@ -236,7 +237,7 @@ export function SettlementPanel({
       {activeScope === SETTLEMENT_SCOPES.ALL ? (
         <section className={`rounded-3xl border p-5 ${t.expenseBlockBg} ${t.cardBorder}`}>
           <h3 className={`text-sm font-black ${t.mainText}`}>全部範圍總覽</h3>
-          <p className={`mt-1 text-[10px] font-bold ${t.subText}`}>
+          <p className={`mt-1 text-sm font-bold ${t.subText}`}>
             行前與旅途中分開結算，不會跨範圍互相抵銷。
           </p>
           <div className="mt-4">
@@ -253,7 +254,7 @@ export function SettlementPanel({
       {model.unresolvedLegacyRecords.length > 0 ? (
         <aside className={`rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs font-bold ${t.mainText}`} data-testid="legacy-settlement-note">
           舊版紀錄未標示範圍，已保留供核對
-          <span className={`mt-1 block text-[10px] ${t.subText}`}>
+          <span className={`mt-1 block text-sm ${t.subText}`}>
             {model.unresolvedLegacyRecords.length} 筆紀錄未唯一對應目前的行前或旅途中建議，因此不會扣除剩餘款項。
           </span>
         </aside>

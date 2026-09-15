@@ -77,7 +77,7 @@ const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-bold break-words [overflow-wrap:anywhere] ${t.subText}`}>{category.label} {percent}%</p>
-                    <p className={`text-xs font-mono font-black truncate ${category.text || category.color.replace('bg-', 'text-')}`}>
+                    <p className={`text-xs font-mono font-black break-all ${category.text || category.color.replace('bg-', 'text-')}`}>
                       NT${Math.round(Number(category.amount) || 0).toLocaleString()}
                     </p>
                   </div>
@@ -151,7 +151,7 @@ export const ExpenseSection = ({
       className={`scrollbar-hide flex-1 flex-col overflow-y-auto overscroll-y-contain backdrop-blur-xl ${t.sidebarBg} ${isActive ? 'flex' : 'hidden'}`}
     >
       <div className={`flex flex-col p-6 border-b shrink-0 shadow-sm ${t.headerBg} ${t.cardBorder}`}>
-        <div className="order-1 flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-2">
           <div>
             <p className={`text-xs font-bold uppercase tracking-widest ${t.subText}`}>全團花費總計</p>
             <h2
@@ -171,53 +171,7 @@ export const ExpenseSection = ({
           </button>
         </div>
 
-        <div className="order-3 mt-6 space-y-3">
-          <button
-            type="button"
-            data-testid="budget-toggle"
-            aria-expanded={budgetExpanded}
-            aria-controls="member-budget-list"
-            onClick={() => setBudgetExpanded(value => !value)}
-            className={`flex min-h-11 w-full items-center justify-between rounded-xl border px-4 text-left text-sm font-bold focus-visible:outline-2 focus-visible:outline-blue-500 ${t.expenseBlockBg} ${t.cardBorder} ${t.mainText}`}
-          >
-            <span>個人預算與消費額度</span>
-            <span className={`text-xs ${t.subText}`}>{membersList.length} 人 · {budgetExpanded ? '收合' : '查看'}</span>
-          </button>
-          {budgetExpanded ? <div id="member-budget-list" className="space-y-3">{membersList.map(m => {
-            const pBudget = meta.memberBudgets?.[m] ?? 10000;
-            const pSpent = expenseStats?.personalSpent?.[m] || 0;
-            const pOver = pSpent > pBudget;
-            const pPercent = pBudget > 0 ? Math.min((pSpent / pBudget) * 100, 100) : 100;
-            return (
-              <div
-                key={`budget-${m}`}
-                data-testid="member-budget-row"
-                data-member={String(m)}
-                className={`rounded-xl border p-3 ${t.expenseBlockBg} ${t.cardBorder}`}
-              >
-                <div className="flex justify-between items-center mb-2">
-                  <span className={`text-xs font-bold ${t.mainText}`}>{String(m)}</span>
-                  <div className="flex items-center gap-2">
-                    <span
-                      data-testid="member-spent"
-                      data-member={String(m)}
-                      className={`text-sm font-bold ${pOver ? 'text-red-500' : 'text-emerald-500'}`}
-                    >
-                      已花 NT${Math.round(pSpent).toLocaleString()}
-                    </span>
-                    <span className={`text-xs opacity-40 ${t.mainText}`}>/</span>
-                    <input type="number" value={String(pBudget)} onChange={e => onUpdateBudget(m, e.target.value)} aria-label={`${String(m)} 個人預算（新台幣）`} className={`min-h-11 w-24 rounded-lg bg-transparent px-2 text-right text-sm font-bold outline-none border border-dashed focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500 ${t.mainText}`} title="點擊修改預算" />
-                  </div>
-                </div>
-                <div className={`flex w-full h-1.5 rounded-full overflow-hidden border ${t.cardBg} ${t.cardBorder}`}>
-                  <div style={{ width: `${pPercent}%` }} className={`h-full transition-all duration-500 ${pOver ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`}></div>
-                </div>
-              </div>
-            );
-          })}</div> : null}
-        </div>
-
-        <div className={`order-2 flex p-1.5 rounded-xl border mt-6 shadow-inner ${t.cardBg} ${t.cardBorder}`}>
+        <div className={`flex p-1.5 rounded-xl border mt-6 shadow-inner ${t.cardBg} ${t.cardBorder}`}>
           <button
             type="button"
             data-testid="expense-list-view-button"
@@ -246,6 +200,53 @@ export const ExpenseSection = ({
             📊 圓餅圖
           </button>
         </div>
+
+        <div className="mt-6 space-y-3">
+          <button
+            type="button"
+            data-testid="budget-toggle"
+            aria-expanded={budgetExpanded}
+            aria-controls="member-budget-list"
+            onClick={() => setBudgetExpanded(value => !value)}
+            className={`flex min-h-11 w-full items-center justify-between rounded-xl border px-4 text-left text-sm font-bold focus-visible:outline-2 focus-visible:outline-blue-500 ${t.expenseBlockBg} ${t.cardBorder} ${t.mainText}`}
+          >
+            <span>個人預算與消費額度</span>
+            <span className={`text-xs ${t.subText}`}>{membersList.length} 人 · {budgetExpanded ? '收合' : '查看'}</span>
+          </button>
+          {budgetExpanded ? <div id="member-budget-list" className="space-y-3">{membersList.map(m => {
+            const pBudget = meta.memberBudgets?.[m] ?? 10000;
+            const pSpent = expenseStats?.personalSpent?.[m] || 0;
+            const pOver = pSpent > pBudget;
+            const pPercent = pBudget > 0 ? Math.min((pSpent / pBudget) * 100, 100) : 100;
+            return (
+              <div
+                key={`budget-${m}`}
+                data-testid="member-budget-row"
+                data-member={String(m)}
+                className={`rounded-xl border p-3 ${t.expenseBlockBg} ${t.cardBorder}`}
+              >
+                <div className="flex justify-between items-center gap-2 mb-2">
+                  <span className={`min-w-0 break-words [overflow-wrap:anywhere] text-xs font-bold ${t.mainText}`}>{String(m)}</span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      data-testid="member-spent"
+                      data-member={String(m)}
+                      className={`text-sm font-bold ${pOver ? 'text-red-500' : 'text-emerald-500'}`}
+                    >
+                      已花 NT${Math.round(pSpent).toLocaleString()}
+                    </span>
+                    <span className={`text-xs opacity-40 ${t.mainText}`}>/</span>
+                    <input type="number" value={String(pBudget)} onChange={e => onUpdateBudget(m, e.target.value)} aria-label={`${String(m)} 個人預算（新台幣）`} className={`min-h-11 w-24 rounded-lg bg-transparent px-2 text-right text-sm font-bold outline-none border border-dashed focus-visible:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500 ${t.mainText}`} title="點擊修改預算" />
+                  </div>
+                </div>
+                <div className={`flex w-full h-1.5 rounded-full overflow-hidden border ${t.cardBg} ${t.cardBorder}`}>
+                  <div style={{ width: `${pPercent}%` }} className={`h-full transition-all duration-500 ${pOver ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`}></div>
+                </div>
+              </div>
+            );
+          })}</div> : null}
+        </div>
+
       </div>
 
       <div className="p-4 pb-24">
