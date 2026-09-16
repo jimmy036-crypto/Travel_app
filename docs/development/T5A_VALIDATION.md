@@ -31,4 +31,4 @@
 
 - 新增 E2E 會附加合成的 390×844 收合／展開與 200% sheet 截圖至 Playwright test artifact；CI artifact 可供 PR 審查。
 - 未使用正式 Firebase、真實帳目、真實帳號或真機。
-- 實體 iPhone Safari 的原生 select／日期選擇器、軟鍵盤、safe-area、VoiceOver 與旋轉後操作仍需真機驗證。
+- PR #71 已記錄使用者回報：實體 iPhone Safari 的原生 select／日期選擇器、軟鍵盤、safe-area、VoiceOver 與旋轉後操作均通過。這是人工驗收來源，不混同為 Playwright 模擬結果；原先的自動化範圍與限制保持不變。
