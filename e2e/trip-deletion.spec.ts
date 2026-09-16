@@ -281,7 +281,24 @@ test('owner permanently deletes one complete trip without touching another room'
   const dialog = page.getByRole('dialog', { name: '永久刪除整趟旅程' });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel(`輸入完整旅程名稱「${tripTitle}」以確認`).fill(tripTitle);
-  await dialog.getByRole('button', { name: '永久刪除整趟旅程' }).click();
+  // The dialog intentionally stays busy until the callable accepts the request.
+  // A cold Emulator can take longer than the UI assertion's default 5 seconds;
+  // observe that prerequisite, then assert the unchanged UI/cleanup contract.
+  const [deleteResponse] = await Promise.all([
+    page.waitForResponse((response) => (
+      response.url() === 'http://127.0.0.1:5001/demo-travel-e2e/us-central1/deleteTrip'
+      && response.request().method() === 'POST'
+    )),
+    dialog.getByRole('button', { name: '永久刪除整趟旅程' }).click(),
+  ]);
+  expect(deleteResponse.status()).toBe(200);
+  const { result: acceptedDeletion } = await deleteResponse.json();
+  expect(acceptedDeletion).toEqual(expect.objectContaining({
+    accepted: true,
+    roomId,
+    deletionId: expect.stringMatching(/\S/u),
+    state: expect.stringMatching(/^(requested|deleting|deleted)$/u),
+  }));
 
   await expect(dialog).toHaveCount(0);
   await expect.poll(async () => {
