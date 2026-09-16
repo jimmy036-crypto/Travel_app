@@ -3,6 +3,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useMapsLibrary, useMap } from '@vis.gl/react-google-maps';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import { ResponsiveBottomSheet } from './ResponsiveBottomSheet';
+import { hasPlaceScheduleChanged } from '../features/places/placeSchedule.js';
+import { isValidClockTime } from '../features/itinerary/itineraryCalculations.js';
 import { APP_VERSION, CATEGORIES, TAG_OPTIONS } from "../constants";
 import { safeUrlFormatter, getDayDisplay, generateId, formatStayTime, parseDateOnlyLocal, extractRoomId, isValidCoordinates, openExternalUrl } from "../helpers";
 import { storage } from "../firebase";
@@ -1689,7 +1691,7 @@ export const CopyItemModal = ({ item, existingDays, onClose, onCopy, t }) => {
   );
 };
 
-export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachment, onClose, returnFocusTarget, t }) => {
+export const EditItemModal = ({ item, hasFollowingItems = false, roomId, onSave, onSaveError, onOpenAttachment, onClose, returnFocusTarget, t }) => {
   const safeRoomId = extractRoomId(roomId);
   const titleId = React.useId();
   const nameInputId = React.useId();
@@ -1699,14 +1701,26 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
   const autoCascadeId = React.useId();
   const noteInputId = React.useId();
   const [customName, setCustomName] = useState(item.customName || "");
-  const [time, setTime] = useState(item.time || "");
-  const [stayTime, setStayTime] = useState(item.stayTime !== undefined ? item.stayTime : "0");
+  const [schedule, setSchedule] = useState(() => ({
+    time: item.time || '',
+    stayTime: item.stayTime !== undefined ? item.stayTime : '0',
+    legMode: item.nextLeg?.mode || 'AUTO',
+    legMins: item.nextLeg?.mins ?? 30,
+    autoCascade: false,
+  }));
+  const { time, stayTime, legMode, legMins, autoCascade } = schedule;
+  const canCascade = (draft) => hasFollowingItems && isValidClockTime(draft.time)
+    && hasPlaceScheduleChanged(item, {
+      time: draft.time, stayTime: draft.stayTime,
+      nextLeg: { mode: draft.legMode, mins: draft.legMins },
+    });
+  const showCascade = canCascade(schedule);
+  const updateSchedule = (field, value) => setSchedule((previous) => {
+    const next = { ...previous, [field]: value };
+    return canCascade(next) ? next : { ...next, autoCascade: false };
+  });
   const [memo, setMemo] = useState(item.memo || "");
   const [tags, setTags] = useState(Array.isArray(item.tags) ? item.tags : []);
-  const [autoCascade, setAutoCascade] = useState(true);
-
-  const [legMode, setLegMode] = useState(item.nextLeg?.mode || "AUTO");
-  const [legMins, setLegMins] = useState(item.nextLeg?.mins || 30);
   const [navigationUrl, setNavigationUrl] = useState(item.navigationUrl || '');
 
   const [showResources, setShowResources] = useState(
@@ -1747,7 +1761,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
   ].filter(Boolean).join('・') || '尚未加入資料';
   const hasPendingUploads = Boolean(photoFile || resources.some((resource) => resource?.pendingFile));
 
-  const handleQuickTime = (addMins) => setStayTime(prev => String((Number(prev) || 0) + Number(addMins)));
+  const handleQuickTime = (addMins) => updateSchedule('stayTime', String((Number(stayTime) || 0) + Number(addMins)));
 
   const handlePhotoChange = (event) => {
     const selectedFile = event.target.files?.[0] || null;
@@ -2167,7 +2181,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
       };
 
       didCallOnSave = true;
-      await Promise.resolve(onSave(updatedItem, autoCascade));
+      await Promise.resolve(onSave(updatedItem, showCascade && autoCascade));
 
       const shouldDeletePrevious = previousPhoto?.storagePath && (
         removeExistingPhoto || (uploadedPhoto && uploadedPhoto.storagePath !== previousPhoto.storagePath)
@@ -2255,7 +2269,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
                 type="time"
                 value={String(time)}
                 onClick={e => { if ('showPicker' in e.target && typeof e.target.showPicker === 'function') e.target.showPicker(); }}
-                onChange={e => setTime(e.target.value)}
+                onChange={e => updateSchedule('time', e.target.value)}
                 className={`w-full h-11 px-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border cursor-pointer text-sm appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               />
             </div>
@@ -2272,7 +2286,7 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
                 step="5"
                 min="0"
                 value={String(stayTime)}
-                onChange={e => setStayTime(e.target.value)}
+                onChange={e => updateSchedule('stayTime', e.target.value)}
                 placeholder="0"
                 className={`w-full h-11 px-2 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               />
@@ -2280,13 +2294,13 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
           </div>
 
           <div className="flex gap-1.5 -mt-2">
-            {[0, 30, 60].map(mins => <button type="button" key={`qt-${mins}`} onClick={() => {if(mins===0) setStayTime("0"); else handleQuickTime(mins);}} className={`min-h-11 flex-1 rounded-lg border py-1.5 text-sm font-bold transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>{mins === 0 ? '僅經過' : mins === 60 ? '+1小時' : `+${mins}分`}</button>)}
+            {[0, 30, 60].map(mins => <button type="button" key={`qt-${mins}`} onClick={() => {if(mins===0) updateSchedule('stayTime', '0'); else handleQuickTime(mins);}} className={`min-h-11 flex-1 rounded-lg border py-1.5 text-sm font-bold transition-colors hover:opacity-80 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}>{mins === 0 ? '僅經過' : mins === 60 ? '+1小時' : `+${mins}分`}</button>)}
           </div>
 
           <div className={`p-4 rounded-xl border flex flex-col gap-3 ${t.cardBg} ${t.cardBorder}`}>
             <p id={transportLabelId} className={`text-sm font-bold ${t.subText}`}>前往下一站的交通方式</p>
             <div className="flex min-w-0 gap-3">
-              <select name="place-next-leg-mode" aria-labelledby={transportLabelId} value={String(legMode)} onChange={e => setLegMode(e.target.value)} className={`min-w-0 flex-1 h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm font-bold bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
+              <select name="place-next-leg-mode" aria-labelledby={transportLabelId} value={String(legMode)} onChange={e => updateSchedule('legMode', e.target.value)} style={{ colorScheme: t.isLight ? 'light' : 'dark' }} className={`min-w-0 flex-1 h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm font-bold bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`}>
                 <option value="AUTO">🚗 自動計算車程</option>
                 <option value="FLIGHT">✈️ 搭乘飛機</option>
                 <option value="TRAIN">🚅 火車／高鐵</option>
@@ -2295,20 +2309,19 @@ export const EditItemModal = ({ item, roomId, onSave, onSaveError, onOpenAttachm
               </select>
               {legMode !== 'AUTO' ? (
                 <div className="w-1/3 relative shrink-0">
-                  <input name="place-next-leg-minutes" aria-label="前往下一站所需分鐘" type="number" min="0" value={String(legMins)} onChange={e => setLegMins(e.target.value)} placeholder="分鐘" className={`w-full h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm text-right pr-6 appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
+                  <input name="place-next-leg-minutes" aria-label="前往下一站所需分鐘" type="number" min="0" value={String(legMins)} onChange={e => updateSchedule('legMins', e.target.value)} placeholder="分鐘" className={`w-full h-11 px-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-colors border text-sm text-right pr-6 appearance-none bg-transparent ${t.inputBg} ${t.cardBorder} ${t.mainText}`} />
                   <span className={`absolute right-2 top-3.5 text-[10px] ${t.subText}`}>分</span>
                 </div>
               ) : null}
             </div>
           </div>
 
-          <label htmlFor={autoCascadeId} className={`flex cursor-pointer items-center justify-between rounded-xl border p-3 ${t.cardBg} ${t.cardBorder}`}>
-            <div className="flex flex-col pr-3">
-              <span className={`text-sm font-bold ${t.mainText}`}>🔄 自動順延後續行程</span>
-              <span className={`mt-0.5 text-sm ${t.subText}`}>儲存後依車程重新計算後續抵達時間</span>
-            </div>
-            <input id={autoCascadeId} name="place-auto-cascade" type="checkbox" checked={autoCascade} onChange={e => setAutoCascade(e.target.checked)} className="h-5 w-5 shrink-0 cursor-pointer rounded accent-blue-500" />
-          </label>
+          {showCascade ? (
+            <label htmlFor={autoCascadeId} className={`flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl border p-3 focus-within:ring-2 focus-within:ring-blue-500 ${t.cardBg} ${t.cardBorder}`}>
+              <span className={`text-sm font-bold ${t.mainText}`}>重新計算後續時間</span>
+              <input id={autoCascadeId} name="place-auto-cascade" type="checkbox" checked={autoCascade} onChange={e => updateSchedule('autoCascade', e.target.checked)} className="h-5 w-5 shrink-0 cursor-pointer rounded accent-blue-500" />
+            </label>
+          ) : null}
 
           <div className={`rounded-2xl border overflow-hidden ${t.cardBg} ${t.cardBorder}`}>
             <button type="button" data-testid="place-resources-toggle" onClick={() => setShowResources((value) => !value)} className="flex min-h-14 w-full min-w-0 items-center justify-between gap-3 p-4 text-left">

@@ -49,6 +49,7 @@ const ModalHarness = ({ onSave }) => {
       {isOpen ? (
         <EditItemModal
           item={item}
+          hasFollowingItems
           roomId="room-1"
           onSave={handleSave}
           onClose={() => setIsOpen(false)}
@@ -185,7 +186,9 @@ describe('EditItemModal', () => {
     expect(within(dialog).getByRole('spinbutton', { name: /^停留（分鐘）/ })).toBeVisible();
     expect(within(dialog).getByRole('combobox', { name: '前往下一站的交通方式' })).toBeVisible();
     expect(within(dialog).getByRole('spinbutton', { name: '前往下一站所需分鐘' })).toBeVisible();
-    expect(within(dialog).getByRole('checkbox', { name: /自動順延後續行程/ })).toBeChecked();
+    expect(within(dialog).queryByRole('checkbox', { name: '重新計算後續時間' })).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText('抵達時間'), { target: { value: '10:00' } });
+    expect(within(dialog).getByRole('checkbox', { name: '重新計算後續時間' })).not.toBeChecked();
     expect(within(dialog).getByRole('textbox', { name: '筆記／備註' })).toBeVisible();
 
     const closeButton = within(dialog).getByRole('button', { name: '關閉景點編輯視窗' });
@@ -235,7 +238,7 @@ describe('EditItemModal', () => {
         customName: '新名稱',
         nextLeg: { mode: 'WALK', mins: 12 },
       }),
-      true,
+      false,
     );
     expect(within(dialog).getByRole('button', { name: '儲存中…' })).toBeDisabled();
     expect(within(dialog).getByRole('button', { name: '取消' })).toBeDisabled();
@@ -250,6 +253,55 @@ describe('EditItemModal', () => {
     });
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '編輯景點' })).not.toBeInTheDocument());
     expect(opener).toHaveFocus();
+  });
+  it('keeps an explicit choice across rerenders, but clears it when the schedule returns to its original value', async () => {
+    const onSave = vi.fn();
+    const props = { item, hasFollowingItems: true, roomId: 'room-1', onSave, onClose: vi.fn(), t: theme };
+    const view = render(<EditItemModal {...props} />);
+    fireEvent.change(screen.getByLabelText('抵達時間'), { target: { value: '10:00' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: '重新計算後續時間' }));
+    view.rerender(<EditItemModal {...props} t={{ ...theme }} />);
+    expect(screen.getByRole('checkbox', { name: '重新計算後續時間' })).toBeChecked();
+    fireEvent.change(screen.getByLabelText('筆記／備註'), { target: { value: '保留草稿' } });
+    expect(screen.getByRole('checkbox', { name: '重新計算後續時間' })).toBeChecked();
+    fireEvent.change(screen.getByLabelText('抵達時間'), { target: { value: '09:00' } });
+    expect(screen.queryByRole('checkbox', { name: '重新計算後續時間' })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('抵達時間'), { target: { value: '11:00' } });
+    expect(screen.getByRole('checkbox', { name: '重新計算後續時間' })).not.toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ time: '11:00', memo: '保留草稿' }), false));
+  });
+
+  it('never submits a hidden cascade choice after reverting the schedule or losing the following stop', async () => {
+    const onSave = vi.fn();
+    const props = { item, hasFollowingItems: true, roomId: 'room-1', onSave, onClose: vi.fn(), t: theme };
+    const view = render(<EditItemModal {...props} />);
+    fireEvent.change(screen.getByLabelText('抵達時間'), { target: { value: '10:00' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: '重新計算後續時間' }));
+    view.rerender(<EditItemModal {...props} hasFollowingItems={false} />);
+    expect(screen.queryByRole('checkbox', { name: '重新計算後續時間' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ time: '10:00' }), false));
+  });
+
+  it('retains draft and explicit recalculation after failure, retries once, then reopens unchecked', async () => {
+    const onSave = vi.fn().mockRejectedValueOnce(new Error('synthetic failure')).mockResolvedValue(undefined);
+    render(<ModalHarness onSave={onSave} />);
+    openModal();
+    fireEvent.change(screen.getByLabelText('抵達時間'), { target: { value: '10:00' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: '重新計算後續時間' }));
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '儲存變更' })).toBeEnabled());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(screen.getByLabelText('抵達時間')).toHaveValue('10:00');
+    expect(screen.getByRole('checkbox', { name: '重新計算後續時間' })).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '編輯景點' })).not.toBeInTheDocument());
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ time: '10:00' }), true);
+    openModal();
+    fireEvent.change(screen.getByLabelText('抵達時間'), { target: { value: '10:00' } });
+    expect(screen.getByRole('checkbox', { name: '重新計算後續時間' })).not.toBeChecked();
   });
 });
 

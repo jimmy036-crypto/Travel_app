@@ -374,7 +374,10 @@ describe('usePlaceActions', () => {
   });
 
   it('recalculates later arrival times when saving a cascaded edit', async () => {
-    const view = renderUsePlaceActions();
+    const deps = createDeps();
+    const later = { id: 'place-2', name: '預約午餐', time: '13:00', stayTime: '60' };
+    deps.data.itinerary['Day 1'].push(later);
+    const view = renderUsePlaceActions(deps);
     const updated = { id: 'place-1', name: '早午餐', time: '10:00', stayTime: '45' };
 
     await act(async () => {
@@ -383,10 +386,54 @@ describe('usePlaceActions', () => {
 
     expect(recalculateArrivalTimesFromIndex).toHaveBeenCalledTimes(1);
     expect(recalculateArrivalTimesFromIndex).toHaveBeenCalledWith(
-      [updated],
+      [updated, later],
       0,
       [{ mins: 20 }],
     );
+  });
+
+  it.each([
+    ['content only, even with true', { memo: '內容', customName: '別名' }, true],
+    ['time changed, default false', { time: '10:00', stayTime: '60' }, false],
+    ['equivalent minutes', { stayTime: 30, nextLeg: { mode: 'AUTO', mins: '80' } }, true],
+    ['empty time', { time: '' }, true],
+    ['invalid time', { time: '25:00' }, true],
+  ])('preserves every other item and day: %s', async (_name, changes, cascade) => {
+    const deps = createDeps();
+    deps.data.itinerary['Day 1'].push(
+      { id: 'place-2', time: '13:00', name: '預約午餐', memo: '不可改' },
+      { id: 'place-3', time: '18:00', name: '晚餐' },
+    );
+    deps.data.itinerary['Day 2'] = [{ id: 'other-day', time: '08:00' }];
+    const baseline = structuredClone(deps.data.itinerary);
+    const view = renderUsePlaceActions(deps);
+    const updated = { ...baseline['Day 1'][0], ...changes };
+    await act(async () => view.result.current.saveEditedItem(updated, cascade));
+    expect(recalculateArrivalTimesFromIndex).not.toHaveBeenCalled();
+    expect(persistItinerary).toHaveBeenCalledTimes(1);
+    expect(persistItinerary.mock.calls[0][0].itinerary).toEqual({
+      ...baseline, 'Day 1': [updated, ...baseline['Day 1'].slice(1)],
+    });
+    expect(deps.data.itinerary).toEqual(baseline);
+  });
+
+  it.each(['search', 'before', 'after', 'end'])('preserves all existing times and fields when adding via %s', async (position) => {
+    const deps = createDeps();
+    deps.data.itinerary['Day 1'].push({ id: 'booked', time: '13:00', name: '預約午餐' });
+    deps.data.itinerary['Day 2'] = [{ id: 'other', time: '07:00' }];
+    deps.data.exploreOriginItem = { id: 'place-1' };
+    const baseline = structuredClone(deps.data.itinerary);
+    const view = renderUsePlaceActions(deps);
+    await act(async () => position === 'search'
+      ? view.result.current.addPlaceFromSearch('Day 1', createPlaceResult(), 'synthetic')
+      : view.result.current.addExplorePlace(createPlaceResult(), position));
+    expect(persistItinerary).toHaveBeenCalledTimes(1);
+    const result = persistItinerary.mock.calls[0][0].itinerary;
+    expect(result['Day 1']).toHaveLength(3);
+    expect(result['Day 1'].filter((entry) => baseline['Day 1'].some((old) => old.id === entry.id))).toEqual(baseline['Day 1']);
+    expect(result['Day 2']).toEqual(baseline['Day 2']);
+    expect(deps.data.itinerary).toEqual(baseline);
+    expect(recalculateArrivalTimesFromIndex).not.toHaveBeenCalled();
   });
 
   it('throws and shows an error toast when the edited place is missing', async () => {

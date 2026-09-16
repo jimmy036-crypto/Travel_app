@@ -406,6 +406,49 @@ describe('TripDetail repository injection', () => {
     expect(screen.getByRole('button', { name: '重試' })).toBeInTheDocument();
   });
 
+  it.each(['before', 'after'])('preserves existing times through the Explore %s insertion UI', async (position) => {
+    mapsState.map = {
+      getBounds: vi.fn(() => null),
+      getCenter: vi.fn(() => ({ lat: () => 25.03, lng: () => 121.56 })),
+      getZoom: vi.fn(() => 13), panTo: vi.fn(), setZoom: vi.fn(),
+    };
+    const result = {
+      place_id: 'synthetic-insert', name: '合成新增景點',
+      geometry: { location: { lat: () => 25.01, lng: () => 121.51 } },
+    };
+    mapsState.placesLibrary = {
+      PlacesService: class {
+        textSearch(_request, callback) { callback([result], 'OK'); }
+      },
+    };
+    window.google = { maps: { places: { PlacesServiceStatus: { OK: 'OK' } } } };
+    const baseline = structuredClone(snapshot);
+    baseline.itinerary['Day 1'][1].time = '18:00';
+    baseline.itinerary['Day 2'] = [{ id: 'other-day', name: '另一天', time: '08:00' }];
+    // Match the existing listener's attachment normalization before comparison.
+    Object.values(baseline.itinerary).flat().forEach((item) => {
+      item.resources = [];
+      item.placePhoto = undefined;
+    });
+    const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
+    repository.subscribeTrip = (listener) => { queueMicrotask(() => listener(baseline)); return vi.fn(); };
+    await renderWithRepository(repository, 'firebase-trip');
+    fireEvent.click(screen.getAllByTestId('place-card')[0]);
+    fireEvent.click(screen.getByTestId('place-detail-nearby-button'));
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '合成新增' } });
+    fireEvent.submit(screen.getByRole('search'));
+    fireEvent.click(await screen.findByRole('button', { name: '查看合成新增景點' }));
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(position === 'before' ? '：這站前$' : '：這站後$') }));
+    await waitFor(() => expect(repository.updateItinerary).toHaveBeenCalledTimes(1));
+    const saved = repository.updateItinerary.mock.calls[0][0];
+    expect(saved['Day 1']).toHaveLength(3);
+    expect(saved['Day 1'][position === 'before' ? 0 : 1].name).toBe('合成新增景點');
+    expect(saved['Day 1'].filter((item) => item.place_id !== 'synthetic-insert')).toEqual(baseline.itinerary['Day 1']);
+    expect(saved['Day 2']).toEqual(baseline.itinerary['Day 2']);
+    await waitFor(() => expect(screen.queryByTestId('map-explore-selection-sheet')).not.toBeInTheDocument());
+    expect(screen.getAllByTestId('place-card-time').map((node) => node.textContent)).toContain('18:00');
+  });
+
   it('opens Place Details from the desktop card and exposes navigate/nearby/copy/delete there', async () => {
     const repository = createRepository(FIREBASE_TRIP_CAPABILITIES);
     await renderWithRepository(repository, 'firebase-trip');

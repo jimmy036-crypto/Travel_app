@@ -100,6 +100,216 @@ test.beforeEach(async () => {
   await seedTestTrip(ROOM_ID);
 });
 
+// Non-contiguous times are intentional: accidental recalculation must be visible.
+const timeControlItinerary = {
+  'Day 1': ['09:00', '13:00', '18:00'].map((time, index) => ({
+    id: `time-control-${index}`, name: `合成預約景點${index + 1}`, customName: '',
+    time, stayTime: '30', memo: '原始內容', lat: 25.03 + index * 0.01, lng: 121.56,
+    nextLeg: { mode: 'WALK', mins: 10 },
+  })),
+  'Day 2': [{ id: 'time-control-other', name: '另一日', time: '08:00', stayTime: '20' }],
+};
+
+async function openTimeControlTrip(page: Page, themeColor = '#d9f3fb') {
+  await seedTestTrip(ROOM_ID, { itinerary: timeControlItinerary, themeColor });
+  await page.goto(`/?room=${ROOM_ID}`);
+  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
+}
+
+async function openTimeControlEditor(page: Page) {
+  const card = placeCardByName(page, 'Day 1', '合成預約景點1');
+  const trigger = card.getByTestId('place-details-trigger');
+  if (await trigger.isVisible()) await trigger.click();
+  else await card.click();
+  await page.getByTestId('place-detail-edit-button').click();
+  return page.getByRole('dialog', { name: '編輯景點' });
+}
+
+for (const scenario of [
+  { name: 'content only', time: '09:00', cascade: false, expected: ['09:00', '13:00', '18:00'] },
+  { name: 'time changed without consent', time: '10:00', cascade: false, expected: ['10:00', '13:00', '18:00'] },
+  { name: 'explicit recalculation', time: '10:00', cascade: true, expected: ['10:00', '10:40', '11:20'] },
+]) {
+  test(`time control: ${scenario.name} persists exact times through reload`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openTimeControlTrip(page);
+    const baseline = await readEmulatorData<Record<string, PlaceItem[]>>(`rooms/${ROOM_ID}/itinerary`);
+    const editor = await openTimeControlEditor(page);
+    const choice = editor.getByRole('checkbox', { name: '重新計算後續時間' });
+    await expect(choice).toHaveCount(0);
+    await editor.getByLabel('筆記／備註').fill('只改本次草稿');
+    await editor.getByLabel('抵達時間').fill(scenario.time);
+    if (scenario.time !== '09:00') {
+      await expect(choice).not.toBeChecked();
+      if (scenario.cascade) await choice.check();
+    } else await expect(choice).toHaveCount(0);
+    await editor.getByRole('button', { name: '儲存變更' }).click();
+    await expect(editor).toHaveCount(0);
+    await expect.poll(async () => {
+      const data = await readEmulatorData<Record<string, PlaceItem[]>>(`rooms/${ROOM_ID}/itinerary`);
+      return data?.['Day 1'].map((item) => item.time);
+    }).toEqual(scenario.expected);
+    const saved = await readEmulatorData<Record<string, PlaceItem[]>>(`rooms/${ROOM_ID}/itinerary`);
+    expect(saved!['Day 2']).toEqual(baseline!['Day 2']);
+    expect(saved!['Day 1'].map((item) => item.id)).toEqual(baseline!['Day 1'].map((item) => item.id));
+    expect(saved!['Day 1'][0].memo).toBe('只改本次草稿');
+    if (!scenario.cascade) expect(saved!['Day 1'].slice(1)).toEqual(baseline!['Day 1'].slice(1));
+    await page.reload();
+    await expect(page.getByTestId('active-trip-view')).toBeVisible();
+    await skipCompanionIntroduction(page);
+    for (let index = 0; index < 3; index += 1) {
+      await expect(placeCardByName(page, 'Day 1', `合成預約景點${index + 1}`).getByTestId('place-card-time')).toHaveText(scenario.expected[index]);
+    }
+    expect(await readEmulatorData(`rooms/${ROOM_ID}/itinerary`)).toEqual(saved);
+  });
+}
+
+test('time control: adding from the existing search hook preserves booked times and the other day', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTimeControlTrip(page);
+  const baseline = await readEmulatorData<Record<string, PlaceItem[]>>(`rooms/${ROOM_ID}/itinerary`);
+  await addPlaceWithEmulatorHook(page);
+  await expect.poll(async () => (await readEmulatorData<PlaceItem[]>(`rooms/${ROOM_ID}/itinerary/Day 1`))?.length).toBe(4);
+  const saved = await readEmulatorData<Record<string, PlaceItem[]>>(`rooms/${ROOM_ID}/itinerary`);
+  expect(saved!['Day 1'].slice(0, 3)).toEqual(baseline!['Day 1']);
+  expect(saved!['Day 2']).toEqual(baseline!['Day 2']);
+  await page.reload();
+  await expect(page.getByTestId('active-trip-view')).toBeVisible();
+  await skipCompanionIntroduction(page);
+  await expect(placeCardByName(page, 'Day 1', ORIGINAL_NAME)).toBeVisible();
+  expect(await readEmulatorData(`rooms/${ROOM_ID}/itinerary`)).toEqual(saved);
+});
+
+for (const layout of [
+  { width: 320, color: '#d9f3fb', os: 'dark' as const },
+  { width: 390, color: '#172b4d', os: 'light' as const },
+  { width: 1024, color: '#d9f3fb', os: 'light' as const },
+]) {
+  test(`time control: ${layout.width}px keyboard, touch target and theme`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: layout.width, height: 844 });
+    await page.emulateMedia({ colorScheme: layout.os });
+    await openTimeControlTrip(page, layout.color);
+    const baseline = await readEmulatorData(`rooms/${ROOM_ID}/itinerary`);
+    const editor = await openTimeControlEditor(page);
+    await expect(editor.getByRole('heading', { name: '編輯景點' })).toBeFocused();
+    await editor.getByLabel('自訂地標名稱（選填）').fill('合成長中文景點名稱LongUnbrokenPlaceNameWithoutSpaces');
+    await editor.getByLabel('抵達時間').fill('10:00');
+    const choice = editor.getByRole('checkbox', { name: '重新計算後續時間' });
+    const minutes = editor.getByRole('spinbutton', { name: '前往下一站所需分鐘' });
+    const transport = editor.getByRole('combobox', { name: '前往下一站的交通方式' });
+    await expect(transport).toHaveCSS('color-scheme', layout.color === '#172b4d' ? 'dark' : 'light');
+    await expect(transport).toHaveValue('WALK');
+    await minutes.focus();
+    await page.keyboard.press('Tab');
+    await expect(choice).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(choice).toBeChecked();
+    await page.keyboard.press('Shift+Tab');
+    await expect(minutes).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(choice).toBeFocused();
+    const label = choice.locator('..');
+    await label.scrollIntoViewIfNeeded();
+    const box = await label.boundingBox();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(await label.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+    })).toBe(true);
+    await label.click();
+    await expect(choice).not.toBeChecked();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+    const contrast = await label.getByText('重新計算後續時間', { exact: true }).evaluate((element) => {
+      const context = document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
+      const rgba = (color: string) => {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        const value = [...context.getImageData(0, 0, 1, 1).data];
+        return [value[0], value[1], value[2], value[3] / 255];
+      };
+      const over = (front: number[], back: number[]) => [
+        ...front.slice(0, 3).map((value, i) => value * front[3] + back[i] * (1 - front[3])), 1,
+      ];
+      const luminance = (color: number[]) => color.slice(0, 3).reduce((sum, channel, i) => {
+        const value = channel / 255;
+        return sum + (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][i];
+      }, 0);
+      const ancestors: Element[] = [];
+      for (let node: Element | null = element; node; node = node.parentElement) ancestors.unshift(node);
+      // Both extremes bound the unseen backdrop behind the translucent modal.
+      const backgrounds = [[0, 0, 0, 1], [255, 255, 255, 1]].map((base) => ancestors.reduce((background, node) => {
+        const style = getComputedStyle(node);
+        if (style.backgroundImage !== 'none' || Number(style.opacity) !== 1) throw new Error('Unsupported gradient/group opacity');
+        return over(rgba(style.backgroundColor), background);
+      }, base));
+      const ratios = backgrounds.map((background) => {
+        const values = [luminance(background), luminance(over(rgba(getComputedStyle(element).color), background))];
+        return (Math.max(...values) + 0.05) / (Math.min(...values) + 0.05);
+      });
+      return { ratios, fontSize: parseFloat(getComputedStyle(element).fontSize) };
+    });
+    expect(contrast.fontSize).toBeGreaterThanOrEqual(14);
+    for (const ratio of contrast.ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+    await testInfo.attach('time-control-measurements', { body: JSON.stringify({ target: box, contrast }), contentType: 'application/json' });
+    await testInfo.attach(`time-control-${layout.width}`, { body: await page.screenshot(), contentType: 'image/png' });
+    await page.keyboard.press('Escape');
+    await expect(editor).toHaveCount(0);
+    const card = placeCardByName(page, 'Day 1', '合成預約景點1');
+    await expect(card).toContainText('09:00');
+    expect(await readEmulatorData(`rooms/${ROOM_ID}/itinerary`)).toEqual(baseline);
+    await openTimeControlEditor(page);
+    await page.getByLabel('抵達時間').fill('10:00');
+    await expect(page.getByRole('checkbox', { name: '重新計算後續時間' })).not.toBeChecked();
+  });
+}
+
+test('time control: rejected save keeps the draft and choice; retry writes once', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  let rejected = 0;
+  let forwardedWrites = 0;
+  // Deny only this test's first itinerary update at the transport boundary.
+  // Auth, Rules and the shared fixture remain unchanged; nothing is written by the rejected request.
+  await page.routeWebSocket(/ws:\/\/127\.0\.0\.1:9000\//, (socket) => {
+    const server = socket.connectToServer();
+    socket.onMessage((message) => {
+      const payload = JSON.parse(String(message));
+      const request = payload?.d;
+      if (payload.t === 'd' && request?.a === 'm'
+        && String(request.b?.p).replace(/^\//, '') === `rooms/${ROOM_ID}`
+        && request.b?.d?.itinerary) {
+        if (rejected === 0) {
+          rejected += 1;
+          socket.send(JSON.stringify({ t: 'd', d: { r: request.r, b: { s: 'permission_denied', d: 'Synthetic test rejection' } } }));
+          return;
+        }
+        forwardedWrites += 1;
+      }
+      server.send(message);
+    });
+  });
+  await openTimeControlTrip(page);
+  const baseline = await readEmulatorData(`rooms/${ROOM_ID}/itinerary`);
+  const editor = await openTimeControlEditor(page);
+  await editor.getByLabel('抵達時間').fill('10:00');
+  await editor.getByRole('checkbox', { name: '重新計算後續時間' }).check();
+  await editor.getByRole('button', { name: '儲存變更' }).click();
+  await expect(page.getByTestId('toast').filter({ hasText: '無法更新景點' })).toBeVisible();
+  expect(rejected).toBe(1);
+  expect(forwardedWrites).toBe(0);
+  expect(await readEmulatorData(`rooms/${ROOM_ID}/itinerary`)).toEqual(baseline);
+  await expect(editor.getByLabel('抵達時間')).toHaveValue('10:00');
+  await expect(editor.getByRole('checkbox', { name: '重新計算後續時間' })).toBeChecked();
+  await editor.getByRole('button', { name: '儲存變更' }).click();
+  await expect(editor).toHaveCount(0);
+  expect(forwardedWrites).toBe(1);
+  await expect.poll(async () => (await readEmulatorData<PlaceItem[]>(`rooms/${ROOM_ID}/itinerary/Day 1`))?.map((item) => item.time))
+    .toEqual(['10:00', '10:40', '11:20']);
+});
+
 test('shows a success toast after creating a place', async ({ page }) => {
   await page.goto(`/?room=${ROOM_ID}`);
 
