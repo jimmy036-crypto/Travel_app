@@ -97,6 +97,41 @@ Playwright report 附 `time-control-measurements` JSON 與 PNG。完整 CI 以�
 
 ## 風險、限制與回滾
 
+### 2026-09-17：PR #73 CI 失敗診斷（修復前紀錄）
+
+- 最新 head：`ab10454d9b3b538e4d91f69c19ce6d88a94288e0`。本輪 `npm run task:preflight -- --allow-feature` 仍為 **FAIL**：本機 main 落後 origin/main 14 commits；任務 worktree 在修改前乾淨，fetch／工具核對通過，另確認最新 origin/main 仍為上述 base 且為工作分支祖先。未覆蓋原工作區內容。
+- [PR run 35131204834](https://github.com/jimmy036-crypto/Travel_app/actions/runs/35131204834) 的 Safari 為 **188 passed／1 failed／7 skipped**，同一 PDF 案例自動 retry 2 次仍失敗；總檢查因 Safari failure 連帶失敗，不是第二個獨立失敗案例。Chrome、guardrails、fast quality 通過。
+- [Push run 35131198249](https://github.com/jimmy036-crypto/Travel_app/actions/runs/35131198249) 同版本 Safari 為 **189 passed／7 skipped**，但不能覆蓋 PR run 的失敗，也不能據此宣稱間歇問題已修復。
+- 失敗案例：`e2e/ticket-storage.spec.ts` 的 PDF 上傳／持久化／刪除。首次已成功上傳，reload 後開啟 PDF 的兩個 Storage 請求未完成；兩次 retry 則在上傳等待後被既有 30 秒 upload timeout 取消。測試保留 MIME、完整位元組、Database 與 Storage 清理斷言，未增加 timeout 或修改產品附件流程。
+- 根因證據：[Safari job 104912371390](https://github.com/jimmy036-crypto/Travel_app/actions/runs/35131204834/job/104912371390) 在 `2026-09-16T18:12:18.191Z` 把 `permit` 回覆 33 與 `fetch_firestore_document` 請求 34 以同一則含換行的 INFO 訊息輸出。已安装 `firebase-tools@15.22.4` 的 `lib/emulator/storage/rules/runtime.js` 將每個 stdout chunk 直接 `JSON.parse`；該 INFO 正是解析失敗後丟棄 chunk 的分支。兩筆訊息因此未分派，後續規則請求卡住；同期 RTDB／Functions 仍有正常完成紀錄。
+- 官方 [修復 PR #10852](https://github.com/firebase/firebase-tools/pull/10852) 改為逐行解析並測試合併／分割 chunk；[v15.25.0 發行紀錄](https://github.com/firebase/firebase-tools/releases/tag/v15.25.0) 明列此 Storage Emulator concurrent-request hang 修復。這是測試依賴缺陷，不以更動產品平行讀取、延長等待或 Docker 重跑掩蓋。
+- 本輪原版本本地重現命令：`$env:TRAVEL_E2E_SKIP_LOCAL_ENV='true'; npm run test:e2e -- e2e/ticket-storage.spec.ts --project='Mobile Safari'`。結果 **3 passed／0 failed／0 flaky／0 skipped／0 retry，1.4m**（保護圖片、圖片 CRUD、PDF CRUD），只證明本輪未重現，不等於修復完成。全部使用 localhost demo Emulator，未連正式 Firebase。
+- **BLOCKED**：可靠修正需將固定開發依賴 `firebase-tools` 由 `15.22.4` 升至含官方修復的 `15.25.0` 並更新 `package-lock.json`，依安全邊界先取得明確授權。尚未改 package／lockfile、workflow、測試設定或產品程式，尚無修復後 CI。此更新也會帶入該 CLI 版本的 Emulator 變動，需相關 Storage／權限測試與完整最新 PR CI 驗證。
+- 已在本任務 `AGENTS.md` 補入最新 head CI 成功才完成交付的門檻；此處受阻是新發現的套件授權邊界，不是 CI 尚在執行就結案。
+
+### 2026-09-17：授權後修復第 1 輪
+
+- 使用者明確授權固定更新 `firebase-tools@15.25.0` 與必要 lockfile。僅改開發工具，沒有改 App `firebase` SDK、產品附件讀取／上傳、Rules、repository、workflow、Playwright 設定、timeout、retry、workers 或任何測試斷言。
+- `package-lock.json` 只涉及 Firebase CLI 本體及其 `undici@6.28.1`、`ws@8.21.3` 依賴；lock 中 `ws` 的唯一使用者為 CLI。執行 `npm run firebase:version` 實際輸出 `15.25.0`，安裝產物包含 `handleRuntimeStdout` 與跨 chunk buffer。Firestore Emulator 隨官方版本更新至 `1.22.0`，Storage rules runtime jar 仍 `1.1.3`。
+- 本輪 preflight 仍 **FAIL**：工作樹有上一輪本任務的兩份文件修改、本機 main 落後 14 commits。已核對差異均屬本任務，origin/main 未變、分支包含最新 base，只有 PR #73 開啟，沒有衝突 PR。
+- 為不更新其他 worktree 共用的 node_modules，保留原 junction 於任務 `.tmp`，在本任務建立獨立安裝並執行 `npm ci`。未更動其他工作區檔案。CLI 首次啟動自動下載新版 Firestore Emulator，並清理共用下載快取中的舊版 jar；該檔只是可重新下載的工具快取，不是資料或設定。
+- 所有本地 E2E 明確設定 `TRAVEL_E2E_SKIP_LOCAL_ENV=true`，使用既有 localhost `demo-travel-e2e`；權限測試以獨立 CLI HOME／APPDATA／XDG_CONFIG_HOME 啟動既有 `demo-travel-rules`。未讀秘密、登入正式 Firebase 或部署。
+
+本輪執行結果（不同命令不合併成虛構的單次結果）：
+
+| 命令 | 結果 | 覆蓋 |
+|---|---|---|
+| `npm run test:e2e -- e2e/ticket-storage.spec.ts e2e/place-storage.spec.ts e2e/realtime-sync.spec.ts` | 32 passed（Chrome 16／Safari 16），0 failed／flaky／skipped／retry，5.2m | 受保護圖片／PDF、MIME 與位元組、reload、CRUD、附件與行程／支出多端更新 |
+| `npm run test:e2e -- e2e/storage-failure.spec.ts e2e/storage-validation.spec.ts e2e/storage-emulator.spec.ts` | 10 passed（各 5），0 failed／flaky／skipped／retry，1.6m | 上傳失敗零寫入／垃圾清理、格式／大小限制、Storage 工具 |
+| `npm run test:rules`（隔離 CLI 使用者目錄，demo project） | 1 file／18 passed，0 failed／skipped，Vitest 7.04s | 既有 Database／Firestore／Storage 授權、跨服務 ACL；未修改 Rules |
+| `npm run verify:fast` | PASS，87.5s；108 files／1238 tests passed，0 failed／skipped | guardrails、TypeScript、ESLint、unit／integration、production build；既有 chunk-size 與 Browserslist 提示保留 |
+| `git diff --check` | PASS | 本輪四檔差異 |
+
+- 修補次數：針對此次已定位的 CLI 缺陷為第 1 輪；以上本地命令沒有失敗後重跑或自動 retry。前述原版本診斷執行與原 CI 的兩次 retry 另列保留，不混成修復後結果。
+- 最新修復 commit 的完整 GitHub checks 需在推送後逐項等待；結果與 head SHA 記錄於 PR，不能拿原 head 的 push 成功替代。歷史其他 CI 間歇問題未因此宣告全部解決。
+
+### 原功能風險與限制（保留）
+
 - 產品風險：中高。改變編輯後時間是否連動的預設，會影響之後使用者明確提交的行程；不是純樣式修改。另有局部 pending 路線撤銷，已覆蓋正常拖曳及晚回情境。
 - 測試審查風險：高。既有 editor「預設 true」改為刻意核准的預設 false；既有 cascade hook 測試補真實後續景點，仍要求同一 calculator 恰好呼叫一次。沒有削弱資料／寫入次數斷言。
 - 沒有永久時間鎖；保留後續時間可能形成重疊／空檔，本次不加入衝突偵測。拖曳、優化等明確重排仍沿用原流程。
