@@ -7,7 +7,7 @@
 - Branch: `fix/travel-itinerary-time-control`。執行前與提交前查詢 open PR 均無其他衝突 PR。
 - 原工作區 `npm run task:preflight -- --allow-feature`：**FAIL**，存在使用者未追蹤檔案，且本機 main 落後 origin/main 14 commits；fetch 與工具核對通過。沒有將補充 Git 查詢當成 preflight PASS。
 - 從最新 origin/main 建立乾淨獨立 worktree；原工作區 `6D-0-diff.patch`、`tasks/active/TASK.md` 均保留，未 stash/reset/clean。
-- 沿用已安裝 dependencies、既有 Emulator／Playwright；未更動 package、lockfile、共用 fixture、設定或 CI。
+- 原功能實作階段沿用已安裝 dependencies、既有 Emulator／Playwright，未更動 package、lockfile、共用 fixture、設定或 CI；後續授權的 CLI／lockfile 修復另見下方 2026-09-17 紀錄。
 - Windows、Node 22；既有 Desktop Chrome／Mobile Safari projects。所有瀏覽器寫入使用 localhost `demo-travel-e2e`，明確設定 `TRAVEL_E2E_SKIP_LOCAL_ENV=true`，未讀秘密檔案、測試正式 Firebase 或部署。
 - ui-ux-pro-max／impeccable 僅用於局部互動、字級、焦點及主題。Impeccable detector 的兩項提示位於未修改的第 350 行；本次控制無提示。不安裝／更新 Skills。
 
