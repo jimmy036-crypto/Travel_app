@@ -6,7 +6,8 @@ import {
   minsToTime,
   timeToMins,
 } from '../../helpers.js';
-import { recalculateArrivalTimesFromIndex } from '../itinerary/itineraryCalculations.js';
+import { isValidClockTime, recalculateArrivalTimesFromIndex } from '../itinerary/itineraryCalculations.js';
+import { hasPlaceScheduleChanged } from './placeSchedule.js';
 
 export function usePlaceActions({
   room,
@@ -234,11 +235,15 @@ export function usePlaceActions({
       throw new Error('Place to edit was not found.');
     }
 
+    const shouldRecalculate = shouldCascade === true
+      && idx < dayList.length - 1
+      && isValidClockTime(updatedItem.time)
+      && hasPlaceScheduleChanged(dayList[idx], updatedItem);
     dayList[idx] = updatedItem;
 
     const nextItinerary = {
       ...itinerary,
-      [editedDayId]: shouldCascade && updatedItem.time
+      [editedDayId]: shouldRecalculate
         ? recalculateArrivalTimesFromIndex(
           dayList,
           idx,

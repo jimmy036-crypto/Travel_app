@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TripDetail from './TripDetail.jsx';
 import { FIREBASE_TRIP_CAPABILITIES } from './features/trip-data/tripCapabilities.js';
 
-const { dndHandlers, routeCalculatedHandlers, toastSpies } = vi.hoisted(() => ({
+const { dndHandlers, routeCalculatedHandlers, editor, toastSpies } = vi.hoisted(() => ({
+  editor: { props: null },
   dndHandlers: { onDragEnd: null },
   routeCalculatedHandlers: new Map(),
   toastSpies: { info: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() },
@@ -39,7 +40,7 @@ vi.mock('html2canvas-pro', () => ({ default: vi.fn() }));
 vi.mock('./components/UIComponents.jsx', () => ({
   MemoViewModal: () => null,
   PlaceDetailsModal: () => null,
-  EditItemModal: () => null,
+  EditItemModal: (props) => { editor.props = props; return null; },
   CopyItemModal: () => null,
   ExpenseModal: () => null,
   SettlementModal: () => null,
@@ -139,6 +140,7 @@ const renderTrip = async () => {
   await waitFor(() => expect(screen.getByTestId('active-trip-view')).toBeInTheDocument());
   await waitFor(() => expect(dndHandlers.onDragEnd).toBeInstanceOf(Function));
   await waitFor(() => expect(routeCalculatedHandlers.get('Day 1')).toBeInstanceOf(Function));
+  return repository;
 };
 
 const reorderDay1 = () => act(() => {
@@ -159,6 +161,7 @@ describe('Arrival-time recalculation state machine', () => {
   beforeEach(() => {
     dndHandlers.onDragEnd = null;
     routeCalculatedHandlers.clear();
+    editor.props = null;
     toastSpies.error.mockClear();
     toastSpies.success.mockClear();
   });
@@ -184,6 +187,66 @@ describe('Arrival-time recalculation state machine', () => {
 
     await waitFor(() => expect(recalcBadge('Day 1')).not.toContain('精算'));
     expect(toastSpies.error).not.toHaveBeenCalled();
+  });
+
+  it('keeps an explicitly saved edit when an older reorder route response arrives later', async () => {
+    const repository = await renderTrip();
+    reorderDay1();
+    const lateResponse = routeCalculatedHandlers.get('Day 1');
+    // End the product's 300 ms drag-click suppression without sleeping.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 300);
+    const firstCard = screen.getAllByTestId('place-card')[0];
+    fireEvent.click(firstCard.querySelector('[data-testid="place-action-menu-trigger"]'));
+    fireEvent.click(screen.getByTestId('place-action-edit'));
+    expect(editor.props.hasFollowingItems).toBe(true);
+    await act(async () => editor.props.onSave({ ...editor.props.item, time: '12:00', memo: '保留後續' }, false));
+    const saved = structuredClone(repository.updateItinerary.mock.lastCall[0]);
+    const writeCount = repository.updateItinerary.mock.calls.length;
+    expect(saved['Day 1'][0].time).toBe('12:00');
+    await act(async () => lateResponse('Day 1', [
+      { text: '5 分鐘', value: 5, mode: 'AUTO' },
+      { text: '5 分鐘', value: 5, mode: 'AUTO' },
+    ]));
+    expect(repository.updateItinerary).toHaveBeenCalledTimes(writeCount);
+    expect(repository.updateItinerary.mock.lastCall[0]).toEqual(saved);
+    const cardTimes = screen.getAllByTestId('place-card-time').slice(0, 3).map((element) => element.textContent);
+    expect(cardTimes).toEqual(saved['Day 1'].map((item) => item.time));
+    expect(recalcBadge('Day 1')).not.toContain('精算');
+  });
+
+  it.each(['success', 'failure'])('ignores old route times during a pending edit and after %s', async (outcome) => {
+    const repository = await renderTrip();
+    reorderDay1();
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 300);
+    fireEvent.click(screen.getAllByTestId('place-action-menu-trigger')[0]);
+    fireEvent.click(screen.getByTestId('place-action-edit'));
+    const originalTimes = screen.getAllByTestId('place-card-time').slice(0, 3).map((node) => node.textContent);
+    let resolveWrite;
+    let rejectWrite;
+    repository.updateItinerary.mockImplementationOnce(() => new Promise((resolve, reject) => {
+      resolveWrite = resolve;
+      rejectWrite = reject;
+    }));
+    let save;
+    act(() => {
+      // Capture rejection immediately; a failed save intentionally keeps the editor open.
+      save = editor.props.onSave({ ...editor.props.item, time: '12:00' }, false).then(() => 'saved', () => 'failed');
+    });
+    const calls = repository.updateItinerary.mock.calls.length;
+    const lateResponse = routeCalculatedHandlers.get('Day 1');
+    act(() => lateResponse('Day 1', [{ value: 1 }, { value: 2 }]));
+    expect(screen.getAllByTestId('place-card-time').slice(0, 3).map((node) => node.textContent)).toEqual(originalTimes);
+    let result;
+    await act(async () => {
+      if (outcome === 'success') resolveWrite();
+      else rejectWrite(new Error('synthetic write failure'));
+      result = await save;
+    });
+    expect(result).toBe(outcome === 'success' ? 'saved' : 'failed');
+    act(() => lateResponse('Day 1', [{ value: 2 }, { value: 3 }]));
+    expect(repository.updateItinerary).toHaveBeenCalledTimes(calls);
+    expect(screen.getAllByTestId('place-card-time').slice(0, 3).map((node) => node.textContent))
+      .toEqual(outcome === 'success' ? ['12:00', ...originalTimes.slice(1)] : originalTimes);
   });
 
   it('settles to a one-time error toast and clears pending if nothing ever calls back (Map unavailable / timeout)', async () => {

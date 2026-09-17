@@ -12,7 +12,8 @@
 4. 執行相關檢查與測試。
 5. 根據失敗結果修補，最多自動修補三輪。
 6. 整理變更摘要、測試結果、風險與未完成項目。
-7. 建立 Draft PR，等待人工合併。
+7. 建立或更新 Draft PR，等待最新 head 的預期 CI checks 完成；失敗時依規範修補與重測。
+8. CI 通過後才交付完成報告，等待人工合併；遇到需要額外授權等真正阻塞時，明確回報 BLOCKED，不宣稱完成。
 
 ## 不可逾越的安全邊界
 
@@ -75,6 +76,17 @@ npm run verify:full
 ```
 
 不得使用 `test.only`，不得刪除測試、降低斷言、增加任意長 timeout 或跳過測試。詳細測試政策見 `docs/development/TEST_POLICY.md`。
+
+## PR CI 完成交付門檻
+
+- 推送 commit 或建立 Draft PR 不等於任務完成。正常執行期間持續等待並檢查 CI，不以「已 push／CI 執行中」作為完成交付。
+- 每次推送後重新取得 PR 最新 head SHA，核對該版本的預期 checks。依目前 workflow 至少包含 Agent guardrails、Fast quality gate、Desktop Chrome、Mobile Safari 與 Playwright E2E 總檢查；另核對其他適用檢查。不能因 branch protection 未設定 required checks，就把空清單視為通過。
+- 必須確認預期 checks 已結束且成功。queued、in progress、failure、cancelled、timed out、缺少結果或必要 job 被 skipped 都不是 PASS。核對 PR synthetic merge 時須能追溯至最新 head／base。
+- 同一 head 同時有 push 與 pull_request runs 時，分開核對與記錄，不以成功的 push run 蓋過失敗的 PR run，也不以舊 head 的綠燈交付新 commit。再次推送後，重新等待新版本檢查。
+- 失敗先閱讀 job log、trace 與階段證據，分類為產品、測試、環境或 flaky；依同一失敗最多三輪的規則修補，重跑相關本地測試後再推送並等待 CI。不得只反覆重跑直到綠燈而宣稱根因已修復。
+- 完成報告列出 head SHA、run 連結、各瀏覽器及總檢查結果；本地與 CI、passed／failed／flaky／skipped、retry 與人工重跑分開記錄。既有案例的條件式 skipped 也須如實列出，不能稱全部案例已執行。
+- 需要受限修改的額外授權、無法安全使用測試環境、無法取得 CI 結果或三輪仍失敗時，停止受影響範圍，回報具體 BLOCKED、已嘗試內容與最少必要下一步。不得以放寬測試、擅改 workflow／套件／權限或轉交人工 QA 來繞過門檻。
+- 此門檻不授權 auto-merge、正式部署或修改 GitHub branch protection；仍由使用者人工合併。
 
 ## 自動修補上限
 

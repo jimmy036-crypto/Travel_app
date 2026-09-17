@@ -2710,7 +2710,7 @@ const TripDetail = ({
     addPlaceFromSearch: handleAddPlaceFromSearch,
     addExplorePlace: handleAddExploreToItinerary,
     isAddingPlace,
-    saveEditedItem,
+    saveEditedItem: persistEditedItem,
     deleteItineraryItem: handleDeleteItineraryItem,
   } = usePlaceActions({
     room: { repository, tripId: roomId },
@@ -2743,6 +2743,24 @@ const TripDetail = ({
       setActiveTab,
     },
   });
+
+  const saveEditedItem = useCallback(async (updatedItem, shouldCascade) => {
+    const dayId = String(editingItemData.dayId);
+    // This explicit edit supersedes an earlier drag's pending time calculation.
+    // Invalidate before awaiting persistence: a late route response must only
+    // update traffic information, including while this save is still pending.
+    if (pendingTimeRecalculationRef.current[dayId]) {
+      delete pendingTimeRecalculationRef.current[dayId];
+      clearRecalcTimeout(dayId);
+      abandonRecalculation(dayId);
+      setDirtyRecalcDays((previous) => {
+        const next = { ...previous };
+        delete next[dayId];
+        return next;
+      });
+    }
+    await persistEditedItem(updatedItem, shouldCascade);
+  }, [abandonRecalculation, clearRecalcTimeout, editingItemData, persistEditedItem]);
 
   const persistSelectedParkingPlan = useCallback(async (facility) => {
     if (!repository || !selectedMapPlace) return false;
@@ -4751,7 +4769,11 @@ const TripDetail = ({
       {detailedPlace ? <PlaceDetailsModal place={detailedPlace} onClose={() => setDetailedPlace(null)} onAdd={isSavedItemModal ? null : (place, pos) => { void handleAddExploreToItinerary(place, pos); }} exploreOriginItem={exploreOriginItem} dayTitle={`${safeCurrentDay}（${getDayDisplay(safeCurrentDay, meta.startDate).title}）`} t={t} isFetching={isFetchingDetails} isAdding={isAddingPlace} /> : null}
 
       {viewingMemoItem ? <MemoViewModal item={viewingMemoItem} onClose={() => setViewingMemoItem(null)} t={t} /> : null}
-      {editingItemData ? <EditItemModal item={editingItemData.item} roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onOpenAttachment={openAttachmentDocument} returnFocusTarget={editingItemData.returnFocusTarget || null} onSaveError={() => {
+      {editingItemData ? <EditItemModal
+        key={`${editingItemData.dayId}:${editingItemData.item.id}`}
+        item={editingItemData.item}
+        hasFollowingItems={(itinerary[editingItemData.dayId] || []).some((candidate, index, items) => candidate.id === editingItemData.item.id && index < items.length - 1)}
+        roomId={capabilities.firebaseStorage ? roomId : ''} onSave={saveEditedItem} onOpenAttachment={openAttachmentDocument} returnFocusTarget={editingItemData.returnFocusTarget || null} onSaveError={() => {
         setSyncStatus('error');
         toast.error({
           title: '無法更新景點',
