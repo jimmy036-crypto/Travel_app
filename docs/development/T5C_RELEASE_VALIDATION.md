@@ -107,6 +107,58 @@ is 7 unique PWA cases, not 14 independent successful behaviors.
 
 ## Open items and release impact
 
+### PR #74 E2E correction — 2026-09-18
+
+Preflight rerun: `npm run task:preflight -- --allow-feature` failed because
+the shared local `main` was 18 commits behind `origin/main`. This is not
+reported as PASS. The task worktree was clean before this repair, and direct
+Git checks confirmed both `origin/main` and the task branch's merge base are
+`075c2f1a3eb7d14aaa175ba42ba47878b6e431f5`. No other worktree was changed.
+
+At head `15a57ef4cae1a1697f76ac431bc5f611097ebf8e`,
+[push run 35205435884](https://github.com/jimmy036-crypto/Travel_app/actions/runs/35205435884)
+passed, but
+[PR run 35205459571](https://github.com/jimmy036-crypto/Travel_app/actions/runs/35205459571)
+failed. The passing push run does not cancel the PR failure.
+
+- Chrome: 189 passed, 1 failed, 7 existing PWA project skips. The single
+  failed case was `spotlights desktop-only planner and map targets` in
+  `e2e/whats-new-tour.spec.ts`; both configured retries also failed.
+- Safari passed; the aggregate failed because Chrome failed.
+- Classification: test synchronization defect, repair round 1. In the
+  retry-2 trace, after the step changed to `current-day-planning`, the target
+  was at x=26, but the one-shot measurement still read x=153.9375 from the
+  previous sync-status spotlight. This exactly matches the previous step's
+  measured spotlight. The later failure screenshot shows the frame already
+  correctly surrounding the day-theme row. Retry 1 captured the analogous
+  previous-step bottom (275.5 vs the required >=463.5).
+- Evidence: the failed job's
+  [Chrome report and traces](https://github.com/jimmy036-crypto/Travel_app/actions/runs/35205459571/artifacts/10489918356)
+  contain all three attempts; no assumption about runner/Emulator speed is
+  needed to identify the stale geometry sample.
+- Repair: the spec-local `expectTargetInsideSpotlight` waits for the same
+  four containment conditions using `expect.poll` and its unchanged default
+  assertion deadline. Target, spotlight and card are sampled in one browser
+  task; the successful sample is reused by the original assertions. All
+  positive-size, viewport, 1px containment, no-blur and <35% card-overlap
+  assertions remain. A spotlight that stays on the wrong target still fails.
+  No product code, shared helper/config, retries, timeout, skip or tolerance
+  was changed.
+- Local verification (separate runs, not a fabricated combined run):
+  `npm run test:e2e -- e2e/whats-new-tour.spec.ts --grep "spotlights desktop-only planner and map targets" --repeat-each=5`
+  passed 10/10 (5 Chrome, 5 Safari), zero failures/skips/retries;
+  `npm run test:e2e -- e2e/whats-new-tour.spec.ts` passed 42/42
+  (21 per browser), zero failures/skips/retries, including delayed forecast
+  reflow coverage.
+- `npm run verify:fast`: PASS (guardrails, TypeScript, ESLint, 108 unit test
+  files / 1,238 tests, production build). `git diff --check`: PASS.
+
+The new head must complete its own push and PR checks before delivery. The
+final immutable head SHA and run results will be recorded in a PR comment
+after those runs finish, rather than creating another documentation commit
+that invalidates the checked head. This correction does not resolve or
+reclassify the separate PWA limitations below or unrelated historical flakes.
+
 | Item | Classification | Release impact / smallest next step |
 | --- | --- | --- |
 | PWA immediate update prompt blocks installation controls in specialized suite | Product behavior requiring decision | Do not conceal it in tests. A separately authorized PWA update-flow fix should define whether first install may show an update prompt and add two-build regression coverage. |

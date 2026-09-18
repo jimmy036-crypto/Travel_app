@@ -148,14 +148,26 @@ async function expectTargetInsideSpotlight(page: Page, targetTestId: string) {
   await expect(spotlight).toBeVisible();
   await expect(card).toBeVisible();
 
-  // Capture related geometry in one browser task, not across protocol round
-  // trips during which a forecast can reflow the header.
-  const [targetBox, spotlightBox, cardBox] = await page.evaluate((ids) => ids.map((id) => {
-    const element = document.querySelector(`[data-testid="${id}"]`);
-    if (!element) throw new Error(`${id} should have a bounding box`);
-    const { x, y, width, height } = element.getBoundingClientRect();
-    return { x, y, width, height };
-  }), [targetTestId, 'feature-tour-spotlight', 'feature-tour-card']);
+  // Step text can commit before the positioning effect/animation frame. Wait
+  // for the actual target, not merely the still-visible previous spotlight.
+  // Keep Playwright's default assertion deadline and the existing 1px bounds.
+  // Capture all geometry atomically, and retain that successful sample for
+  // the viewport/overlap assertions so a later forecast reflow cannot mix frames.
+  let boxes: { x: number; y: number; width: number; height: number }[] = [];
+  await expect.poll(async () => {
+    boxes = await page.evaluate((ids) => ids.map((id) => {
+      const element = document.querySelector(`[data-testid="${id}"]`);
+      if (!element) throw new Error(`${id} should have a bounding box`);
+      const { x, y, width, height } = element.getBoundingClientRect();
+      return { x, y, width, height };
+    }), [targetTestId, 'feature-tour-spotlight', 'feature-tour-card']);
+    const [targetBox, spotlightBox] = boxes;
+    return spotlightBox.x <= targetBox.x + 1
+      && spotlightBox.y <= targetBox.y + 1
+      && spotlightBox.x + spotlightBox.width >= targetBox.x + targetBox.width - 1
+      && spotlightBox.y + spotlightBox.height >= targetBox.y + targetBox.height - 1;
+  }, { message: `Spotlight should follow ${targetTestId}` }).toBe(true);
+  const [targetBox, spotlightBox, cardBox] = boxes;
   for (const box of [targetBox, spotlightBox, cardBox]) {
     expect(box.width).toBeGreaterThan(0);
     expect(box.height).toBeGreaterThan(0);
