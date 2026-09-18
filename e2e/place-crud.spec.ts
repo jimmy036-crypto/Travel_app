@@ -267,6 +267,56 @@ for (const layout of [
   });
 }
 
+test('time control: 200% text keeps the choice and save controls reachable', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openTimeControlTrip(page);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+
+  const editor = await openTimeControlEditor(page);
+  await editor.getByLabel('抵達時間').fill('10:00');
+  const choice = editor.getByRole('checkbox', { name: '重新計算後續時間' });
+  const choiceLabel = choice.locator('..');
+  const save = editor.getByRole('button', { name: '儲存變更' });
+  const cancel = editor.getByRole('button', { name: '取消' });
+
+  await expect(choice).toBeVisible();
+  await choiceLabel.scrollIntoViewIfNeeded();
+  const choiceBox = await choiceLabel.boundingBox();
+  expect(choiceBox).not.toBeNull();
+  expect(choiceBox!.height).toBeGreaterThanOrEqual(44);
+  expect(await choiceLabel.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+  })).toBe(true);
+  await choice.focus();
+  await page.keyboard.press('Space');
+  await expect(choice).toBeChecked();
+
+  await save.scrollIntoViewIfNeeded();
+  for (const control of [save, cancel]) {
+    const box = await control.boundingBox();
+    expect(box).not.toBeNull();
+    expect(await control.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+    })).toBe(true);
+  }
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(1);
+  await testInfo.attach('time-control-200-percent', {
+    body: await page.screenshot(),
+    contentType: 'image/png',
+  });
+  await save.click();
+  await expect(editor).toHaveCount(0);
+  await expect.poll(async () => {
+    const data = await readEmulatorData<Record<string, PlaceItem[]>>(`rooms/${ROOM_ID}/itinerary`);
+    return data?.['Day 1'].map((item) => item.time);
+  }).toEqual(['10:00', '10:40', '11:20']);
+});
+
 test('time control: rejected save keeps the draft and choice; retry writes once', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let rejected = 0;
