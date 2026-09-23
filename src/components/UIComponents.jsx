@@ -15,9 +15,10 @@ import {
   calculateTwdCost,
   inferExpenseSplitState,
   rebalanceCustomAmounts,
-  validateCustomSplit,
+  validateCurrencyCustomSplit,
   validateExpensePayments,
 } from "../features/expenses/expenseCalculations";
+import { parseExpenseAmount, parseOptionalExpenseAmount } from '../features/expenses/expenseAmountInput.js';
 import { EXPENSE_CURRENCIES } from '../features/expenses/expenseDefaults.js';
 import {
   buildDrivingRouteRequest,
@@ -983,6 +984,15 @@ export const ExpenseModal = ({
     isEditing,
     members: validMembers,
   }), [expense, isEditing, validMembers]);
+  const initialCustomAmounts = useMemo(() => (
+    isEditing && initialCurrency !== 'TWD'
+      ? rebalanceCustomAmounts({
+        total: initialLocalCost,
+        members: validMembers,
+        customAmounts: initialSplitState.customAmounts,
+      }) || initialSplitState.customAmounts
+      : initialSplitState.customAmounts
+  ), [isEditing, initialCurrency, initialLocalCost, validMembers, initialSplitState.customAmounts]);
 
   const [item, setItem] = useState(() => String(expense?.item || ""));
   const [localCost, setLocalCost] = useState(() => String(initialLocalCost));
@@ -996,7 +1006,8 @@ export const ExpenseModal = ({
   const [splitType, setSplitType] = useState(initialSplitState.type);
   const [splitTouched, setSplitTouched] = useState(false);
   const [involved, setInvolved] = useState(initialSplitState.involved);
-  const [customAmounts, setCustomAmounts] = useState(initialSplitState.customAmounts);
+  const [customAmounts, setCustomAmounts] = useState(initialCustomAmounts);
+  const [amountTouched, setAmountTouched] = useState({});
   const [note, setNote] = useState(() => String(expense?.note || ""));
   const [saving, setSaving] = useState(false);
   const mountedRef = useRef(true);
@@ -1008,8 +1019,24 @@ export const ExpenseModal = ({
     };
   }, []);
 
-  const twdCost = calculateTwdCost(localCost, rate);
-  const customTotal = calculateCustomTotal(validMembers, customAmounts);
+  const parsedLocalCost = parseExpenseAmount(localCost);
+  const twdCost = calculateTwdCost(parsedLocalCost.ok ? parsedLocalCost.value : 0, rate);
+  const parsedCustomAmounts = Object.fromEntries(validMembers.map((member) => [
+    member, parseOptionalExpenseAmount(customAmounts[member]),
+  ]));
+  const customTotal = calculateCustomTotal(validMembers, Object.fromEntries(
+    validMembers.map((member) => [member, parsedCustomAmounts[member].ok ? parsedCustomAmounts[member].value : 0]),
+  ));
+  const amountErrorMessage = (error) => error === 'DIVIDE_BY_ZERO'
+    ? '不能除以零。'
+    : error === 'NEGATIVE_AMOUNT' ? '金額不可為負數。'
+      : error === 'AMOUNT_TOO_LARGE' ? '金額過大，請分成多筆記帳。'
+        : '算式無效，請使用數字與 +、−、×、÷。';
+  const commitAmount = (key, raw, setValue) => {
+    setAmountTouched((previous) => ({ ...previous, [key]: true }));
+    const parsed = parseOptionalExpenseAmount(raw);
+    if (parsed.ok && String(raw).trim() !== '') setValue(String(parsed.value));
+  };
   const removedPaymentMembers = Object.entries(paymentAmounts)
     .filter(([member, amount]) => !validMembers.includes(member) && Number(amount) > 0)
     .map(([member]) => member);
@@ -1029,7 +1056,7 @@ export const ExpenseModal = ({
     paymentAmounts: initialPaymentAmounts,
     splitType: initialSplitState.type,
     involved: initialSplitState.involved,
-    customAmounts: initialSplitState.customAmounts,
+    customAmounts: initialCustomAmounts,
     note: String(expense?.note || ""),
   }));
 
@@ -1058,29 +1085,71 @@ export const ExpenseModal = ({
 
   const handleCurrencyChange = (event) => {
     const nextCurrency = String(event.target.value);
-    setCurrency(nextCurrency);
     const found = EXPENSE_CURRENCIES.find(option => option.code === nextCurrency);
-    if (found) setRate(String(found.rate));
+    const rejectChange = (message) => {
+      event.target.value = currency;
+      alert(message);
+    };
+    if (!found) {
+      event.target.value = currency;
+      return;
+    }
+    const previousRate = Number(rate);
+    if (!Number.isFinite(previousRate) || previousRate <= 0) {
+      rejectChange('請先輸入有效匯率，再切換幣別。');
+      return;
+    }
+    const enteredAmounts = Object.values(customAmounts);
+    if ((String(localCost).trim() && !parsedLocalCost.ok)
+      || enteredAmounts.some((amount) => !parseOptionalExpenseAmount(amount).ok)) {
+      rejectChange('請先完成金額算式，再切換幣別。');
+      return;
+    }
+    const convert = (value) => String(Math.round((value * previousRate / found.rate + Number.EPSILON) * 100) / 100);
+    const nextLocalCost = parsedLocalCost.ok ? convert(parsedLocalCost.value) : '';
+    if (parsedLocalCost.ok
+      && calculateTwdCost(Number(nextLocalCost), found.rate) !== calculateTwdCost(parsedLocalCost.value, previousRate)) {
+      rejectChange('換幣後因最小分位無法保持原本台幣總額；請先清除金額再切換，或保留目前幣別。');
+      return;
+    }
+    if (parsedLocalCost.ok) setLocalCost(nextLocalCost);
+    if (enteredAmounts.some((amount) => String(amount).trim())) {
+      const convertedAmounts = Object.fromEntries(Object.entries(customAmounts).map(([member, raw]) => [
+        member,
+        String(raw).trim() ? convert(parseExpenseAmount(raw).value) : '',
+      ]));
+      const rebalancedAmounts = validMembers.some((member) => Number(convertedAmounts[member]) > 0)
+        ? rebalanceCustomAmounts({
+          total: Number(nextLocalCost),
+          members: validMembers,
+          customAmounts: convertedAmounts,
+        })
+        : null;
+      setCustomAmounts(rebalancedAmounts || convertedAmounts);
+      if (splitType === 'CUSTOM') setSplitTouched(true);
+    }
+    setCurrency(nextCurrency);
+    setRate(String(found.rate));
   };
 
   const handleCustomAmountChange = (member, value) => {
     setSplitTouched(true);
     const nextAmounts = { ...customAmounts, [member]: value };
     setCustomAmounts(nextAmounts);
-    const values = Object.values(nextAmounts).filter((amount) => String(amount).trim() !== '');
-    if (values.some((amount) => !Number.isFinite(Number(amount)) || Number(amount) < 0)) return;
-    const nextTotal = calculateCustomTotal(validMembers, nextAmounts);
-    const numericRate = Number(rate);
-    if (nextTotal > 0 && Number.isFinite(numericRate) && numericRate > 0) {
-      setLocalCost(String(Math.round((nextTotal / numericRate) * 1e8) / 1e8));
-    }
+    const parsed = Object.fromEntries(validMembers.map((name) => [name, parseOptionalExpenseAmount(nextAmounts[name])]));
+    if (Object.values(parsed).some((result) => !result.ok)) return;
+    const nextTotal = calculateCustomTotal(validMembers, Object.fromEntries(
+      validMembers.map((name) => [name, parsed[name].value]),
+    ));
+    if (nextTotal > 0) setLocalCost(String(Math.round((nextTotal + Number.EPSILON) * 100) / 100));
   };
 
   const rebalanceCustomSplit = () => {
+    if (!parsedLocalCost.ok || Object.values(parsedCustomAmounts).some((result) => !result.ok)) return;
     const next = rebalanceCustomAmounts({
-      total: twdCost,
+      total: parsedLocalCost.value,
       members: validMembers,
-      customAmounts,
+      customAmounts: Object.fromEntries(validMembers.map((member) => [member, parsedCustomAmounts[member].value])),
     });
     if (next) {
       setSplitTouched(true);
@@ -1090,10 +1159,11 @@ export const ExpenseModal = ({
 
   const buildExpense = ({ duplicate = false, timestamp = 0 } = {}) => {
     const normalizedItem = String(item).trim();
-    const numericLocalCost = Number(localCost);
+    const numericLocalCost = parsedLocalCost.ok ? parsedLocalCost.value : 0;
     const numericRate = Number(rate);
 
-    if (!normalizedItem || !Number.isFinite(numericLocalCost) || numericLocalCost <= 0) {
+    if (!normalizedItem || !parsedLocalCost.ok || numericLocalCost <= 0) {
+      setAmountTouched((previous) => ({ ...previous, localCost: true }));
       alert("請輸入有效的項目名稱與金額！");
       return null;
     }
@@ -1110,11 +1180,18 @@ export const ExpenseModal = ({
       return null;
     }
 
+    const parsedPayments = Object.fromEntries(validMembers.map((member) => [
+      member, parseOptionalExpenseAmount(paymentAmounts[member]),
+    ]));
+    if (payerMode === 'MULTIPLE' && Object.values(parsedPayments).some((result) => !result.ok)) {
+      alert('請修正實付金額算式。');
+      return null;
+    }
     const paymentResult = payerMode === 'MULTIPLE'
       ? validateExpensePayments({
         total: twdCost,
         members: validMembers,
-        amounts: Object.fromEntries(validMembers.map((member) => [member, paymentAmounts[member] || ''])),
+        amounts: Object.fromEntries(validMembers.map((member) => [member, parsedPayments[member].value])),
       })
       : null;
     if (paymentResult && !paymentResult.ok) {
@@ -1139,20 +1216,31 @@ export const ExpenseModal = ({
       }
       finalSplit = result.split;
     } else {
-      const result = validateCustomSplit({
-        total: twdCost,
+      if (Object.values(parsedCustomAmounts).some((result) => !result.ok)) {
+        alert('請修正自訂分帳金額算式。');
+        return null;
+      }
+      const result = validateCurrencyCustomSplit({
+        localTotal: numericLocalCost,
+        twdTotal: twdCost,
+        currency,
         members: validMembers,
-        customAmounts,
+        customAmounts: Object.fromEntries(validMembers.map((member) => [member, parsedCustomAmounts[member].value])),
       });
       if (!result.ok) {
         if (result.error === "NEGATIVE_AMOUNT") {
           alert("自訂分帳金額不可為負數！");
         } else {
-          alert(`分帳總和（NT$${result.customTotal.toLocaleString()}）與折合台幣總計（NT$${twdCost.toLocaleString()}）不符！`);
+          alert(`分帳總和（${currency} ${result.customTotal.toLocaleString()}）與當地總額（${currency} ${numericLocalCost.toLocaleString()}）不符！`);
         }
         return null;
       }
-      finalSplit = result.split;
+      const originalCurrency = String(expense?.currency || 'TWD');
+      finalSplit = isEditing && !splitTouched && originalCurrency === currency
+        && Number(expense?.cost) === twdCost && Number(initialLocalCost) === numericLocalCost
+        && Number(initialRate) === numericRate
+        ? { ...expense.split }
+        : result.split;
     }
 
     const now = Number(timestamp) || 0;
@@ -1266,17 +1354,30 @@ export const ExpenseModal = ({
               <input
                 id="expense-local-cost-input"
                 data-testid="expense-local-cost-input"
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="text"
                 value={localCost}
                 onChange={event => setLocalCost(event.target.value)}
+                onBlur={() => commitAmount('localCost', localCost, setLocalCost)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commitAmount('localCost', localCost, setLocalCost);
+                  }
+                }}
+                aria-invalid={Boolean(amountTouched.localCost && localCost.trim() && !parsedLocalCost.ok)}
+                aria-describedby={amountTouched.localCost && localCost.trim() && !parsedLocalCost.ok ? 'expense-local-cost-error' : 'expense-amount-help'}
                 placeholder="0"
                 className={`w-full py-3 px-3.5 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border font-mono font-bold text-emerald-500 text-base ${t.inputBg} ${t.cardBorder}`}
               />
+              {amountTouched.localCost && localCost.trim() && !parsedLocalCost.ok ? (
+                <p id="expense-local-cost-error" className={`mt-1 text-sm ${t.isLight ? 'text-red-700' : 'text-red-300'}`}>
+                  {amountErrorMessage(parsedLocalCost.error)}
+                </p>
+              ) : null}
             </div>
           </div>
+          <p id="expense-amount-help" className={`-mt-3 text-sm ${t.subText}`}>金額可輸入 +、−、×、÷；按 Enter 或離開欄位計算。</p>
 
           <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-4 ${t.cardMetaBg} ${t.cardBorder}`}>
             <div className="min-w-0">
@@ -1364,22 +1465,39 @@ export const ExpenseModal = ({
               <div className="mt-3 space-y-2">
                 <p className={`text-sm ${t.subText}`}>分別輸入實際支付的台幣金額；與下方的分帳金額分開計算。</p>
                 {removedPaymentMembers.length > 0 ? <p className={`text-sm font-bold ${t.mainText}`}>原付款人{removedPaymentMembers.join('、')}已不在旅伴名單，請重新分配實付金額。</p> : null}
-                {validMembers.map((member) => (
-                  <label key={`payment-${member}`} className={`flex items-center justify-between gap-3 text-sm ${t.mainText}`}>
-                    <span className="min-w-0 break-words">{member} 實付金額</span>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="0.01"
-                      value={paymentAmounts[member] || ''}
-                      onChange={(event) => setPaymentAmounts((previous) => ({ ...previous, [member]: event.target.value }))}
-                      className={`min-h-11 w-28 shrink-0 rounded-lg border px-2 text-right font-mono text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-                    />
-                  </label>
+                {validMembers.map((member, index) => (
+                  <div key={`payment-${member}`}>
+                    <label className={`flex items-center justify-between gap-3 text-sm ${t.mainText}`}>
+                      <span className="min-w-0 break-words">{member} 實付金額</span>
+                      <input
+                        type="text"
+                        inputMode="text"
+                        value={paymentAmounts[member] || ''}
+                        onChange={(event) => setPaymentAmounts((previous) => ({ ...previous, [member]: event.target.value }))}
+                        onBlur={() => commitAmount(`payment:${member}`, paymentAmounts[member], (value) => setPaymentAmounts((previous) => ({ ...previous, [member]: value })))}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            commitAmount(`payment:${member}`, paymentAmounts[member], (value) => setPaymentAmounts((previous) => ({ ...previous, [member]: value })));
+                          }
+                        }}
+                        aria-invalid={Boolean(amountTouched[`payment:${member}`] && paymentAmounts[member] && !parseOptionalExpenseAmount(paymentAmounts[member]).ok)}
+                        aria-describedby={amountTouched[`payment:${member}`] && paymentAmounts[member] && !parseOptionalExpenseAmount(paymentAmounts[member]).ok ? `expense-payment-error-${index}` : undefined}
+                        className={`min-h-11 w-28 shrink-0 rounded-lg border px-2 text-right font-mono text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                      />
+                    </label>
+                    {amountTouched[`payment:${member}`] && paymentAmounts[member] && !parseOptionalExpenseAmount(paymentAmounts[member]).ok ? (
+                      <p id={`expense-payment-error-${index}`} className={`mt-1 text-sm ${t.isLight ? 'text-red-700' : 'text-red-300'}`}>
+                        {amountErrorMessage(parseOptionalExpenseAmount(paymentAmounts[member]).error)}
+                      </p>
+                    ) : null}
+                  </div>
                 ))}
                 <p className={`text-right text-sm ${t.subText}`}>
-                  實付合計 NT$ {Object.values(paymentAmounts).reduce((sum, amount) => sum + (Number(amount) || 0), 0).toLocaleString()} / {twdCost.toLocaleString()}
+                  實付合計 NT$ {validMembers.reduce((sum, member) => {
+                    const parsed = parseOptionalExpenseAmount(paymentAmounts[member]);
+                    return sum + (parsed.ok ? parsed.value : 0);
+                  }, 0).toLocaleString()} / {twdCost.toLocaleString()}
                 </p>
               </div>
             ) : null}
@@ -1458,7 +1576,7 @@ export const ExpenseModal = ({
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3">
-                  <p className={`text-sm ${t.subText}`}>直接輸入每位成員應負擔的台幣金額。</p>
+                  <p className={`text-sm ${t.subText}`}>輸入每位成員應負擔的 {currency} 金額；結算仍換算為台幣。</p>
                   <button
                     type="button"
                     onClick={rebalanceCustomSplit}
@@ -1467,32 +1585,46 @@ export const ExpenseModal = ({
                     依比例重算
                   </button>
                 </div>
-                {validMembers.map(member => (
-                  <div key={`cust-${member}`} className="flex justify-between items-center gap-3">
-                    <span className={`text-sm font-bold ${t.mainText}`}>{member}</span>
-                    <input
-                      data-testid="expense-custom-amount-input"
-                      data-member={member}
-                      aria-label={`${member} 自訂分帳金額`}
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="0.01"
-                      value={customAmounts[member] || ""}
-                      onChange={event => handleCustomAmountChange(member, event.target.value)}
-                      placeholder="0"
-                      className={`w-28 p-2.5 rounded-lg font-mono text-right outline-none focus:ring-2 focus:ring-purple-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
-                    />
+                {validMembers.map((member, index) => (
+                  <div key={`cust-${member}`}>
+                    <div className="flex justify-between items-center gap-3">
+                      <span className={`text-sm font-bold ${t.mainText}`}>{member}（{currency}）</span>
+                      <input
+                        data-testid="expense-custom-amount-input"
+                        data-member={member}
+                        aria-label={`${member} 自訂分帳金額（${currency}）`}
+                        type="text"
+                        inputMode="text"
+                        value={customAmounts[member] || ""}
+                        onChange={event => handleCustomAmountChange(member, event.target.value)}
+                        onBlur={() => commitAmount(`custom:${member}`, customAmounts[member], (value) => setCustomAmounts((previous) => ({ ...previous, [member]: value })))}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            commitAmount(`custom:${member}`, customAmounts[member], (value) => setCustomAmounts((previous) => ({ ...previous, [member]: value })));
+                          }
+                        }}
+                        aria-invalid={Boolean(amountTouched[`custom:${member}`] && !parsedCustomAmounts[member].ok)}
+                        aria-describedby={amountTouched[`custom:${member}`] && !parsedCustomAmounts[member].ok ? `expense-custom-error-${index}` : undefined}
+                        placeholder="0"
+                        className={`min-h-11 w-28 p-2.5 rounded-lg font-mono text-right outline-none focus:ring-2 focus:ring-purple-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                      />
+                    </div>
+                    {amountTouched[`custom:${member}`] && !parsedCustomAmounts[member].ok ? (
+                      <p id={`expense-custom-error-${index}`} className={`mt-1 text-sm ${t.isLight ? 'text-red-700' : 'text-red-300'}`}>
+                        {amountErrorMessage(parsedCustomAmounts[member].error)}
+                      </p>
+                    ) : null}
                   </div>
                 ))}
-                {twdCost > 0 ? (
+                {parsedLocalCost.ok && parsedLocalCost.value > 0 ? (
                   <div className={`border-t pt-3 mt-2 flex justify-between items-center ${t.cardBorder}`}>
                     <span className={`text-xs ${t.subText}`}>目前總和</span>
                     <span
                       data-testid="expense-custom-total"
-                      className={`text-sm font-bold font-mono ${Math.abs(customTotal - twdCost) <= 0.02 ? "text-emerald-500" : "text-red-500"}`}
+                      className={`text-sm font-bold font-mono ${Math.abs(customTotal - parsedLocalCost.value) <= 0.02 ? "text-emerald-500" : "text-red-500"}`}
                     >
-                      NT$ {customTotal.toLocaleString()} / {twdCost.toLocaleString()}
+                      {currency} {customTotal.toLocaleString()} / {parsedLocalCost.value.toLocaleString()}
                     </span>
                   </div>
                 ) : null}

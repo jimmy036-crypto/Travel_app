@@ -219,6 +219,43 @@ export const rebalanceCustomAmounts = ({ total, members, customAmounts } = {}) =
   return next;
 };
 
+export const validateCurrencyCustomSplit = ({
+  localTotal,
+  twdTotal,
+  currency,
+  members,
+  customAmounts,
+} = {}) => {
+  const localResult = validateCustomSplit({
+    total: localTotal,
+    members,
+    customAmounts,
+  });
+  if (!localResult.ok) return localResult;
+  // The editor only accepts two decimal places. Its allocation must therefore
+  // match in cents, even when the older generic helper's tolerance allows a
+  // small difference; otherwise an unassigned amount would be invented here.
+  if (Math.round(localResult.customTotal * 100) !== Math.round(Number(localTotal) * 100)) {
+    return { ...localResult, ok: false, error: 'TOTAL_MISMATCH' };
+  }
+  if (currency === 'TWD') return localResult;
+
+  // The form uses the selected currency; persisted splits and settlement stay
+  // in TWD. Allocate any conversion remainder to the final active member.
+  const allocated = rebalanceCustomAmounts({
+    total: twdTotal,
+    members,
+    customAmounts: localResult.split,
+  });
+  if (!allocated) return { ...localResult, ok: false, error: 'INVALID_TOTAL' };
+  return {
+    ...localResult,
+    split: Object.fromEntries(
+      toMemberList(members).map((member) => [member, Number(allocated[member] || 0)]),
+    ),
+  };
+};
+
 export const calculateBalanceSnapshot = ({
   expenses,
   members,

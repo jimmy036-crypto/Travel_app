@@ -15,6 +15,7 @@ import {
   inferExpenseSplitState,
   rebalanceCustomAmounts,
   roundMoney,
+  validateCurrencyCustomSplit,
   validateCustomSplit,
   validateExpensePayments,
 } from './expenseCalculations.js';
@@ -113,6 +114,15 @@ describe('平均分帳', () => {
 });
 
 describe('自訂分帳', () => {
+  it('選定幣別的每分都必須明確分配，不能讓極小金額靠容差虛構分攤', () => {
+    expect(validateCurrencyCustomSplit({
+      localTotal: 0.02,
+      twdTotal: 1,
+      currency: 'USD',
+      members: ['自己', '朋友'],
+      customAmounts: { 自己: 0, 朋友: 0 },
+    })).toMatchObject({ ok: false, error: 'TOTAL_MISMATCH' });
+  });
   it('分帳總和等於支出時通過', () => {
     const result = validateCustomSplit({
       total: 500,
