@@ -232,6 +232,12 @@ export const validateCurrencyCustomSplit = ({
     customAmounts,
   });
   if (!localResult.ok) return localResult;
+  // The editor only accepts two decimal places. Its allocation must therefore
+  // match in cents, even when the older generic helper's tolerance allows a
+  // small difference; otherwise an unassigned amount would be invented here.
+  if (Math.round(localResult.customTotal * 100) !== Math.round(Number(localTotal) * 100)) {
+    return { ...localResult, ok: false, error: 'TOTAL_MISMATCH' };
+  }
   if (currency === 'TWD') return localResult;
 
   // The form uses the selected currency; persisted splits and settlement stay

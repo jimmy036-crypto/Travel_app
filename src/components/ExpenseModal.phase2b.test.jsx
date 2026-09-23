@@ -261,6 +261,47 @@ describe('ExpenseModal Phase 2B 表單流程', () => {
     expect(Object.values(saved.split).reduce((sum, share) => sum + share, 0)).toBe(1000);
   });
 
+  it('換幣若因最小分位失去原台幣總額，保留原幣別與輸入並提示處理', () => {
+    const view = render(<ExpenseModal {...commonProps} />);
+    fireEvent.change(view.getByTestId('expense-currency-select'), { target: { value: 'JPY' } });
+    fireEvent.change(view.getByTestId('expense-local-cost-input'), { target: { value: '50' } });
+    expect(view.getByTestId('expense-twd-total')).toHaveTextContent('11');
+    fireEvent.change(view.getByTestId('expense-currency-select'), { target: { value: 'USD' } });
+    expect(view.getByTestId('expense-currency-select')).toHaveValue('JPY');
+    expect(view.getByTestId('expense-local-cost-input')).toHaveValue('50');
+    expect(view.getByTestId('expense-twd-total')).toHaveTextContent('11');
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('無法保持原本台幣總額'));
+  });
+
+  it('切成平均分帳時保留的自訂草稿，換幣後仍使用新幣別', () => {
+    const view = render(<ExpenseModal {...commonProps} />);
+    fireEvent.change(view.getByTestId('expense-local-cost-input'), { target: { value: '420' } });
+    fireEvent.click(view.getByTestId('expense-split-custom-button'));
+    fireEvent.change(view.getByLabelText('自己 自訂分帳金額（TWD）'), { target: { value: '300' } });
+    fireEvent.change(view.getByLabelText('朋友 自訂分帳金額（TWD）'), { target: { value: '120' } });
+    fireEvent.click(view.getByTestId('expense-split-equal-button'));
+    fireEvent.change(view.getByTestId('expense-currency-select'), { target: { value: 'JPY' } });
+    fireEvent.click(view.getByTestId('expense-split-custom-button'));
+    expect(view.getByLabelText('自己 自訂分帳金額（JPY）')).toHaveValue('1428.57');
+    expect(view.getByLabelText('朋友 自訂分帳金額（JPY）')).toHaveValue('571.43');
+  });
+
+  it('舊外幣帳目缺少 localCost 時，僅改文字仍保留精確台幣分攤', async () => {
+    const onSave = vi.fn();
+    const expense = {
+      id: 'legacy-foreign', dayId: 'Day 1', item: '舊車資', cost: 420,
+      currency: 'JPY', exchangeRate: 0.21, payer: '自己',
+      split: { 自己: 300, 朋友: 120 },
+    };
+    const view = render(<ExpenseModal {...commonProps} expense={expense} onSave={onSave} />);
+    fireEvent.change(view.getByTestId('expense-item-input'), { target: { value: '舊車資（更名）' } });
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      item: '舊車資（更名）', cost: 420, split: { 自己: 300, 朋友: 120 },
+    });
+  });
+
   it('編輯既有外幣帳目只改名稱時，保留原本精確台幣分攤', async () => {
     const onSave = vi.fn();
     const expense = {

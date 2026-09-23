@@ -1086,22 +1086,34 @@ export const ExpenseModal = ({
   const handleCurrencyChange = (event) => {
     const nextCurrency = String(event.target.value);
     const found = EXPENSE_CURRENCIES.find(option => option.code === nextCurrency);
-    if (!found) return;
-    const previousRate = Number(rate);
-    if (!Number.isFinite(previousRate) || previousRate <= 0) {
-      alert('請先輸入有效匯率，再切換幣別。');
+    const rejectChange = (message) => {
+      event.target.value = currency;
+      alert(message);
+    };
+    if (!found) {
+      event.target.value = currency;
       return;
     }
-    const enteredAmounts = splitType === 'CUSTOM' ? Object.values(customAmounts) : [];
+    const previousRate = Number(rate);
+    if (!Number.isFinite(previousRate) || previousRate <= 0) {
+      rejectChange('請先輸入有效匯率，再切換幣別。');
+      return;
+    }
+    const enteredAmounts = Object.values(customAmounts);
     if ((String(localCost).trim() && !parsedLocalCost.ok)
       || enteredAmounts.some((amount) => !parseOptionalExpenseAmount(amount).ok)) {
-      alert('請先完成金額算式，再切換幣別。');
+      rejectChange('請先完成金額算式，再切換幣別。');
       return;
     }
     const convert = (value) => String(Math.round((value * previousRate / found.rate + Number.EPSILON) * 100) / 100);
     const nextLocalCost = parsedLocalCost.ok ? convert(parsedLocalCost.value) : '';
+    if (parsedLocalCost.ok
+      && calculateTwdCost(Number(nextLocalCost), found.rate) !== calculateTwdCost(parsedLocalCost.value, previousRate)) {
+      rejectChange('換幣後因最小分位無法保持原本台幣總額；請先清除金額再切換，或保留目前幣別。');
+      return;
+    }
     if (parsedLocalCost.ok) setLocalCost(nextLocalCost);
-    if (splitType === 'CUSTOM') {
+    if (enteredAmounts.some((amount) => String(amount).trim())) {
       const convertedAmounts = Object.fromEntries(Object.entries(customAmounts).map(([member, raw]) => [
         member,
         String(raw).trim() ? convert(parseExpenseAmount(raw).value) : '',
@@ -1114,7 +1126,7 @@ export const ExpenseModal = ({
         })
         : null;
       setCustomAmounts(rebalancedAmounts || convertedAmounts);
-      if (enteredAmounts.some((amount) => String(amount).trim())) setSplitTouched(true);
+      if (splitType === 'CUSTOM') setSplitTouched(true);
     }
     setCurrency(nextCurrency);
     setRate(String(found.rate));
@@ -1225,8 +1237,8 @@ export const ExpenseModal = ({
       }
       const originalCurrency = String(expense?.currency || 'TWD');
       finalSplit = isEditing && !splitTouched && originalCurrency === currency
-        && Number(expense?.cost) === twdCost && Number(expense?.localCost) === numericLocalCost
-        && Number(expense?.exchangeRate) === numericRate
+        && Number(expense?.cost) === twdCost && Number(initialLocalCost) === numericLocalCost
+        && Number(initialRate) === numericRate
         ? { ...expense.split }
         : result.split;
     }

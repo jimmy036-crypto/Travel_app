@@ -302,6 +302,60 @@ test('expense amount expressions calculate safely across total, split and actual
   await expect(page.getByLabel('朋友 實付金額')).toHaveValue('100');
 });
 
+test('currency change and tiny custom shares never silently change the saved TWD amount', async ({ page }) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page, false);
+  await openNewExpenseModal(page);
+  await page.getByTestId('expense-item-input').fill('E2E 極小金額');
+  const currency = page.getByTestId('expense-currency-select');
+  const total = page.getByTestId('expense-local-cost-input');
+  await currency.selectOption('JPY');
+  await total.fill('50');
+  await expect(page.getByTestId('expense-twd-total')).toContainText('11');
+  let warning = '';
+  page.once('dialog', async (dialog) => {
+    warning = dialog.message();
+    await dialog.accept();
+  });
+  await currency.selectOption('USD');
+  expect(warning).toContain('無法保持原本台幣總額');
+  await expect(currency).toHaveValue('JPY');
+  await expect(total).toHaveValue('50');
+
+  await total.fill('');
+  await currency.selectOption('USD');
+  await total.fill('0.02');
+  await page.getByTestId('expense-split-custom-button').click();
+  page.once('dialog', async (dialog) => {
+    warning = dialog.message();
+    await dialog.accept();
+  });
+  await page.getByTestId('expense-save-button').click();
+  expect(warning).toContain('分帳總和');
+  expect(await readExpenses()).toEqual([]);
+});
+
+test('legacy foreign expense keeps exact member shares on metadata-only edit', async ({ page }) => {
+  await seedTestTrip(ROOM_ID, {
+    members: MEMBERS,
+    expenses: [{
+      id: 'legacy-foreign', dayId: 'Day 1', item: 'E2E 舊日幣車資',
+      cost: 420, currency: 'JPY', exchangeRate: 0.21,
+      payer: '自己', split: { 自己: 300, 朋友: 120 },
+    }],
+  });
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page, false);
+  await expenseRecord(page, 'E2E 舊日幣車資').click();
+  await page.getByTestId('expense-item-input').fill('E2E 舊日幣車資更新');
+  await page.getByTestId('expense-save-button').click();
+  await expect(expenseRecord(page, 'E2E 舊日幣車資更新')).toBeVisible();
+  await expect.poll(async () => {
+    const expense = (await readExpenses()).find((item) => item.id === 'legacy-foreign');
+    return expense ? { item: expense.item, cost: expense.cost, split: expense.split } : null;
+  }).toEqual({ item: 'E2E 舊日幣車資更新', cost: 420, split: { 自己: 300, 朋友: 120 } });
+});
+
 test('long expense history collapses by day and reveals every record without writing', async ({ page }) => {
   const expenses = Array.from({ length: 23 }, (_, index) => ({
     id: `long-${index}`,

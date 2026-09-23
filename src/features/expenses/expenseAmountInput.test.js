@@ -8,6 +8,8 @@ describe('expense amount expressions', () => {
     expect(parseExpenseAmount('100 ÷ 4 − 0.1')).toEqual({ ok: true, value: 24.9 });
     expect(parseExpenseAmount('1/3')).toEqual({ ok: true, value: 0.33 });
     expect(parseExpenseAmount('0.1+0.2')).toEqual({ ok: true, value: 0.3 });
+    expect(parseExpenseAmount('40.3/4')).toEqual({ ok: true, value: 10.08 });
+    expect(parseExpenseAmount('10.075')).toEqual({ ok: true, value: 10.08 });
   });
 
   it('rejects incomplete, unsafe, negative and zero-division expressions', () => {
