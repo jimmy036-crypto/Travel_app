@@ -56,6 +56,7 @@ const defaultProps = {
   onCancelTransferPaid: vi.fn(),
   settlementMutationId: '',
   onUpdateBudget: vi.fn(),
+  onUpdateDefaultCurrency: vi.fn(),
 };
 
 describe('ExpenseSection', () => {
@@ -83,6 +84,44 @@ describe('ExpenseSection', () => {
     render(<ExpenseSection {...expensesProps} />);
     expect(screen.getByText('Test Item')).toBeInTheDocument();
     expect(screen.getByTestId('expense-record-cost')).toHaveTextContent('NT$100');
+  });
+
+  it('顯示目的地建議幣別並可設定旅程之後新帳目的預設', () => {
+    render(<ExpenseSection {...defaultProps} meta={{ ...defaultProps.meta, destination: '日本大阪' }} />);
+    const selector = screen.getByLabelText('新帳目預設幣別');
+    expect(selector).toHaveValue('AUTO');
+    expect(screen.getByRole('option', { name: '依目的地（JPY）' })).toBeInTheDocument();
+    fireEvent.change(selector, { target: { value: 'USD' } });
+    expect(defaultProps.onUpdateDefaultCurrency).toHaveBeenCalledWith('USD');
+  });
+
+  it('多人付款摘要分開呈現實付與分攤，娛樂分類有自己的標籤', () => {
+    const expense = { id: 'entertainment-1', dayId: 'Day 1', item: '電影', cost: 100, category: 'entertainment', payer: 'Alice', payments: { Alice: 60, Bob: 40 }, split: { Alice: 50, Bob: 50 } };
+    render(<ExpenseSection {...defaultProps} expenses={[expense]} expenseStats={{ ...defaultProps.expenseStats, groupedExpenses: [{ day: 'Day 1', items: [expense] }] }} />);
+    expect(screen.getByTestId('expense-record')).toHaveTextContent(/娛樂.*Alice、Bob.*先付/);
+  });
+
+  it('娛樂分類圖例在明暗主題使用對應可讀文字色', () => {
+    const expense = { id: 'entertainment-2', dayId: 'Day 1', item: '演出', cost: 100, category: 'entertainment', payer: 'Alice', split: { Alice: 50, Bob: 50 } };
+    const props = { ...defaultProps, expenses: [expense], expenseStats: { ...defaultProps.expenseStats, totalExpense: 100 } };
+    const view = render(<ExpenseSection {...props} t={{ ...mockT, isLight: true }} />);
+    fireEvent.click(screen.getByTestId('expense-chart-view-button'));
+    expect(screen.getByText('NT$100', { selector: 'p' })).toHaveClass('text-rose-700');
+    view.rerender(<ExpenseSection {...props} t={{ ...mockT, isLight: false }} />);
+    expect(screen.getByText('NT$100', { selector: 'p' })).toHaveClass('text-rose-400');
+  });
+
+  it('大量明細按日期收合並可展開更多單日帳目', () => {
+    const firstDay = Array.from({ length: 22 }, (_, index) => ({ id: `old-${index}`, dayId: 'Day 1', item: `舊帳目 ${index}`, cost: 10, payer: 'Alice' }));
+    const latest = [{ id: 'new', dayId: 'Day 2', item: '最新帳目', cost: 30, payer: 'Bob' }];
+    render(<ExpenseSection {...defaultProps} expenses={[...firstDay, ...latest]} expenseStats={{ ...defaultProps.expenseStats, groupedExpenses: [{ day: 'Day 1', items: firstDay }, { day: 'Day 2', items: latest }] }} />);
+    expect(screen.getByTestId('expense-day-Day 1')).not.toHaveAttribute('open');
+    expect(screen.getByTestId('expense-day-Day 2')).toHaveAttribute('open');
+    fireEvent.click(screen.getByText(/第一天.*22 筆/));
+    expect(screen.getByTestId('expense-day-Day 1')).toHaveAttribute('open');
+    expect(screen.getAllByTestId('expense-record')).toHaveLength(11);
+    fireEvent.click(screen.getByRole('button', { name: /顯示較早的 12 筆/ }));
+    expect(screen.getAllByTestId('expense-record')).toHaveLength(23);
   });
 
   it('顯示總支出與個人分攤', () => {

@@ -35,6 +35,28 @@ export const calculateCustomTotal = (members, customAmounts) => (
   )
 );
 
+export const validateExpensePayments = ({ total, members, amounts } = {}) => {
+  const validMembers = toMemberList(members);
+  const validSet = new Set(validMembers);
+  const entries = Object.entries(amounts && typeof amounts === 'object' ? amounts : {});
+  if (entries.some(([member, value]) => !validSet.has(member) || (String(value).trim() !== '' && (
+    !Number.isFinite(Number(value))
+    || Number(value) < 0
+    || Math.abs(Number(value) * 100 - Math.round(Number(value) * 100)) > 1e-6
+  )))) {
+    return { ok: false, error: 'INVALID_PAYMENT' };
+  }
+  const payments = Object.fromEntries(entries
+    .filter(([, value]) => Math.round(Number(value) * 100) > 0)
+    .map(([member, value]) => [member, Math.round(Number(value) * 100) / 100]));
+  const totalInCents = Math.round(toFiniteNumber(total, 0) * 100);
+  const paidInCents = Object.values(payments).reduce((sum, amount) => sum + Math.round(amount * 100), 0);
+  if (Object.keys(payments).length < 2 || totalInCents <= 0 || paidInCents !== totalInCents) {
+    return { ok: false, error: 'PAYMENT_TOTAL_MISMATCH', paidTotal: paidInCents / 100 };
+  }
+  return { ok: true, payments, total: paidInCents / 100 };
+};
+
 export const inferExpenseSplitState = ({
   expense = null,
   isEditing = false,
@@ -211,7 +233,11 @@ export const calculateBalanceSnapshot = ({
     const payer = String(expense?.payer || '');
     const cost = toFiniteNumber(expense?.cost, 0);
 
-    if (balances[payer] !== undefined) {
+    if (expense?.payments && typeof expense.payments === 'object') {
+      Object.entries(expense.payments).forEach(([member, rawAmount]) => {
+        if (balances[member] !== undefined) balances[member] += toFiniteNumber(rawAmount, 0);
+      });
+    } else if (balances[payer] !== undefined) {
       balances[payer] += cost;
     }
 

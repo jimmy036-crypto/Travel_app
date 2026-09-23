@@ -45,6 +45,7 @@ import {
   calculateExpenseStats,
 } from "./features/expenses/expenseCalculations";
 import { PRE_TRIP_ID } from './features/expenses/expenseConstants.js';
+import { getSuggestedExpenseCurrency, resolveExpenseDefaultDay } from './features/expenses/expenseDefaults.js';
 import { buildSettlementBalanceModel } from './features/expenses/settlementBalanceModel.js';
 import {
   cloneRouteItems,
@@ -2304,6 +2305,10 @@ const TripDetail = ({
     }));
   };
 
+  const handleExpenseDefaultCurrencyChange = (currency) => {
+    setMeta((previousMeta) => ({ ...previousMeta, expenseCurrency: String(currency) }));
+  };
+
   const closeTicketEditor = useCallback(() => setTicketEditorState(null), []);
 
   const {
@@ -4504,6 +4509,7 @@ const TripDetail = ({
                 onCancelTransferPaid={handleCancelTransferPaid}
                 settlementMutationId={settlementMutationId}
                 onUpdateBudget={handleBudgetChange}
+                onUpdateDefaultCurrency={handleExpenseDefaultCurrencyChange}
               />
 
               <TicketWalletSection
@@ -4835,19 +4841,28 @@ const TripDetail = ({
           members={membersList}
           existingDays={[PRE_TRIP_ID, ...existingDays]}
           startDate={meta.startDate}
-          defaultDay={editingExpense?.dayId || safeCurrentDay || existingDays[0] || PRE_TRIP_ID}
+          defaultDay={editingExpense?.dayId || resolveExpenseDefaultDay({
+            startDate: meta.startDate,
+            days: [PRE_TRIP_ID, ...existingDays],
+            selectedDay: safeCurrentDay,
+          })}
+          defaultCurrency={getSuggestedExpenseCurrency(meta)}
           expense={editingExpense}
           defaultPayer={companion.member}
           onClose={closeExpenseEditor}
           onSave={(expense) => {
-            if (!companion.isCurrent() || !companion.isValidMember(expense.payer)) {
+            const paymentMembers = expense.payments ? Object.keys(expense.payments) : [expense.payer];
+            if (!companion.isCurrent() || paymentMembers.some((member) => !companion.isValidMember(member))) {
               alert('旅程、帳號或付款人已變更，請重新確認；未儲存這筆記帳。');
               return Promise.reject(new Error('Expense context is no longer valid'));
             }
             return handleSaveExpense(expense);
           }}
           onDelete={handleDeleteExpense}
-          onDuplicate={(expense) => { if (companion.isValidMember(expense.payer)) handleDuplicateExpense(expense); }}
+          onDuplicate={(expense) => {
+            const paymentMembers = expense.payments ? Object.keys(expense.payments) : [expense.payer];
+            if (companion.isCurrent() && paymentMembers.every((member) => companion.isValidMember(member))) handleDuplicateExpense(expense);
+          }}
           t={t}
         />
       ) : null}
