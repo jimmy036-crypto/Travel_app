@@ -219,6 +219,37 @@ export const rebalanceCustomAmounts = ({ total, members, customAmounts } = {}) =
   return next;
 };
 
+export const validateCurrencyCustomSplit = ({
+  localTotal,
+  twdTotal,
+  currency,
+  members,
+  customAmounts,
+} = {}) => {
+  const localResult = validateCustomSplit({
+    total: localTotal,
+    members,
+    customAmounts,
+  });
+  if (!localResult.ok) return localResult;
+  if (currency === 'TWD') return localResult;
+
+  // The form uses the selected currency; persisted splits and settlement stay
+  // in TWD. Allocate any conversion remainder to the final active member.
+  const allocated = rebalanceCustomAmounts({
+    total: twdTotal,
+    members,
+    customAmounts: localResult.split,
+  });
+  if (!allocated) return { ...localResult, ok: false, error: 'INVALID_TOTAL' };
+  return {
+    ...localResult,
+    split: Object.fromEntries(
+      toMemberList(members).map((member) => [member, Number(allocated[member] || 0)]),
+    ),
+  };
+};
+
 export const calculateBalanceSnapshot = ({
   expenses,
   members,

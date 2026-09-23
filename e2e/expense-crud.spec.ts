@@ -231,17 +231,25 @@ test('two actual payers persist separately and settlement uses each paid amount'
   await expect(page.getByLabel('朋友 實付金額')).toHaveValue('300');
 });
 
-test('fixed custom shares derive a foreign-currency total and entertainment category', async ({ page }) => {
+test('foreign-currency custom shares rebalance in the selected currency and persist TWD settlement values', async ({ page }) => {
   await page.goto(`/?room=${ROOM_ID}`);
   await openExpenseTab(page, false);
   await openNewExpenseModal(page);
   await page.getByTestId('expense-item-input').fill('E2E 娛樂票券');
   await page.getByTestId('expense-currency-select').selectOption('JPY');
   await page.getByTestId('expense-split-custom-button').click();
-  await page.getByLabel('自己 自訂分帳金額').fill('300');
-  await page.getByLabel('朋友 自訂分帳金額').fill('120');
+  await page.getByLabel('自己 自訂分帳金額（JPY）').fill('1500');
+  await page.getByLabel('朋友 自訂分帳金額（JPY）').fill('500');
   await expect(page.getByTestId('expense-local-cost-input')).toHaveValue('2000');
   await expect(page.getByTestId('expense-twd-total')).toContainText('420');
+  await page.getByTestId('expense-local-cost-input').fill('3000');
+  await page.getByRole('button', { name: '依比例重算' }).click();
+  await expect(page.getByLabel('自己 自訂分帳金額（JPY）')).toHaveValue('2250');
+  await expect(page.getByLabel('朋友 自訂分帳金額（JPY）')).toHaveValue('750');
+  await page.getByTestId('expense-local-cost-input').fill('2000');
+  await page.getByRole('button', { name: '依比例重算' }).click();
+  await expect(page.getByLabel('自己 自訂分帳金額（JPY）')).toHaveValue('1500');
+  await expect(page.getByLabel('朋友 自訂分帳金額（JPY）')).toHaveValue('500');
   await page.locator('[data-testid="expense-category-button"][data-category="entertainment"]').click();
   await page.getByTestId('expense-save-button').click();
   await expect(expenseRecord(page, 'E2E 娛樂票券')).toContainText('娛樂');
@@ -251,7 +259,47 @@ test('fixed custom shares derive a foreign-currency total and entertainment cate
       cost: expense.cost, localCost: expense.localCost, currency: expense.currency,
       category: expense.category, split: expense.split,
     } : null;
-  }).toEqual({ cost: 420, localCost: 2000, currency: 'JPY', category: 'entertainment', split: { 自己: 300, 朋友: 120 } });
+  }).toEqual({ cost: 420, localCost: 2000, currency: 'JPY', category: 'entertainment', split: { 自己: 315, 朋友: 105 } });
+  await page.reload();
+  await openExpenseTab(page, false);
+  await expenseRecord(page, 'E2E 娛樂票券').click();
+  await expect(page.getByLabel('自己 自訂分帳金額（JPY）')).toHaveValue('1500');
+  await expect(page.getByLabel('朋友 自訂分帳金額（JPY）')).toHaveValue('500');
+});
+
+test('expense amount expressions calculate safely across total, split and actual payments', async ({ page }) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page, false);
+  await openNewExpenseModal(page);
+  await page.getByTestId('expense-item-input').fill('E2E 算式車資');
+  const totalInput = page.getByTestId('expense-local-cost-input');
+  await totalInput.fill('400/0');
+  await totalInput.press('Tab');
+  await expect(totalInput).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByText('不能除以零。')).toBeVisible();
+  expect(await readExpenses()).toEqual([]);
+
+  await totalInput.fill('(120+80)*2');
+  await totalInput.press('Enter');
+  await expect(totalInput).toHaveValue('400');
+  await page.getByTestId('expense-split-custom-button').click();
+  await page.getByLabel('自己 自訂分帳金額（TWD）').fill('100+50');
+  await page.getByLabel('朋友 自訂分帳金額（TWD）').fill('500/2');
+  await page.getByTestId('expense-multiple-payers-toggle').click();
+  await page.getByLabel('自己 實付金額').fill('100*3');
+  await page.getByLabel('朋友 實付金額').fill('200/2');
+  await page.getByTestId('expense-save-button').click();
+  await expect(expenseRecord(page, 'E2E 算式車資')).toBeVisible();
+  await expect.poll(async () => {
+    const expense = (await readExpenses()).find((item) => item.item === 'E2E 算式車資');
+    return expense ? { cost: expense.cost, localCost: expense.localCost, split: expense.split, payments: expense.payments } : null;
+  }).toEqual({ cost: 400, localCost: 400, split: { 自己: 150, 朋友: 250 }, payments: { 自己: 300, 朋友: 100 } });
+  await page.reload();
+  await openExpenseTab(page, false);
+  await expenseRecord(page, 'E2E 算式車資').click();
+  await expect(page.getByTestId('expense-local-cost-input')).toHaveValue('400');
+  await expect(page.getByLabel('自己 實付金額')).toHaveValue('300');
+  await expect(page.getByLabel('朋友 實付金額')).toHaveValue('100');
 });
 
 test('long expense history collapses by day and reveals every record without writing', async ({ page }) => {
