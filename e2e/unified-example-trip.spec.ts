@@ -124,6 +124,10 @@ test('local example persists itinerary and expense edits with zero cloud writes'
   const payer = page.getByTestId('expense-payer-select');
   await expect(payer).toHaveValue('');
   await page.getByTestId('expense-item-input').fill(EXPENSE_TITLE);
+  // Okinawa now suggests JPY. This fixture intentionally records an exact
+  // TWD 900 expense, so choose TWD explicitly instead of relying on a default.
+  await page.getByTestId('expense-currency-select').selectOption('TWD');
+  await expect(page.getByTestId('expense-currency-select')).toHaveValue('TWD');
   await page.getByTestId('expense-local-cost-input').fill('900');
 
   // An unconfirmed companion no longer defaults to the first payer. Rejection

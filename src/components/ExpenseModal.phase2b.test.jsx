@@ -200,6 +200,69 @@ describe('ExpenseModal Phase 2B 表單流程', () => {
     });
   });
 
+  it('新帳目採用旅程預設幣別與當天日期，但編輯不覆寫原值', () => {
+    const view = render(<ExpenseModal {...commonProps} existingDays={['Day 1', 'Day 2']} defaultDay="Day 2" defaultCurrency="JPY" />);
+    expect(view.getByTestId('expense-currency-select')).toHaveValue('JPY');
+    expect(view.getByTestId('expense-day-select')).toHaveValue('Day 2');
+    view.rerender(<ExpenseModal {...commonProps} existingDays={['Day 1', 'Day 2']} defaultDay="Day 1" defaultCurrency="USD" />);
+    expect(view.getByTestId('expense-currency-select')).toHaveValue('JPY');
+    expect(view.getByTestId('expense-day-select')).toHaveValue('Day 2');
+  });
+
+  it('舊帳目沒有幣別時仍按台幣編輯，不被新旅程預設改寫', () => {
+    const expense = { id: 'legacy', dayId: 'Day 1', item: '舊餐費', cost: 100, payer: '自己', split: { 自己: 50, 朋友: 50 } };
+    const view = render(<ExpenseModal {...commonProps} expense={expense} defaultCurrency="JPY" />);
+    expect(view.getByTestId('expense-currency-select')).toHaveValue('TWD');
+    expect(view.getByTestId('expense-local-cost-input')).toHaveValue(100);
+  });
+
+  it('自訂固定分攤輸入後自動推算帳目總額', async () => {
+    const onSave = vi.fn();
+    const view = render(<ExpenseModal {...commonProps} onSave={onSave} />);
+    fireEvent.change(view.getByTestId('expense-item-input'), { target: { value: '電影' } });
+    fireEvent.click(view.getByTestId('expense-split-custom-button'));
+    fireEvent.change(view.getByLabelText('自己 自訂分帳金額'), { target: { value: '300' } });
+    fireEvent.change(view.getByLabelText('朋友 自訂分帳金額'), { target: { value: '120' } });
+    expect(view.getByTestId('expense-local-cost-input')).toHaveValue(420);
+    expect(view.getByTestId('expense-twd-total')).toHaveTextContent('420');
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ cost: 420, split: { 自己: 300, 朋友: 120 } });
+  });
+
+  it('多人實付需合計等於支出，儲存各人實付而不更動分帳', async () => {
+    const onSave = vi.fn();
+    const view = render(<ExpenseModal {...commonProps} onSave={onSave} />);
+    fireEvent.change(view.getByTestId('expense-item-input'), { target: { value: '包車' } });
+    fireEvent.change(view.getByTestId('expense-local-cost-input'), { target: { value: '1000' } });
+    fireEvent.click(view.getByTestId('expense-multiple-payers-toggle'));
+    fireEvent.change(view.getByLabelText('自己 實付金額'), { target: { value: '700' } });
+    fireEvent.change(view.getByLabelText('朋友 實付金額'), { target: { value: '200' } });
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(view.getByLabelText('朋友 實付金額'), { target: { value: '300' } });
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ cost: 1000, payments: { 自己: 700, 朋友: 300 }, split: { 自己: 500, 朋友: 500 } });
+  });
+
+  it('編輯多人付款時成員離開會提示並要求重新分配實付', async () => {
+    const onSave = vi.fn();
+    const expense = { id: 'multi', dayId: 'Day 1', item: '包車', cost: 1000, localCost: 1000, currency: 'TWD', exchangeRate: 1, payer: '自己', payments: { 自己: 700, 朋友: 300 }, split: { 自己: 500, 朋友: 500 } };
+    const view = render(<ExpenseModal {...commonProps} members={['自己', '新朋友']} expense={expense} onSave={onSave} />);
+    expect(view.getByText(/原付款人朋友已不在旅伴名單/)).toBeInTheDocument();
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.change(view.getByLabelText('新朋友 實付金額'), { target: { value: '300' } });
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    expect(onSave).not.toHaveBeenCalled();
+    fireEvent.click(view.container.querySelector('[data-testid="expense-involved-member"][data-member="新朋友"]'));
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0].payments).toEqual({ 自己: 700, 新朋友: 300 });
+    expect(onSave.mock.calls[0][0].split).toEqual({ 自己: 500, 新朋友: 500 });
+  });
+
   it('編輯模式確認後可以刪除指定帳目', () => {
     const onDelete = vi.fn();
     const view = render(

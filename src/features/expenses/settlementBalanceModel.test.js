@@ -30,6 +30,18 @@ const expense = (dayId, cost = 200) => ({
 });
 
 describe('scoped settlement balance model', () => {
+  it('多人實付只在所屬範圍抵銷，不讓行前與旅途中互相結清', () => {
+    const model = buildSettlementBalanceModel({
+      members: MEMBERS,
+      expenses: [{ ...expense('Day 1', 1000), payments: { Alice: 700, Bob: 300 } }],
+      settlements: [],
+    });
+    expect(model.scopes.pretrip.remainingBalances).toEqual({ Alice: 0, Bob: 0 });
+    expect(model.scopes.intrip.remainingBalances).toEqual({ Alice: 200, Bob: -200 });
+    expect(model.scopes.intrip.remainingTransfers).toEqual([
+      expect.objectContaining({ from: 'Bob', to: 'Alice', amount: 200, scope: 'intrip' }),
+    ]);
+  });
   it('classifies canonical pre-trip separately from every trip-day expense', () => {
     expect(classifySettlementExpense({ dayId: PRE_TRIP_ID })).toBe('pretrip');
     expect(classifySettlementExpense({ dayId: 'Day 1' })).toBe('intrip');

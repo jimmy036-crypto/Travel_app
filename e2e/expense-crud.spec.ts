@@ -20,6 +20,7 @@ type ExpenseItem = {
   exchangeRate?: number;
   category?: string;
   payer?: string;
+  payments?: Record<string, number>;
   split?: Record<string, number>;
   note?: string;
   createdAt?: number;
@@ -173,6 +174,111 @@ test('shows a success toast after creating an expense', async ({ page }) => {
   await expect(successToast).toHaveCount(1);
   await expect(successToast).toHaveAttribute('data-toast-type', 'success');
   await expect(successToast).toContainText('分帳與結算統計已更新。');
+});
+
+test('destination suggests currency, trip override persists, and today selects the matching day', async ({ page }) => {
+  await seedTestTrip(ROOM_ID, {
+    title: 'E2E 日本記帳日期',
+    destination: '日本大阪',
+    startDate: '2026-09-20',
+    endDate: '2026-09-22',
+    members: MEMBERS,
+    expenses: [{ id: 'existing', dayId: 'Day 1', item: '既有帳目', cost: 100, payer: '自己', split: { 自己: 50, 朋友: 50 } }],
+  });
+  const originalExpenses = await readExpenses();
+  await page.clock.setFixedTime(new Date('2026-09-21T04:00:00Z'));
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page, false);
+  await page.getByTestId('add-expense-button').click();
+  await expect(page.getByTestId('expense-currency-select')).toHaveValue('JPY');
+  await expect(page.getByTestId('expense-day-select')).toHaveValue('Day 2');
+  expect(await readExpenses()).toEqual(originalExpenses);
+  await page.getByTestId('expense-cancel-button').click();
+  await page.getByText('新帳目預設幣別：JPY').click();
+  await page.getByLabel('新帳目預設幣別').selectOption('USD');
+  await expect.poll(async () => (await readEmulatorData<{ expenseCurrency?: string }>(`rooms/${ROOM_ID}/meta`))?.expenseCurrency).toBe('USD');
+  await page.reload();
+  await openExpenseTab(page, false);
+  await page.getByTestId('add-expense-button').click();
+  await expect(page.getByTestId('expense-currency-select')).toHaveValue('USD');
+  await expect(page.getByTestId('expense-day-select')).toHaveValue('Day 2');
+  expect(await readExpenses()).toEqual(originalExpenses);
+});
+
+test('two actual payers persist separately and settlement uses each paid amount', async ({ page }) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page, false);
+  await openNewExpenseModal(page);
+  await page.getByTestId('expense-item-input').fill('E2E 多人付款包車');
+  await page.getByTestId('expense-local-cost-input').fill('1000');
+  await page.getByTestId('expense-multiple-payers-toggle').click();
+  await page.getByLabel('自己 實付金額').fill('700');
+  await page.getByLabel('朋友 實付金額').fill('300');
+  await page.getByTestId('expense-save-button').click();
+  await expect(expenseRecord(page, 'E2E 多人付款包車')).toContainText('自己、朋友');
+  await expect.poll(async () => {
+    const expense = (await readExpenses()).find((item) => item.item === 'E2E 多人付款包車');
+    return expense ? { cost: expense.cost, payer: expense.payer, payments: expense.payments, split: expense.split } : null;
+  }).toEqual({ cost: 1000, payer: '自己', payments: { 自己: 700, 朋友: 300 }, split: { 自己: 500, 朋友: 500 } });
+  await page.getByTestId('expense-settlement-view-button').click();
+  await expect(page.getByTestId('settlement-scope-intrip').getByTestId('pending-settlement-transfer')).toContainText('朋友 → 自己');
+  await expect(page.getByTestId('settlement-scope-intrip').getByTestId('pending-settlement-transfer')).toContainText('NT$200');
+  await page.reload();
+  await openExpenseTab(page, false);
+  await expenseRecord(page, 'E2E 多人付款包車').click();
+  await expect(page.getByTestId('expense-multiple-payers-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('自己 實付金額')).toHaveValue('700');
+  await expect(page.getByLabel('朋友 實付金額')).toHaveValue('300');
+});
+
+test('fixed custom shares derive a foreign-currency total and entertainment category', async ({ page }) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page, false);
+  await openNewExpenseModal(page);
+  await page.getByTestId('expense-item-input').fill('E2E 娛樂票券');
+  await page.getByTestId('expense-currency-select').selectOption('JPY');
+  await page.getByTestId('expense-split-custom-button').click();
+  await page.getByLabel('自己 自訂分帳金額').fill('300');
+  await page.getByLabel('朋友 自訂分帳金額').fill('120');
+  await expect(page.getByTestId('expense-local-cost-input')).toHaveValue('2000');
+  await expect(page.getByTestId('expense-twd-total')).toContainText('420');
+  await page.locator('[data-testid="expense-category-button"][data-category="entertainment"]').click();
+  await page.getByTestId('expense-save-button').click();
+  await expect(expenseRecord(page, 'E2E 娛樂票券')).toContainText('娛樂');
+  await expect.poll(async () => {
+    const expense = (await readExpenses()).find((item) => item.item === 'E2E 娛樂票券');
+    return expense ? {
+      cost: expense.cost, localCost: expense.localCost, currency: expense.currency,
+      category: expense.category, split: expense.split,
+    } : null;
+  }).toEqual({ cost: 420, localCost: 2000, currency: 'JPY', category: 'entertainment', split: { 自己: 300, 朋友: 120 } });
+});
+
+test('long expense history collapses by day and reveals every record without writing', async ({ page }) => {
+  const expenses = Array.from({ length: 23 }, (_, index) => ({
+    id: `long-${index}`,
+    dayId: index === 22 ? 'Day 2' : 'Day 1',
+    item: `合成帳目 ${index}`,
+    cost: 100,
+    currency: 'TWD',
+    localCost: 100,
+    exchangeRate: 1,
+    category: 'entertainment',
+    payer: '自己',
+    split: { 自己: 50, 朋友: 50 },
+  }));
+  await seedTestTrip(ROOM_ID, { expenses, members: MEMBERS });
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page, false);
+  const firstDay = page.getByTestId('expense-day-Day 1');
+  await expect(firstDay).not.toHaveAttribute('open');
+  await expect(page.getByTestId('expense-day-Day 2')).toHaveAttribute('open', '');
+  await firstDay.locator('summary').click();
+  await expect(firstDay.getByTestId('expense-record')).toHaveCount(10);
+  await firstDay.getByRole('button', { name: '顯示較早的 12 筆' }).click();
+  await expect(firstDay.getByTestId('expense-record')).toHaveCount(22);
+  await expect(firstDay.getByTestId('expense-record').first()).toContainText('娛樂');
+  expect(await readExpenses()).toEqual(expenses);
 });
 
 test('keeps the expense workflow visible before six-person budget details', async ({ page }, testInfo) => {

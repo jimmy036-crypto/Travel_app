@@ -19,6 +19,7 @@ export const CATEGORIES = Object.freeze([
   { id: 'stay', icon: '🏠', label: '住宿', color: 'bg-indigo-500', text: 'text-indigo-500' },
   { id: 'ticket', icon: '🎫', label: '門票', color: 'bg-pink-500', text: 'text-pink-500' },
   { id: 'shop', icon: '🛍️', label: '購物', color: 'bg-purple-500', text: 'text-purple-500' },
+  { id: 'entertainment', icon: '🎭', label: '娛樂', color: 'bg-rose-700', text: 'text-rose-700' },
   { id: 'other', icon: '💡', label: '其他', color: 'bg-slate-500', text: 'text-slate-400' },
 ]);
 

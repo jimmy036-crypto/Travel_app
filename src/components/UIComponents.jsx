@@ -16,7 +16,9 @@ import {
   inferExpenseSplitState,
   rebalanceCustomAmounts,
   validateCustomSplit,
+  validateExpensePayments,
 } from "../features/expenses/expenseCalculations";
+import { EXPENSE_CURRENCIES } from '../features/expenses/expenseDefaults.js';
 import {
   buildDrivingRouteRequest,
   getRouteLegMinutes,
@@ -925,18 +927,10 @@ export const SearchBox = ({ dayId, onAddPlace, t }) => {
 // ============================================================================
 // 3. 記帳與票券元件
 // ============================================================================
-const CURRENCIES = [
-  { code: "TWD", rate: 1, label: "台幣 (TWD)" },
-  { code: "JPY", rate: 0.21, label: "日幣 (JPY)" },
-  { code: "USD", rate: 32.5, label: "美金 (USD)" },
-  { code: "KRW", rate: 0.024, label: "韓元 (KRW)" },
-  { code: "EUR", rate: 35.0, label: "歐元 (EUR)" },
-  { code: "THB", rate: 0.023, label: "泰銖 (THB)" }
-];
-
 export const ExpenseModal = ({
   members,
   defaultPayer = '',
+  defaultCurrency = 'TWD',
   existingDays,
   startDate,
   defaultDay,
@@ -956,10 +950,11 @@ export const ExpenseModal = ({
     [existingDays]
   );
   const isEditing = Boolean(expense?.id);
-  const initialCurrency = CURRENCIES.some(option => option.code === expense?.currency)
+  const initialCurrency = EXPENSE_CURRENCIES.some(option => option.code === expense?.currency)
     ? String(expense.currency)
-    : "TWD";
-  const currencyDefaultRate = CURRENCIES.find(option => option.code === initialCurrency)?.rate || 1;
+    : isEditing ? 'TWD'
+      : EXPENSE_CURRENCIES.some(option => option.code === defaultCurrency) ? defaultCurrency : 'TWD';
+  const currencyDefaultRate = EXPENSE_CURRENCIES.find(option => option.code === initialCurrency)?.rate || 1;
   const initialRate = Number(expense?.exchangeRate) > 0
     ? Number(expense.exchangeRate)
     : currencyDefaultRate;
@@ -975,6 +970,10 @@ export const ExpenseModal = ({
       : (validDays[0] || "");
   const initialPayer = expense ? String(expense.payer || '')
     : validMembers.includes(defaultPayer) ? defaultPayer : '';
+  const initialPaymentAmounts = Object.fromEntries(
+    [...new Set([...validMembers, ...Object.keys(expense?.payments || {})])]
+      .map((member) => [member, expense?.payments?.[member] > 0 ? String(expense.payments[member]) : '']),
+  );
   const initialCategory = CATEGORIES.some(option => option.id === expense?.category)
     ? String(expense.category)
     : "food";
@@ -992,7 +991,10 @@ export const ExpenseModal = ({
   const [dayId, setDayId] = useState(initialDay);
   const [category, setCategory] = useState(initialCategory);
   const [payer, setPayer] = useState(initialPayer);
+  const [payerMode, setPayerMode] = useState(() => expense?.payments && Object.keys(expense.payments).length > 1 ? 'MULTIPLE' : 'SINGLE');
+  const [paymentAmounts, setPaymentAmounts] = useState(initialPaymentAmounts);
   const [splitType, setSplitType] = useState(initialSplitState.type);
+  const [splitTouched, setSplitTouched] = useState(false);
   const [involved, setInvolved] = useState(initialSplitState.involved);
   const [customAmounts, setCustomAmounts] = useState(initialSplitState.customAmounts);
   const [note, setNote] = useState(() => String(expense?.note || ""));
@@ -1008,6 +1010,12 @@ export const ExpenseModal = ({
 
   const twdCost = calculateTwdCost(localCost, rate);
   const customTotal = calculateCustomTotal(validMembers, customAmounts);
+  const removedPaymentMembers = Object.entries(paymentAmounts)
+    .filter(([member, amount]) => !validMembers.includes(member) && Number(amount) > 0)
+    .map(([member]) => member);
+  const removedSplitMembers = Object.entries(expense?.split || {})
+    .filter(([member, amount]) => !validMembers.includes(member) && Number(amount) > 0)
+    .map(([member]) => member);
 
   const [initialFingerprint] = useState(() => JSON.stringify({
     item: String(expense?.item || ""),
@@ -1017,6 +1025,8 @@ export const ExpenseModal = ({
     dayId: initialDay,
     category: initialCategory,
     payer: initialPayer,
+    payerMode: expense?.payments && Object.keys(expense.payments).length > 1 ? 'MULTIPLE' : 'SINGLE',
+    paymentAmounts: initialPaymentAmounts,
     splitType: initialSplitState.type,
     involved: initialSplitState.involved,
     customAmounts: initialSplitState.customAmounts,
@@ -1031,6 +1041,8 @@ export const ExpenseModal = ({
     dayId,
     category,
     payer,
+    payerMode,
+    paymentAmounts,
     splitType,
     involved,
     customAmounts,
@@ -1047,8 +1059,21 @@ export const ExpenseModal = ({
   const handleCurrencyChange = (event) => {
     const nextCurrency = String(event.target.value);
     setCurrency(nextCurrency);
-    const found = CURRENCIES.find(option => option.code === nextCurrency);
+    const found = EXPENSE_CURRENCIES.find(option => option.code === nextCurrency);
     if (found) setRate(String(found.rate));
+  };
+
+  const handleCustomAmountChange = (member, value) => {
+    setSplitTouched(true);
+    const nextAmounts = { ...customAmounts, [member]: value };
+    setCustomAmounts(nextAmounts);
+    const values = Object.values(nextAmounts).filter((amount) => String(amount).trim() !== '');
+    if (values.some((amount) => !Number.isFinite(Number(amount)) || Number(amount) < 0)) return;
+    const nextTotal = calculateCustomTotal(validMembers, nextAmounts);
+    const numericRate = Number(rate);
+    if (nextTotal > 0 && Number.isFinite(numericRate) && numericRate > 0) {
+      setLocalCost(String(Math.round((nextTotal / numericRate) * 1e8) / 1e8));
+    }
   };
 
   const rebalanceCustomSplit = () => {
@@ -1057,7 +1082,10 @@ export const ExpenseModal = ({
       members: validMembers,
       customAmounts,
     });
-    if (next) setCustomAmounts(next);
+    if (next) {
+      setSplitTouched(true);
+      setCustomAmounts(next);
+    }
   };
 
   const buildExpense = ({ duplicate = false, timestamp = 0 } = {}) => {
@@ -1077,8 +1105,24 @@ export const ExpenseModal = ({
       alert("請輸入大於 0 的有效匯率！");
       return null;
     }
-    if (!validMembers.includes(payer)) {
+    if (payerMode === 'SINGLE' && !validMembers.includes(payer)) {
       alert(payer ? "付款人已不在旅程成員中，請重新選擇。" : "請選擇付款人。");
+      return null;
+    }
+
+    const paymentResult = payerMode === 'MULTIPLE'
+      ? validateExpensePayments({
+        total: twdCost,
+        members: validMembers,
+        amounts: Object.fromEntries(validMembers.map((member) => [member, paymentAmounts[member] || ''])),
+      })
+      : null;
+    if (paymentResult && !paymentResult.ok) {
+      alert('請填寫至少兩位付款人的實付台幣金額，合計須等於折合台幣總額。');
+      return null;
+    }
+    if (removedSplitMembers.length > 0 && !splitTouched) {
+      alert('原分攤成員已不在旅伴名單，請重新確認分帳方式。');
       return null;
     }
 
@@ -1114,8 +1158,10 @@ export const ExpenseModal = ({
     const now = Number(timestamp) || 0;
     if (now <= 0) return null;
 
+    const originalExpense = expense && typeof expense === 'object' ? { ...expense } : {};
+    delete originalExpense.payments;
     return {
-      ...(expense && typeof expense === "object" ? expense : {}),
+      ...originalExpense,
       id: duplicate || !isEditing ? generateId() : String(expense.id),
       dayId: String(dayId),
       item: normalizedItem,
@@ -1124,7 +1170,8 @@ export const ExpenseModal = ({
       currency: String(currency),
       exchangeRate: numericRate,
       category: String(category),
-      payer: String(payer),
+      payer: paymentResult ? Object.keys(paymentResult.payments)[0] : String(payer),
+      ...(paymentResult ? { payments: paymentResult.payments } : {}),
       split: finalSplit,
       note: String(note).trim(),
       createdAt: duplicate || !isEditing ? now : (Number(expense?.createdAt) || now),
@@ -1211,7 +1258,7 @@ export const ExpenseModal = ({
                 onChange={handleCurrencyChange}
                 className={`min-h-11 w-full py-3 px-2 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 border text-sm font-bold ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
               >
-                {CURRENCIES.map(option => <option key={option.code} value={option.code}>{option.label}</option>)}
+                {EXPENSE_CURRENCIES.map(option => <option key={option.code} value={option.code}>{option.label}</option>)}
               </select>
             </div>
             <div>
@@ -1257,7 +1304,7 @@ export const ExpenseModal = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className={`grid grid-cols-1 gap-3 ${payerMode === 'SINGLE' ? 'sm:grid-cols-2' : ''}`}>
             <div>
               <label htmlFor="expense-day-select" className={`block text-xs font-bold mb-1.5 ${t.subText}`}>日期</label>
               <select
@@ -1275,7 +1322,7 @@ export const ExpenseModal = ({
                 ))}
               </select>
             </div>
-            <div>
+            {payerMode === 'SINGLE' ? <div>
               <label htmlFor="expense-payer" className={`block text-sm font-bold mb-1.5 ${t.mainText}`}>付款人（代墊人）</label>
               <select
                 id="expense-payer"
@@ -1296,7 +1343,46 @@ export const ExpenseModal = ({
                   原付款人已不在名單，請明確選擇；其他內容會保留。
                 </p>
               ) : null}
+            </div> : null}
+          </div>
+
+          <div className={`rounded-xl border p-3.5 ${t.cardMetaBg} ${t.cardBorder}`}>
+            <div className="flex items-center justify-between gap-3">
+              <span className={`text-sm font-bold ${t.mainText}`}>付款方式</span>
+              <button
+                type="button"
+                data-testid="expense-multiple-payers-toggle"
+                aria-pressed={payerMode === 'MULTIPLE'}
+                disabled={validMembers.length < 2}
+                onClick={() => setPayerMode((mode) => mode === 'MULTIPLE' ? 'SINGLE' : 'MULTIPLE')}
+                className={`min-h-11 rounded-lg border px-3 text-sm font-bold focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-50 ${t.cardBg} ${t.cardBorder} ${t.mainText}`}
+              >
+                {payerMode === 'MULTIPLE' ? '改為單人付款' : '加入其他付款人'}
+              </button>
             </div>
+            {payerMode === 'MULTIPLE' ? (
+              <div className="mt-3 space-y-2">
+                <p className={`text-sm ${t.subText}`}>分別輸入實際支付的台幣金額；與下方的分帳金額分開計算。</p>
+                {removedPaymentMembers.length > 0 ? <p className={`text-sm font-bold ${t.mainText}`}>原付款人{removedPaymentMembers.join('、')}已不在旅伴名單，請重新分配實付金額。</p> : null}
+                {validMembers.map((member) => (
+                  <label key={`payment-${member}`} className={`flex items-center justify-between gap-3 text-sm ${t.mainText}`}>
+                    <span className="min-w-0 break-words">{member} 實付金額</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      value={paymentAmounts[member] || ''}
+                      onChange={(event) => setPaymentAmounts((previous) => ({ ...previous, [member]: event.target.value }))}
+                      className={`min-h-11 w-28 shrink-0 rounded-lg border px-2 text-right font-mono text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+                    />
+                  </label>
+                ))}
+                <p className={`text-right text-sm ${t.subText}`}>
+                  實付合計 NT$ {Object.values(paymentAmounts).reduce((sum, amount) => sum + (Number(amount) || 0), 0).toLocaleString()} / {twdCost.toLocaleString()}
+                </p>
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -1324,7 +1410,7 @@ export const ExpenseModal = ({
                 <button
                   type="button"
                   data-testid="expense-split-equal-button"
-                  onClick={() => setSplitType("EQUAL")}
+                  onClick={() => { setSplitTouched(true); setSplitType("EQUAL"); }}
                   className={`min-h-11 flex-1 px-3 py-2 text-xs font-bold rounded-md focus-visible:outline-2 focus-visible:outline-blue-500 ${splitType === "EQUAL" ? "bg-blue-600 text-white" : t.subText}`}
                 >
                   勾選平分
@@ -1332,13 +1418,15 @@ export const ExpenseModal = ({
                 <button
                   type="button"
                   data-testid="expense-split-custom-button"
-                  onClick={() => setSplitType("CUSTOM")}
+                  onClick={() => { setSplitTouched(true); setSplitType("CUSTOM"); }}
                   className={`min-h-11 flex-1 px-3 py-2 text-xs font-bold rounded-md focus-visible:outline-2 focus-visible:outline-purple-500 ${splitType === "CUSTOM" ? "bg-purple-600 text-white" : t.subText}`}
                 >
                   自訂金額
                 </button>
               </div>
             </div>
+
+            {removedSplitMembers.length > 0 ? <p className={`mb-3 text-sm font-bold ${t.mainText}`}>原分攤成員{removedSplitMembers.join('、')}已不在旅伴名單，請重新確認分帳方式。</p> : null}
 
             {splitType === "EQUAL" ? (
               <div className="space-y-3">
@@ -1353,7 +1441,7 @@ export const ExpenseModal = ({
                         data-testid="expense-involved-member"
                         data-member={member}
                         aria-pressed={selected}
-                        onClick={() => setInvolved(selected ? involved.filter(value => value !== member) : [...involved, member])}
+                        onClick={() => { setSplitTouched(true); setInvolved(selected ? involved.filter(value => value !== member) : [...involved, member]); }}
                         className={`min-h-11 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${selected ? "bg-blue-500/20 border-blue-500 text-blue-600" : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
                       >
                         {selected ? "✓" : "○"} {member}
@@ -1391,7 +1479,7 @@ export const ExpenseModal = ({
                       min="0"
                       step="0.01"
                       value={customAmounts[member] || ""}
-                      onChange={event => setCustomAmounts({ ...customAmounts, [member]: event.target.value })}
+                      onChange={event => handleCustomAmountChange(member, event.target.value)}
                       placeholder="0"
                       className={`w-28 p-2.5 rounded-lg font-mono text-right outline-none focus:ring-2 focus:ring-purple-500 border text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
                     />

@@ -16,6 +16,7 @@ import {
   rebalanceCustomAmounts,
   roundMoney,
   validateCustomSplit,
+  validateExpensePayments,
 } from './expenseCalculations.js';
 
 const MEMBERS = ['自己', '小明', '小美'];
@@ -245,6 +246,24 @@ describe('編輯帳目時辨識分帳方式', () => {
 });
 
 describe('成員餘額與個人實際負擔', () => {
+  it('兩位實際付款人各按實付入帳，分攤仍守恆', () => {
+    const result = validateExpensePayments({ total: 1000, members: MEMBERS, amounts: { 自己: '700', 小明: '300', 小美: '' } });
+    expect(result).toEqual({ ok: true, payments: { 自己: 700, 小明: 300 }, total: 1000 });
+    const snapshot = calculateBalanceSnapshot({
+      members: MEMBERS,
+      expenses: [{ cost: 1000, payer: '自己', payments: result.payments, split: { 自己: 500, 小明: 300, 小美: 200 } }],
+    });
+    expect(snapshot.balances).toEqual({ 自己: 200, 小明: 0, 小美: -200 });
+    expect(Object.values(snapshot.balances).reduce((sum, value) => sum + value, 0)).toBe(0);
+  });
+
+  it('拒絕多付款人實付未滿額、超額、負值與失效成員', () => {
+    expect(validateExpensePayments({ total: 100, members: MEMBERS, amounts: { 自己: 60, 小明: 30 } }).ok).toBe(false);
+    expect(validateExpensePayments({ total: 100, members: MEMBERS, amounts: { 自己: 60, 小明: 50 } }).ok).toBe(false);
+    expect(validateExpensePayments({ total: 100, members: MEMBERS, amounts: { 自己: 110, 小明: -10 } }).ok).toBe(false);
+    expect(validateExpensePayments({ total: 100, members: MEMBERS, amounts: { 自己: 60, 陌生人: 40 } }).ok).toBe(false);
+    expect(validateExpensePayments({ total: 100, members: MEMBERS, amounts: { 自己: 99.999, 小明: 0.001 } }).ok).toBe(false);
+  });
   it('代墊人增加應收，參與者減少應付', () => {
     const snapshot = calculateBalanceSnapshot({
       expenses: [

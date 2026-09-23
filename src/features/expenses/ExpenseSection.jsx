@@ -2,7 +2,12 @@ import React, { useState, useMemo } from 'react';
 import { CATEGORIES } from '../../constants';
 import { getDayDisplay } from '../../helpers';
 import { calculateCategoryStats, calculateMemberCategoryStats } from './expenseCalculations';
+import { EXPENSE_CURRENCIES, getSuggestedExpenseCurrency } from './expenseDefaults.js';
 import { SettlementPanel } from './SettlementPanel.jsx';
+
+const categoryTextClass = (category, t) => category.id === 'entertainment'
+  ? (t.isLight ? 'text-rose-700' : 'text-rose-400')
+  : (category.text || category.color.replace('bg-', 'text-'));
 
 const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
   const safeTotal = Number(total) || 0;
@@ -52,7 +57,7 @@ const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
                       strokeDasharray={`${percent} ${100 - percent}`}
                       strokeDashoffset={dashOffset}
                       strokeLinecap="butt"
-                      className={`${category.text || category.color.replace('bg-', 'text-')} stroke-current transition-all duration-700 ease-out`}
+                      className={`${categoryTextClass(category, t)} stroke-current transition-all duration-700 ease-out`}
                     />
                   );
                 });
@@ -77,7 +82,7 @@ const ExpensePieCard = ({ title, subtitle, total, stats, t }) => {
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-bold break-words [overflow-wrap:anywhere] ${t.subText}`}>{category.label} {percent}%</p>
-                    <p className={`text-xs font-mono font-black break-all ${category.text || category.color.replace('bg-', 'text-')}`}>
+                    <p className={`text-xs font-mono font-black break-all ${categoryTextClass(category, t)}`}>
                       NT${Math.round(Number(category.amount) || 0).toLocaleString()}
                     </p>
                   </div>
@@ -110,11 +115,20 @@ export const ExpenseSection = ({
   onCancelTransferPaid,
   settlementMutationId = '',
   onUpdateBudget,
+  onUpdateDefaultCurrency,
   preTripId = "PRE_TRIP",
 }) => {
   const [expenseView, setExpenseView] = useState('list');
   const [expenseChartOwner, setExpenseChartOwner] = useState('ALL');
   const [budgetExpanded, setBudgetExpanded] = useState(false);
+  const [expandedExpenseDays, setExpandedExpenseDays] = useState({});
+  const [visibleExpenseCounts, setVisibleExpenseCounts] = useState({});
+  const groupedExpenses = expenseStats?.groupedExpenses || [];
+  const collapseManyExpenses = expenses.length > 20;
+  const latestExpenseDay = [...groupedExpenses].reverse().find(({ items }) => items?.length)?.day;
+  const suggestedCurrency = getSuggestedExpenseCurrency(meta);
+  const selectedDefaultCurrency = EXPENSE_CURRENCIES.some(({ code }) => code === meta.expenseCurrency)
+    ? meta.expenseCurrency : 'AUTO';
 
   const categoryStats = useMemo(
     () => calculateCategoryStats(expenses, CATEGORIES),
@@ -247,6 +261,26 @@ export const ExpenseSection = ({
           })}</div> : null}
         </div>
 
+        <details className={`mt-2 rounded-xl border ${t.cardBorder}`}>
+          <summary className={`flex min-h-11 cursor-pointer items-center px-4 text-sm font-bold focus-visible:outline-2 focus-visible:outline-blue-500 ${t.mainText}`}>
+            新帳目預設幣別：{suggestedCurrency}
+          </summary>
+          <div className="px-4 pb-3">
+            <label htmlFor="trip-expense-currency" className={`mb-1 block text-sm ${t.subText}`}>新帳目預設幣別</label>
+            <select
+              id="trip-expense-currency"
+              value={selectedDefaultCurrency}
+              onChange={(event) => onUpdateDefaultCurrency?.(event.target.value === 'AUTO' ? '' : event.target.value)}
+              style={{ colorScheme: t.isLight ? 'light' : 'dark' }}
+              className={`min-h-11 w-full rounded-lg border px-3 text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
+            >
+              <option value="AUTO">依目的地（{getSuggestedExpenseCurrency({ destination: meta.destination })}）</option>
+              {EXPENSE_CURRENCIES.map(({ code, label }) => <option key={code} value={code}>{label}</option>)}
+            </select>
+            <p className={`mt-1 text-sm ${t.subText}`}>只影響之後新增的帳目；匯率仍可在每筆記帳中調整。</p>
+          </div>
+        </details>
+
       </div>
 
       <div className="p-4 pb-24">
@@ -297,18 +331,26 @@ export const ExpenseSection = ({
           </div>
         ) : expenseView === 'list' ? (
           <div className="space-y-6">
-            {(/** @type {any[]} */ (expenseStats?.groupedExpenses || [])).map(({ day, items }) => {
+            {(/** @type {any[]} */ (groupedExpenses)).map(({ day, items }) => {
               if (!Array.isArray(items) || items.length === 0) return null;
               const { title, dateStr } = day === preTripId ? { title: "行前支出", dateStr: "出發前共同採購與預付款" } : getDayDisplay(day, meta.startDate);
+              const isOpen = expandedExpenseDays[day] ?? (!collapseManyExpenses || day === latestExpenseDay);
+              const visibleCount = visibleExpenseCounts[day] || 10;
               return (
-                <div key={String(day)} className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className={`font-bold ${t.mainText}`}>{String(title)} <span className={`text-xs font-normal ml-1 ${t.subText}`}>{String(dateStr)}</span></h3>
-                    <span className="text-xs text-emerald-500 font-mono font-bold">NT${items.reduce((a,b)=>a+(Number(b.cost)||0),0).toLocaleString()}</span>
-                  </div>
-                  <div className="space-y-2.5">
-                    {(/** @type {any[]} */ (items)).map(e => {
-                      const cat = CATEGORIES.find(c => c.id === e.category) || CATEGORIES[5];
+                <details key={String(day)} data-testid={`expense-day-${day}`} open={isOpen} className={`rounded-3xl p-5 border shadow-sm ${t.expenseBlockBg} ${t.cardBorder}`}>
+                  <summary
+                    onClick={(event) => { event.preventDefault(); setExpandedExpenseDays((previous) => ({ ...previous, [day]: !isOpen })); }}
+                    className={`flex min-h-11 cursor-pointer items-center justify-between gap-3 focus-visible:outline-2 focus-visible:outline-blue-500 ${t.mainText}`}
+                  >
+                    <span className="min-w-0 break-words font-bold">{String(title)} · {items.length} 筆 <span className={`text-sm font-normal ${t.subText}`}>{String(dateStr)}</span></span>
+                    <span className={`shrink-0 text-sm font-mono font-bold ${t.mainText}`}>NT${items.reduce((a,b)=>a+(Number(b.cost)||0),0).toLocaleString()}</span>
+                  </summary>
+                  {isOpen ? <div className="mt-3 space-y-2.5">
+                    {(/** @type {any[]} */ (items)).slice(-visibleCount).map(e => {
+                      const cat = CATEGORIES.find(c => c.id === e.category) || CATEGORIES.find(c => c.id === 'other');
+                      const payerNames = e.payments && typeof e.payments === 'object'
+                        ? Object.entries(e.payments).filter(([, amount]) => Number(amount) > 0).map(([member]) => member)
+                        : [String(e.payer)];
                       return (
                         <button
                           type="button"
@@ -334,7 +376,7 @@ export const ExpenseSection = ({
                                 ) : null}
                               </div>
                               <p className={`text-sm font-bold mt-0.5 ${t.subText}`}>
-                                {cat.label} • <span className="text-blue-500">{String(e.payer)}</span> 先付 • {Object.values(e.split || {}).filter(amount => Number(amount) > 0).length || membersList.length} 人分攤
+                                {cat.label} • <span className="text-blue-500">{payerNames.join('、')}</span> 先付 • {Object.values(e.split || {}).filter(amount => Number(amount) > 0).length || membersList.length} 人分攤
                               </p>
                               {e.note ? <p className={`text-sm mt-1 break-words ${t.subText}`}>📝 {String(e.note)}</p> : null}
                             </div>
@@ -354,8 +396,17 @@ export const ExpenseSection = ({
                         </button>
                       );
                     })}
-                  </div>
-                </div>
+                    {items.length > visibleCount ? (
+                      <button
+                        type="button"
+                        onClick={() => setVisibleExpenseCounts((previous) => ({ ...previous, [day]: items.length }))}
+                        className={`min-h-11 w-full rounded-xl border text-sm font-bold focus-visible:outline-2 focus-visible:outline-blue-500 ${t.cardBorder} ${t.mainText}`}
+                      >
+                        顯示較早的 {items.length - visibleCount} 筆
+                      </button>
+                    ) : null}
+                  </div> : null}
+                </details>
               );
             })}
             {(!Array.isArray(expenses) || expenses.length === 0) ? <p className={`text-center mt-10 font-bold ${t.subText}`}>尚無記帳紀錄</p> : null}
