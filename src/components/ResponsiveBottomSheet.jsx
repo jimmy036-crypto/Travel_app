@@ -93,7 +93,7 @@ export const ResponsiveBottomSheet = ({
     <div
       data-testid={testId}
       data-mode={dataMode}
-      style={{ zIndex: 9999, touchAction: 'pan-y' }}
+      style={{ zIndex: 9999, touchAction: 'pan-x pan-y pinch-zoom' }}
       className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden w-full max-w-[100vw]"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -106,7 +106,7 @@ export const ResponsiveBottomSheet = ({
         aria-labelledby={labelledBy}
         aria-describedby={describedBy || undefined}
         tabIndex={-1}
-        style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}
+        style={{ touchAction: 'pan-x pan-y pinch-zoom', WebkitOverflowScrolling: 'touch' }}
         className={`border rounded-t-3xl sm:rounded-3xl w-full max-w-md shadow-2xl flex flex-col max-h-[94dvh] sm:max-h-[90vh] animate-in slide-in-from-bottom-4 sm:zoom-in-95 ${panelClassName}`}
       >
         {children}

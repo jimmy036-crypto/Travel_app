@@ -41,6 +41,91 @@ async function readExpenses(): Promise<ExpenseItem[]> {
   return toList(value);
 }
 
+test('category arrows and wheel reach every category without selecting text', async ({ page, isMobile }) => {
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page);
+  await openNewExpenseModal(page);
+  const list = page.getByTestId('expense-category-list');
+  await list.scrollIntoViewIfNeeded();
+  expect(await list.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  await page.getByRole('button', { name: '向右捲動分類' }).click();
+  await expect.poll(() => list.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: '向右捲動分類' }).click();
+  const last = list.getByRole('button', { name: '其他', exact: true });
+  await expect(last).toBeInViewport();
+  await last.click();
+  await expect(last).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '向左捲動分類' }).click();
+  await page.getByRole('button', { name: '向左捲動分類' }).click();
+  await expect.poll(() => list.evaluate((element) => element.scrollLeft)).toBe(0);
+  if (!isMobile) {
+    await list.hover();
+    await page.mouse.wheel(0, 200);
+    await expect.poll(() => list.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0);
+  }
+  // Every ancestor must allow horizontal native gestures; a child cannot undo pan-y.
+  expect(await list.evaluate((element) => {
+    for (let node: Element | null = element; node; node = node.parentElement) {
+      const action = getComputedStyle(node).touchAction;
+      if (action === 'none' || (action.includes('pan-y') && !action.includes('pan-x'))) return false;
+    }
+    return true;
+  })).toBe(true);
+  await page.getByTestId('expense-item-input').fill('分類測試');
+  await page.getByTestId('expense-local-cost-input').fill('100');
+  await page.getByTestId('expense-save-button').click();
+  await expect.poll(async () => (await readExpenses())[0]?.category).toBe('other');
+});
+
+test('calculator keypad supports arithmetic, editing, custom splits and multiple payments', async ({ page, isMobile }, testInfo) => {
+  const activate = (target: Locator) => isMobile ? target.tap() : target.click();
+  await page.goto(`/?room=${ROOM_ID}`);
+  await openExpenseTab(page);
+  await openNewExpenseModal(page);
+  await page.getByTestId('expense-item-input').fill('計算鍵盤測試');
+  const amount = page.getByTestId('expense-local-cost-input');
+  await activate(amount);
+  await expect(amount).toHaveAttribute('inputmode', 'none');
+  const keypad = page.getByRole('group', { name: '金額計算鍵盤' });
+  for (const key of ['(', '1', '0', '0', '+', '2', '0', ')', '×', '3', '−', '6', '÷', '2']) {
+    const button = keypad.getByRole('button', { name: key, exact: true });
+    await activate(button);
+    await expectUnobscuredModalTarget(button);
+  }
+  await expect(amount).toHaveValue('(100+20)×3−6÷2');
+  await activate(keypad.getByRole('button', { name: '計算結果' }));
+  await expect(amount).toHaveValue('357');
+  await testInfo.attach('calculator-keypad', { body: await page.screenshot(), contentType: 'image/png' });
+  // Switching directly must not lose the click when the inline keypad collapses.
+  await activate(page.getByTestId('expense-split-custom-button'));
+  await expect(keypad).toHaveCount(0);
+  const ownSplit = page.getByLabel('自己 自訂分帳金額（TWD）');
+  await activate(ownSplit);
+  await activate(keypad.getByRole('button', { name: '清除金額' }));
+  for (const key of ['1', '0', '0', '+', '5', '0']) await activate(keypad.getByRole('button', { name: key, exact: true }));
+  await activate(keypad.getByRole('button', { name: '完成輸入' }));
+  await expect(ownSplit).toHaveValue('150');
+  await page.getByLabel('朋友 自訂分帳金額（TWD）').fill('207');
+  await page.getByTestId('expense-multiple-payers-toggle').click();
+  await activate(page.getByLabel('自己 實付金額'));
+  await activate(keypad.getByRole('button', { name: '清除金額' }));
+  for (const key of ['2', '0', '0', '0']) await activate(keypad.getByRole('button', { name: key, exact: true }));
+  await activate(keypad.getByRole('button', { name: '刪除一位' }));
+  await activate(keypad.getByRole('button', { name: '完成輸入' }));
+  await expect(page.getByLabel('自己 實付金額')).toHaveValue('200');
+  await page.getByLabel('朋友 實付金額').fill('157');
+  await page.getByTestId('expense-save-button').click();
+  await expect(page.getByTestId('expense-modal')).toBeHidden();
+  await expect.poll(async () => {
+    const expense = (await readExpenses())[0];
+    return expense ? { localCost: expense.localCost, cost: expense.cost, payments: expense.payments, split: expense.split } : null;
+  }).toEqual({ localCost: 357, cost: 357, payments: { 自己: 200, 朋友: 157 }, split: { 自己: 150, 朋友: 207 } });
+  await page.reload();
+  await openExpenseTab(page);
+  await expenseRecord(page, '計算鍵盤測試').click();
+  await expect(amount).toHaveValue('357');
+});
+
 async function openExpenseTab(page: Page, expandBudget = true): Promise<void> {
   await expect(page.getByTestId('active-trip-view')).toBeVisible({
     timeout: 20_000,
