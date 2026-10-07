@@ -1,4 +1,5 @@
 import React from 'react';
+import userEvent from '@testing-library/user-event';
 import {
   cleanup,
   fireEvent,
@@ -40,6 +41,99 @@ const commonProps = {
   onDuplicate: vi.fn(),
   t: theme,
 };
+
+describe('expense calculator keypad', () => {
+  it('collapses a selection even when the replacement digit is unchanged', async () => {
+    const user = userEvent.setup();
+    const view = render(<ExpenseModal {...commonProps} />);
+    const amount = view.getByTestId('expense-local-cost-input');
+    await user.click(amount);
+    await user.keyboard('123');
+    amount.setSelectionRange(0, 1);
+    await user.click(view.getByRole('button', { name: '1', exact: true }));
+    await user.click(view.getByRole('button', { name: '9', exact: true }));
+    expect(amount).toHaveValue('1923');
+  });
+
+  it('validates an invalid expression when tabbing from the input into the keypad', async () => {
+    const user = userEvent.setup();
+    const view = render(<ExpenseModal {...commonProps} />);
+    const amount = view.getByTestId('expense-local-cost-input');
+    await user.click(amount);
+    await user.keyboard('400/0');
+    await user.tab();
+    expect(amount).toHaveAttribute('aria-invalid', 'true');
+    expect(view.getByText('不能除以零。')).toBeVisible();
+  });
+
+  it('keeps the caret after a no-op delete followed by physical typing', async () => {
+    const user = userEvent.setup();
+    const view = render(<ExpenseModal {...commonProps} />);
+    const amount = view.getByTestId('expense-local-cost-input');
+    await user.click(amount);
+    await user.keyboard('123');
+    amount.setSelectionRange(0, 0);
+    await user.click(view.getByRole('button', { name: '刪除一位' }));
+    await user.keyboard('98');
+    expect(amount).toHaveValue('98123');
+  });
+
+  it('keeps the keypad layout until an outside pointer click has completed', () => {
+    const view = render(<ExpenseModal {...commonProps} />);
+    const amount = view.getByTestId('expense-local-cost-input');
+    fireEvent.focus(amount);
+    const custom = view.getByTestId('expense-split-custom-button');
+    fireEvent.pointerDown(custom);
+    // Touch-generated focus may follow pointerup, before the compatibility click.
+    fireEvent.pointerUp(custom);
+    fireEvent.blur(amount, { relatedTarget: custom });
+    expect(view.getByRole('group', { name: '金額計算鍵盤' })).toBeVisible();
+    fireEvent.click(custom);
+    expect(view.queryByRole('group', { name: '金額計算鍵盤' })).not.toBeInTheDocument();
+    expect(view.getByLabelText('自己 自訂分帳金額（TWD）')).toBeVisible();
+  });
+
+  it('enters arithmetic with the keypad and saves the evaluated amount', async () => {
+    const onSave = vi.fn();
+    const view = render(<ExpenseModal {...commonProps} onSave={onSave} />);
+    fireEvent.change(view.getByTestId('expense-item-input'), { target: { value: '鍵盤餐費' } });
+    const amount = view.getByTestId('expense-local-cost-input');
+    fireEvent.focus(amount);
+    expect(amount).toHaveAttribute('inputmode', 'none');
+    for (const key of ['1', '0', '0', '+', '2', '0', '×', '3', '−', '6', '÷', '2']) {
+      fireEvent.click(view.getByRole('button', { name: key, exact: true }));
+    }
+    expect(amount).toHaveValue('100+20×3−6÷2');
+    fireEvent.click(view.getByRole('button', { name: '計算結果' }));
+    expect(amount).toHaveValue('157');
+    fireEvent.click(view.getByTestId('expense-save-button'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toMatchObject({ cost: 157, localCost: 157 });
+  });
+
+  it('replaces a selection, deletes, clears and leaves invalid arithmetic editable', () => {
+    const view = render(<ExpenseModal {...commonProps} />);
+    const amount = view.getByTestId('expense-local-cost-input');
+    fireEvent.change(amount, { target: { value: '1234' } });
+    fireEvent.focus(amount);
+    amount.setSelectionRange(1, 3);
+    fireEvent.click(view.getByRole('button', { name: '9', exact: true }));
+    expect(amount).toHaveValue('194');
+    fireEvent.click(view.getByRole('button', { name: '刪除一位' }));
+    expect(amount).toHaveValue('14');
+    fireEvent.click(view.getByRole('button', { name: '清除金額' }));
+    expect(amount).toHaveValue('');
+    for (const key of ['1', '÷', '0']) fireEvent.click(view.getByRole('button', { name: key, exact: true }));
+    fireEvent.click(view.getByRole('button', { name: '計算結果' }));
+    expect(amount).toHaveValue('1÷0');
+    expect(amount).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.click(view.getByRole('button', { name: '刪除一位' }));
+    fireEvent.click(view.getByRole('button', { name: '2', exact: true }));
+    fireEvent.click(view.getByRole('button', { name: '完成輸入' }));
+    expect(amount).toHaveValue('0.5');
+    expect(view.queryByRole('group', { name: '金額計算鍵盤' })).not.toBeInTheDocument();
+  });
+});
 
 describe('ExpenseModal Phase 2B 表單流程', () => {
   beforeEach(() => {

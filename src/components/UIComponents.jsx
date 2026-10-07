@@ -19,6 +19,8 @@ import {
   validateExpensePayments,
 } from "../features/expenses/expenseCalculations";
 import { parseExpenseAmount, parseOptionalExpenseAmount } from '../features/expenses/expenseAmountInput.js';
+import { ExpenseAmountField } from '../features/expenses/ExpenseAmountField.jsx';
+import { ExpenseCategoryPicker } from '../features/expenses/ExpenseCategoryPicker.jsx';
 import { EXPENSE_CURRENCIES } from '../features/expenses/expenseDefaults.js';
 import {
   buildDrivingRouteRequest,
@@ -1335,7 +1337,7 @@ export const ExpenseModal = ({
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-[minmax(110px,0.85fr)_minmax(0,1.4fr)] gap-3 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-[minmax(110px,0.85fr)_minmax(0,1.4fr)] gap-3 items-start">
             <div>
               <label htmlFor="expense-currency-select" className={`block text-xs font-bold mb-1.5 ${t.subText}`}>幣別</label>
               <select
@@ -1351,11 +1353,11 @@ export const ExpenseModal = ({
             </div>
             <div>
               <label htmlFor="expense-local-cost-input" className={`block text-xs font-bold mb-1.5 ${t.subText}`}>當地金額 *</label>
-              <input
+              <ExpenseAmountField
+                t={t}
                 id="expense-local-cost-input"
                 data-testid="expense-local-cost-input"
                 type="text"
-                inputMode="text"
                 value={localCost}
                 onChange={event => setLocalCost(event.target.value)}
                 onBlur={() => commitAmount('localCost', localCost, setLocalCost)}
@@ -1377,7 +1379,7 @@ export const ExpenseModal = ({
               ) : null}
             </div>
           </div>
-          <p id="expense-amount-help" className={`-mt-3 text-sm ${t.subText}`}>金額可輸入 +、−、×、÷；按 Enter 或離開欄位計算。</p>
+          <p id="expense-amount-help" className={`-mt-3 text-sm ${t.subText}`}>金額可輸入 +、−、×、÷ 與括號；按 ＝、Enter 或離開欄位計算。</p>
 
           <div className={`p-3.5 rounded-xl border flex items-center justify-between gap-4 ${t.cardMetaBg} ${t.cardBorder}`}>
             <div className="min-w-0">
@@ -1467,11 +1469,11 @@ export const ExpenseModal = ({
                 {removedPaymentMembers.length > 0 ? <p className={`text-sm font-bold ${t.mainText}`}>原付款人{removedPaymentMembers.join('、')}已不在旅伴名單，請重新分配實付金額。</p> : null}
                 {validMembers.map((member, index) => (
                   <div key={`payment-${member}`}>
-                    <label className={`flex items-center justify-between gap-3 text-sm ${t.mainText}`}>
+                    <div className={`grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-3 text-sm ${t.mainText}`}>
                       <span className="min-w-0 break-words">{member} 實付金額</span>
-                      <input
-                        type="text"
-                        inputMode="text"
+                      <ExpenseAmountField
+                        t={t}
+                        aria-label={`${member} 實付金額`}
                         value={paymentAmounts[member] || ''}
                         onChange={(event) => setPaymentAmounts((previous) => ({ ...previous, [member]: event.target.value }))}
                         onBlur={() => commitAmount(`payment:${member}`, paymentAmounts[member], (value) => setPaymentAmounts((previous) => ({ ...previous, [member]: value })))}
@@ -1485,7 +1487,7 @@ export const ExpenseModal = ({
                         aria-describedby={amountTouched[`payment:${member}`] && paymentAmounts[member] && !parseOptionalExpenseAmount(paymentAmounts[member]).ok ? `expense-payment-error-${index}` : undefined}
                         className={`min-h-11 w-28 shrink-0 rounded-lg border px-2 text-right font-mono text-sm ${t.inputBg} ${t.cardBorder} ${t.mainText}`}
                       />
-                    </label>
+                    </div>
                     {amountTouched[`payment:${member}`] && paymentAmounts[member] && !parseOptionalExpenseAmount(paymentAmounts[member]).ok ? (
                       <p id={`expense-payment-error-${index}`} className={`mt-1 text-sm ${t.isLight ? 'text-red-700' : 'text-red-300'}`}>
                         {amountErrorMessage(parseOptionalExpenseAmount(paymentAmounts[member]).error)}
@@ -1503,23 +1505,7 @@ export const ExpenseModal = ({
             ) : null}
           </div>
 
-          <div>
-            <label className={`block text-xs font-bold mb-2 ${t.subText}`}>分類</label>
-            <div className="flex overflow-x-auto gap-2 pb-1 scrollbar-hide">
-              {CATEGORIES.map(option => (
-                <button
-                  type="button"
-                  key={option.id}
-                  data-testid="expense-category-button"
-                  data-category={option.id}
-                  onClick={() => setCategory(option.id)}
-                  className={`min-h-11 px-4 py-2 rounded-xl border flex items-center gap-2 whitespace-nowrap transition-all ${category === option.id ? `${option.color} border-transparent text-white shadow-md` : `${t.cardBg} ${t.cardBorder} ${t.subText}`}`}
-                >
-                  <span>{option.icon}</span><span className="text-xs font-bold">{option.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+          <ExpenseCategoryPicker value={category} onChange={setCategory} t={t} />
 
           <div className={`p-4 rounded-2xl border ${t.cardMetaBg} ${t.cardBorder}`}>
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-3">
@@ -1587,14 +1573,14 @@ export const ExpenseModal = ({
                 </div>
                 {validMembers.map((member, index) => (
                   <div key={`cust-${member}`}>
-                    <div className="flex justify-between items-center gap-3">
+                    <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-3">
                       <span className={`text-sm font-bold ${t.mainText}`}>{member}（{currency}）</span>
-                      <input
+                      <ExpenseAmountField
+                        t={t}
                         data-testid="expense-custom-amount-input"
                         data-member={member}
                         aria-label={`${member} 自訂分帳金額（${currency}）`}
                         type="text"
-                        inputMode="text"
                         value={customAmounts[member] || ""}
                         onChange={event => handleCustomAmountChange(member, event.target.value)}
                         onBlur={() => commitAmount(`custom:${member}`, customAmounts[member], (value) => setCustomAmounts((previous) => ({ ...previous, [member]: value })))}
