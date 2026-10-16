@@ -31,7 +31,7 @@
 
 完整 E2E 由現有 PR CI 執行；需核對最新 head 的 push 與 pull_request runs，包含 Agent guardrails、Fast quality gate、兩個瀏覽器與 Playwright E2E 總檢查。CI 與部署的最終 SHA、run 及網址記錄於 Draft PR 與任務交付報告，不以本機通過代替 CI。
 
-- Firebase：`travel-app-923ef`；發布範圍為 `functions:saveTravelMemory,functions:saveTravelCollection,functions:cloneMemoryTrip,database`。三個 callable 包含最新複製服務；不需部署其他既有 callable。
+- Firebase：`travel-app-923ef`；發布範圍為 `functions:saveTravelMemory,functions:saveTravelCollection,functions:cloneMemoryTrip,functions:createTrip,database`。三個新 callable 與既有 createTrip 一併發布，確保建立／複製共用的原子發布修正上線。
 - Vercel：既有 `travel-app`，project `prj_UUxsadHt1joErWI0Nbne1B2z6sgv`，team `team_eitcWOsUuaddsSxBt1w0Clw7`。後端成功後發布同一功能 commit 的前端。
 - 發布前 production 為 `dpl_9qsibgVRwrgDNnwsyhdt1yjju8Px`，對應 main `d76c4ff`，可供前端回滾參考。
 - 未進行正式資料寫入測試。實機 iPhone、真實 Google 登入後操作及真人旅伴驗收仍屬人工 QA。
@@ -51,3 +51,15 @@
 修補只更新測試契約：工具列以編輯／永久刪除的語意選取，仍精確要求 2 個；整卡精確要求 4 個，另檢查封存入口可見、可用、觸控尺寸與正文下方間距。原有工具間距、標題位置、對比、無溢位、200% 放大及分享流程斷言全部保留；放大檢查也涵蓋封存入口。
 
 `npm run test:e2e -- e2e/app-shell-ux.spec.ts --grep 'T3 lobby'` 在 Desktop Chrome 與 Mobile Safari 共 4 項首次通過（53.2 秒），沒有 retry 或 skipped。此修補新增第 41 個變更檔案；沒有產品程式、workflow、timeout 或套件變更。新 head 仍需重新通過完整 CI。
+
+## CI 修補第二輪：發布時序（此問題第一次修補）
+
+`62e3eb7` 的 push／PR 所有 jobs 都成功，Chrome 各為 202 passed／7 skipped、0 retry；但 Safari 各有 201 passed／1 flaky／7 skipped。「複製成新旅程」在 push 重試 1 次、PR 重試 2 次才成功，故未把綠燈當作穩定，也尚未部署此版本。
+
+已讀取失敗截圖與 trace：userTrips 先收到 active 索引，隨後讀取新 rooms/meta 被 permission_denied 拒絕，首頁留在「暫時無法載入」。根因是 createTrip 在 pending roomAccess 提前寫入 active owner，背景 syncTripMemberAccess 因此可能在完整內容／ready 狀態發布前先建立索引。
+
+修正將 owner member 移至同一次原子更新，與完整行程、ready 狀態及首頁索引一起發布。沒有延長 timeout、改測試等待或加入客戶端補救重試。新增確定性回歸測試，強制在 beforePublish 呼叫背景同步：修正前可重現提前公開索引，修正後確認 pending 沒有 index／Storage ACL，發布後兩者正常。複製測試另要求 owner、ready、index 與內容在同一更新中。
+
+後端 204 項全部通過；獨立審查另跑 44 項相關服務測試，沒有 P1/P2。此次新增第 42 個差異檔案（collaboration.test.js）。發布範圍加入既有 createTrip，以免一般建立與複製使用不同的發布時序。最新 head 的完整 CI 結果仍以 Draft PR 最終紀錄為準。
+
+`verify:fast` 再次全部通過（62.0 秒）。建立／回憶相關 E2E 首次本機執行為 7 passed／1 failed；失敗 trace 顯示 Vite 在開啟回憶編輯器時送出 full-reload，當時快速建置與 E2E 並行。將兩者改為序列執行、程式與斷言不變後，`npm run test:e2e -- e2e/travel-memories.spec.ts e2e/create-trip.spec.ts` 的 Chrome 4 項／Safari 4 項全部首次通過（1.0 分鐘），沒有 retry／skipped。保留兩次日誌，沒有把環境中斷藏成首次成功。

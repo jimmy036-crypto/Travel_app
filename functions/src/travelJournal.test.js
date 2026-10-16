@@ -240,6 +240,14 @@ test('collection links are checked inside account transaction against concurrent
 test('clone publishes only sanitized itinerary atomically with ready room and supports owned retry', async () => {
   const { service, database } = fixture();
   const payload = { sourceRoomId: 'source', roomId: 'new-room', meta: { ...meta, startDate: '2027-01-01', endDate: '2027-01-02' } };
+  database.beforeUpdate = async (_path, updates) => {
+    if (!updates['rooms/new-room']) return;
+    assert.equal(database.value('roomAccess/new-room/members/alice'), null);
+    assert.equal(database.value('userTrips/alice/new-room'), null);
+    assert.equal(updates['roomAccess/new-room/members/alice'].status, 'active');
+    assert.equal(updates['roomAccess/new-room/state'], 'ready');
+    assert.equal(updates['userTrips/alice/new-room'].status, 'active');
+  };
   const result = await service.cloneMemoryTrip(payload, auth());
   assert.equal(result.roomId, 'new-room');
   const room = database.value('rooms/new-room');
