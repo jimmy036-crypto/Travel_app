@@ -2,6 +2,10 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import App from './App.jsx';
+// These suites exercise trip/offline behavior; journal subscriptions are covered separately.
+vi.mock('./features/memories/useTravelJournal.js', () => ({
+  useTravelJournal: () => ({ memories: {}, collections: {}, loading: false, error: '', retry: vi.fn() }),
+}));
 import * as offlineCache from './features/offline/offlineTripCache.js';
 import { set, update, get, onValue } from 'firebase/database';
 

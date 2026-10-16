@@ -1,0 +1,39 @@
+.journal { --journal-line: color-mix(in srgb, currentColor 16%, transparent); min-width: 0; }
+.journal-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.journal-heading h2, .journal-dialog h2 { font-size: clamp(1.35rem, 3vw, 1.8rem); font-weight: 850; line-height: 1.25; letter-spacing: -.025em; text-wrap: balance; }
+.journal-eyebrow { margin-bottom: .45rem; font-size: .72rem; font-weight: 750; letter-spacing: .12em; opacity: .65; }
+.journal-description { max-width: 40rem; margin: .7rem 0 1.5rem; line-height: 1.8; opacity: .75; }
+.journal-nav { display: flex; gap: .5rem; margin-bottom: 1.5rem; overflow-x: auto; padding: .25rem; }
+.journal-nav button { white-space: nowrap; }
+.journal-nav button[aria-current="page"] { background: #2563eb; color: white; border-color: transparent; }
+.journal-field { display: grid; gap: .45rem; font-size: .85rem; font-weight: 650; min-width: 0; }
+.journal input:not([type="checkbox"]), .journal textarea, .journal select, .journal-dialog input:not([type="checkbox"]), .journal-dialog textarea, .journal-dialog select { min-height: 44px; max-width: 100%; min-width: 0; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: .75rem; padding: .65rem .8rem; background: color-mix(in srgb, Canvas 90%, transparent); color: CanvasText; font-size: 16px; }
+.journal input:focus-visible, .journal select:focus-visible, .journal textarea:focus-visible, .journal-dialog input:focus-visible, .journal-dialog select:focus-visible, .journal-dialog textarea:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.journal-dialog { width: 100%; max-width: 48rem; overflow: hidden; --journal-line: color-mix(in srgb, currentColor 16%, transparent); }
+.journal-form { display: grid; gap: 1.25rem; padding: 1.5rem; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.journal-year { display: grid; gap: 1rem; margin-top: 2rem; }
+.journal-year > h3 { border-bottom: 1px solid var(--journal-line); padding-bottom: .65rem; font-variant-numeric: tabular-nums; font-weight: 800; font-size: 1.3rem; }
+.journal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 290px), 1fr)); gap: 1rem; }
+.journal-card { overflow: hidden; border: 1px solid var(--journal-line); border-radius: 1.4rem; box-shadow: 0 2px 8px #00000005; }
+.journal-cover { position: relative; height: 10rem; display: flex; align-items: end; padding: 1.2rem; background: color-mix(in srgb, currentColor 7%, transparent); border-bottom: 1px solid var(--journal-line); }
+.journal-cover-photo { position: absolute; inset: 0; }
+.journal-cover-photo figure, .journal-cover-photo img { width: 100%; height: 100%; border-radius: 0; }
+.journal-photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr)); gap: .75rem; margin-bottom: 1rem; }
+.journal-cover span { font-size: 1.8rem; font-weight: 800; letter-spacing: -.04em; opacity: .65; }
+.journal-card-body { padding: 1.25rem; display: grid; gap: .8rem; }
+.journal-card h3, .journal-card h4 { font-size: 1.15rem; font-weight: 800; overflow-wrap: anywhere; }
+.journal-visit, .journal-notice { padding: 1rem; border: 1px solid var(--journal-line); border-radius: 1rem; }
+.journal-notice { font-size: .9rem; line-height: 1.7; display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.journal-error { border: 1px solid #ef444466; background: #ef444410; border-radius: .75rem; padding: .8rem; font-weight: 650; }
+.journal-check { display: inline-flex; align-items: center; gap: .6rem; min-height: 44px; font-size: .9rem; }
+.journal-check input { width: 18px; height: 18px; accent-color: #2563eb; }
+.journal-stamp { display: grid; text-align: left; gap: .4rem; padding: 1.1rem; border: 1px dashed var(--journal-line); border-radius: 1rem; min-height: 100px; transition: background-color 150ms; }
+.journal-stamp:hover { background: #3b82f610; }
+.journal-stamp strong { font-size: 1rem; }
+.journal-stamp span { font-size: .8rem; opacity: .7; }
+.journal-map { height: 360px; isolation: isolate; overflow: hidden; border-radius: 1.2rem; margin-bottom: 1.5rem; }
+.journal-map .leaflet-container { width: 100%; height: 100%; }
+.journal-photo { width: 100%; max-height: 220px; object-fit: cover; border-radius: .8rem; }
+.journal-stats { display: flex; flex-wrap: wrap; gap: 1.5rem; margin: 1rem 0; }
+.journal-stats strong { font-size: 1.6rem; font-variant-numeric: tabular-nums; margin-right: .35rem; }
+@media (max-width: 600px) { .journal-form { padding: 1.1rem; } .journal-map { height: 290px; } }

@@ -12,6 +12,7 @@ import { createCollaborationService } from './collaboration.js';
 import { CollaborationError } from './domain.js';
 import { createParkingService } from './parking.js';
 import { createTripDeletionService } from './tripDeletion.js';
+import { createTravelJournalService } from './travelJournal.js';
 
 initializeApp();
 setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
@@ -31,6 +32,7 @@ const parkingService = createParkingService({
   database,
   logger,
 });
+const travelJournalService = createTravelJournalService({ database, collaborationService: service });
 
 const callable = (name, handler, options = null) => {
   const wrapped = async (request) => {
@@ -39,7 +41,7 @@ const callable = (name, handler, options = null) => {
     } catch (error) {
       if (error instanceof HttpsError) throw error;
       if (error instanceof CollaborationError) {
-        throw new HttpsError(error.code, error.message);
+        throw new HttpsError(error.code, error.message, error.details);
       }
       logger.error(`${name} failed`, error);
       throw new HttpsError('internal', '服務暫時無法完成操作，請稍後再試。');
@@ -60,6 +62,9 @@ export const listTripMembers = callable('listTripMembers', service.listTripMembe
 export const removeTripMember = callable('removeTripMember', service.removeTripMember);
 export const restoreTripMember = callable('restoreTripMember', service.restoreTripMember);
 export const deleteTrip = callable('deleteTrip', tripDeletionService.deleteTrip);
+export const saveTravelMemory = callable('saveTravelMemory', travelJournalService.saveTravelMemory);
+export const saveTravelCollection = callable('saveTravelCollection', travelJournalService.saveTravelCollection);
+export const cloneMemoryTrip = callable('cloneMemoryTrip', travelJournalService.cloneMemoryTrip);
 export const searchParking = callable(
   'searchParking',
   parkingService.searchParking,

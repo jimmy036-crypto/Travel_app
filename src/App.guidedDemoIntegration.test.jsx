@@ -4,6 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App.jsx';
+// These suites exercise trip/offline behavior; journal subscriptions are covered separately.
+vi.mock('./features/memories/useTravelJournal.js', () => ({
+  useTravelJournal: () => ({ memories: {}, collections: {}, loading: false, error: '', retry: vi.fn() }),
+}));
 
 const firebaseMocks = vi.hoisted(() => ({
   ref: vi.fn((_db, path) => path),

@@ -109,6 +109,20 @@ afterAll(async () => {
 });
 
 describe('Realtime Database authorization', () => {
+  it('keeps memories private to the Google account and denies every direct client write', async () => {
+    const path = `personalTravel/${OWNER_UID}`;
+    const saved = { memories: { [ROOM_ID]: { archived: true, revision: 1, note: '私人感想' } } };
+    await environment.withSecurityRulesDisabled((context) => set(databaseRef(context.database(), path), saved));
+    expect((await assertSucceeds(get(databaseRef(authContext(OWNER_UID).database(), path)))).val()).toEqual(saved);
+    for (const context of [authContext(EDITOR_UID), authContext(OUTSIDER_UID), environment.unauthenticatedContext(), environment.authenticatedContext(OWNER_UID, { firebase: { sign_in_provider: 'password' } })]) {
+      await assertFails(get(databaseRef(context.database(), path)));
+    }
+    await assertFails(get(databaseRef(authContext(OWNER_UID).database(), 'personalTravel')));
+    await assertFails(set(databaseRef(authContext(OWNER_UID).database(), `${path}/memories/${ROOM_ID}/archived`), false));
+    await assertFails(set(databaseRef(authContext(EDITOR_UID).database(), `${path}/collections/foreign`), { title: '不可寫入' }));
+    await assertFails(set(databaseRef(authContext(OWNER_UID).database(), path), null));
+    expect((await get(databaseRef(authContext(EDITOR_UID).database(), `rooms/${ROOM_ID}/meta/title`))).val()).toBe('安全旅程');
+  });
   it('denies anonymous, outsider and removed users while active members can read/write', async () => {
     const anonymous = environment.unauthenticatedContext().database();
     const outsider = authContext(OUTSIDER_UID).database();

@@ -2,6 +2,10 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import App from './App.jsx';
+// These suites exercise trip/offline behavior; journal subscriptions are covered separately.
+vi.mock('./features/memories/useTravelJournal.js', () => ({
+  useTravelJournal: () => ({ memories: {}, collections: {}, loading: false, error: '', retry: vi.fn() }),
+}));
 import { set, update, get } from 'firebase/database';
 import { checkForPwaUpdate } from './pwaUpdateController.js';
 import * as toastModule from './components/ui/useToast.js';
