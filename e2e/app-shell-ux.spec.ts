@@ -283,10 +283,18 @@ test('T3 lobby long names, native trip controls and theme surfaces remain usable
         await expect(card).toBeVisible();
         await card.scrollIntoViewIfNeeded();
         const open = card.getByRole('button', { name: /^開啟旅程：/ });
-        const tools = card.getByRole('button').filter({ hasNot: page.getByTestId('trip-card-title') });
+        const tools = card.getByRole('button', { name: /^(編輯 |永久刪除旅程：)/ });
+        const archive = card.getByTestId('archive-trip-action');
         await expect(tools).toHaveCount(2);
+        await expect(card.getByRole('button')).toHaveCount(4);
+        await expect(archive).toBeVisible();
+        await expect(archive).toBeEnabled();
         await expect(card.locator('button button, button a, button input')).toHaveCount(0);
         await expectTouchTarget(open);
+        await expectTouchTarget(archive);
+        const openBox = (await open.boundingBox())!;
+        const archiveBox = (await archive.boundingBox())!;
+        expect(archiveBox.y - openBox.y - openBox.height).toBeGreaterThanOrEqual(8);
         const toolBoxes = [];
         for (const tool of await tools.all()) {
           await expectTouchTarget(tool);
@@ -471,7 +479,8 @@ test('T3 lobby and sharing controls reflow at html font-size equivalent 200%', a
   const card = page.locator(`[data-testid="trip-card"][data-room-id="${SHELL_ROOM_ID}"]`);
   await expect(card).toBeVisible();
   await expect(card.getByRole('button', { name: /^開啟旅程：/ })).toBeVisible();
-  await expect(card.getByRole('button')).toHaveCount(3);
+  await expect(card.getByRole('button')).toHaveCount(4);
+  await expect(card.getByTestId('archive-trip-action')).toBeVisible();
   await card.scrollIntoViewIfNeeded();
   await expectNoPageOverflow(page);
   for (const button of await card.getByRole('button').all()) await expectTouchTarget(button);
