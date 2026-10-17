@@ -6,7 +6,7 @@ export function createJournalClient(instance = functions) {
     if (!instance) throw new Error('雲端回憶服務尚未設定。');
     try { return (await httpsCallable(instance, name)(payload)).data; }
     catch (error) {
-      if (String(error.code).endsWith('aborted')) throw new Error('這份紀錄已在另一個畫面更新。請關閉後重新開啟，確認最新內容再儲存。');
+      if (String(error.code).endsWith('aborted')) error.message = '這份紀錄已在另一個畫面更新，請比較內容後再儲存。';
       throw error;
     }
   };
@@ -14,5 +14,7 @@ export function createJournalClient(instance = functions) {
     saveMemory: (payload) => invoke('saveTravelMemory', payload),
     saveCollection: (payload) => invoke('saveTravelCollection', payload),
     cloneTrip: (payload) => invoke('cloneMemoryTrip', payload),
+    preserveMemory: (payload) => invoke('requestTravelMemoryPreservation', payload),
+    deleteMemory: (payload) => invoke('deleteTravelMemory', payload),
   };
 }

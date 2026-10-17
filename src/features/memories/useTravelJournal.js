@@ -37,5 +37,7 @@ export function useTravelJournal(accountUid, isOnline) {
     saveMemory: (payload) => run('saveMemory', payload),
     saveCollection: (payload) => run('saveCollection', payload),
     cloneTrip: (payload) => run('cloneTrip', payload),
+    preserveMemory: (payload) => run('preserveMemory', payload),
+    deleteMemory: (payload) => run('deleteMemory', payload),
   };
 }

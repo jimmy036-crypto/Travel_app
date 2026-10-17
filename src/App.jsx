@@ -80,6 +80,7 @@ import { selectLobbyTripSummary } from './features/lobby/lobbyTripSummary.js';
 import { useLobbyTodayKey } from './features/lobby/useLobbyTodayKey.js';
 import { useAuthSession } from './features/auth/useAuthSession.js';
 import { useTravelJournal } from './features/memories/useTravelJournal.js';
+import { useJournalRoute } from './features/memories/useJournalRoute.js';
 import './features/memories/memories.css';
 import { AccountSection } from './features/auth/AccountSection.jsx';
 import { SignInDialog } from './features/auth/SignInDialog.jsx';
@@ -176,7 +177,8 @@ export default function TravelApp() {
   const tripAccessClient = useMemo(() => createTripAccessClient(), []);
   const accountUid = String(authSession.user?.uid || '');
   const journal = useTravelJournal(accountUid, isOnline);
-  const [journalView, setJournalView] = useState('trips');
+  const { route: journalRoute, navigate: navigateJournal } = useJournalRoute(accountUid);
+  const journalView = journalRoute.view;
   const [archiveRequest, setArchiveRequest] = useState(null);
   const archiveTrip = archiveRequest?.uid === accountUid ? archiveRequest.trip : null;
   const currentAccountUidRef = useRef(accountUid);
@@ -706,7 +708,8 @@ export default function TravelApp() {
 
     setOfflinePreviewData(null);
     setOfflinePreviewAccountUid('');
-    const nextParams = new URLSearchParams({ room: safeRoomId });
+    const nextParams = new URLSearchParams(window.location.search);
+    nextParams.set('room', safeRoomId);
     if (
       import.meta.env.DEV
       && new URLSearchParams(window.location.search).get('dndDebug') === '1'
@@ -1362,7 +1365,9 @@ export default function TravelApp() {
   };
 
   const closeTrip = () => {
-    window.history.pushState(null, '', window.location.pathname);
+    const nextParams = new URLSearchParams(window.location.search);
+    nextParams.delete('room');
+    window.history.pushState(null, '', `${window.location.pathname}${nextParams.size ? `?${nextParams}` : ''}`);
     setShowFeatureTour(false);
     setShowTripTourSelection(false);
     setTripTourAvailability({
@@ -1885,11 +1890,11 @@ export default function TravelApp() {
 
         <nav aria-label="旅行紀錄" className="journal-nav">
           {[['trips', '我的旅程'], ['memories', '旅行回憶'], ['footprints', '我的足跡'], ['collections', '我的收藏']].map(([view, label]) => (
-            <Button key={view} aria-current={journalView === view ? 'page' : undefined} onClick={() => setJournalView(view)}>{label}</Button>
+            <Button key={view} aria-current={journalView === view ? 'page' : undefined} onClick={() => navigateJournal({ view, memory: '' })}>{label}</Button>
           ))}
         </nav>
-        {journalView !== 'trips' || archiveTrip ? <Suspense fallback={<p role="status">正在展開旅行紀錄…</p>}>
-          <TravelJournal key={accountUid} accountUid={accountUid} view={journalView} journal={journal} trips={accountTrips} isOnline={isOnline} onOpenTrip={openTripRoom} onViewChange={setJournalView} archiveTrip={archiveTrip} onCloseArchive={() => setArchiveRequest(null)} onRestore={(roomId) => setHiddenTripIds((ids) => ids.filter((id) => id !== roomId))} t={t} />
+        {journalView !== 'trips' || archiveTrip ? <Suspense fallback={journalView !== 'trips' ? <p role="status">正在展開旅行紀錄…</p> : null}>
+          <APIProvider apiKey={API_KEY}><TravelJournal key={accountUid} accountUid={accountUid} view={journalView} route={journalRoute} navigate={navigateJournal} journal={journal} trips={accountTrips} isOnline={isOnline} onOpenTrip={openTripRoom} archiveTrip={archiveTrip} onCloseArchive={() => setArchiveRequest(null)} onRestore={(roomId) => setHiddenTripIds((ids) => ids.filter((id) => id !== roomId))} onSignIn={() => requireGoogleAccount('cloud')} t={t} /></APIProvider>
         </Suspense> : null}
         {journalView === 'trips' ? <>
         {journal.error ? <div role="alert" className="journal-error mb-4">{journal.error}<Button onClick={journal.retry}>重新載入回憶</Button></div> : null}

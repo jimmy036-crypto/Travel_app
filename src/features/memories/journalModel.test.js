@@ -8,8 +8,8 @@ const memories = {
   spring: {
     archived: true, title: '春日旅行', destination: '日本', startDate: '2025-03-02', endDate: '2025-03-05',
     note: '櫻花很美', visits: {
-      park: { status: 'visited', name: '公園', city: ' ＴＯＫＹＯ ', lat: null, lng: '' },
-      tower: { status: 'visited', name: '塔', city: 'tokyo', lat: '35.5', lng: '139.5' },
+      park: { status: 'visited', name: '公園', city: ' ＴＯＫＹＯ ', cityId: 'tokyo', country: '日本', lat: null, lng: '' },
+      tower: { status: 'visited', name: '塔', city: 'tokyo', cityId: 'tokyo', country: '日本', note: '夕陽值得再看', lat: '35.5', lng: '139.5' },
       wish: { status: 'wishlist', name: '想去寺院', city: 'Kyoto', lat: 35, lng: 135 },
       miss: { status: 'missed', name: '未去', city: 'Osaka', lat: 34, lng: 135 },
       unknown: { name: '未確認', city: 'Osaka' },
@@ -18,7 +18,7 @@ const memories = {
   },
   restored: {
     archived: false, title: '再次出發', startDate: '2026-01-02',
-    visits: { return: { status: 'visited', name: '再訪公園', city: 'Tokyo', lat: 0, lng: 0 } },
+    visits: { return: { status: 'visited', name: '再訪公園', city: 'Tokyo', cityId: 'tokyo', country: '日本', lat: 0, lng: 0 } },
   },
   emptyRestored: { archived: false, title: '未完成', startDate: '2026-02-01', visits: {} },
   winter: { archived: true, title: '冬日', startDate: '2025-12-01', visits: {} },
@@ -39,7 +39,7 @@ describe('memory grouping', () => {
     expect(groupMemories(null)).toEqual([]);
   });
 
-  it.each(['春日', '日本', '櫻花', '公園', 'TOKYO'])('searches saved trip and visit text: %s', (query) => {
+  it.each(['春日', '日本', '櫻花', '公園', 'TOKYO', '夕陽'])('searches saved trip and visit text: %s', (query) => {
     expect(groupMemories(memories, query).flatMap((group) => group.memories).map((memory) => memory.roomId)).toEqual(['spring']);
   });
 });
@@ -49,10 +49,10 @@ describe('footprints', () => {
     ['Weißensee', 'WEISSENSEE', 'weissensee'],
     ['WEIẞENSEE', 'weissensee', 'weissensee'],
     ['Κόσμοσ', 'ΚΌΣΜΟΣ', 'κόσμοσ'],
-  ])('folds case-equivalent city labels %s and %s across trips', (first, second, id) => {
+  ])('groups explicit city identity across different labels %s and %s', (first, second, id) => {
     const trips = {
-      a: { startDate: '2026-01-01', visits: { v: { status: 'visited', city: first } } },
-      b: { startDate: '2026-02-01', visits: { v: { status: 'visited', city: second } } },
+      a: { startDate: '2026-01-01', visits: { v: { status: 'visited', city: first, cityId: id } } },
+      b: { startDate: '2026-02-01', visits: { v: { status: 'visited', city: second, cityId: id } } },
     };
     expect(buildFootprints(trips)).toHaveLength(1);
     expect(buildFootprints(trips)[0]).toMatchObject({ id, city: second, tripCount: 2 });
@@ -62,10 +62,10 @@ describe('footprints', () => {
 
   it('preserves accents and distinct letters instead of transliterating city identities', () => {
     const trips = { a: { visits: {
-      a: { status: 'visited', city: 'Café' },
-      b: { status: 'visited', city: 'Cafe' },
-      c: { status: 'visited', city: 'I' },
-      d: { status: 'visited', city: 'ı' },
+      a: { status: 'visited', city: 'Café', cityId: 'café' },
+      b: { status: 'visited', city: 'Cafe', cityId: 'cafe' },
+      c: { status: 'visited', city: 'I', cityId: 'i' },
+      d: { status: 'visited', city: 'ı', cityId: 'ı' },
     } } };
     expect(buildFootprints(trips).map((city) => city.id)).toEqual(['cafe', 'café', 'i', 'ı']);
   });
@@ -88,9 +88,9 @@ describe('footprints', () => {
 
   it('rejects out-of-range longitude and sorts cities independently of insertion order', () => {
     const input = { r: { visits: {
-      z: { status: 'visited', city: 'Zoo', lat: 0, lng: -181 },
-      a: { status: 'visited', city: '  New   York ', lat: -90, lng: 180 },
-      b: { status: 'visited', city: 'new york', lat: 10, lng: 20 },
+      z: { status: 'visited', city: 'Zoo', cityId: 'zoo', lat: 0, lng: -181 },
+      a: { status: 'visited', city: '  New   York ', cityId: 'new york', lat: -90, lng: 180 },
+      b: { status: 'visited', city: 'new york', cityId: 'new york', lat: 10, lng: 20 },
     } } };
     expect(buildFootprints(input).map(({ id, tripCount, lat, lng }) => ({ id, tripCount, lat, lng }))).toEqual([
       { id: 'new york', tripCount: 1, lat: -90, lng: 180 },
@@ -129,8 +129,9 @@ describe('collections and passport', () => {
     });
     expect(stamps.map((stamp) => stamp.kind).sort()).toEqual(['collection', 'first', 'return']);
     expect(stamps.find((stamp) => stamp.kind === 'first')).toMatchObject({ title: '第一次搭新幹線', roomId: 'spring' });
-    expect(stamps.find((stamp) => stamp.kind === 'collection')).toMatchObject({ title: '鐵道清單', roomId: 'spring' });
-    expect(stamps.every((stamp) => memories[stamp.roomId] && stamp.id && typeof stamp.description === 'string')).toBe(true);
+    expect(stamps.find((stamp) => stamp.kind === 'collection')).toMatchObject({ title: '鐵道清單', target: { kind: 'collection', id: 'complete' } });
+    expect(stamps.find((stamp) => stamp.kind === 'return')).toMatchObject({ target: { kind: 'city', id: 'tokyo' } });
+    expect(stamps.find((stamp) => stamp.kind === 'first')).toMatchObject({ target: { kind: 'memory', id: 'spring' } });
     expect(buildPassportStamps({ r: { firsts: { invalid: true, empty: '', object: { title: 'invalid' } } } }, {})).toEqual([]);
   });
 });
@@ -142,8 +143,8 @@ describe('share text', () => {
     const text = buildShareText({ ...memories, spring: { ...memories.spring,
       roomId: 'secret-room', url: 'https://secret.test', travelers: ['私人旅伴'], photos: ['private-photo'],
     } }, ['spring', 'missing', 'spring']);
-    for (const content of ['春日旅行', '2025-03-02', '2025-03-05', '日本', '櫻花很美', 'TOKYO']) expect(text).toContain(content);
-    for (const privateContent of ['secret-room', 'https:', '私人旅伴', 'private-photo', '第一次', '35.5', '139.5', '再次出發', 'Kyoto', 'Osaka', 'spring']) expect(text).not.toContain(privateContent);
+    for (const content of ['春日旅行', '2025-03-02', '2025-03-05', '日本', 'TOKYO']) expect(text).toContain(content);
+    for (const privateContent of ['櫻花很美', 'secret-room', 'https:', '私人旅伴', 'private-photo', '第一次', '35.5', '139.5', '再次出發', 'Kyoto', 'Osaka', 'spring']) expect(text).not.toContain(privateContent);
     expect(text.match(/春日旅行/g)).toHaveLength(1);
   });
 });
@@ -170,4 +171,45 @@ describe('visit candidates', () => {
     expect([...first[0].visitId].every((character) => character.charCodeAt(0) > 31 && character.charCodeAt(0) !== 127)).toBe(true);
     expect(extractVisitCandidates({ 'Day 1': [{ id: 0, name: '零號' }] }, '')[0].itemId).toBe('0');
   });
+});
+
+
+describe('canonical city identities and explicit share fields', () => {
+  it('keeps legacy labels unassigned and never guesses a canonical merge', () => {
+    const input = {
+      a: { startDate: '2026-01-01', visits: {
+        a: { status: 'visited', city: '京都', country: '日本' },
+        b: { status: 'visited', city: '日本・京都', country: '日本' },
+        c: { status: 'visited', city: '京都', country: '日本', cityId: 'kyoto' },
+      } },
+      b: { startDate: '2026-02-01', visits: { a: { status: 'visited', city: '京都', country: '日本' } } },
+    };
+    const cities = buildFootprints(input);
+    expect(cities).toHaveLength(3);
+    expect(cities.filter((city) => city.unassigned)).toHaveLength(2);
+    expect(cities.find((city) => city.unassigned && city.city === '京都')).toMatchObject({ tripCount: 2, country: '日本' });
+    expect(buildAnnualReview(input, '2026').cityCount).toBe(1);
+    expect(buildPassportStamps(input, {}).filter((stamp) => stamp.kind === 'return')).toEqual([]);
+  });
+  it('keeps same labels in different countries distinct through their IDs', () => {
+    const cities = buildFootprints({ a: { visits: {
+      a: { status: 'visited', city: 'Victoria', cityId: 'victoria-ca', country: '加拿大' },
+      b: { status: 'visited', city: 'Victoria', cityId: 'victoria-sc', country: '塞席爾' },
+    } } });
+    expect(cities.map(({ id, country }) => ({ id, country }))).toEqual([{ id: 'victoria-ca', country: '加拿大' }, { id: 'victoria-sc', country: '塞席爾' }]);
+  });
+  it('shares personal notes only after explicit field selection', () => {
+    expect(buildShareText(memories, ['spring'], { dates: false, cities: false, note: true })).toBe('春日旅行\n櫻花很美');
+  });
+  it('emits only one stamp per first experience type', () => {
+    const stamps = buildPassportStamps({ ...memories, other: { startDate: '2026-01-01', firsts: { rail: '第一次搭新幹線' } } }, {});
+    expect(stamps.filter((stamp) => stamp.kind === 'first')).toHaveLength(1);
+  });
+});
+
+
+it('uses canonical city coordinates for footprints without losing the original place location', () => {
+  const result = buildFootprints({ a: { visits: { v: { city: '京都', cityId: 'kyoto', country: '日本', status: 'visited', lat: 35.1, lng: 135.1, cityLat: 35, cityLng: 135 } } } });
+  expect(result[0]).toMatchObject({ cityId: 'kyoto', country: '日本', lat: 35, lng: 135, cityLat: 35, cityLng: 135 });
+  expect(result[0].visits[0]).toMatchObject({ lat: 35.1, lng: 135.1 });
 });

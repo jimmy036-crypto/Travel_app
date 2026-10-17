@@ -77,17 +77,40 @@ const canonicalVisit = (visit) => ({
 function normalizeVisits(raw, previous, available) {
   return Object.fromEntries(Object.entries(raw).map(([id, value]) => {
     if (!record(value) || !['visited', 'missed', 'wishlist'].includes(value.status)) fail('invalid-argument', '請明確確認到訪狀態。');
-    const canonical = previous?.[id] ? canonicalVisit(previous[id]) : available.get(id);
+    const manual = id.startsWith('manual~');
+    let canonical;
+    if (manual) {
+      const noPosition = value.lat == null && value.lng == null;
+      if (!/^manual~[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+        || value.source !== 'manual' || !dateAt(value.date, 0)
+        || !noPosition && (typeof value.lat !== 'number' || typeof value.lng !== 'number' || position(value).lat === null)) {
+        fail('invalid-argument', '補登地點需填寫有效日期與座標。');
+      }
+      canonical = { source: 'manual', name: text(value.name, 240, true), date: value.date, lat: value.lat ?? null, lng: value.lng ?? null };
+    } else {
+      if (value.source === 'manual') fail('invalid-argument', '補登地點 ID 格式不正確。');
+      canonical = previous?.[id] ? canonicalVisit(previous[id]) : available.get(id);
+    }
     if (!canonical) fail('invalid-argument', '到訪地點不屬於已保存的回憶或目前行程。');
     const city = text(value.city ?? '', 120, value.status === 'visited');
-    return [id, { ...canonical, status: value.status, city, note: text(value.note ?? '', 1000) }];
+    const cityFields = {};
+    if (value.cityId !== undefined) {
+      cityFields.cityId = text(value.cityId, 256, true);
+      cityFields.country = text(value.country, 120, true);
+      if (typeof value.cityLat !== 'number' || typeof value.cityLng !== 'number'
+        || position({ lat: value.cityLat, lng: value.cityLng }).lat === null) fail('invalid-argument', '城市座標不正確。');
+      cityFields.cityLat = value.cityLat; cityFields.cityLng = value.cityLng;
+    } else if (value.country !== undefined || value.cityLat !== undefined || value.cityLng !== undefined) {
+      fail('invalid-argument', '請選擇完整的城市資料。');
+    }
+    return [id, { ...canonical, status: value.status, city, ...cityFields, note: text(value.note ?? '', 1000) }];
   }));
 }
 
 // Only planning fields are copied; no arbitrary object, attachment or completion field survives.
 const protectedResource = /(?:firebasestorage\.googleapis\.com|storage\.googleapis\.com|storage\.cloud\.google\.com|gs:\/\/|(?:^|[\s/])rooms\/|rooms%2f)/i;
 const safePlanText = (value, max) => typeof value === 'string' && !protectedResource.test(value) ? value.slice(0, max) : '';
-function cloneItinerary(source, duration) {
+export function cloneItinerary(source, duration) {
   const itinerary = {};
   let count = 0;
   const fields = { name: 240, customName: 240, place_id: 256, address: 500, memo: 3000, notes: 3000, time: 20, stayTime: 20, category: 80, type: 40 };
@@ -148,7 +171,11 @@ export function createTravelJournalService({ database, collaborationService, clo
     return result.snapshot.val();
   };
   const checkRevision = (previous, expected) => {
-    if ((previous?.revision ?? 0) !== expected) fail('aborted', '紀錄已在其他畫面更新，請重新載入。');
+    if ((previous?.revision ?? 0) !== expected) {
+      const error = new CollaborationError('aborted', '紀錄已在其他畫面更新，請重新載入。');
+      error.details = { current: previous || null };
+      throw error;
+    }
   };
 
   return {
@@ -163,12 +190,19 @@ export function createTravelJournalService({ database, collaborationService, clo
       for (const [id, label] of Object.entries(firsts)) {
         if (!Object.hasOwn(FIRSTS, id) || FIRSTS[id] !== label) fail('invalid-argument', '首次體驗格式不正確。');
       }
+      const reassignFirsts = data.reassignFirsts ?? [];
+      if (!Array.isArray(reassignFirsts) || reassignFirsts.length > 2
+        || new Set(reassignFirsts).size !== reassignFirsts.length
+        || reassignFirsts.some((id) => !Object.hasOwn(firsts, id))) fail('invalid-argument', '首次體驗重新指定格式不正確。');
       const loaded = await accessibleSource(roomId, uid);
       const source = loaded?.source;
       let sourceAvailable = Boolean(source);
-      const available = candidates(source);
+      const archive = (await database.ref(`travelMemoryArchives/${uid}/${roomId}`).get()).val();
+      const snapshotAvailable = archive && !['deleting', 'deleted'].includes(archive.summary?.state);
+      const available = candidates(snapshotAvailable ? { itinerary: archive.itinerary, meta: archive.operation?.meta } : source);
       const now = Number(clock());
       const account = await mutateAccount(uid, (current) => {
+        if (current.deletedMemories?.[roomId]) fail('failed-precondition', '這份個人回憶已刪除，無法重新保存。');
         const previous = current.memories?.[roomId];
         checkRevision(previous, expected);
         if (!previous && !sourceAvailable) fail('permission-denied', '你已無法存取原旅程。');
@@ -186,14 +220,28 @@ export function createTravelJournalService({ database, collaborationService, clo
           title: snapshot.title, destination: snapshot.destination, startDate: snapshot.startDate, endDate: snapshot.endDate,
           note, visits: normalizeVisits(visits, previous?.visits, available), firsts: { ...firsts },
         };
-        return { ...current, memories: { ...current.memories, [roomId]: memory } };
+        const memories = { ...current.memories };
+        for (const [otherId, other] of Object.entries(memories)) {
+          if (otherId === roomId) continue;
+          const duplicate = Object.keys(firsts).filter((id) => Object.hasOwn(other.firsts || {}, id));
+          if (duplicate.some((id) => !reassignFirsts.includes(id))) {
+            const error = new CollaborationError('failed-precondition', '這項首次體驗已指定其他旅程，請明確選擇重新指定。');
+            error.details = { reason: 'first-experience-assigned', roomId: otherId, firsts: duplicate };
+            throw error;
+          }
+          if (duplicate.length) {
+            const retainedFirsts = { ...other.firsts }; duplicate.forEach((id) => { delete retainedFirsts[id]; });
+            memories[otherId] = { ...other, firsts: retainedFirsts, revision: other.revision + 1 };
+          }
+        }
+        return { ...current, memories: { ...memories, [roomId]: memory } };
       }, async () => {
         if (!loaded) return;
         const latest = await accessFor(roomId);
         sourceAvailable = active(latest, uid) && latest.members[uid].aclVersion === loaded.aclVersion;
         // Existing personal records remain editable after revocation. Only new
         // source-derived records must be refused once the source ACL changes.
-        if (!sourceAvailable) available.clear();
+        if (!sourceAvailable && !snapshotAvailable) available.clear();
       });
       return { memory: account.memories[roomId] };
     },
@@ -211,7 +259,11 @@ export function createTravelJournalService({ database, collaborationService, clo
         const hasRoom = item.roomId !== undefined && item.roomId !== '';
         const hasVisit = item.visitId !== undefined && item.visitId !== '';
         if (hasRoom !== hasVisit) fail('invalid-argument', '請選擇完整的到訪來源。');
-        return [itemId, { name, city, ...(hasRoom ? { roomId: validateRoomId(item.roomId), visitId: key(item.visitId) } : {}) }];
+        const hasSourceRoom = item.sourceRoomId !== undefined && item.sourceRoomId !== '';
+        const hasSourceVisit = item.sourceVisitId !== undefined && item.sourceVisitId !== '';
+        if (hasSourceRoom !== hasSourceVisit) fail('invalid-argument', '收藏來源格式不完整。');
+        return [itemId, { name, city, ...(hasRoom ? { roomId: validateRoomId(item.roomId), visitId: key(item.visitId) } : {}),
+          ...(hasSourceRoom ? { sourceRoomId: validateRoomId(item.sourceRoomId), sourceVisitId: key(item.sourceVisitId) } : {}) }];
       }));
       const account = await mutateAccount(uid, (current) => {
         checkRevision(current.collections?.[id], expected);
@@ -232,16 +284,6 @@ export function createTravelJournalService({ database, collaborationService, clo
       const sourceRoomId = validateRoomId(data?.sourceRoomId);
       const roomId = validateRoomId(data?.roomId);
       if (sourceRoomId === roomId) fail('already-exists', '新旅程 ID 必須與原旅程不同。');
-      const access = await requireSourceAccess(sourceRoomId, uid);
-      const source = (await database.ref(`rooms/${sourceRoomId}`).get()).val();
-      if (!source?.meta) fail('permission-denied', '原旅程已無法存取。');
-      const meta = normalizeTripMeta({ ...data?.meta, members: ['自己'], memberBudgets: { 自己: 10000 } }, Number(clock()));
-      const days = (Date.parse(meta.endDate) - Date.parse(meta.startDate)) / 86400000 + 1;
-      const sourceDays = (Date.parse(source.meta.endDate) - Date.parse(source.meta.startDate)) / 86400000 + 1;
-      if (!Number.isInteger(sourceDays) || sourceDays < 1 || days < sourceDays) fail('invalid-argument', '新旅程必須保留原行程天數。');
-      const itinerary = cloneItinerary(source, days);
-      const verifySourceAccess = () => requireSourceAccess(sourceRoomId, uid, access.members[uid].aclVersion);
-      await verifySourceAccess();
       const existing = (await database.ref(`rooms/${roomId}`).get()).val();
       if (existing) {
         const target = await accessFor(roomId);
@@ -249,8 +291,29 @@ export function createTravelJournalService({ database, collaborationService, clo
           && existing.meta?.ownerUid === uid && active(target, uid)) return { roomId, meta: existing.meta };
         fail('already-exists', '此旅程 ID 已存在。');
       }
+      const reserved = await accessFor(roomId);
+      if (reserved && reserved.ownerUid !== uid) fail('already-exists', '此旅程 ID 已存在。');
+      const savedSnapshot = async () => {
+        const saved = (await database.ref(`travelMemoryArchives/${uid}/${sourceRoomId}`).get()).val();
+        const deleted = (await database.ref(`personalTravel/${uid}/deletedMemories/${sourceRoomId}`).get()).exists();
+        if (deleted || !saved?.operation?.meta || !['queued', 'copying', 'partial', 'complete'].includes(saved.summary?.state)) {
+          fail('failed-precondition', '請先永久保存這趟旅行，再複製新旅程。');
+        }
+        return saved;
+      };
+      const archive = await savedSnapshot();
+      const source = { meta: archive.operation.meta, itinerary: archive.itinerary || {} };
+      const meta = normalizeTripMeta({ ...source.meta, ...data?.meta, members: ['自己'], memberBudgets: { 自己: 10000 } }, Number(clock()));
+      const days = (Date.parse(meta.endDate) - Date.parse(meta.startDate)) / 86400000 + 1;
+      const sourceDays = (Date.parse(source.meta.endDate) - Date.parse(source.meta.startDate)) / 86400000 + 1;
+      if (!Number.isInteger(sourceDays) || sourceDays < 1 || days < sourceDays) fail('invalid-argument', '新旅程必須保留原行程天數。');
+      const itinerary = cloneItinerary(source, days);
+      const verifySnapshot = async () => {
+        const latest = await savedSnapshot();
+        if (latest.operation.id !== archive.operation.id) fail('failed-precondition', '個人回憶已更新，請重新載入。');
+      };
       try {
-        return await collaborationService.createTrip({ roomId, meta }, auth, { itinerary, cloneSourceRoomId: sourceRoomId, beforePublish: verifySourceAccess });
+        return await collaborationService.createTrip({ roomId, meta }, auth, { itinerary, cloneSourceRoomId: sourceRoomId, beforePublish: verifySnapshot });
       } catch (error) {
         if (error.code === 'permission-denied' || error.code === 'unauthenticated') throw error;
         const [latest, target, reservationSnapshot] = await Promise.all([

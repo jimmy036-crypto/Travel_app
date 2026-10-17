@@ -11,6 +11,11 @@ const source = () => ({ meta: structuredClone(meta), itinerary: { 'Day 1': [{ id
 const request = (overrides = {}) => ({ roomId: 'source', revision: 0, archived: true, note: '', visits: {}, firsts: {}, ...overrides });
 const decision = (overrides = {}) => ({ status: 'visited', city: '日本・京都', note: '', ...overrides });
 const rejectCode = (promise, code) => assert.rejects(promise, (error) => error.code === code);
+const preserve = (database) => database.assign('travelMemoryArchives/alice/source', {
+  summary: { state: 'complete', operationId: 'saved', saved: 0, total: 0 },
+  itinerary: structuredClone(database.value('rooms/source/itinerary')),
+  operation: { id: 'saved', meta: structuredClone(database.value('rooms/source/meta')) },
+});
 
 class MemoryDatabase {
   constructor() {
@@ -239,6 +244,7 @@ test('collection links are checked inside account transaction against concurrent
 
 test('clone publishes only sanitized itinerary atomically with ready room and supports owned retry', async () => {
   const { service, database } = fixture();
+  preserve(database);
   const payload = { sourceRoomId: 'source', roomId: 'new-room', meta: { ...meta, startDate: '2027-01-01', endDate: '2027-01-02' } };
   database.beforeUpdate = async (_path, updates) => {
     if (!updates['rooms/new-room']) return;
@@ -264,8 +270,9 @@ test('clone publishes only sanitized itinerary atomically with ready room and su
 
 test('clone rejects inaccessible source, collisions and dates shorter than source', async () => {
   const { service, database } = fixture();
+  preserve(database);
   const base = { sourceRoomId: 'source', roomId: 'new', meta };
-  await rejectCode(service.cloneMemoryTrip(base, auth('outsider')), 'permission-denied');
+  await rejectCode(service.cloneMemoryTrip(base, auth('outsider')), 'failed-precondition');
   await rejectCode(service.cloneMemoryTrip({ ...base, roomId: 'source' }, auth()), 'already-exists');
   await rejectCode(service.cloneMemoryTrip({ ...base, meta: { ...meta, endDate: meta.startDate } }, auth()), 'invalid-argument');
   database.state.rooms.new = { meta: { ownerUid: 'alice' } };
@@ -282,6 +289,7 @@ test('clone preserves current planning transport modes and minutes without obsol
     { id: 'negative', name: 'invalid', nextLeg: { mode: 'WALK', mins: -1 } },
     { id: 'too-long', name: 'invalid', nextLeg: { mode: 'FLIGHT', mins: 1441 } },
   ] };
+  preserve(database);
   await service.cloneMemoryTrip({ sourceRoomId: 'source', roomId: 'transport', meta }, auth());
   const places = database.value('rooms/transport/itinerary/Day 1');
   supported.forEach((mode, index) => assert.deepEqual(places[index].nextLeg, { mode, mins: index + 15 }));
@@ -290,6 +298,7 @@ test('clone preserves current planning transport modes and minutes without obsol
 
 test('confirmed failed clone publication permits a fresh attempt without releasing old reservation', async () => {
   const { service, database } = fixture();
+  preserve(database);
   const payload = { sourceRoomId: 'source', roomId: 'failed-clone', meta };
   database.beforeUpdate = async (path, updates) => {
     if (!updates['rooms/failed-clone']) return;
@@ -312,6 +321,7 @@ test('confirmed failed clone publication permits a fresh attempt without releasi
 
 test('ambiguous after-commit clone failure keeps same ID and cannot create duplicates', async () => {
   const { service, database } = fixture();
+  preserve(database);
   const payload = { sourceRoomId: 'source', roomId: 'committed-clone', meta };
   database.afterUpdate = async (path, updates) => {
     if (!updates['rooms/committed-clone']) return;
@@ -326,18 +336,111 @@ test('ambiguous after-commit clone failure keeps same ID and cannot create dupli
 
 test('failed clone retry signal requires matching server-owned reservation identity', async () => {
   const { service, database } = fixture();
+  preserve(database);
   database.state.roomAccess.collision = { ownerUid: 'alice', cloneSourceRoomId: 'source', state: 'failed', creationId: 'original', members: { alice: { ...member('alice'), status: 'removed' } } };
   database.state.roomReservations = { collision: { createdByUid: 'alice', creationId: 'different' } };
   await rejectCode(service.cloneMemoryTrip({ sourceRoomId: 'source', roomId: 'collision', meta }, auth()), 'already-exists');
   assert.equal(database.value('rooms/collision'), null);
 });
 
-test('clone strips protected URLs even from whitelisted text and checks membership before publishing', async () => {
+test('clone strips protected URLs even from whitelisted text and checks personal deletion before publishing', async () => {
   const { service, database } = fixture();
   database.state.rooms.source.itinerary['Day 1'][0].memo = '參考 https://firebasestorage.googleapis.com/v0/b/private/o/rooms%2Fsource%2Fa?token=secret';
+  preserve(database);
   await service.cloneMemoryTrip({ sourceRoomId: 'source', roomId: 'safe', meta }, auth());
   assert.equal(database.value('rooms/safe/itinerary/Day 1/0/memo'), null);
-  database.beforeTransaction = async (path) => { if (path === 'roomAccess/race') database.state.roomAccess.source.members.alice.status = 'removed'; };
-  await rejectCode(service.cloneMemoryTrip({ sourceRoomId: 'source', roomId: 'race', meta }, auth()), 'permission-denied');
+  database.beforeTransaction = async (path) => { if (path === 'roomAccess/race') database.state.travelMemoryArchives.alice.source.summary.state = 'deleting'; };
+  await rejectCode(service.cloneMemoryTrip({ sourceRoomId: 'source', roomId: 'race', meta }, auth()), 'failed-precondition');
   assert.equal(database.value('rooms/race'), null);
+});
+
+test('permanent snapshot supports cloning and new itinerary decisions after original deletion', async () => {
+  const { service, database } = fixture();
+  await service.saveTravelMemory(request(), auth()); preserve(database);
+  delete database.state.rooms.source; delete database.state.roomAccess.source;
+  const { memory } = await service.saveTravelMemory(request({ revision: 1, visits: { [visitId]: decision() } }), auth());
+  assert.equal(memory.visits[visitId].name, '寺院');
+  assert.equal((await service.cloneMemoryTrip({ sourceRoomId: 'source', roomId: 'saved-clone', meta }, auth())).roomId, 'saved-clone');
+  assert.equal(database.value('rooms/saved-clone/itinerary/Day 1/0/cost'), null);
+});
+
+test('clone requires personal snapshot and never falls back to original room', async () => {
+  const { service } = fixture();
+  await rejectCode(service.cloneMemoryTrip({ sourceRoomId: 'source', roomId: 'unsaved', meta }, auth()), 'failed-precondition');
+});
+
+test('account deletion tombstone prevents stale save from resurrecting a personal memory', async () => {
+  const { service, database } = fixture();
+  database.assign('personalTravel/alice/deletedMemories/source', { revision: 2, deletedAt: 900 });
+  await rejectCode(service.saveTravelMemory(request(), auth()), 'failed-precondition');
+  assert.equal(database.value('personalTravel/alice/memories/source'), null);
+});
+
+test('manual visits use explicit identity and validated personal name date and coordinates', async () => {
+  const { service } = fixture();
+  const id = 'manual~123e4567-e89b-42d3-a456-426614174000';
+  const visit = decision({ source: 'manual', name: '臨時咖啡店', date: '2026-01-02', lat: 35.1, lng: 135.1, cityId: 'city-kyoto', country: '日本', cityLat: 35, cityLng: 135 });
+  const { memory } = await service.saveTravelMemory(request({ visits: { [id]: visit } }), auth());
+  assert.equal(memory.visits[id].source, 'manual');
+  assert.equal(memory.visits[id].name, '臨時咖啡店');
+  assert.equal(memory.visits[id].cityId, 'city-kyoto');
+  for (const patch of [{ source: 'itinerary' }, { name: '' }, { date: '2026-02-30' }, { lat: 200 }, { lng: '135' }, { cityLat: 91 }, { cityId: '' }]) {
+    await rejectCode(service.saveTravelMemory(request({ revision: 1, visits: { [id]: { ...visit, ...patch } } }), auth()), 'invalid-argument');
+  }
+  await rejectCode(service.saveTravelMemory(request({ revision: 1, visits: { 'manual~invalid': visit } }), auth()), 'invalid-argument');
+});
+
+test('canonical visit city identity persists without accepting spoofed itinerary fields', async () => {
+  const { service } = fixture();
+  const { memory } = await service.saveTravelMemory(request({ visits: { [visitId]: decision({ cityId: 'kyoto', country: 'JP', cityLat: 35, cityLng: 135, name: 'spoof', lat: 0 }) } }), auth());
+  assert.equal(memory.visits[visitId].cityId, 'kyoto');
+  assert.equal(memory.visits[visitId].country, 'JP');
+  assert.equal(memory.visits[visitId].lat, 35);
+  assert.equal(memory.visits[visitId].name, '寺院');
+});
+
+test('first experiences remain account unique unless explicitly reassigned transactionally', async () => {
+  const { service, database } = fixture();
+  database.assign('personalTravel/alice/memories/earlier', { roomId: 'earlier', revision: 4, firsts: { snow: '第一次看雪' }, note: '保留' });
+  const payload = request({ firsts: { snow: '第一次看雪' } });
+  await rejectCode(service.saveTravelMemory(payload, auth()), 'failed-precondition');
+  assert.equal(database.value('personalTravel/alice/memories/earlier/firsts/snow'), '第一次看雪');
+  const { memory } = await service.saveTravelMemory({ ...payload, reassignFirsts: ['snow'] }, auth());
+  assert.equal(memory.firsts.snow, '第一次看雪');
+  assert.deepEqual(database.value('personalTravel/alice/memories/earlier/firsts'), {});
+  assert.equal(database.value('personalTravel/alice/memories/earlier/revision'), 5);
+  assert.equal(database.value('personalTravel/alice/memories/earlier/note'), '保留');
+  await rejectCode(service.saveTravelMemory(request({ revision: 1, reassignFirsts: ['arbitrary'] }), auth()), 'invalid-argument');
+});
+
+test('wishlist source provenance is preserved for deduplication but does not count as a visited link', async () => {
+  const { service } = fixture();
+  const { collection } = await service.saveTravelCollection({ id: 'again', revision: 0, title: '下次', deleted: false, items: { a: { name: '寺院', city: '京都', sourceRoomId: 'source', sourceVisitId: visitId } } }, auth());
+  assert.equal(collection.items.a.sourceRoomId, 'source');
+  assert.equal(collection.items.a.sourceVisitId, visitId);
+  assert.equal(collection.items.a.roomId, undefined);
+  await rejectCode(service.saveTravelCollection({ id: 'bad', revision: 0, title: '下次', deleted: false, items: { a: { name: '寺院', sourceRoomId: '../other', sourceVisitId: visitId } } }, auth()), 'invalid-argument');
+});
+
+test('manual visits without venue GPS remain valid and have no invented coordinates', async () => {
+  const { service } = fixture();
+  const id = 'manual~123e4567-e89b-42d3-a456-426614174001';
+  const { memory } = await service.saveTravelMemory(request({ visits: { [id]: decision({ source: 'manual', name: '臨時咖啡店', date: '2026-01-02' }) } }), auth());
+  assert.equal(memory.visits[id].lat, null);
+  assert.equal(memory.visits[id].lng, null);
+});
+
+test('revision conflict includes current personal record for a field-level merge', async () => {
+  const { service } = fixture();
+  const { memory } = await service.saveTravelMemory(request({ note: '其他裝置' }), auth());
+  await assert.rejects(service.saveTravelMemory(request({ note: '我的草稿' }), auth()), (error) => {
+    assert.equal(error.code, 'aborted'); assert.deepEqual(error.details?.current, memory); return true;
+  });
+});
+
+test('clone uses preserved destination coordinates when client only supplies title and dates', async () => {
+  const { service, database } = fixture(); preserve(database);
+  const result = await service.cloneMemoryTrip({ sourceRoomId: 'source', roomId: 'from-snapshot', meta: { title: '再去京都', startDate: '2027-01-01', endDate: '2027-01-02' } }, auth());
+  assert.equal(result.meta.destLat, 35); assert.equal(result.meta.destLng, 135);
+  assert.equal(result.meta.destination, '日本');
 });

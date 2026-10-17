@@ -13,6 +13,7 @@ import { CollaborationError } from './domain.js';
 import { createParkingService } from './parking.js';
 import { createTripDeletionService } from './tripDeletion.js';
 import { createTravelJournalService } from './travelJournal.js';
+import { createTravelMemoryArchiveService } from './travelMemoryArchive.js';
 
 initializeApp();
 setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
@@ -33,6 +34,7 @@ const parkingService = createParkingService({
   logger,
 });
 const travelJournalService = createTravelJournalService({ database, collaborationService: service });
+const memoryArchiveService = createTravelMemoryArchiveService({ database, bucket: getStorage().bucket() });
 
 const callable = (name, handler, options = null) => {
   const wrapped = async (request) => {
@@ -65,6 +67,8 @@ export const deleteTrip = callable('deleteTrip', tripDeletionService.deleteTrip)
 export const saveTravelMemory = callable('saveTravelMemory', travelJournalService.saveTravelMemory);
 export const saveTravelCollection = callable('saveTravelCollection', travelJournalService.saveTravelCollection);
 export const cloneMemoryTrip = callable('cloneMemoryTrip', travelJournalService.cloneMemoryTrip);
+export const requestTravelMemoryPreservation = callable('requestTravelMemoryPreservation', memoryArchiveService.requestTravelMemoryPreservation, { timeoutSeconds: 540, maxInstances: 2 });
+export const deleteTravelMemory = callable('deleteTravelMemory', memoryArchiveService.deleteTravelMemory);
 export const searchParking = callable(
   'searchParking',
   parkingService.searchParking,
@@ -93,6 +97,34 @@ export const processTripDeletion = onValueWritten(
         : 'Trip deletion has more bounded cleanup work; retry required.');
     }
   },
+);
+
+export const processTravelMemoryArchive = onValueWritten(
+  { ref: '/travelMemoryArchives/{uid}/{roomId}/summary/state', retry: true, timeoutSeconds: 540, maxInstances: 2, concurrency: 1 },
+  async (event) => {
+    if (!event.data.after.exists()) return;
+    const { uid, roomId } = event.params;
+    // Read current state: delayed queued events must never reopen a deletion.
+    const state = (await database.ref(`travelMemoryArchives/${uid}/${roomId}/summary/state`).get()).val();
+    const result = ['deleting', 'deleted'].includes(state)
+      ? await memoryArchiveService.processTravelMemoryDeletion(uid, roomId)
+      : await memoryArchiveService.processTravelMemoryPreservation(uid, roomId);
+    if (result.retryRequired) throw new Error('Personal memory has more bounded work or an active lease; retry required.');
+  },
+);
+
+export const resumeTravelMemoryDeletion = onValueWritten(
+  { ref: '/personalTravel/{uid}/deletedMemories/{roomId}', retry: true, timeoutSeconds: 540, maxInstances: 2, concurrency: 1 },
+  async (event) => {
+    if (!event.data.after.exists()) return;
+    const result = await memoryArchiveService.processTravelMemoryDeletion(event.params.uid, event.params.roomId);
+    if (result.retryRequired) throw new Error('Personal memory deletion has more bounded cleanup work; retry required.');
+  },
+);
+
+export const cleanupFinalizedMemoryObject = onObjectFinalized(
+  { region: 'us-east1', retry: true, maxInstances: 2, concurrency: 4 },
+  async (event) => { await memoryArchiveService.cleanupFinalizedMemoryObject(event.data); },
 );
 
 export const cleanupDeletedTripStorageObject = onObjectFinalized(

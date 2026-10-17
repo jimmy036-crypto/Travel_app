@@ -1,6 +1,26 @@
 # 旅行回憶、足跡與收藏驗收紀錄
 
-## 範圍與授權
+## 2026-10-17 永久保存與流程優化（最新）
+
+本次在已部署的 `3d28857` 上延續 Draft PR #78，新增獨立行程與照片副本、可重試保存與個人刪除，以及草稿、衝突、城市、收藏、閱讀、分享和網址導覽優化。來源刪除後可讀取自己的副本並複製規劃。以下 2026-10-16 內容是上一版本歷史，不能當作新版本已上線的證據。
+
+- `npm run verify:fast`：130 檔／1,394 項 Vitest、TypeScript、ESLint、build 通過（86.4 秒）。
+- `npm --prefix functions test`：236 項通過，0 skipped；其中回憶服務與保存生命週期合計 56 項。
+- Rules Emulator：21 項通過，涵蓋私人快照、operation 禁讀、他人拒絕、來源權限撤銷後仍可讀本人照片。
+- 獨立審查修正：Maps Provider、城市篩選、返回原旅程的草稿保護、快照規劃原文、部分照片失敗時的複製、clone metadata 與照片下載量。後端兩個租約／清理競爭有確定性回歸測試。
+- `npm run test:e2e -- e2e/travel-memories.spec.ts e2e/place-storage.spec.ts e2e/trip-deletion.spec.ts e2e/destination-autocomplete.spec.ts`：22 項通過（Chrome 11／Safari 11），3.0 分鐘、0 retry／flaky／skipped。回憶 10 項包含七天、40 景點、3 城市、12 個真實 Emulator 圖片物件、200% 字級、來源刪除後重載、本人刪除／旅伴保留，以及草稿重載／雲端衝突合併。
+- 桌機與手機 200% 字級截圖已人工檢視，沒有水平溢位，主要操作可捲動到達。新增未登入收藏入口回歸測試，登入前不提供編輯表單。
+- 完整 E2E 依專案政策交由最新提交的 PR CI；結果與 SHA 記錄於 [Draft PR #78](https://github.com/jimmy036-crypto/Travel_app/pull/78)。依目前 AGENTS 規範不正式部署、不自動合併。
+
+### 本機瀏覽器修補紀錄
+
+1. 首次 5 passed／3 failed：照片清單 API 不回傳詳細 metadata，改逐檔檢查；Safari 另有一次 trace 證實 Vite 重載，後續執行期間凍結工作區與建置。該流程在後續重跑都首次通過。
+2. 逐檔檢查揭露 Emulator 特有行為：Firebase GET（含 `getBlob` 與 metadata）會自動加下載 token。查核已安裝 firebase-tools 15.25.0 原始碼後，改在開啟照片前用 GCS metadata API 驗證副本沒有 token，保留兩個 token 斷言，另逐檔檢查未登入讀取回傳 403。沒有修改產品程式去繞過權限。
+3. 來源刪除情境的測試 seed 缺少服務端 reservation／creationId，第一次修補改用真實 `createTrip` callable 建立旅程，保留實際 `deleteTrip`、原檔清除、本人副本保留與旅伴不變的全部斷言。最終上述 22 項全部通過，沒有延長 timeout、停用測試或降低斷言。
+
+風險：新增 Storage 規則、私人資料模型、背景保存與刪除生命週期，須人工審查。回滾使用新的 revert PR，保留已保存的個人資料、Storage 物件、本人讀取規則及必要清理 worker；不得用清空資料回滾。
+
+## 2026-10-16 原版本：範圍與授權
 
 使用者要求一次完成三批，已授權個人資料模型與 Firebase Rules，並明確要求提交與部署。基底為 main `d76c4ff48b8a6ff447bf65bc8f5cf957f5e3d4eb`；功能分支為 `ai/travel-memories-footprints`。不修改套件、鎖檔或 CI，不使用正式資料做測試、不讀取本機私密環境檔、不自行合併 main。
 

@@ -61,7 +61,7 @@ export function groupMemories(memories, query = '') {
   for (const memory of memoryEntries(memories)) {
     if (memory.archived !== true) continue;
     const searchable = [memory.title, memory.destination, memory.note,
-      ...entries(memory.visits).flatMap(([, visit]) => [visit?.city, visit?.name])];
+      ...entries(memory.visits).flatMap(([, visit]) => [visit?.city, visit?.name, visit?.note])];
     if (search && !searchable.some((value) => normalizeSearch(value).includes(search))) continue;
     const year = getMemoryYear(memory);
     if (!groups.has(year)) groups.set(year, []);
@@ -76,11 +76,18 @@ export function buildFootprints(memories) {
     for (const [visitId, visit] of confirmedVisits(memory)) {
       const city = normalizeLabel(visit.city);
       if (!city) continue;
-      const id = normalizeSearch(city);
-      if (!cities.has(id)) cities.set(id, { id, city, visits: [], lat: null, lng: null });
+      const cityId = text(visit.cityId);
+      const country = normalizeLabel(visit.country);
+      // A display label is not a canonical identity. Keep exact legacy labels
+      // together for correction, without inferring a city or a return stamp.
+      const id = cityId || `unassigned:${encodeURIComponent(country)}:${encodeURIComponent(city)}`;
+      if (!cities.has(id)) cities.set(id, { id, cityId, city, country, unassigned: !cityId, visits: [], lat: null, lng: null, cityLat: null, cityLng: null });
       const footprint = cities.get(id);
       footprint.visits.push({ ...visit, visitId, roomId: memory.roomId, tripTitle: text(memory.title), year: getMemoryYear(memory) });
-      if (footprint.lat === null) {
+      const cityPosition = coordinates({ lat: visit.cityLat, lng: visit.cityLng });
+      if (cityId && footprint.cityLat === null && cityPosition.lat !== null) {
+        Object.assign(footprint, cityPosition, { cityLat: cityPosition.lat, cityLng: cityPosition.lng });
+      } else if (footprint.lat === null) {
         const position = coordinates(visit);
         if (position.lat !== null) Object.assign(footprint, position);
       }
@@ -101,7 +108,7 @@ export function buildAnnualReview(memories, year) {
     year: selectedYear,
     tripCount: selected.length,
     placeCount: selected.reduce((count, memory) => count + confirmedVisits(memory).length, 0),
-    cityCount: buildFootprints(Object.fromEntries(selected.map((memory) => [memory.roomId, memory]))).length,
+    cityCount: buildFootprints(Object.fromEntries(selected.map((memory) => [memory.roomId, memory]))).filter((city) => !city.unassigned).length,
     memories: selected,
   };
 }
@@ -115,36 +122,37 @@ export function collectionProgress(collection, memories) {
 
 export function buildPassportStamps(memories, collections) {
   const stamps = [];
+  const firstTypes = new Set();
   for (const memory of memoryEntries(memories)) {
     for (const [key, label] of entries(memory.firsts).sort(([a], [b]) => compareText(a, b))) {
-      if (!text(label)) continue;
-      stamps.push({ id: `first:${memory.roomId}:${key}`, title: text(label), kind: 'first', roomId: memory.roomId, description: text(memory.title) });
+      if (!text(label) || firstTypes.has(key)) continue;
+      firstTypes.add(key);
+      stamps.push({ id: `first:${key}`, title: text(label), kind: 'first', roomId: memory.roomId, target: { kind: 'memory', id: memory.roomId }, description: text(memory.title) });
     }
   }
   for (const city of buildFootprints(memories)) {
-    if (city.tripCount < 2) continue;
-    stamps.push({ id: `return:${city.id}`, title: `重遊 ${city.city}`, kind: 'return', roomId: city.visits[0].roomId, description: `${city.tripCount} 趟旅行的足跡` });
+    if (city.unassigned || city.tripCount < 2) continue;
+    stamps.push({ id: `return:${city.id}`, title: `重遊 ${city.city}`, kind: 'return', target: { kind: 'city', id: city.id }, description: `${city.tripCount} 趟旅行的足跡` });
   }
   for (const [id, collection] of entries(collections).sort(([a], [b]) => compareText(a, b))) {
     if (!collectionProgress(collection, memories).complete) continue;
-    const source = entries(collection.items).sort(([a], [b]) => compareText(a, b))[0][1];
-    stamps.push({ id: `collection:${id}`, title: text(collection.title) || '完成收藏', kind: 'collection', roomId: source.roomId, description: `${entries(collection.items).length} 個地點全部到訪` });
+    stamps.push({ id: `collection:${id}`, title: text(collection.title) || '完成收藏', kind: 'collection', target: { kind: 'collection', id }, description: `${entries(collection.items).length} 個地點全部到訪` });
   }
   return stamps;
 }
 
-export function buildShareText(memories, selectedRoomIds = []) {
+export function buildShareText(memories, selectedRoomIds = [], { dates = true, cities = true, note = false } = {}) {
   if (!Array.isArray(selectedRoomIds)) return '';
   return [...new Set(selectedRoomIds)].flatMap((roomId) => {
     const memory = memories?.[roomId];
     if (!memory || typeof memory !== 'object') return [];
-    const dates = [text(memory.startDate), text(memory.endDate)].filter(Boolean).join(' — ');
+    const dateText = dates ? [text(memory.startDate), text(memory.endDate)].filter(Boolean).join(' — ') : '';
     const cityLabels = new Map();
     for (const [, visit] of confirmedVisits(memory)) {
       const city = normalizeLabel(visit.city);
       if (city && !cityLabels.has(normalizeSearch(city))) cityLabels.set(normalizeSearch(city), city);
     }
-    return [[text(memory.title), dates, text(memory.destination), text(memory.note), [...cityLabels.values()].join('、')].filter(Boolean).join('\n')];
+    return [[text(memory.title), dateText, cities ? text(memory.destination) : '', note ? text(memory.note) : '', cities ? [...cityLabels.values()].join('、') : ''].filter(Boolean).join('\n')];
   }).filter(Boolean).join('\n\n');
 }
 

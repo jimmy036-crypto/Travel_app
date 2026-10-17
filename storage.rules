@@ -88,6 +88,16 @@ service firebase.storage {
       allow update: if false;
     }
 
+    match /travelMemories/{uid}/{roomId}/{operationId}/{photoId} {
+      allow read: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.uid == uid
+        && resource.metadata.uid == uid
+        && resource.metadata.operationId == operationId
+        && resource.metadata.photoId == photoId;
+      allow write: if false;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

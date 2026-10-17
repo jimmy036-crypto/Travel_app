@@ -2,6 +2,21 @@
   "rules": {
     ".read": false,
     ".write": false,
+    "travelMemoryArchives": {
+      "$uid": {
+        "$roomId": {
+          "summary": {
+            ".read": "auth != null && auth.token.firebase.sign_in_provider == 'google.com' && auth.uid == $uid"
+          },
+          "itinerary": {
+            ".read": "auth != null && auth.token.firebase.sign_in_provider == 'google.com' && auth.uid == $uid"
+          },
+          "photos": {
+            ".read": "auth != null && auth.token.firebase.sign_in_provider == 'google.com' && auth.uid == $uid"
+          }
+        }
+      }
+    },
     "personalTravel": {
       "$uid": {
         ".read": "auth != null && auth.token.firebase.sign_in_provider == 'google.com' && auth.uid == $uid",
