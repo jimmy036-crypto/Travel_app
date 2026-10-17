@@ -332,6 +332,39 @@ test('createTrip never reuses a permanently reserved Storage namespace', async (
   assert.equal(database.value(`userQuotas/${googleAuth.uid}/createTrip/totalCount`), 0);
 });
 
+test('createTrip exposes member mirrors only after the complete room is readable', async () => {
+  const { database, firestore, service } = createFixture();
+  const roomId = 'atomic-publication';
+  const uid = googleAuth.uid;
+  const itinerary = { 'Day 1': [{ id: 'museum', name: 'Museum' }] };
+  let checkedPending = false;
+  await service.createTrip({
+    roomId,
+    meta: {
+      title: 'New trip', destination: 'Taipei', destLat: 25.033, destLng: 121.5654,
+      startDate: '2026-09-01', endDate: '2026-09-02', members: ['Owner'],
+    },
+  }, googleAuth, {
+    itinerary,
+    beforePublish: async () => {
+      checkedPending = true;
+      assert.equal(database.value(`roomAccess/${roomId}/state`), 'pending');
+      // Reproduce a member trigger running before the atomic room publication.
+      await service.syncMemberAccess(roomId, uid);
+      assert.equal(database.value(`userTrips/${uid}/${roomId}`), undefined);
+      assert.equal(firestore.value(`tripAccess/${roomId}/members/${uid}`), undefined);
+      assert.equal(database.value(`rooms/${roomId}`), undefined);
+    },
+  });
+  assert.equal(checkedPending, true);
+  assert.equal(database.value(`roomAccess/${roomId}/state`), 'ready');
+  assert.equal(database.value(`roomAccess/${roomId}/members/${uid}/status`), 'active');
+  assert.deepEqual(database.value(`rooms/${roomId}/itinerary`), itinerary);
+  await service.syncMemberAccess(roomId, uid);
+  assert.equal(database.value(`userTrips/${uid}/${roomId}/status`), 'active');
+  assert.equal(firestore.value(`tripAccess/${roomId}/members/${uid}`).status, 'active');
+});
+
 test('createTrip preserves bounded pending deletion release claims', async () => {
   const release = {
     roomId: 'deleted-room',

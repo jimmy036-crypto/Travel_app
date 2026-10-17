@@ -515,7 +515,7 @@ export function createCollaborationService({ database, firestore, clock = Date.n
   };
 
   return {
-    async createTrip(data, auth) {
+    async createTrip(data, auth, initialContent = null) {
       const profile = requireGoogleIdentity(auth);
       const roomId = validateRoomId(data?.roomId);
       const createdAt = nowValue(clock);
@@ -558,9 +558,9 @@ export function createCollaborationService({ database, firestore, clock = Date.n
       const access = {
         ownerUid: profile.uid,
         creationId,
+        ...(initialContent?.cloneSourceRoomId ? { cloneSourceRoomId: initialContent.cloneSourceRoomId } : {}),
         state: 'pending',
         createdAt,
-        members: { [profile.uid]: ownerMember },
       };
 
       const accessTransaction = await roomAccessRef(roomId).transaction(
@@ -574,16 +574,22 @@ export function createCollaborationService({ database, firestore, clock = Date.n
       }
 
       try {
+        // Only trusted service code can provide this third argument. Publish the
+        // complete sanitized plan, ready ACL and owner in the same atomic update.
+        // A pending owner would trigger an active lobby index before reads are
+        // permitted, leaving a new trip stuck as unavailable in the client.
+        if (initialContent?.beforePublish) await initialContent.beforePublish();
         await database.ref().update({
           [`rooms/${roomId}`]: {
             meta,
-            itinerary: { 'Day 1': [] },
+            itinerary: initialContent?.itinerary || { 'Day 1': [] },
             expenses: [],
             settlements: [],
             tickets: [],
             checklist: {},
           },
           [`roomAccess/${roomId}/state`]: 'ready',
+          [`roomAccess/${roomId}/members/${profile.uid}`]: ownerMember,
           [`userTrips/${profile.uid}/${roomId}`]: {
             role: MEMBER_ROLES.OWNER,
             status: MEMBER_STATUSES.ACTIVE,

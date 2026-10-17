@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CURRENT_RELEASE_SEEN_KEY } from './config/releaseNotes.js';
 import { GlobalModalProvider } from './components/ui/GlobalModalProvider.jsx';
 import { ToastProvider } from './components/ui/ToastProvider.jsx';
+// Keep these existing trip hydration fixtures independent of the private journal listener.
+vi.mock('./features/memories/useTravelJournal.js', () => ({
+  useTravelJournal: () => ({ memories: {}, collections: {}, loading: false, error: '', retry: vi.fn() }),
+}));
 
 const firebaseMocks = vi.hoisted(() => ({
   latestValueCallback: null,

@@ -109,6 +109,43 @@ afterAll(async () => {
 });
 
 describe('Realtime Database authorization', () => {
+  it('exposes only the owner archive summary itinerary and photos even after source access is removed', async () => {
+    const path = `travelMemoryArchives/${OWNER_UID}/${ROOM_ID}`;
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await set(databaseRef(context.database(), path), {
+        summary: { state: 'complete', saved: 1, total: 1, operationId: 'saved' },
+        itinerary: { 'Day 1': [{ id: 'p1', name: '台北車站' }] },
+        photos: { p1: { storagePath: `travelMemories/${OWNER_UID}/${ROOM_ID}/saved/p1` } },
+        operation: { id: 'saved', sources: { private: 'source-metadata' } },
+      });
+      await set(databaseRef(context.database(), `roomAccess/${ROOM_ID}/members/${OWNER_UID}/status`), 'removed');
+    });
+    for (const child of ['summary', 'itinerary', 'photos']) {
+      await assertSucceeds(get(databaseRef(authContext(OWNER_UID).database(), `${path}/${child}`)));
+      for (const context of [authContext(EDITOR_UID), authContext(REMOVED_UID), authContext(OUTSIDER_UID), environment.unauthenticatedContext()]) {
+        await assertFails(get(databaseRef(context.database(), `${path}/${child}`)));
+      }
+      await assertFails(set(databaseRef(authContext(OWNER_UID).database(), `${path}/${child}`), null));
+    }
+    for (const target of [path, `travelMemoryArchives/${OWNER_UID}`, `${path}/operation`]) {
+      await assertFails(get(databaseRef(authContext(OWNER_UID).database(), target)));
+    }
+    await assertFails(set(databaseRef(authContext(OWNER_UID).database(), `${path}/operation`), { id: 'spoof' }));
+  });
+  it('keeps memories private to the Google account and denies every direct client write', async () => {
+    const path = `personalTravel/${OWNER_UID}`;
+    const saved = { memories: { [ROOM_ID]: { archived: true, revision: 1, note: '私人感想' } } };
+    await environment.withSecurityRulesDisabled((context) => set(databaseRef(context.database(), path), saved));
+    expect((await assertSucceeds(get(databaseRef(authContext(OWNER_UID).database(), path)))).val()).toEqual(saved);
+    for (const context of [authContext(EDITOR_UID), authContext(OUTSIDER_UID), environment.unauthenticatedContext(), environment.authenticatedContext(OWNER_UID, { firebase: { sign_in_provider: 'password' } })]) {
+      await assertFails(get(databaseRef(context.database(), path)));
+    }
+    await assertFails(get(databaseRef(authContext(OWNER_UID).database(), 'personalTravel')));
+    await assertFails(set(databaseRef(authContext(OWNER_UID).database(), `${path}/memories/${ROOM_ID}/archived`), false));
+    await assertFails(set(databaseRef(authContext(EDITOR_UID).database(), `${path}/collections/foreign`), { title: '不可寫入' }));
+    await assertFails(set(databaseRef(authContext(OWNER_UID).database(), path), null));
+    expect((await get(databaseRef(authContext(EDITOR_UID).database(), `rooms/${ROOM_ID}/meta/title`))).val()).toBe('安全旅程');
+  });
   it('denies anonymous, outsider and removed users while active members can read/write', async () => {
     const anonymous = environment.unauthenticatedContext().database();
     const outsider = authContext(OUTSIDER_UID).database();
@@ -428,6 +465,22 @@ describe('Firestore ACL mirror', () => {
 });
 
 describe('Cloud Storage authorization', () => {
+  it('keeps permanent personal photos owner-only independent of original trip access and denies client mutations', async () => {
+    const path = `travelMemories/${OWNER_UID}/${ROOM_ID}/saved/photo`;
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await uploadBytes(storageRef(context.storage(), path), new Uint8Array([1, 2, 3]), {
+        contentType: 'image/jpeg', customMetadata: { uid: OWNER_UID, operationId: 'saved', photoId: 'photo' },
+      });
+      await setDoc(doc(context.firestore(), `tripAccess/${ROOM_ID}/members/${OWNER_UID}`), { uid: OWNER_UID, status: 'removed', role: 'owner', aclVersion: 2 });
+    });
+    expect((await assertSucceeds(getBytes(storageRef(authContext(OWNER_UID).storage(), path)))).byteLength).toBe(3);
+    for (const context of [authContext(EDITOR_UID), authContext(REMOVED_UID), authContext(OUTSIDER_UID), environment.unauthenticatedContext(), environment.authenticatedContext(OWNER_UID, { firebase: { sign_in_provider: 'password' } })]) {
+      await assertFails(getBytes(storageRef(context.storage(), path)));
+    }
+    await assertFails(deleteObject(storageRef(authContext(OWNER_UID).storage(), path)));
+    await assertFails(uploadBytes(storageRef(authContext(OWNER_UID).storage(), path), new Uint8Array([4]), { contentType: 'image/jpeg' }));
+    await assertFails(uploadBytes(storageRef(authContext(OWNER_UID).storage(), `${path}-new`), new Uint8Array([4]), { contentType: 'image/jpeg' }));
+  });
   const validMetadata = {
     contentType: 'image/png',
     cacheControl: 'private, no-store, max-age=0',

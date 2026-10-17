@@ -12,6 +12,8 @@ export function TripCard({
   onRetry,
   onRemove,
   onReset,
+  onArchive,
+  archiveLabel = '收進回憶',
   offlineSummary,
   titleTestId = 'trip-card-title',
 }) {
@@ -217,6 +219,11 @@ export function TripCard({
           {cardContent}
         </div>
       )}
+      {onArchive && !isDeleting && !isUnavailable ? (
+        <button type="button" data-testid="archive-trip-action" onClick={(event) => { event.stopPropagation(); onArchive(); }} className={`mt-4 min-h-11 w-full rounded-xl border px-3 text-sm font-bold ${theme.cardBorder} ${theme.subText} hover:bg-blue-500/15`}>
+          {archiveLabel}
+        </button>
+      ) : null}
       {isDeleting ? (
         <div className={`mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-3 py-2.5 text-sm font-bold ${theme.isLight ? 'text-red-700' : 'text-red-200'}`} role="status">
           正在清除雲端資料；若長時間沒有完成，可使用上方按鈕重新送出要求。
