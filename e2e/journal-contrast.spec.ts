@@ -82,6 +82,8 @@ for (const theme of [{ name: 'light', color: '#27bdf2' }, { name: 'dark', color:
       await detail.getByRole('button', { name: '補充回憶與到訪' }).click();
       const editor = page.getByTestId('memory-editor');
       ratios[`${os}-light-footer`] = await readable(editor.getByRole('button', { name: '取消', exact: true }));
+      ratios[`${os}-journal-action`] = await readable(editor.getByRole('button', { name: '編輯景點' }));
+      if (os === 'dark') await testInfo.attach(`${theme.name}-city-editor`, { body: await page.screenshot(), contentType: 'image/png' });
       ratios[`${os}-save`] = await readable(editor.getByRole('button', { name: '儲存回憶' }));
       await editor.getByRole('button', { name: '關閉', exact: true }).click();
       await detail.getByText('整理這份回憶', { exact: true }).click();
@@ -104,7 +106,7 @@ for (const theme of [{ name: 'light', color: '#27bdf2' }, { name: 'dark', color:
       ratios[`${os}-share-close`] = await readable(share.getByRole('button', { name: '關閉', exact: true }));
       await share.getByRole('button', { name: '關閉', exact: true }).click();
       await nav(page, '我的足跡').click();
-      ratios[`${os}-unselected-city`] = await readable(page.getByRole('button', { name: /次/, pressed: false }));
+      ratios[`${os}-unselected-city`] = await readable(page.getByRole('button', { name: / · \d+ 趟旅行/, pressed: false }));
       ratios[`${os}-city-collection`] = await readable(page.getByRole('button', { name: '收藏這座城市' }));
       await nav(page, '我的收藏').click();
       ratios[`${os}-collection-entry`] = await readable(page.getByRole('button', { name: '查看收藏' }));

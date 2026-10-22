@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyVisitPatch, groupVisitCandidates, newManualVisit, firstMissingCity } from './visitDraftModel.js';
+import { applyVisitPatch, groupVisitCandidates, newManualVisit, removeCity, cityKey } from './visitDraftModel.js';
 
 const candidates = [{ visitId: 'day1~a', dayId: 'day1', name: 'A' }, { visitId: 'day2~b', dayId: 'day2', name: 'B' }];
 describe('visit drafts', () => {
@@ -14,11 +14,18 @@ describe('visit drafts', () => {
     expect(groups.map((group) => group.id)).toEqual(['day1', 'day2', 'day3', 'manual']);
     expect(groups[3].places[0].name).toBe('C');
   });
-  it('marks unassigned text as missing and locates the first missing visited city', () => {
-    expect(firstMissingCity({ a: { status: 'wishlist' }, b: { status: 'visited', city: '京都' }, c: { status: 'visited', cityId: 'osaka', city: '大阪' } })).toBe('b');
+  it('removes a city confirmation and its footprint assignments without losing place notes', () => {
+    const draft = { note: '旅程感想', cities: { kyoto: { cityId: 'kyoto' }, osaka: { cityId: 'osaka' } }, visits: { a: { status: 'visited', cityId: 'kyoto', city: '京都', country: '日本', cityLat: 35, cityLng: 135, name: '寺廟', note: '下雨', lat: 35.1 }, b: { status: 'visited', cityId: 'osaka', city: '大阪' } } };
+    const next = removeCity(draft, 'kyoto');
+    expect(next.cities).toEqual({ osaka: { cityId: 'osaka' } });
+    expect(next.visits.a).toEqual({ status: 'visited', city: '', name: '寺廟', note: '下雨', lat: 35.1 });
+    expect(next.visits.b).toEqual(draft.visits.b);
+    expect(draft.visits.a.cityId).toBe('kyoto');
+    expect(next.note).toBe('旅程感想');
   });
-  it('locates the first missing city in displayed order rather than selection order', () => {
-    expect(firstMissingCity({ b: { status: 'visited' }, a: { status: 'visited' } }, ['a', 'b'])).toBe('a');
+  it('keeps notes when a place becomes unconfirmed and encodes database-unsafe city IDs', () => {
+    expect(applyVisitPatch({ 'day1~a': { status: 'visited', note: '留著', cityId: 'kyoto' } }, candidates, ['day1~a'], { status: 'unconfirmed' })['day1~a']).toMatchObject({ status: 'unconfirmed', note: '留著', cityId: 'kyoto' });
+    expect(cityKey('city.a/~')).toBe('city%2Ea%2F%7E');
   });
   it('creates manual visits in their own namespace without inventing coordinates or city', () => {
     const manual = newManualVisit('臨時咖啡店');

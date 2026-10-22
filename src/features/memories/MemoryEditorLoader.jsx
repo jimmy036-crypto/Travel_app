@@ -4,6 +4,7 @@ import { db } from '../../firebase.js';
 import { MemoryEditor } from './MemoryEditor.jsx';
 import { extractVisitCandidates } from './journalModel.js';
 import { useMemoryArchive } from './useMemoryArchive.js';
+import { useCitySuggestions } from './useCitySuggestions.js';
 
 export function MemoryEditorLoader({ accountUid, trip, memory, canReadSource, ...props }) {
   const archive = useMemoryArchive(accountUid, trip.roomId);
@@ -22,5 +23,6 @@ export function MemoryEditorLoader({ accountUid, trip, memory, canReadSource, ..
     return () => { active = false; };
   }, [archive.loading, hasSnapshot, canReadSource, trip.roomId, trip.startDate, requestKey]);
   const candidates = hasSnapshot ? extractVisitCandidates(archive.itinerary, memory?.startDate || trip.startDate) : canReadSource && load.key === requestKey ? load.candidates : [];
-  return <MemoryEditor accountUid={accountUid} trip={trip} memory={memory} candidates={candidates} loading={archive.loading || (!hasSnapshot && canReadSource && load.key !== requestKey)} loadError={archive.error || (hasSnapshot ? '' : canReadSource ? load.error : '原行程目前無法存取；仍可整理已保存的個人紀錄。')} onRetry={() => { archive.retry(); setVersion((value) => value + 1); }} {...props} />;
+  const suggestions = useCitySuggestions(candidates, memory?.destination || trip.destination, requestKey);
+  return <MemoryEditor accountUid={accountUid} trip={trip} memory={memory} candidates={candidates} suggestedCities={suggestions.cities} placeCities={suggestions.placeCities} citiesLoading={suggestions.loading} loading={archive.loading || (!hasSnapshot && canReadSource && load.key !== requestKey)} loadError={archive.error || (hasSnapshot ? '' : canReadSource ? load.error : '原行程目前無法存取；仍可整理已保存的個人紀錄。')} onRetry={() => { archive.retry(); setVersion((value) => value + 1); }} {...props} />;
 }

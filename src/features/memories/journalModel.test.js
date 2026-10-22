@@ -45,6 +45,28 @@ describe('memory grouping', () => {
 });
 
 describe('footprints', () => {
+  it('counts city-only trips without fabricating attraction visits and deduplicates mixed evidence', () => {
+    const city = { cityId: 'kyoto', city: '京都', country: '日本', cityLat: 35, cityLng: 135 };
+    const trips = {
+      one: { title: '第一次', startDate: '2025-01-01', archived: true, cities: { kyoto: city } },
+      two: { title: '再訪', startDate: '2026-01-01', archived: false, cities: { kyoto: city }, visits: { museum: { ...city, name: '美術館', status: 'visited' } } },
+      planned: { title: '只規劃', startDate: '2026-01-02', visits: { cafe: { ...city, name: '咖啡店', status: 'wishlist' } } },
+    };
+    expect(buildFootprints(trips)).toHaveLength(1);
+    expect(buildFootprints(trips)[0]).toMatchObject({ tripCount: 2, tripIds: ['two', 'one'], years: ['2026', '2025'], lat: 35, lng: 135 });
+    expect(buildFootprints(trips)[0].visits).toHaveLength(1);
+    expect(buildAnnualReview(trips, '2025')).toMatchObject({ tripCount: 1, cityCount: 1, placeCount: 0 });
+    expect(buildAnnualReview(trips, '2026')).toMatchObject({ tripCount: 1, cityCount: 1, placeCount: 1 });
+    expect(buildPassportStamps(trips, {}).filter(stamp => stamp.kind === 'return')).toHaveLength(1);
+    expect(groupMemories(trips, '京都')[0].memories[0].roomId).toBe('one');
+    expect(buildShareText(trips, ['one'], { cities: true, dates: false })).toBe('第一次\n京都');
+    expect(buildShareText(trips, ['one'], { cities: false, dates: false })).toBe('第一次');
+  });
+
+  it('includes a restored city-only memory in its annual review', () => {
+    const trip = { r: { startDate: '2026-01-01', archived: false, cities: { victoria: { cityId: 'victoria', city: 'Victoria', country: '加拿大', cityLat: 48.4, cityLng: -123.3 } } } };
+    expect(buildAnnualReview(trip, '2026')).toMatchObject({ tripCount: 1, cityCount: 1, placeCount: 0 });
+  });
   it.each([
     ['Weißensee', 'WEISSENSEE', 'weissensee'],
     ['WEIẞENSEE', 'weissensee', 'weissensee'],

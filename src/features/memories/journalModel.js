@@ -61,6 +61,7 @@ export function groupMemories(memories, query = '') {
   for (const memory of memoryEntries(memories)) {
     if (memory.archived !== true) continue;
     const searchable = [memory.title, memory.destination, memory.note,
+      ...entries(memory.cities).flatMap(([, city]) => [city?.city, city?.country]),
       ...entries(memory.visits).flatMap(([, visit]) => [visit?.city, visit?.name, visit?.note])];
     if (search && !searchable.some((value) => normalizeSearch(value).includes(search))) continue;
     const year = getMemoryYear(memory);
@@ -72,38 +73,48 @@ export function groupMemories(memories, query = '') {
 
 export function buildFootprints(memories) {
   const cities = new Map();
+  const addCity = (value, memory) => {
+    const city = normalizeLabel(value.city);
+    if (!city) return null;
+    const cityId = text(value.cityId);
+    const country = normalizeLabel(value.country);
+    const id = cityId || `unassigned:${encodeURIComponent(country)}:${encodeURIComponent(city)}`;
+    if (!cities.has(id)) cities.set(id, { id, cityId, city, country, unassigned: !cityId, visits: [], tripIds: [], years: [], lat: null, lng: null, cityLat: null, cityLng: null });
+    const footprint = cities.get(id);
+    if (!footprint.tripIds.includes(memory.roomId)) {
+      footprint.tripIds.push(memory.roomId);
+      footprint.years.push(getMemoryYear(memory));
+    }
+    const cityPosition = coordinates({ lat: value.cityLat, lng: value.cityLng });
+    if (cityId && footprint.cityLat === null && cityPosition.lat !== null) {
+      Object.assign(footprint, cityPosition, { cityLat: cityPosition.lat, cityLng: cityPosition.lng });
+    } else if (footprint.lat === null) {
+      const position = coordinates(value);
+      if (position.lat !== null) Object.assign(footprint, position);
+    }
+    return footprint;
+  };
   for (const memory of memoryEntries(memories)) {
+    for (const [, city] of entries(memory.cities)) {
+      if (text(city?.cityId)) addCity(city, memory);
+    }
     for (const [visitId, visit] of confirmedVisits(memory)) {
-      const city = normalizeLabel(visit.city);
-      if (!city) continue;
-      const cityId = text(visit.cityId);
-      const country = normalizeLabel(visit.country);
-      // A display label is not a canonical identity. Keep exact legacy labels
-      // together for correction, without inferring a city or a return stamp.
-      const id = cityId || `unassigned:${encodeURIComponent(country)}:${encodeURIComponent(city)}`;
-      if (!cities.has(id)) cities.set(id, { id, cityId, city, country, unassigned: !cityId, visits: [], lat: null, lng: null, cityLat: null, cityLng: null });
-      const footprint = cities.get(id);
+      const footprint = addCity(visit, memory);
+      if (!footprint) continue;
       footprint.visits.push({ ...visit, visitId, roomId: memory.roomId, tripTitle: text(memory.title), year: getMemoryYear(memory) });
-      const cityPosition = coordinates({ lat: visit.cityLat, lng: visit.cityLng });
-      if (cityId && footprint.cityLat === null && cityPosition.lat !== null) {
-        Object.assign(footprint, cityPosition, { cityLat: cityPosition.lat, cityLng: cityPosition.lng });
-      } else if (footprint.lat === null) {
-        const position = coordinates(visit);
-        if (position.lat !== null) Object.assign(footprint, position);
-      }
     }
   }
   return [...cities.values()].sort((a, b) => compareText(a.id, b.id)).map((city) => ({
     ...city,
-    tripCount: new Set(city.visits.map((visit) => visit.roomId)).size,
-    years: [...new Set(city.visits.map((visit) => visit.year))].sort(compareYears),
+    tripCount: city.tripIds.length,
+    years: [...new Set(city.years)].sort(compareYears),
   }));
 }
 
 export function buildAnnualReview(memories, year) {
   const selectedYear = String(year);
   const selected = memoryEntries(memories).filter((memory) => startYear(memory) === selectedYear
-    && (memory.archived === true || confirmedVisits(memory).length > 0));
+    && (memory.archived === true || confirmedVisits(memory).length > 0 || entries(memory.cities).length > 0));
   return {
     year: selectedYear,
     tripCount: selected.length,
@@ -148,7 +159,7 @@ export function buildShareText(memories, selectedRoomIds = [], { dates = true, c
     if (!memory || typeof memory !== 'object') return [];
     const dateText = dates ? [text(memory.startDate), text(memory.endDate)].filter(Boolean).join(' — ') : '';
     const cityLabels = new Map();
-    for (const [, visit] of confirmedVisits(memory)) {
+    for (const [, visit] of [...entries(memory.cities), ...confirmedVisits(memory)]) {
       const city = normalizeLabel(visit.city);
       if (city && !cityLabels.has(normalizeSearch(city))) cityLabels.set(normalizeSearch(city), city);
     }

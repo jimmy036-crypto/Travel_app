@@ -28,8 +28,17 @@ export function applyVisitPatch(visits, candidates, selectedIds, patch) {
   return next;
 }
 
-export function firstMissingCity(visits, displayedIds = Object.keys(visits)) {
-  return displayedIds.find((id) => visits[id]?.status === 'visited' && (!visits[id].cityId || !visits[id].city?.trim())) || null;
+export const cityKey = (id) => encodeURIComponent(id).replace(/[.~]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+
+export function removeCity(draft, cityId) {
+  const cities = { ...draft.cities };
+  delete cities[cityKey(cityId)];
+  const visits = Object.fromEntries(Object.entries(draft.visits).map(([id, visit]) => {
+    if (visit.cityId !== cityId) return [id, visit];
+    const { cityId: _id, country: _country, cityLat: _lat, cityLng: _lng, ...place } = visit;
+    return [id, { ...place, city: '' }];
+  }));
+  return { ...draft, cities, visits };
 }
 
 export function newManualVisit(name) {

@@ -19,7 +19,7 @@ const CITIES = [
   { cityId: 'e2e-city-osaka', city: '大阪', country: '日本', cityLat: 34.6937, cityLng: 135.5023 },
   { cityId: 'e2e-city-nara', city: '奈良', country: '日本', cityLat: 34.6851, cityLng: 135.8048 },
 ];
-type Memory = { archived?: boolean; revision?: number; visits?: Record<string, { status: string; city: string; cityId?: string }>; firsts?: Record<string, string>; note?: string };
+type Memory = { cities?: Record<string, typeof CITIES[number]>; archived?: boolean; revision?: number; visits?: Record<string, { status: string; city: string; cityId?: string }>; firsts?: Record<string, string>; note?: string };
 type Archive = { summary: { state: string; saved: number; total: number }; itinerary?: Record<string, unknown[]>; photos?: Record<string, { storagePath: string; name: string }> };
 type Collection = { id: string; title: string; items?: Record<string, { roomId?: string; visitId?: string; sourceRoomId?: string }> };
 const roomCard = (page: Page, id = ROOM) => page.locator(`[data-testid="trip-card"][data-room-id="${id}"]`);
@@ -32,6 +32,12 @@ async function prepareCities(page: Page) {
   await page.addInitScript((cities) => {
     localStorage.setItem('travel-app-seen-onboarding-v1', 'true');
     (window as Window & { __TRAVEL_E2E_DESTINATION_PLACES__?: unknown }).__TRAVEL_E2E_DESTINATION_PLACES__ = {
+      Geocoder: class {
+        async geocode({ location, address }: { location?: { lat: number; lng: number }; address?: string }) {
+          const city = location ? [...cities].sort((a, b) => Math.hypot(a.cityLat - location.lat, a.cityLng - location.lng) - Math.hypot(b.cityLat - location.lat, b.cityLng - location.lng))[0] : cities.find((entry) => address?.includes(entry.city));
+          return { results: city ? [{ place_id: city.cityId, types: ['locality'], address_components: [{ long_name: city.city, types: ['locality'] }, { long_name: city.country, types: ['country'] }], geometry: { location: { lat: () => city.cityLat, lng: () => city.cityLng } } }] : [] };
+        }
+      },
       AutocompleteSessionToken: class {},
       AutocompleteSuggestion: {
         async fetchAutocompleteSuggestions({ input }: { input: string }) {
@@ -65,11 +71,15 @@ async function archive(page: Page, withVisits = false, id = ROOM) {
   const dialog = await quickArchive(page, id);
   await dialog.getByRole('button', { name: '補上足跡' }).click();
   const editor = page.getByTestId('memory-editor');
+  await editor.getByRole('button', { name: '寫下感想與首次體驗' }).click();
   if (withVisits) {
+    await editor.getByRole('button', { name: '補上景點' }).click();
+    await editor.getByRole('button', { name: '補記旅行美術館', exact: true }).click();
     await editor.getByLabel('旅行美術館的到訪狀態').selectOption('visited');
     await editor.getByRole('combobox', { name: '旅行美術館的城市／地區' }).fill('京都');
     await editor.getByRole('option', { name: '京都・日本', exact: true }).click();
     await editor.getByLabel('旅行美術館的回憶').fill('不同年份的展覽');
+    await editor.getByRole('button', { name: '補記下次的咖啡店', exact: true }).click();
     await editor.getByLabel('下次的咖啡店的到訪狀態').selectOption('wishlist');
     if (id === ROOM) await editor.getByLabel('第一次看雪', { exact: true }).check();
   }
@@ -142,6 +152,56 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(async () => { await clearEmulatorDatabase(); await cleanupPhotos(); });
 
+test('city-only confirmation needs no typing, survives restore and source removal, and opens optional journal detail', async ({ page }, testInfo) => {
+  const original = await readEmulatorData(`rooms/${ROOM}`);
+  await page.goto('/');
+  const archived = await quickArchive(page);
+  await archived.getByRole('button', { name: '補上足跡' }).click();
+  const editor = page.getByTestId('memory-editor');
+  await expect(editor.getByRole('checkbox', { name: '去過京都', exact: true })).not.toBeChecked();
+  await expect(editor.getByRole('textbox')).toHaveCount(0);
+  await expect(editor.getByRole('combobox')).toHaveCount(0);
+  await editor.getByRole('checkbox', { name: '去過京都', exact: true }).check();
+  await testInfo.attach('city-first-editor', { body: await page.screenshot(), contentType: 'image/png' });
+  await editor.getByRole('button', { name: '儲存回憶' }).click();
+  await expect(editor).toBeHidden();
+  const saved = await readEmulatorData<Memory>(PRIVATE);
+  expect(saved?.cities).toEqual({ [CITIES[0].cityId]: CITIES[0] });
+  expect(saved?.visits).toBeUndefined();
+  expect(await readEmulatorData(`rooms/${ROOM}`)).toEqual(original);
+  expect(await readEmulatorData(`personalTravel/${COMPANION}`)).toBeNull();
+  const detail = page.getByTestId('memory-detail');
+  await detail.getByText('整理這份回憶', { exact: true }).click();
+  await detail.getByRole('button', { name: '還原到首頁' }).click();
+  await nav(page, '我的旅程').click();
+  const again = await quickArchive(page);
+  await again.getByRole('button', { name: '查看回憶' }).click();
+  expect((await readEmulatorData<Memory>(PRIVATE))?.cities).toEqual(saved?.cities);
+  await detail.getByRole('button', { name: '關閉回憶' }).click();
+  await nav(page, '我的足跡').click();
+  await expect(page.getByRole('button', { name: '京都 · 1 趟旅行', exact: true })).toBeVisible();
+  await expect(page.getByText('城市已留下，景點可以慢慢補。')).toBeVisible();
+  await page.getByRole('button', { name: '補上景點', exact: true }).click();
+  await expect(editor.getByRole('checkbox', { name: '去過旅行美術館' })).not.toBeChecked();
+  await testInfo.attach('city-optional-places', { body: await page.screenshot(), contentType: 'image/png' });
+  await editor.getByRole('button', { name: '關閉', exact: true }).click();
+  await page.getByRole('button', { name: '收藏這座城市' }).click();
+  await page.getByRole('button', { name: '加入選取地點' }).click();
+  await page.getByRole('button', { name: '儲存收藏' }).click();
+  await expect(page.getByRole('dialog', { name: '收藏下一趟的靈感' })).toBeHidden();
+  const collections = await readEmulatorData<Record<string, Collection>>(`personalTravel/${OWNER}/collections`);
+  const items = Object.values(Object.values(collections || {})[0].items || {});
+  expect(items).toHaveLength(1);
+  expect(items[0]).toEqual({ name: '京都', city: '京都' });
+  await writeEmulatorData(`rooms/${ROOM}`, null);
+  await writeEmulatorData(`roomAccess/${ROOM}`, null);
+  await page.goto('/?view=footprints&city=e2e-city-kyoto');
+  await expect(page.getByRole('button', { name: '京都 · 1 趟旅行', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '重溫這趟旅行' }).click();
+  await expect(detail.getByText('尚未確認到訪', { exact: true })).toHaveCount(2);
+  expect((await readEmulatorData<Memory>(PRIVATE))?.cities).toEqual(saved?.cities);
+});
+
 test('completion is personal, persists across reload, and restores without changing shared itinerary', async ({ page, request }) => {
   const before = await readEmulatorData(`rooms/${ROOM}`);
   const accessBefore = await readEmulatorData(`roomAccess/${ROOM}`);
@@ -182,7 +242,7 @@ test('confirmed footprints, revisits, city collection, stamps, annual review and
   await archive(page, true, RETURN_ROOM);
   await nav(page, '我的足跡').click();
   await expect(page.getByTestId('footprints-map')).toBeVisible();
-  await expect(page.getByRole('button', { name: '京都 · 2 次', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '京都 · 2 趟旅行', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: '京都的旅行紀錄' })).toContainText('2025、2024');
   await page.getByRole('button', { name: '收藏這座城市' }).click();
   await page.getByRole('button', { name: '加入選取地點' }).click();
@@ -275,6 +335,7 @@ test('unsaved memory survives closing and reload, then explicitly merges a confl
   await archived.getByRole('button', { name: '查看回憶' }).click();
   await page.getByTestId('memory-detail').getByRole('button', { name: '補充回憶與到訪' }).click();
   const editor = page.getByTestId('memory-editor');
+  await editor.getByRole('button', { name: '寫下感想與首次體驗' }).click();
   await editor.getByLabel('這趟旅行的感想').fill('留在這台裝置的草稿');
   await editor.getByRole('button', { name: '關閉', exact: true }).click();
   await expect(page.getByRole('heading', { name: '離開編輯？' })).toBeVisible();
@@ -284,7 +345,7 @@ test('unsaved memory survives closing and reload, then explicitly merges a confl
   await page.getByTestId('memory-detail').getByRole('button', { name: '補充回憶與到訪' }).click();
   await expect(editor.getByLabel('這趟旅行的感想')).toHaveValue('留在這台裝置的草稿');
   const revision = (await readEmulatorData<Memory>(PRIVATE))?.revision;
-  await invokeEmulator(page, 'saveTravelMemory', { roomId: ROOM, revision, archived: true, note: '另一個畫面的文字', visits: {}, firsts: { snow: '第一次看雪' } });
+  await invokeEmulator(page, 'saveTravelMemory', { roomId: ROOM, revision, archived: true, note: '另一個畫面的文字', cities: {}, visits: {}, firsts: { snow: '第一次看雪' } });
   await editor.getByRole('button', { name: '儲存回憶' }).click();
   const conflict = page.getByTestId('memory-conflict-dialog');
   await expect(conflict.getByText('另一個畫面的文字', { exact: true })).toBeVisible();
@@ -351,15 +412,9 @@ test('seven days, forty places and twelve private photos survive source deletion
   await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
   await detail.getByRole('button', { name: '補充回憶與到訪' }).click();
   const editor = page.getByTestId('memory-editor');
-  for (const [cityIndex, city] of CITIES.entries()) {
-    const firstDay = cityIndex * 3 + 1;
-    for (let day = firstDay; day <= Math.min(firstDay + 2, 7); day += 1) await editor.getByRole('checkbox', { name: `選取2025-03-${String(day).padStart(2, '0')}全部地點` }).check();
-    await editor.getByLabel('批次到訪狀態', { exact: true }).selectOption('visited');
-    await editor.getByRole('combobox', { name: '批次城市／地區', exact: true }).fill(city.city);
-    await editor.getByRole('option', { name: `${city.city}・日本`, exact: true }).click();
-    await editor.getByRole('button', { name: '套用到選取地點' }).click();
-    await editor.getByRole('button', { name: '清除選取' }).click();
-  }
+  for (const city of CITIES) await expect(editor.getByRole('checkbox', { name: `去過${city.city}`, exact: true })).toBeVisible();
+  await editor.getByRole('button', { name: '補上景點' }).click();
+  for (let day = 1; day <= 7; day += 1) await editor.getByRole('checkbox', { name: `確認2025-03-${String(day).padStart(2, '0')}全部去過` }).check();
   await editor.getByRole('button', { name: '儲存回憶' }).click();
   await expect(editor).toBeHidden();
   const confirmed = Object.values((await readEmulatorData<Memory>(personalPath))?.visits || {});
@@ -370,7 +425,7 @@ test('seven days, forty places and twelve private photos survive source deletion
 
   // The companion requests a real independently owned archive of the same source.
   await signInAs(page, COMPANION);
-  await invokeEmulator(page, 'saveTravelMemory', { roomId: PHOTO_ROOM, revision: 0, archived: true, note: '旅伴自己的回憶', visits: {}, firsts: {} });
+  await invokeEmulator(page, 'saveTravelMemory', { roomId: PHOTO_ROOM, revision: 0, archived: true, note: '旅伴自己的回憶', cities: {}, visits: {}, firsts: {} });
   await invokeEmulator(page, 'requestTravelMemoryPreservation', { roomId: PHOTO_ROOM, operationId: 'e2e-companion-archive' });
   await expect.poll(async () => (await readEmulatorData<Archive>(personalArchive(COMPANION, PHOTO_ROOM)))?.summary).toMatchObject({ state: 'complete', saved: 12, total: 12 });
   const companionMemory = await readEmulatorData(`personalTravel/${COMPANION}/memories/${PHOTO_ROOM}`);

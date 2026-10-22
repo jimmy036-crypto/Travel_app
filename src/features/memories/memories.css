@@ -56,8 +56,33 @@
 .journal-conflict-choice label { display: flex; align-items: start; gap: .5rem; min-height: 44px; }
 .journal-conflict-choice input { margin-top: .3rem; }
 .journal-day-group { padding-block: .9rem; border-top: 1px solid var(--journal-line); }
-.journal-day-group summary { cursor: pointer; padding-block: .5rem; min-height: 44px; font-weight: 750; }
-.journal-bulk-actions { display: grid; gap: .75rem; padding: 1rem; border: 1px solid var(--journal-line); border-radius: 1rem; }
+.journal-trip-heading h3 { margin-top: .45rem; font-size: 1.45rem; font-weight: 800; line-height: 1.4; overflow-wrap: anywhere; }
+.journal-date { font-variant-numeric: tabular-nums; font-size: .85rem; line-height: 1.6; font-weight: 650; }
+.journal-help { margin-block: .5rem .8rem; font-size: .875rem; line-height: 1.75; }
+.journal-city-confirmation legend { font-weight: 750; font-size: 1.1rem; }
+.journal-city-list { border-block: 1px solid var(--journal-line); }
+.journal-city-choice { display: flex; align-items: center; gap: .8rem; min-height: 72px; padding: .8rem .25rem; cursor: pointer; }
+.journal-city-choice + .journal-city-choice { border-top: 1px solid var(--journal-line); }
+.journal-city-choice input, .journal-place-row input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; accent-color: #2563eb; }
+.journal-city-choice strong { font-weight: 750; font-size: 1.05rem; }
+.journal-city-choice small, .journal-place-row small { display: block; margin-top: .2rem; font-size: .8rem; }
+.journal-city-state { margin-left: auto; font-size: .8rem; white-space: nowrap; }
+.journal-text-action { min-height: 44px; padding: .5rem .25rem; color: inherit; font-size: .875rem; font-weight: 650; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .3em; cursor: pointer; }
+.journal-text-action:hover { text-decoration-thickness: 2px; }
+.journal-text-action:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: .25rem; }
+.journal-text-action:disabled { opacity: .55; cursor: not-allowed; }
+.journal-notebook { padding-top: 1.2rem; border-top: 1px solid var(--journal-line); }
+.journal-notebook-heading h3 { font-size: 1.05rem; font-weight: 750; }
+.journal-notebook-heading p, .journal-place-preview { font-size: .875rem; line-height: 1.8; margin-top: .35rem; }
+.journal-notebook-heading .journal-text-action { padding-top: 0; }
+.journal-place-row { padding-block: .5rem; border-bottom: 1px solid var(--journal-line); }
+.journal-place-row .journal-heading { flex-wrap: nowrap; gap: .5rem; align-items: center; }
+.journal-place-row .journal-check { min-width: 0; overflow-wrap: anywhere; }
+.journal-place-row .journal-text-action { flex-shrink: 0; }
+.journal-place-notes { display: grid; gap: .9rem; padding-block: .75rem; }
+.journal-day-check { font-size: .8rem; }
+.journal-city-trip { padding-block: 1.5rem; border-top: 1px solid var(--journal-line); }
+.journal-city-trip h4 { margin-top: .35rem; font-weight: 750; font-size: 1.2rem; }
 .journal-photo-button { display: block; width: 100%; min-height: 44px; border-radius: .8rem; overflow: hidden; }
 .journal-photo-button:focus-visible, .journal-stamp:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
 .journal-photo-grid figcaption { font-size: .8rem; margin-top: .35rem; overflow-wrap: anywhere; }

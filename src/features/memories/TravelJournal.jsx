@@ -38,6 +38,8 @@ function SavedCityPhotos({ accountUid, roomId, visits }) {
 
 export default function TravelJournal({ accountUid, view, route = {}, navigate, journal, trips, isOnline, onOpenTrip, archiveTrip, onCloseArchive, onRestore, onSignIn, t }) {
   const [editingId, setEditingId] = useState('');
+  const [editingVisits, setEditingVisits] = useState(false);
+  const editMemory = (roomId, openVisits = false) => { setEditingId(roomId); setEditingVisits(openVisits); };
   const [sharing, setSharing] = useState(false);
   const [cloning, setCloning] = useState(null);
   const [deleting, setDeleting] = useState(null);
@@ -60,7 +62,7 @@ export default function TravelJournal({ accountUid, view, route = {}, navigate, 
   };
   const archive = async () => {
     const memory = journal.memories[archiveTrip.roomId];
-    await journal.saveMemory({ roomId: archiveTrip.roomId, revision: memory?.revision || 0, note: memory?.note || '', visits: memory?.visits || {}, firsts: memory?.firsts || {}, archived: true });
+    await journal.saveMemory({ roomId: archiveTrip.roomId, revision: memory?.revision || 0, note: memory?.note || '', cities: memory?.cities || {}, visits: memory?.visits || {}, firsts: memory?.firsts || {}, archived: true });
     try { await journal.preserveMemory({ roomId: archiveTrip.roomId, operationId: summaries[archiveTrip.roomId]?.operationId || crypto.randomUUID() }); }
     catch { return { preservationError: '回憶已收好，但行程與照片尚未送出永久保存。請在「查看回憶」中重試保存。' }; }
     return {};
@@ -69,7 +71,7 @@ export default function TravelJournal({ accountUid, view, route = {}, navigate, 
     if (busy) return;
     setBusy(true); setError('');
     try {
-      await journal.saveMemory({ ...memory, note: memory.note || '', visits: memory.visits || {}, firsts: memory.firsts || {}, archived: false });
+      await journal.saveMemory({ ...memory, note: memory.note || '', cities: memory.cities || {}, visits: memory.visits || {}, firsts: memory.firsts || {}, archived: false });
       onRestore?.(memory.roomId); setNotice('已還原到首頁，保存的回憶仍保留。'); changeRoute({ memory: '' });
     } catch (nextError) { setError(nextError.message); }
     finally { setBusy(false); }
@@ -77,7 +79,7 @@ export default function TravelJournal({ accountUid, view, route = {}, navigate, 
   const renderCover = (memory, options) => options?.selectable
     ? <HighlightPhoto key={memory.roomId} accountUid={accountUid} memory={memory} selectedPhoto={route.photo} onSelectPhoto={(photo) => changeRoute({ photo })} />
     : summaries[memory.roomId]?.coverPhoto ? <MemoryPhotos accountUid={accountUid} roomId={memory.roomId} photos={{ cover: summaries[memory.roomId].coverPhoto }} cover /> : null;
-  const common = { memories: journal.memories, trips, t, isOnline, onOpenTrip, onEdit: setEditingId, onOpenMemory: viewMemory };
+  const common = { memories: journal.memories, trips, t, isOnline, onOpenTrip, onEdit: editMemory, onOpenMemory: viewMemory };
   return <div className="journal">
     {view !== 'trips' ? <>
       {!accountUid ? <div className="journal-notice">使用 Google 登入，即可在自己的帳號保存旅行回憶與足跡。{onSignIn ? <Button onClick={onSignIn}>登入並保存回憶</Button> : null}</div>
@@ -88,16 +90,16 @@ export default function TravelJournal({ accountUid, view, route = {}, navigate, 
               {notice ? <p role="status" className="journal-notice mb-4">{notice}<Button onClick={() => changeRoute({ view: 'trips', memory: '' })}>回到首頁</Button><Button onClick={() => setNotice('')}>關閉提示</Button></p> : null}
               {view === 'memories' ? <><MemoriesPage {...common} onView={viewMemory} archiveSummaries={summaries} archiveErrors={errors} query={route.query || ''} onQueryChange={(query) => changeRoute({ query }, { replace: true })} renderCover={renderCover} /><PassportReview {...common} collections={journal.collections} onShare={() => setSharing(true)} onOpenCity={(city) => changeRoute({ view: 'footprints', city, memory: '' })} onOpenCollection={(collection) => changeRoute({ view: 'collections', collection, memory: '' })} selectedYear={route.year} onYearChange={(year) => changeRoute({ year: String(year), highlight: '', photo: '' })} selectedHighlight={route.highlight} onHighlightChange={(highlight) => changeRoute({ highlight, photo: '' })} renderCover={renderCover} /></> : null}
               {view === 'footprints' ? <FootprintsPage {...common} selectedId={route.city} onSelectCity={(city) => changeRoute({ city })} renderPhotos={(roomId, visits) => <SavedCityPhotos accountUid={accountUid} roomId={roomId} visits={visits} />} onCollectCity={(city) => {
-                setCityCollection({ title: `${city.city}・再訪清單`, items: city.visits.map((visit) => ({ name: visit.name, city: city.city, roomId: visit.roomId, visitId: visit.visitId })) }); changeRoute({ view: 'collections', memory: '' });
+                setCityCollection({ title: `${city.city}・再訪清單`, items: city.visits.length ? city.visits.map((visit) => ({ name: visit.name, city: city.city, roomId: visit.roomId, visitId: visit.visitId })) : [{ name: city.city, city: city.city }] }); changeRoute({ view: 'collections', memory: '' });
               }} /> : null}
 
               {route.memory && !currentMemory && !deleting ? <p role="status" className="journal-notice">這份個人回憶目前不存在。<Button onClick={() => changeRoute({ memory: '' })}>返回回憶列表</Button></p> : null}
             </>}
     </> : null}
     {accountUid && !journal.loading && !journal.error && view === 'collections' ? <CollectionsPage accountUid={accountUid} collections={journal.collections} memories={journal.memories} onSave={journal.saveCollection} incomingCollection={cityCollection} onInitialHandled={() => setCityCollection(null)} selectedCollectionId={route.collection} onSelectCollection={(collection) => changeRoute({ collection: collection || '' })} isOnline={isOnline} t={t} /> : null}
-    {currentMemory && !editingId && !deleting && !cloning && view !== 'trips' ? <SavedMemoryDetail accountUid={accountUid} memory={currentMemory} canReadSource={hasSource(currentMemory.roomId)} isOnline={isOnline} busy={busy} error={error} onPreserve={() => preserve(currentMemory.roomId)} onClose={() => changeRoute({ memory: '' })} onEdit={setEditingId} onRestore={restore} onClone={setCloning} onDelete={setDeleting} onOpenTrip={onOpenTrip} t={t} /> : null}
-    {archiveTrip ? <ArchiveTripDialog trip={archiveTrip} onArchive={archive} onClose={onCloseArchive} onView={(roomId) => { onCloseArchive(); viewMemory(roomId); }} onEdit={(roomId) => { onCloseArchive(); viewMemory(roomId); setEditingId(roomId); }} isOnline={isOnline} t={t} /> : null}
-    {editorTrip ? <MemoryEditorLoader key={editorTrip.roomId} accountUid={accountUid} memories={journal.memories} cities={cities} trip={editorTrip} memory={journal.memories[editorTrip.roomId]} canReadSource={hasSource(editorTrip.roomId)} onSave={journal.saveMemory} onClose={() => setEditingId('')} isOnline={isOnline} t={t} /> : null}
+    {currentMemory && !editingId && !deleting && !cloning && view !== 'trips' ? <SavedMemoryDetail accountUid={accountUid} memory={currentMemory} canReadSource={hasSource(currentMemory.roomId)} isOnline={isOnline} busy={busy} error={error} onPreserve={() => preserve(currentMemory.roomId)} onClose={() => changeRoute({ memory: '' })} onEdit={editMemory} onRestore={restore} onClone={setCloning} onDelete={setDeleting} onOpenTrip={onOpenTrip} t={t} /> : null}
+    {archiveTrip ? <ArchiveTripDialog trip={archiveTrip} onArchive={archive} onClose={onCloseArchive} onView={(roomId) => { onCloseArchive(); viewMemory(roomId); }} onEdit={(roomId) => { onCloseArchive(); viewMemory(roomId); editMemory(roomId); }} isOnline={isOnline} t={t} /> : null}
+    {editorTrip ? <MemoryEditorLoader key={editorTrip.roomId} accountUid={accountUid} memories={journal.memories} cities={cities} trip={editorTrip} memory={journal.memories[editorTrip.roomId]} canReadSource={hasSource(editorTrip.roomId)} openVisits={editingVisits} onSave={journal.saveMemory} onClose={() => editMemory('')} isOnline={isOnline} t={t} /> : null}
     {sharing ? <ShareMemoryDialog memories={journal.memories} onClose={() => setSharing(false)} t={t} /> : null}
     {cloning ? <CloneMemoryDialog accountUid={accountUid} memory={cloning} source={cloning} onClone={journal.cloneTrip} onClose={() => setCloning(null)} onOpenTrip={onOpenTrip} isOnline={isOnline} t={t} /> : null}
     {deleting ? <DeleteMemoryDialog accountUid={accountUid} memory={deleting} onDelete={journal.deleteMemory} onClose={() => { setDeleting(null); changeRoute({ memory: '' }); }} t={t} /> : null}

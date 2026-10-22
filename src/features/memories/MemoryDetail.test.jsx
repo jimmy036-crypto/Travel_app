@@ -4,6 +4,11 @@ import { expect, it, vi } from 'vitest';
 vi.mock('./MemoryPhotos.jsx', () => ({ MemoryPhotos: () => <div>個人保存照片</div> }));
 import { MemoryDetail } from './MemoryDetail.jsx';
 const memory = { roomId: 'a', title: '京都散步', startDate: '2025-01-01', note: '河邊的光', visits: {} };
+it('shows confirmed cities in the saved story even without attraction decisions', () => {
+  render(<MemoryDetail memory={{ ...memory, cities: { kyoto: { cityId: 'kyoto', city: '京都', country: '日本', cityLat: 35, cityLng: 135 } } }} archive={{ summary: { state: 'complete' }, itinerary: {}, photos: {} }} onClose={() => {}} />);
+  expect(screen.getByLabelText('去過的城市')).toHaveTextContent('京都');
+  expect(screen.getByLabelText('去過的城市')).toHaveTextContent('日本');
+});
 it('reads preserved itinerary without source access and never infers visits', () => {
   const edit = vi.fn();
   render(<MemoryDetail accountUid="alice" memory={memory} archive={{ summary: { state: 'complete' }, itinerary: { 'Day 1': [{ id: 'p', name: '美術館' }] }, photos: {} }} onEdit={edit} onClose={() => {}} onClone={() => {}} isOnline />);
