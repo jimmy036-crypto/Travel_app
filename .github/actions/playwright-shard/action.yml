@@ -1,0 +1,80 @@
+name: Playwright shard
+description: Run one file-level shard against its own Firebase Emulator
+inputs:
+  project:
+    description: Playwright project name
+    required: true
+  browser:
+    description: Browser artifact identifier
+    required: true
+  shard:
+    description: One-based shard index
+    required: true
+  total:
+    description: Total shards for this browser
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: |
+          package-lock.json
+          functions/package-lock.json
+
+    - name: Setup Java 21
+      uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: '21'
+
+    - name: Cache Emulator binaries
+      uses: actions/cache@v4
+      with:
+        # Firebase CLI runs under the isolated HOME in playwright.config.ts.
+        # Do not cache that entire HOME: it can contain configuration and state.
+        path: .tmp/firebase-home/.cache/firebase/emulators
+        key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
+
+    - name: Verify Firebase CLI
+      shell: bash
+      run: npm run firebase:version
+
+    - name: Run E2E with Firebase Emulator
+      shell: bash
+      env:
+        E2E_PROJECT: ${{ inputs.project }}
+        E2E_SHARD: ${{ inputs.shard }}/${{ inputs.total }}
+        TRAVEL_E2E_REQUEST_DIAGNOSTICS: 'true'
+        DEBUG: pw:webserver
+        FIREBASE_CLI_SKIP_UPDATE_CHECK: 'true'
+        NO_UPDATE_NOTIFIER: '1'
+      run: npm run test:e2e -- --project="$E2E_PROJECT" --shard="$E2E_SHARD" --reporter=list,./scripts/playwright-progress-reporter.mjs,blob
+
+    - name: Upload shard report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        # A retry replaces only this shard's report, retaining successful shards
+        # from earlier attempts. Raw failed-attempt diagnostics are kept below.
+        name: playwright-blob-${{ github.run_id }}-${{ inputs.browser }}-${{ inputs.shard }}
+        path: blob-report/*.zip
+        overwrite: true
+        if-no-files-found: error
+        retention-days: 14
+
+    - name: Upload attempt diagnostics
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.browser }}-${{ inputs.shard }}
+        path: test-results/
+        if-no-files-found: ignore
+        retention-days: 14
