@@ -30,6 +30,25 @@ GitHub Actions is responsible for neutral final validation:
 - Complete Playwright regression.
 - PR-quality signal independent of the local implementer.
 
+PR revisions run one complete Quality Gate; pushes to `main` also run it. Feature
+pushes without a PR do not start a duplicate full run, so open a PR promptly.
+Chrome and Safari each use eight native file-level shards on separate runners,
+each with its own Emulator. Keep `workers: 1` and `fullyParallel: false`: tests
+clear shared database and Storage state within an invocation.
+
+The official Playwright container is pinned to the locked package version and
+digest. Update both browser job images when intentionally upgrading Playwright;
+the CI contract test rejects mismatches. npm caches only package downloads, and
+the Emulator cache contains only binaries under the isolated Firebase home.
+
+The stable browser checks reject any failed, cancelled or skipped shard. The
+total `Playwright E2E` gate also compares merged results with unsharded test
+discovery, rejecting missing or duplicate cases. Its summary separates passed,
+skipped, flaky and retry counts; existing PWA-only conditional skips are not
+counted as passes. HTML reports and each attempt's failure diagnostics are
+retained for 14 days. Rerunning a failed shard replaces only its canonical blob
+report so successful shards from an earlier attempt remain available.
+
 ## Full local verification
 
 Run `npm run agent:verify:all` locally only when one of these applies:

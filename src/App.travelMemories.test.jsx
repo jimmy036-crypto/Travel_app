@@ -91,6 +91,7 @@ describe('home and private travel journal integration', () => {
     fireEvent.click(await screen.findByRole('button', { name: '重溫這趟旅行' }));
     fireEvent.click(screen.getByRole('button', { name: '補充回憶與到訪' }));
     const dialog = await screen.findByTestId('memory-editor');
+    fireEvent.click(within(dialog).getByRole('button', { name: '寫下感想與首次體驗' }));
     fireEvent.change(within(dialog).getByLabelText('這趟旅行的感想'), { target: { value: '保留這句話' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '儲存回憶' }));
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('另一個畫面已更新');

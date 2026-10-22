@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { ResponsiveBottomSheet } from '../../components/ResponsiveBottomSheet.jsx';
 import { Button } from '../../components/ui/Button.jsx';
 
-const labels = { note: '旅行感想', visits: '到訪紀錄', city: '城市', cityId: '城市識別', status: '到訪狀態', firsts: '首次體驗', title: '標題', items: '收藏地點', startDate: '出發日期', endDate: '回程日期', archived: '封存狀態' };
+const labels = { cities: '城市足跡', note: '旅行感想', visits: '到訪紀錄', city: '城市', cityId: '城市識別', status: '到訪狀態', firsts: '首次體驗', title: '標題', items: '收藏地點', startDate: '出發日期', endDate: '回程日期', archived: '封存狀態' };
 const labelFor = (field, conflict) => field.path.split('/').slice(1).map((part, index, parts) => {
   const key = part.replace(/~1/g, '/').replace(/~0/g, '~');
   if (index === 1 && parts[0] === 'visits') return conflict.localValue.visits?.[key]?.name || conflict.remoteValue.visits?.[key]?.name || key;
+  if (index === 1 && parts[0] === 'cities') return conflict.localValue.cities?.[key]?.city || conflict.remoteValue.cities?.[key]?.city || key;
   return labels[key] || key;
 }).join(' / ');
 const formatValue = (value) => value === undefined ? '已移除' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value || '空白');

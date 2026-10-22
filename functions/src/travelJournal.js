@@ -74,9 +74,27 @@ const canonicalVisit = (visit) => ({
   lat: visit.lat ?? null, lng: visit.lng ?? null,
 });
 
+function normalizeCity(value) {
+  if (!record(value)) fail('invalid-argument', '城市資料格式不正確。');
+  const cityId = text(value.cityId, 256, true);
+  const city = text(value.city, 120, true);
+  const country = text(value.country, 120, true);
+  if (typeof value.cityLat !== 'number' || typeof value.cityLng !== 'number'
+    || position({ lat: value.cityLat, lng: value.cityLng }).lat === null) fail('invalid-argument', '城市座標不正確。');
+  return { cityId, city, country, cityLat: value.cityLat, cityLng: value.cityLng };
+}
+
+function normalizeCities(raw) {
+  return Object.fromEntries(Object.entries(object(raw, 200)).map(([id, value]) => {
+    const city = normalizeCity(value);
+    if (id !== encode(city.cityId)) fail('invalid-argument', '城市識別與紀錄不一致。');
+    return [id, city];
+  }));
+}
+
 function normalizeVisits(raw, previous, available) {
   return Object.fromEntries(Object.entries(raw).map(([id, value]) => {
-    if (!record(value) || !['visited', 'missed', 'wishlist'].includes(value.status)) fail('invalid-argument', '請明確確認到訪狀態。');
+    if (!record(value) || !['unconfirmed', 'visited', 'missed', 'wishlist'].includes(value.status)) fail('invalid-argument', '請明確確認到訪狀態。');
     const manual = id.startsWith('manual~');
     let canonical;
     if (manual) {
@@ -92,14 +110,10 @@ function normalizeVisits(raw, previous, available) {
       canonical = previous?.[id] ? canonicalVisit(previous[id]) : available.get(id);
     }
     if (!canonical) fail('invalid-argument', '到訪地點不屬於已保存的回憶或目前行程。');
-    const city = text(value.city ?? '', 120, value.status === 'visited');
-    const cityFields = {};
+    const city = text(value.city ?? '', 120);
+    let cityFields = {};
     if (value.cityId !== undefined) {
-      cityFields.cityId = text(value.cityId, 256, true);
-      cityFields.country = text(value.country, 120, true);
-      if (typeof value.cityLat !== 'number' || typeof value.cityLng !== 'number'
-        || position({ lat: value.cityLat, lng: value.cityLng }).lat === null) fail('invalid-argument', '城市座標不正確。');
-      cityFields.cityLat = value.cityLat; cityFields.cityLng = value.cityLng;
+      cityFields = normalizeCity(value);
     } else if (value.country !== undefined || value.cityLat !== undefined || value.cityLng !== undefined) {
       fail('invalid-argument', '請選擇完整的城市資料。');
     }
@@ -186,6 +200,8 @@ export function createTravelJournalService({ database, collaborationService, clo
       const archived = boolean(data?.archived);
       const note = text(data?.note, 3000);
       const visits = object(data?.visits, 1000);
+      if (data?.cities === undefined) fail('failed-precondition', '請更新頁面後再儲存回憶；原有紀錄尚未更動。');
+      const cities = normalizeCities(data.cities);
       const firsts = object(data?.firsts, 2);
       for (const [id, label] of Object.entries(firsts)) {
         if (!Object.hasOwn(FIRSTS, id) || FIRSTS[id] !== label) fail('invalid-argument', '首次體驗格式不正確。');
@@ -218,7 +234,7 @@ export function createTravelJournalService({ database, collaborationService, clo
           roomId, revision: expected + 1, archived,
           archivedAt: archived ? previous?.archivedAt ?? now : null,
           title: snapshot.title, destination: snapshot.destination, startDate: snapshot.startDate, endDate: snapshot.endDate,
-          note, visits: normalizeVisits(visits, previous?.visits, available), firsts: { ...firsts },
+          note, cities, visits: normalizeVisits(visits, previous?.visits, available), firsts: { ...firsts },
         };
         const memories = { ...current.memories };
         for (const [otherId, other] of Object.entries(memories)) {

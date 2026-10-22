@@ -8,7 +8,7 @@ const meta = { title: '京都', destination: '日本', destLat: 35, destLng: 135
 const member = (uid) => ({ uid, role: 'owner', status: 'active', aclVersion: 1 });
 const visitId = 'Day%201~p%2E1';
 const source = () => ({ meta: structuredClone(meta), itinerary: { 'Day 1': [{ id: 'p.1', name: '寺院', lat: 35, lng: 135, memo: '早上去', time: '09:00', stayTime: '60', completed: true, photos: ['https://private'], resources: [{ storagePath: 'rooms/source/file' }], cost: 999 }], 'Day 2': [{ id: 'p2', name: '博物館' }] }, expenses: [{ cost: 999 }], tickets: [{ url: 'private' }], checklist: { done: true } });
-const request = (overrides = {}) => ({ roomId: 'source', revision: 0, archived: true, note: '', visits: {}, firsts: {}, ...overrides });
+const request = (overrides = {}) => ({ roomId: 'source', revision: 0, archived: true, note: '', cities: {}, visits: {}, firsts: {}, ...overrides });
 const decision = (overrides = {}) => ({ status: 'visited', city: '日本・京都', note: '', ...overrides });
 const rejectCode = (promise, code) => assert.rejects(promise, (error) => error.code === code);
 const preserve = (database) => database.assign('travelMemoryArchives/alice/source', {
@@ -82,6 +82,57 @@ test('archives only caller account and never infers visited places', async () =>
   assert.equal(database.value('roomAccess/source/members/bob/status'), 'active');
 });
 
+const kyotoCity = { cityId: 'kyoto', city: '京都', country: '日本', cityLat: 35.01, cityLng: 135.76 };
+test('an obsolete client cannot clear city confirmations by omitting the cities field', async () => {
+  const { service, database } = fixture();
+  await service.saveTravelMemory(request({ cities: { kyoto: kyotoCity } }), auth());
+  const before = structuredClone(database.value('personalTravel/alice/memories/source'));
+  const { cities: _cities, ...outdated } = request({ revision: 1, note: '舊畫面的儲存' });
+  await rejectCode(service.saveTravelMemory(outdated, auth()), 'failed-precondition');
+  assert.deepEqual(database.value('personalTravel/alice/memories/source'), before);
+});
+test('city-only confirmations persist privately without inventing attraction visits and survive source removal', async () => {
+  const { service, database } = fixture();
+  const original = structuredClone(database.value('rooms/source'));
+  const { memory } = await service.saveTravelMemory(request({ cities: { kyoto: kyotoCity } }), auth());
+  assert.deepEqual(memory.cities, { kyoto: kyotoCity });
+  assert.deepEqual(memory.visits, {});
+  assert.deepEqual(database.value('rooms/source'), original);
+  assert.equal(database.value('personalTravel/bob'), null);
+  delete database.state.rooms.source;
+  delete database.state.roomAccess.source;
+  const saved = await service.saveTravelMemory(request({ revision: 1, cities: memory.cities, note: '保留城市回憶' }), auth());
+  assert.deepEqual(saved.memory.cities, memory.cities);
+  assert.equal(saved.memory.revision, 2);
+  await rejectCode(service.saveTravelMemory(request({ revision: 1, cities: {} }), auth()), 'aborted');
+  assert.deepEqual(database.value('personalTravel/alice/memories/source/cities'), { kyoto: kyotoCity });
+});
+
+test('city confirmations require complete canonical data and reject aliases, invalid positions and excessive records', async () => {
+  const { service } = fixture();
+  for (const cities of [[], { alias: kyotoCity }, { kyoto: { ...kyotoCity, city: '' } }, { kyoto: { ...kyotoCity, country: '' } },
+    { kyoto: { ...kyotoCity, cityLat: 91 } }, { kyoto: { ...kyotoCity, cityLng: '135' } },
+    Object.fromEntries(Array.from({ length: 201 }, (_, index) => [`city${index}`, { ...kyotoCity, cityId: `city${index}` }]))]) {
+    await rejectCode(service.saveTravelMemory(request({ cities }), auth()), 'invalid-argument');
+  }
+});
+
+test('a visited place can remain unassigned without blocking city confirmations or personal notes', async () => {
+  const { service } = fixture();
+  const { memory } = await service.saveTravelMemory(request({ cities: { kyoto: kyotoCity }, note: '先留下', visits: { [visitId]: decision({ city: '' }) } }), auth());
+  assert.deepEqual(memory.cities, { kyoto: kyotoCity });
+  assert.equal(memory.visits[visitId].city, '');
+  assert.equal(memory.visits[visitId].status, 'visited');
+  assert.equal(memory.note, '先留下');
+});
+
+test('unconfirming a place preserves its personal notes without claiming a visit', async () => {
+  const { service } = fixture();
+  const { memory } = await service.saveTravelMemory(request({ visits: { [visitId]: decision({ status: 'unconfirmed', city: '', note: '保留補記' }) } }), auth());
+  assert.equal(memory.visits[visitId].status, 'unconfirmed');
+  assert.equal(memory.visits[visitId].note, '保留補記');
+});
+
 test('enforces explicit revisions, object bounds and canonical first labels', async () => {
   const { service } = fixture();
   for (const patch of [{ revision: undefined }, { revision: -1 }, { archived: 'yes' }, { visits: [] }, { note: 'x'.repeat(3001) }, { firsts: { arbitrary: '章' } }, { firsts: { solo: '假的' } }]) {
@@ -97,7 +148,7 @@ test('enforces explicit revisions, object bounds and canonical first labels', as
 test('visit IDs are sourced and coordinates, name, day and date ignore spoofed fields', async () => {
   const { service } = fixture();
   await rejectCode(service.saveTravelMemory(request({ visits: { invented: decision() } }), auth()), 'invalid-argument');
-  await rejectCode(service.saveTravelMemory(request({ visits: { [visitId]: decision({ city: '' }) } }), auth()), 'invalid-argument');
+  await rejectCode(service.saveTravelMemory(request({ visits: { [visitId]: decision({ city: [] }) } }), auth()), 'invalid-argument');
   const { memory } = await service.saveTravelMemory(request({ visits: { [visitId]: decision({ name: '假的', lat: 0, lng: 0, dayId: 'Day 30', date: '1900-01-01' }) } }), auth());
   assert.deepEqual(memory.visits[visitId], { dayId: 'Day 1', itemId: 'p.1', name: '寺院', date: '2026-01-01', lat: 35, lng: 135, ...decision() });
 });

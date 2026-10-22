@@ -3,11 +3,8 @@ name: Quality Gate
 on:
   pull_request:
   push:
-    branches:
-      - main
-      - 'ai/**'
-      - 'fix/**'
-      - 'test/**'
+    # PRs already test the synthetic merge. Avoid a second full run per push.
+    branches: [main]
 
 permissions:
   contents: read
@@ -25,21 +22,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
       - name: Classify changed files
         env:
           AGENT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           AGENT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: npm run agent:guardrails
+        # Uses only Node built-ins; dependency installation adds no coverage.
+        run: node scripts/agent-guardrails.mjs
 
   fast-quality:
     name: Fast quality gate
@@ -47,111 +39,149 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
       - name: Install dependencies
         run: npm ci
-
       - name: TypeScript
         run: npm run typecheck
-
       - name: ESLint
         run: npm run lint
-
       - name: Vitest
         run: npm run test:run
-
       - name: Production build
         run: npm run build
 
-  e2e-browser:
-    name: Playwright E2E (${{ matrix.project }})
+  e2e-chrome-shards:
+    name: Chrome shard ${{ matrix.shard }}/8
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    container:
+      # Keep aligned with package-lock.json; ciWorkflow.test.js verifies this.
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --init --ipc=host
+    env:
+      # Both npm ci invocations share downloads despite Firebase's fake HOME.
+      npm_config_cache: ${{ github.workspace }}/.tmp/npm-cache
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     strategy:
-      # Each browser gets its own runner and Emulator; tests within it stay serial.
       fail-fast: false
       matrix:
-        include:
-          - project: Desktop Chrome
-            browser: chromium
-          - project: Mobile Safari
-            browser: webkit
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - uses: ./.github/actions/playwright-shard
+        with:
+          project: Desktop Chrome
+          browser: chromium
+          shard: ${{ matrix.shard }}
+          total: 8
 
+  e2e-safari-shards:
+    name: Safari shard ${{ matrix.shard }}/8
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48
+      options: --init --ipc=host
+    env:
+      npm_config_cache: ${{ github.workspace }}/.tmp/npm-cache
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: ./.github/actions/playwright-shard
+        with:
+          project: Mobile Safari
+          browser: webkit
+          shard: ${{ matrix.shard }}
+          total: 8
+
+  e2e-chrome:
+    name: Playwright E2E (Desktop Chrome)
+    needs: e2e-chrome-shards
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Chrome shard
+        env:
+          SHARD_RESULT: ${{ needs.e2e-chrome-shards.result }}
+        run: |
+          if [ "$SHARD_RESULT" != "success" ]; then
+            echo "Chrome shards did not all pass: $SHARD_RESULT"
+            exit 1
+          fi
+
+  e2e-safari:
+    name: Playwright E2E (Mobile Safari)
+    needs: e2e-safari-shards
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Safari shard
+        env:
+          SHARD_RESULT: ${{ needs.e2e-safari-shards.result }}
+        run: |
+          if [ "$SHARD_RESULT" != "success" ]; then
+            echo "Safari shards did not all pass: $SHARD_RESULT"
+            exit 1
+          fi
+
+  e2e:
+    name: Playwright E2E
+    needs: [e2e-chrome, e2e-safari]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      - name: Setup Java 21
-        uses: actions/setup-java@v5
+      - name: Install report tools
+        run: npm ci --ignore-scripts
+      - name: Download shard reports
+        uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Verify Java runtime
-        run: |
-          java -version
-          echo "JAVA_HOME=$JAVA_HOME"
-          which java
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Verify Firebase CLI
-        run: npm run firebase:version
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps ${{ matrix.browser }}
-
-      - name: Run E2E with Firebase Emulator
+          pattern: playwright-blob-${{ github.run_id }}-*
+          path: .tmp/blob-reports
+          merge-multiple: true
+      - name: Merge complete report
         env:
-          TRAVEL_E2E_REQUEST_DIAGNOSTICS: 'true'
-          DEBUG: pw:webserver
-          FIREBASE_CLI_SKIP_UPDATE_CHECK: 'true'
-          NO_UPDATE_NOTIFIER: '1'
-        run: npm run test:e2e -- --project="${{ matrix.project }}"
-
-      - name: Upload Playwright artifacts
-        # Keep failed-attempt traces even when retries make the run green.
-        # Cancellation uploads are best effort; live progress remains in job logs.
+          PLAYWRIGHT_JSON_OUTPUT_NAME: .tmp/e2e-results.json
+        run: npx playwright merge-reports --reporter=html,json .tmp/blob-reports
+      - name: Verify exact test coverage
+        run: |
+          npx playwright test --list --reporter=json > .tmp/e2e-expected.json
+          node scripts/verify-playwright-report.mjs .tmp/e2e-expected.json .tmp/e2e-results.json
+      - name: Upload merged report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.browser }}
+          name: playwright-report-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             playwright-report/
-            test-results/
-          if-no-files-found: ignore
+            .tmp/e2e-results.json
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 14
-
-  e2e:
-    # Preserve the existing check name and reject failed, cancelled or skipped runs.
-    name: Playwright E2E
-    needs: e2e-browser
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require both browser jobs to pass
+      - name: Require both browser gates
+        if: always()
         env:
-          BROWSER_RESULT: ${{ needs.e2e-browser.result }}
+          CHROME_RESULT: ${{ needs.e2e-chrome.result }}
+          SAFARI_RESULT: ${{ needs.e2e-safari.result }}
         run: |
-          if [ "$BROWSER_RESULT" != "success" ]; then
-            echo "Browser E2E jobs did not all pass: $BROWSER_RESULT"
+          if [ "$CHROME_RESULT" != "success" ] || [ "$SAFARI_RESULT" != "success" ]; then
+            echo "Browser gates: Chrome=$CHROME_RESULT Safari=$SAFARI_RESULT"
             exit 1
           fi
